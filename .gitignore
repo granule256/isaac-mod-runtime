@@ -6,3 +6,10 @@ analysis/
 
 # 设备私有凭据（绝不进仓库）
 tools/device.local.json
+
+# 构建产物（2026-09-20 批次 096 清理）：历史上 8 个实验构建目录被提交进了 git
+# （1872 个文件、约 89 MB，含 .o/.d/.map 与一个 subsdk9 二进制备份），占公开仓库体积的 91%。
+# 规则一次盖住全部 `runtime/.xxx-build/` 与 `runtime/.xxx-artifacts/`（含 .gdbsym-artifacts 这类正式产物目录）。
+# 门禁 `runtime/tests/test_no_tracked_build_artifacts.py` 钉住"不许再有构建产物被跟踪"。
+runtime/.*-build/
+runtime/.*-artifacts/

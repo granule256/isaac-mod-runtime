@@ -89,6 +89,39 @@ git checkout "$BRANCH" >/dev/null
 for path in "${PUBLIC_PATHS[@]}"; do
   git checkout master -- "$path"
 done
+# ★ 2026-09-20 补：**删掉"master 已经不再跟踪"的白名单文件**。
+# `git checkout master -- <path>` 只会更新/新增，**不会删除**公开分支上多出来的文件 ——
+# 于是"在 master 里删掉的东西"会永远留在公开分支上。
+# 实测代价：8 个实验构建目录 + 1 个产物目录（1872 个文件、约 89 MB、含 `.map` 符号表与一个
+# subsdk9 二进制备份）就是这样一直挂在公开仓库里的，占它体积的 91%。
+# 做法：把"公开分支在白名单路径下跟踪、而 master 里没有"的文件从**索引**里撤下（工作区文件保留）。
+stale_list="$(mktemp)"
+# ⚠️ 用 python 做集合差，**不要用 `comm -z`/`sort -z`**：macOS 的 BSD 版没有 `-z`，
+#    脚本 `set -e` 会直接退出（2026-09-20 第一次就是这么失败的：门禁跑完就没了下文、
+#    公开分支一点没变，而 trap 把工作区正确切回了 master，所以只看输出很难发现）。
+python3 - "$BRANCH" > "$stale_list" <<'PYEOF'
+import subprocess
+import sys
+
+branch = sys.argv[1]
+pathspec = ["runtime", "tools", "tests", "README.md", "CONTRIBUTING.md", "LICENSE", ".gitignore"]
+
+
+def names(rev):
+    out = subprocess.run(["git", "ls-tree", "-r", "-z", "--name-only", rev, "--", *pathspec],
+                         capture_output=True, check=True).stdout
+    return {entry for entry in out.split(b"\0") if entry}
+
+
+for stale in sorted(names(branch) - names("master")):
+    sys.stdout.buffer.write(stale + b"\0")
+PYEOF
+if [ -s "$stale_list" ]; then
+  echo "     （master 已不再跟踪的白名单文件 $(tr -cd '\0' < "$stale_list" | wc -c | tr -d ' ') 个，从公开分支撤下）"
+  xargs -0 -r git rm --cached -q --ignore-unmatch -- < "$stale_list"
+fi
+rm -f "$stale_list"
+
 git add -A -- "${PUBLIC_PATHS[@]}"
 for path in "${PUBLIC_EXCLUDES[@]}"; do
   git rm -r --cached -q --ignore-unmatch -- "$path"
