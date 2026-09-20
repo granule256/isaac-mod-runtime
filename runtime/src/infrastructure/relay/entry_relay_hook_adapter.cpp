@@ -33,6 +33,35 @@ extern "C" std::uint32_t EntryRelayPreGetCollectibleCallback(void* itemPool, std
 // 挂载点重建：目标函数无参数（`_ZN...RebuildContentMountPointsEv`）。
 extern "C" void EntryRelayRebuildMountPointsCallback();
 
+// --- 回调面补齐（批次 102）：四个事件靶点 ---------------------------------------
+//
+// 形状各自不同，按目标函数的 ABI 逐字写（依据见 `runtime_constants.hpp` 那一段注释）：
+//   * `UseActiveItem`：`(this /*x0*/, 道具 /*w1*/, UseFlags /*w2*/, ActiveSlot /*w3*/,
+//     CustomVarData /*w4*/)`；入口派发 `MC_PRE_USE_ITEM`、原函数返回后派发 `MC_USE_ITEM`。
+//   * `UseCard`：`(this, 卡 /*w1*/, UseFlags /*w2*/)`。
+//   * `UsePill`：`(this, 药丸效果 /*w1*/, 药丸颜色 /*w2*/, UseFlags /*w3*/)`。
+//   * `Game::Exit`：`(this /*x0*/, 要不要存档 /*w1*/)`。
+extern "C" void EntryRelayUseActiveItemCallback(void* player, std::uint32_t item,
+                                                std::uint32_t useFlags, std::int32_t activeSlot,
+                                                std::int32_t customVarData);
+extern "C" void EntryRelayUseCardCallback(void* player, std::uint32_t card,
+                                          std::uint32_t useFlags);
+extern "C" void EntryRelayUsePillCallback(void* player, std::uint32_t pillEffect,
+                                          std::uint32_t pillColor, std::uint32_t useFlags);
+extern "C" void EntryRelayGameExitCallback(void* game, std::uint32_t shouldSave);
+
+// 批次 103：`(掉落物 /*x0*/, 碰它的实体 /*x1*/, low /*w2*/)`。返回值决定要不要跑原函数
+// （PC 三态，见 `runtime_constants.hpp` 里那个靶点的注释）。
+extern "C" void EntryRelayPickupCollisionCallback(void* pickup, void* collider,
+                                                  std::uint32_t low);
+
+// 批次 104：`Room::spawn_entity(unsigned GridIndex, RoomConfig::Entry const&, unsigned Seed,
+// Entity**, bool)`。前三个实参都要转发给 `MC_PRE_ROOM_ENTITY_SPAWN`（Type/Variant/SubType 从
+// 第二个实参的**前 12 字节**读，见 `runtime_constants.hpp` 里那段证据）。
+extern "C" void EntryRelayRoomEntitySpawnCallback(void* room, std::uint32_t gridIndex,
+                                                  const void* entry, std::uint32_t seed,
+                                                  void** outEntity, std::uint32_t flags);
+
 // `RegisterEntryRelayCallbacks` 定义在匿名命名空间之外（外部链接）：调用点在
 // hook_manager.cpp，而 g_hookCallbacks 在本 TU 的匿名命名空间里。
 
@@ -54,6 +83,26 @@ EntryRelayBinding BindingOf(HookId id) noexcept {
             return {"RebuildContentMountPoints", kRebuildContentMountPointsOffset,
                     kRebuildContentMountPointsExpectedBytes.data(), callback,
                     &g_fallbackEntries[index]};
+        case HookId::UseActiveItem:
+            return {"Entity_Player::UseActiveItem", kEntityPlayerUseActiveItemOffset,
+                    kEntityPlayerUseActiveItemExpectedBytes.data(), callback,
+                    &g_fallbackEntries[index]};
+        case HookId::UseCard:
+            return {"Entity_Player::UseCard", kEntityPlayerUseCardOffset,
+                    kEntityPlayerUseCardExpectedBytes.data(), callback, &g_fallbackEntries[index]};
+        case HookId::UsePill:
+            return {"Entity_Player::UsePill", kEntityPlayerUsePillOffset,
+                    kEntityPlayerUsePillExpectedBytes.data(), callback, &g_fallbackEntries[index]};
+        case HookId::GameExit:
+            return {"Game::Exit", kGameExitOffset, kGameExitExpectedBytes.data(), callback,
+                    &g_fallbackEntries[index]};
+        case HookId::PickupCollision:
+            return {"Entity_Pickup::handle_collision", kEntityPickupHandleCollisionOffset,
+                    kEntityPickupHandleCollisionExpectedBytes.data(), callback,
+                    &g_fallbackEntries[index]};
+        case HookId::RoomEntitySpawn:
+            return {"Room::spawn_entity", kRoomSpawnEntityOffset,
+                    kRoomSpawnEntityExpectedBytes.data(), callback, &g_fallbackEntries[index]};
         case HookId::ManagerPresent:
         case HookId::GameStart:
         case HookId::Count:
@@ -89,6 +138,19 @@ void RegisterEntryRelayCallbacks() noexcept {
         reinterpret_cast<void*>(&EntryRelayPreGetCollectibleCallback);
     g_hookCallbacks[static_cast<std::size_t>(HookId::RebuildMountPoints)] =
         reinterpret_cast<void*>(&EntryRelayRebuildMountPointsCallback);
+    // 批次 102 的四个：回调体都在 hook_manager.cpp（与各自的派发函数同处，便于对照注释）。
+    g_hookCallbacks[static_cast<std::size_t>(HookId::UseActiveItem)] =
+        reinterpret_cast<void*>(&EntryRelayUseActiveItemCallback);
+    g_hookCallbacks[static_cast<std::size_t>(HookId::UseCard)] =
+        reinterpret_cast<void*>(&EntryRelayUseCardCallback);
+    g_hookCallbacks[static_cast<std::size_t>(HookId::UsePill)] =
+        reinterpret_cast<void*>(&EntryRelayUsePillCallback);
+    g_hookCallbacks[static_cast<std::size_t>(HookId::GameExit)] =
+        reinterpret_cast<void*>(&EntryRelayGameExitCallback);
+    g_hookCallbacks[static_cast<std::size_t>(HookId::PickupCollision)] =
+        reinterpret_cast<void*>(&EntryRelayPickupCollisionCallback);
+    g_hookCallbacks[static_cast<std::size_t>(HookId::RoomEntitySpawn)] =
+        reinterpret_cast<void*>(&EntryRelayRoomEntitySpawnCallback);
 }
 
 BindingVerdict EvaluateEntryRelayBinding(const EntryRelayBinding& binding,

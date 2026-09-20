@@ -19,6 +19,8 @@
 #include "content_mount_point_probe.hpp"
 #include "runtime_constants.hpp"
 #include "interfaces/lua/engine_frame_probe.hpp"
+// 批次 103：`ReadEntityIdentity`（读实体的 Type/Variant，内部带"读引擎字段前先判可读"那套判据）。
+#include "interfaces/lua/isaac_api.hpp"
 #include "saltynx_probe_break.hpp"
 #include "saltynx_self_journal.hpp"
 #include "test_run_observer.hpp"
@@ -1323,6 +1325,38 @@ bool SkipOptionalHooksPredicate(void*, isaac::runtime::HookId id) noexcept {
 #endif
 #if defined(EXL_SKIP_HOOK_GAMESTART) && EXL_SKIP_HOOK_GAMESTART == 1
     if (id == isaac::runtime::HookId::GameStart) {
+        return true;
+    }
+#endif
+// 批次 102 的四个事件中继。加这四个开关的直接用途：如果接线之后出现"用道具/用药丸就崩"
+// 或"退出到主菜单就崩"，可以**一次摘一个**把范围缩到具体哪一个靶点上，而不必回退整批。
+#if defined(EXL_SKIP_HOOK_USEACTIVEITEM) && EXL_SKIP_HOOK_USEACTIVEITEM == 1
+    if (id == isaac::runtime::HookId::UseActiveItem) {
+        return true;
+    }
+#endif
+#if defined(EXL_SKIP_HOOK_USECARD) && EXL_SKIP_HOOK_USECARD == 1
+    if (id == isaac::runtime::HookId::UseCard) {
+        return true;
+    }
+#endif
+#if defined(EXL_SKIP_HOOK_USEPILL) && EXL_SKIP_HOOK_USEPILL == 1
+    if (id == isaac::runtime::HookId::UsePill) {
+        return true;
+    }
+#endif
+#if defined(EXL_SKIP_HOOK_GAMEEXIT) && EXL_SKIP_HOOK_GAMEEXIT == 1
+    if (id == isaac::runtime::HookId::GameExit) {
+        return true;
+    }
+#endif
+#if defined(EXL_SKIP_HOOK_PICKUPCOLLISION) && EXL_SKIP_HOOK_PICKUPCOLLISION == 1
+    if (id == isaac::runtime::HookId::PickupCollision) {
+        return true;
+    }
+#endif
+#if defined(EXL_SKIP_HOOK_ROOMENTITYSPAWN) && EXL_SKIP_HOOK_ROOMENTITYSPAWN == 1
+    if (id == isaac::runtime::HookId::RoomEntitySpawn) {
         return true;
     }
 #endif
@@ -3433,13 +3467,152 @@ extern "C" std::uint32_t EntryRelayPreGetCollectibleCallback(void* itemPool, std
                                                              std::uint32_t defaultItem) {
     const std::uint64_t dispatched = LuaRuntime::DispatchPreGetCollectible(
         itemPool, itemPoolType, seed, noDecrease, defaultItem);
-    if ((dispatched >> 32) != 0) {
-        return static_cast<std::uint32_t>(dispatched);
+    // 位 33 = "**返回过非 nil**"（可能是没有替换值的 `false` 之类）。PC 文档：
+    // "If any non nil value was returned to **MC_PRE_GET_COLLECTIBLE** then this callback
+    // （即 `MC_POST_GET_COLLECTIBLE`）will be skipped." ⇒ 它决定的是"要不要派发 POST"，
+    // 与"有没有替换值"（位 32）是两件事。
+    const bool preReturnedNonNil = ((dispatched >> 33) & 1U) != 0;
+    if ((dispatched >> 32) & 1U) {
+        return static_cast<std::uint32_t>(dispatched);  // 有替换值：这次就给它
     }
     const auto original = isaac::runtime::Original<std::uint32_t (*)(
         void*, std::uint32_t, std::uint32_t, std::uint32_t, std::uint32_t)>(
         isaac::runtime::HookId::PreGetCollectible);
-    return original(itemPool, itemPoolType, seed, noDecrease, defaultItem);
+    const std::uint32_t result = original(itemPool, itemPoolType, seed, noDecrease, defaultItem);
+    if (preReturnedNonNil) {
+        return result;  // PRE 返回过非 nil ⇒ 跳过 POST（PC 规则）
+    }
+    // 批次 102：`MC_POST_GET_COLLECTIBLE`（id 63）—— 必须放在**原函数返回之后**，
+    // 因为它的第一个实参"刚选出来的那个道具"只有此刻才存在（EID 的
+    // `EID:postGetCollectible(selectedCollectible, itemPoolType)` 就读它来记抓娃娃机/Flip 的道具）。
+    // 中继是**入口**中继，所以"原函数之后"这件事得由我们自己在回调里排顺序。
+    const std::uint64_t post =
+        LuaRuntime::DispatchPostGetCollectible(itemPool, itemPoolType, seed, noDecrease, result);
+    if ((post >> 32) != 0) {
+        return static_cast<std::uint32_t>(post);
+    }
+    return result;
+}
+
+// --- 批次 102：四个事件中继的回调体 ---------------------------------------------
+//
+// 三个"使用类"的靶点形状一致：**先在入口派发（可以拦），再跑原函数，最后派发"事后通知"**。
+// 这一族都是尾调用入口（[sp, #-0x..]! 起头、把 x29/x30 存进去），所以本回调以目标函数的身份
+// 运行，`ret` 直接回到游戏的调用方 —— 与 `EntryRelayRebuildMountPointsCallback` 同一个前提。
+//
+// ⚠️ 一个必须写明的偏离（`MC_PRE_USE_ITEM` 拦下之后）：PC 的文档是
+// "Return true to prevent the default code of an item to be triggered. **This will still
+// discharge the item.**" —— 也就是拦下之后**仍然要消耗电荷、播使用动画**。我们第一版**不复刻**
+// 那套收尾（那要动引擎的道具槽与动画状态机，风险远高于收益），拦下就是直接返回。
+// 后果：模组拦下的那次使用不会掉电荷。EID 的处理器**全都不返回**（`OnUseSmelter`/`CheckVoidAbsorbs`
+// /`CheckFlipGridIndexes`/`OnUseLemegeton`/`OnUseGlowingHourglass`/`OnUseGeneral` 末尾都没有
+// `return`）⇒ 这条偏离对卡上现有模组的实际行为**无影响**；将来有模组真的用返回值拦，要按
+// PC 语义补上"照常放电"。
+extern "C" void EntryRelayUseActiveItemCallback(void* player, std::uint32_t item,
+                                                std::uint32_t useFlags, std::int32_t activeSlot,
+                                                std::int32_t customVarData) {
+    using UseActiveItemFn = void (*)(void*, std::uint32_t, std::uint32_t, std::int32_t,
+                                     std::int32_t);
+    if (LuaRuntime::DispatchPreUseItem(reinterpret_cast<std::uintptr_t>(player),
+                                       static_cast<std::int32_t>(item),
+                                       static_cast<std::int32_t>(useFlags), activeSlot,
+                                       customVarData)) {
+        return;  // 模组拦下了这次使用（见上面关于"照常放电"的偏离说明）
+    }
+    const auto original =
+        isaac::runtime::Original<UseActiveItemFn>(isaac::runtime::HookId::UseActiveItem);
+    original(player, item, useFlags, activeSlot, customVarData);
+    LuaRuntime::DispatchUseItem(reinterpret_cast<std::uintptr_t>(player),
+                                static_cast<std::int32_t>(item),
+                                static_cast<std::int32_t>(useFlags), activeSlot, customVarData);
+}
+
+extern "C" void EntryRelayUseCardCallback(void* player, std::uint32_t card,
+                                          std::uint32_t useFlags) {
+    using UseCardFn = void (*)(void*, std::uint32_t, std::uint32_t);
+    const auto original = isaac::runtime::Original<UseCardFn>(isaac::runtime::HookId::UseCard);
+    original(player, card, useFlags);
+    LuaRuntime::DispatchUseCard(reinterpret_cast<std::uintptr_t>(player),
+                                static_cast<std::int32_t>(card),
+                                static_cast<std::int32_t>(useFlags));
+}
+
+extern "C" void EntryRelayUsePillCallback(void* player, std::uint32_t pillEffect,
+                                          std::uint32_t pillColor, std::uint32_t useFlags) {
+    using UsePillFn = void (*)(void*, std::uint32_t, std::uint32_t, std::uint32_t);
+    // `pillColor` 只是透传给原函数 —— PC 的 `MC_USE_PILL` **没有**这个实参（可选实参类型是
+    // `PillEffect`，EID 自己从玩家口袋读颜色）。这里刻意写出来是为了让"它被读到了但没有丢"可见。
+    const auto original = isaac::runtime::Original<UsePillFn>(isaac::runtime::HookId::UsePill);
+    original(player, pillEffect, pillColor, useFlags);
+    LuaRuntime::DispatchUsePill(reinterpret_cast<std::uintptr_t>(player),
+                                static_cast<std::int32_t>(pillEffect),
+                                static_cast<std::int32_t>(useFlags));
+}
+
+extern "C" void EntryRelayGameExitCallback(void* game, std::uint32_t shouldSave) {
+    using GameExitFn = void (*)(void*, std::uint32_t);
+    // `MC_PRE_GAME_EXIT` 的名字里那个 PRE 是相对"这一局结束"而言的：PC 在**退出流程开始前**
+    // 触发它，模组在这里做收尾（EID 唯一的 `SaveData` 调用点）。所以顺序是"先派发、再跑原函数"。
+    LuaRuntime::DispatchPreGameExit(shouldSave != 0);
+    const auto original = isaac::runtime::Original<GameExitFn>(isaac::runtime::HookId::GameExit);
+    original(game, shouldSave);
+}
+
+// 批次 103：掉落物碰撞。
+// 顺序是"**先派发、后决定要不要跑原函数**"：PC 的返回值三态里 `true` 与 `false` 都不执行
+// 内部代码（区别只在引擎自己怎么记这次碰撞，那部分我们没有对应实现），只有 `nil` 才照常执行。
+extern "C" void EntryRelayPickupCollisionCallback(void* pickup, void* collider,
+                                                  std::uint32_t low) {
+    using HandleCollisionFn = void (*)(void*, void*, std::uint32_t);
+    // 过滤值 = 掉落物的变体（PC 给这条回调的可选实参类型是 `PickupVariant`）。
+    // 用导出的 `ReadEntityIdentity`（它内部做"读引擎字段前先判可读"那套判据 —— 这套判据只有
+    // `isaac_api.cpp` 里有一份，不在这里重写一份）。
+    // 读失败给 −1：它与任何真实变体都不相等 ⇒ 带过滤器的登记不会被调用（"说不出就不调用"），
+    // 而**不带**过滤器的登记照常收到回调 —— 读不到变体不该让整条回调静默消失。
+    std::uint32_t type = 0;
+    std::uint32_t variant = 0;
+    const bool identityReadable = isaac::runtime::ReadEntityIdentity(
+        reinterpret_cast<std::uintptr_t>(pickup), &type, &variant);
+    if (LuaRuntime::DispatchPrePickupCollision(reinterpret_cast<std::uintptr_t>(pickup),
+                                               reinterpret_cast<std::uintptr_t>(collider),
+                                               low != 0,
+                                               identityReadable
+                                                   ? static_cast<std::int32_t>(variant)
+                                                   : -1)) {
+        return;
+    }
+    const auto original =
+        isaac::runtime::Original<HandleCollisionFn>(isaac::runtime::HookId::PickupCollision);
+    original(pickup, collider, low);
+}
+
+// 批次 104：房间生成实体。
+//
+// 顺序是"**先派发、再跑原函数**"：PC 的 `MC_PRE_ROOM_ENTITY_SPAWN` 本意就是"在引擎按房间布局
+// 生成实体**之前**"（文档还说"返回一个表可以覆盖引擎自己会做的替换（例如敌人变体）"⇒ 回调发生
+// 在替换之前）。这个靶点天然满足：引擎的自然替换（`Room::FixSpawnEntry`）是在**函数体内**做的，
+// 我们在入口派发，拿到的正是替换前的 Type/Variant/SubType。
+//
+// ⚠️ 读不到 `RoomConfig::Entry` 那三个字段时**不派发**（不编造值）：EID 的处理器拿
+// `entityType/variant/subtype/gridIndex` 去建索引，给错的比给不到更糟。可读性判据在
+// `ReadRoomConfigEntryFields` 里（唯一一份"读引擎字段前先判可读"的实现）。
+extern "C" void EntryRelayRoomEntitySpawnCallback(void* room, std::uint32_t gridIndex,
+                                                  const void* entry, std::uint32_t seed,
+                                                  void** outEntity, std::uint32_t flags) {
+    using SpawnEntityFn =
+        void (*)(void*, std::uint32_t, const void*, std::uint32_t, void**, std::uint32_t);
+    std::int32_t entityType = 0;
+    std::int32_t variant = 0;
+    std::int32_t subType = 0;
+    if (isaac::runtime::ReadRoomConfigEntryFields(reinterpret_cast<std::uintptr_t>(entry),
+                                                 &entityType, &variant, &subType)) {
+        LuaRuntime::DispatchPreRoomEntitySpawn(entityType, variant, subType,
+                                              static_cast<std::int32_t>(gridIndex),
+                                              static_cast<std::int32_t>(seed));
+    }
+    const auto original =
+        isaac::runtime::Original<SpawnEntityFn>(isaac::runtime::HookId::RoomEntitySpawn);
+    original(room, gridIndex, entry, seed, outEntity, flags);
 }
 
 // 新后端（入口中继）下的挂载点重建挂点。语义与旧后端一致：**先跑原函数，再跑我们的重挂载**。

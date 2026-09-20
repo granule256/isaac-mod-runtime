@@ -53,11 +53,17 @@ def declared_dispatch_sites(text: str) -> set[str]:
 def actual_dispatch_sites(text: str) -> set[str]:
     """从运行时源码里取出**真的**会被派发的回调种类。
 
-    两种形态都要认：交给 `CallbackDispatcher` 的，以及手工从注册表取登记的那条。
-    只认这两种写法是刻意的 —— 引入第三种派发方式时这条门禁会红，提醒把它补进来
+    三种形态都要认：交给 `CallbackDispatcher` 的通知派发、读回返回值的那条、以及手工从注册表
+    取登记的那条。只认这几种写法是刻意的 —— 引入第四种派发方式时这条门禁会红，提醒把它补进来
     （宁可红一次，也不让名单悄悄失真）。
+
+    （2026-09-20 批次 101 从两种涨到三种：`DispatchFiltered` 与 `DispatchModifying` 是新增的
+    两个入口，前者按过滤器筛、后者读回返回值。它们**不是新形态**，只是同一个派发器的另外两个
+    入口 —— 补进来之后这条门禁的覆盖面与从前一致。）
     """
     dispatched = set(re.findall(r"Dispatch\(isaac::runtime::" + _CALLBACK_NAME, text))
+    dispatched |= set(re.findall(r"DispatchFiltered\(isaac::runtime::" + _CALLBACK_NAME, text))
+    dispatched |= set(re.findall(r"DispatchModifying\(isaac::runtime::" + _CALLBACK_NAME, text))
     dispatched |= set(re.findall(r"g_CallbackRegistry\.At\(isaac::runtime::" + _CALLBACK_NAME, text))
     return dispatched
 

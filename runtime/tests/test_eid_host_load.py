@@ -313,11 +313,16 @@ class EidHostLoadTests(unittest.TestCase):
         self.assertEqual(report["registryCount"], 10)
         # 15（`MC_POST_GAME_STARTED`）在 2026-09-14 之后有派发点；它被登记两次 ⇒ 2 条。
         # 2026-09-18：**这两个数是"覆盖率账本"，会随派发点变多而移动**（上面那段注释已经记过一次
-        # 0/10 → 2/8）。本批接上了 `MC_POST_NEW_ROOM`(19) 与 `MC_POST_NEW_LEVEL`(18)，而 EID 在这一段
-        # 路径上恰好登记了它们各一次 ⇒ 2 → 4；剩下的 5/10/23/38 仍是 needs_hook（无派发点）。
+        # 0/10 → 2/8）。那一批接上了 `MC_POST_NEW_ROOM`(19) 与 `MC_POST_NEW_LEVEL`(18) ⇒ 2 → 4。
+        # 2026-09-20（批次 102）：接上 `MC_USE_CARD`(5)、`MC_USE_PILL`(10)、`MC_PRE_USE_ITEM`(23)
+        # ⇒ 4 → **9**（EID 在这段路径上把它们分别登记了 1/1/3 条；23 那一族正是
+        # Smelter/Void/Flip/D4/Genesis/Lemegeton 六个带过滤器的处理器所在的 id）。
+        # 2026-09-20（批次 103）：`MC_PRE_PICKUP_COLLISION`(38) 也接上了 ⇒ 9 → **10**、
+        # 无派发点 1 → **0**（EID 在这一段路径上登记的种类**全部**都有派发点了）。
+        # 这两条一起看才是完整的账：种类掩码 `5,10,15,18,19,23,38` 里最后一种也进了白名单。
         # 种类掩码与 `registryCount` 一个字没变 —— 那才是"脚本死在字体块"的证据。
-        self.assertEqual(report["dispatchableRegistrations"], 4)
-        self.assertEqual(report["unhookedRegistrations"], 6)
+        self.assertEqual(report["dispatchableRegistrations"], 10)
+        self.assertEqual(report["unhookedRegistrations"], 0)
         self.assertEqual(report["dispatchableRegistrations"] + report["unhookedRegistrations"],
                          report["registryCount"], "两个计数必须覆盖注册表里的全部登记")
         # 2026-09-12：`CallbackRegistry::Register` 改成**追加**之后，font-fail 这一跑的

@@ -16,6 +16,7 @@
 
 #include "game_observer.hpp"
 #include "lua_object_handles.hpp"
+#include "level_start_room.hpp"
 #include "lua_runtime_state.hpp"
 #include "runtime_constants.hpp"
 
@@ -122,6 +123,7 @@ int LevelGetCurses(lua_State* state);
 // 批次 8（2026-09-15）：`Level` 家族四个新成员（依据见各自实现处的长注释）。
 int LevelGetCurrentRoomIndex(lua_State* state);
 int LevelGetCurrentRoom(lua_State* state);
+int LevelGetStartingRoomIndex(lua_State* state);
 int LevelGetAbsoluteStage(lua_State* state);
 int LevelIsNextStageAvailable(lua_State* state);
 // 地基二期（2026-09-15）：房间描述符三件套。字段偏移全部来自布局表 + 真机行为验证，
@@ -166,6 +168,10 @@ constexpr LuaHandlerBinding kLevelHandlers[] = {
     {0x03010003, &LevelGetCurses},
     {0x03010004, &LevelGetCurrentRoomIndex},
     {0x03010005, &LevelGetCurrentRoom},
+    // 批次 106：`Level:GetStartingRoomIndex()`（EID 的 `eid_holdmapdesc` 用它判断"玩家是不是在
+    // 起始房间"）。引擎里没有这个符号 ⇒ 取值是**派生**的（本层第一次被看到的房间），
+    // 理由、取证边界与已知偏离见 `level_start_room.hpp` 顶部与 `api_deviation.cpp`。
+    {0x03010011, &LevelGetStartingRoomIndex},
     {0x03010006, &LevelGetAbsoluteStage},
     {0x03010007, &LevelIsNextStageAvailable},
     {0x03010008, &LevelGetCurrentRoomDesc},
@@ -557,6 +563,30 @@ int LevelGetCurrentRoomIndex(lua_State* state) {
     return 1;
 }
 
+// `Level:GetStartingRoomIndex()`（PC 文档 `Level.md:258`：`int GetStartingRoomIndex()`，
+// "Returns the gridindex of the starting room of the current level"）。
+//
+// ★ 引擎里**没有**这个符号/字段（取证见 `level_start_room.hpp` 顶部）⇒ 取值是派生的：
+//   **本层第一次被看到的那个房间索引**。这里在取值前先"懒观察"一次（自己读一次当前层与当前房间），
+//   于是不依赖有没有模组登记帧事件族；已经记过本层时它什么都不改。
+int LevelGetStartingRoomIndex(lua_State* state) {
+    luaL_checkudata(state, 1, kLevelMetatable);
+    if (lua_gettop(state) != 1) {
+        return luaL_error(state, "Level:GetStartingRoomIndex accepts no arguments");
+    }
+    LuaRuntime::NoteCurrentLocationForStartRoom();
+    const std::uint32_t index = LuaRuntime::StartingRoomIndexForCurrentLevel();
+    if (index == LuaRuntime::LevelStartRoomTracker::kUnknownRoomIndex) {
+        // 还没观察到任何一层（例如在菜单里调用）⇒ 给 -1。刻意**不报错**：PC 上它返回一个整数，
+        // 而模组会拿它去比较（`GetStartingRoomIndex() ~= GetCurrentRoomIndex()`），-1 会判成
+        // "不是起始房间"，正是"还没进局"时最合理的答案（PC 也不会说"你在起始房间"）。
+        lua_pushinteger(state, -1);
+        return 1;
+    }
+    lua_pushinteger(state, static_cast<lua_Integer>(index));
+    return 1;
+}
+
 // `Level:GetCurrentRoom()` —— PC 语义是"当前房间对象"，与 `Game:GetRoom()` 返回同一个 `Room`。
 // 复用 `ReadCurrentGameRoom`（`Game + 0x21550`，已上机验证）与 `Game:GetRoom` 完全相同的句柄编组，
 // 所以这里不引入新的偏移假设。
@@ -656,31 +686,86 @@ int RoomIsMirrorWorld(lua_State* state) {
 
 // --- 批次 7：`Room` 的网格与寻路成员 -----------------------------------------
 //
-// **这些实现是"保守但自洽"的占位，不是引擎真值**，原因与边界都写在这里：
+// **2026-09-20（批次 098）这一族从"保守占位"改成了真实现**，起因是一个**用户可见**的缺陷：
+// 用户报"走到地上药丸/卡片旁边只显示一个问号"。追下去发现 EID 有两条画问号的分支，其中
+// "够不到就不给看"那条的判据就是本族 API：
 //
-//   * 引擎符号表里 **没有** `Room::GetGridWidth`/`GetGridHeight`/`GetGridSize`
-//     （只有 `Room::GetGridIndex`/`GetGridEntity`/`GetGridPath` 这三个方法），说明 PC 侧那几条
-//     Lua 访问器是**字段直读**，而 Room 结构里网格尺寸的字段偏移**尚未定位**；
-//   * EID 的用法（`eid_api.lua:3351-3380`）是：先用宽高做边界判断，再用
-//     `gridIndex = x * width + y` 算下标，最后用 `collision <= 900` 判"能不能走"；
-//   * 如果编一个**错误**的宽高（例如 0），`startGI % width` 会触发除零；如果编一个大的真值，
-//     EID 会真的认为"这里有路"并据此画提示 —— 那是**用假数据影响显示**，不可接受。
+//   `eid_api.lua:3351` 的 `EID:EvaluateLocation`：`collision = room:GetGridPath(gridIndex)`，
+//   然后 `return collision <= 900`；`3371` 的 `EID:HasPathToPosition` 用它跑 `EID.Pathfinder`
+//   （`features/pathfinder/luafinding.lua`，纯 Lua A*），没路就 `return false`；
+//   `main.lua:1639-1648`（药丸）与 `1614-1622`（卡片）据此走隐瞒分支、只画问号。
 //
-// 因此这里的口径是"**一律判为不可走**"：
-//   * 宽高返回 13（本体标准房间的网格边长，非 0，避免除零；仅用于让下标计算不炸）；
-//   * `GetGridPath` 返回 1000（EID 的判据是 `> 900 = 不可走`）⇒ `EvaluateLocation` 恒 false
-//     ⇒ `HasPathToPosition` 恒 false ⇒ EID 走"没有可达路径"的保守分支（不画路径相关提示），
-//     而不是按假数据画出错误提示。
-//   * `GetGridIndex` 按 EID 自己的公式（`x * width + y`）算，纯算术、无引擎依赖。
-//   * `GetGridEntity` 返回 nil：没有真实的网格实体数据时，"没有实体"比编一个实体安全。
+// 旧的占位实现里 `GetGridPath` 恒返回 1000（> 900 ⇒ 恒"不可走"）⇒ **地上每一颗药丸、每一张
+// 卡片都恒判"够不到"** ⇒ 问号。当时（批次 7）把副作用评估成"只是不画路径提示"，漏看了它在
+// 药丸/卡片上等于"藏掉整条描述" —— 这是"占位实现的副作用没按模组实际用法评估"的又一例。
 //
-// 成熟度在 Catalog 里统一标 `Experimental`。要变成真实现，需要先做一次静态审计定位
-// `Room::GetGridIndex(int,int)` / `GetGridEntity(int,int)` 的**文件偏移**（符号已确认存在）
-// 以及网格尺寸字段的偏移，然后把这里的常量替换掉。
-constexpr std::uint32_t kRoomGridFallbackWidth = 13;
-constexpr std::uint32_t kRoomGridFallbackHeight = 13;
-// EID 的"不可走"阈值是 900（`eid_api.lua:3360`），这里给一个明确大于它的值。
-constexpr std::uint32_t kRoomGridPathBlocked = 1000;
+// 真实现的证据（`tools/nro_disasm.py`，三条互相印证，细节见 `runtime_constants.hpp`）：
+//   * `Room::GetGridPath(int,int) @ 0x484120`：`+0x14` 是宽度上限、`+0x18` 是高度上限、
+//     数组在 `+0xE98`（int32/格、下标 `W*y + x`），越界返回 0；
+//   * `Room::GetGridIndex(Vector2) @ 0x459e3c` 与 `GetGridIndex(int,int) @ 0x45a264`：
+//     `W*gy + gx`，越界 −1；
+//   * **下标口径不用猜**：`luafinding.lua` 的 `Initialize` 写的是 `FindVector(start.Y, start.X)`
+//     —— 寻路器内部把 X/Y 换了一次 —— 所以 EID 的 `x*width + y` 恰好就是引擎的 `W*gy + gx`，
+//     即 `GetGridPath(index)` 必须**按引擎那张表的下标直读、不做任何转置**。
+//
+// 宿主侧的行为证据（不花真机）：`tools/room_grid_reachability_probe.py` 用**EID 自己的寻路器**
+// 跑合成网格 —— 旧口径四个场景（全可走 / 目标被围死 / 竖墙隔开 / 高代价但可走）**全判"没路"**
+// （宿主上复现症状），新口径与 PC 判据一致（全可走=有路、围死=没路、墙=没路、900=有路）。
+//
+// 仍然存在的偏离（已登记在 `api_deviation.cpp`）：PC 的 Lua `GetGridPath(Index)` 是**直接按下标
+// 读数组**，越界会读进相邻内存；我们**不做越界读**，越界一律回答 0（= 引擎自己对越界坐标的答案）。
+// 网格尺寸的合法范围（真机标准房间是 13×7）。读出来的宽高不在这个区间 ⇒ 当作"没读到"并报错，
+// 而不是把垃圾值当尺寸交出去 —— 尺寸错了，EID 的下标会算出别的格子，"条件为假、不报错"最难查。
+constexpr std::uint32_t kRoomGridDimensionMaximum = 64;
+
+//: 读 `Room + 0x14`/`+0x18` 两个尺寸字段（批次 098）。两个都读到、且都在合法区间才算成功。
+bool ReadRoomGridDimensions(std::uintptr_t room, std::uint32_t* width, std::uint32_t* height) {
+    if (room == 0 || width == nullptr || height == nullptr ||
+        room > UINTPTR_MAX - kRoomGridHeightOffset - sizeof(std::uint32_t)) {
+        return false;
+    }
+    if (!IsEngineMemoryReadable(room + kRoomGridWidthOffset, sizeof(std::uint32_t)) ||
+        !IsEngineMemoryReadable(room + kRoomGridHeightOffset, sizeof(std::uint32_t))) {
+        return false;
+    }
+    std::uint32_t readWidth = 0;
+    std::uint32_t readHeight = 0;
+    std::memcpy(&readWidth, reinterpret_cast<const void*>(room + kRoomGridWidthOffset),
+                sizeof(readWidth));
+    std::memcpy(&readHeight, reinterpret_cast<const void*>(room + kRoomGridHeightOffset),
+                sizeof(readHeight));
+    if (readWidth == 0 || readHeight == 0 || readWidth > kRoomGridDimensionMaximum ||
+        readHeight > kRoomGridDimensionMaximum) {
+        return false;
+    }
+    *width = readWidth;
+    *height = readHeight;
+    return true;
+}
+
+//: 世界坐标 → 格坐标，逐字复刻 `Room::GetGridIndex(Vector2) @ 0x459e3c` 的算术：
+//: `(int)((pos − offset) / 40 + 0.5)`，其中 `(int)` 是 AArch64 `fcvtzs` = **向零截断**。
+//: C++ 的浮点→整型转换本身就是向零截断，所以这里只补两端钳位（超范围转换是 UB），
+//: NaN 会被下面第一条判断兜住（NaN 的比较恒为 false）并落到最小值 ⇒ 调用方的越界检查会拒它。
+std::int32_t RoomGridCoordinateFromWorld(float world, float origin) {
+    const float value = (world - origin) / kRoomGridCellSize + 0.5F;
+    if (!(value > -2147483648.0F)) {
+        return -2147483648;
+    }
+    if (value >= 2147483648.0F) {
+        return 2147483647;
+    }
+    return static_cast<std::int32_t>(value);
+}
+
+//: `Room*` → 当前房间对象（与 `RoomGetFrameCount` 同一条链）。读不到时返回 0。
+std::uintptr_t CurrentRoomAddress() {
+    void* room = nullptr;
+    if (ReadCurrentGameRoom(GameOwnerSlot(), &room) != GameRoomObservation::Success) {
+        return 0;
+    }
+    return reinterpret_cast<std::uintptr_t>(room);
+}
 
 bool RoomArgumentCountIs(lua_State* state, int expected, const char* apiName) {
     luaL_checkudata(state, 1, kRoomMetatable);
@@ -769,7 +854,12 @@ int RoomGetGridWidth(lua_State* state) {
     if (!RoomArgumentCountIs(state, 1, "Room:GetGridWidth")) {
         return 0;
     }
-    lua_pushinteger(state, static_cast<lua_Integer>(kRoomGridFallbackWidth));
+    std::uint32_t width = 0;
+    std::uint32_t height = 0;
+    if (!ReadRoomGridDimensions(CurrentRoomAddress(), &width, &height)) {
+        return luaL_error(state, "Room:GetGridWidth could not read the native grid dimensions");
+    }
+    lua_pushinteger(state, static_cast<lua_Integer>(width));
     return 1;
 }
 
@@ -777,7 +867,12 @@ int RoomGetGridHeight(lua_State* state) {
     if (!RoomArgumentCountIs(state, 1, "Room:GetGridHeight")) {
         return 0;
     }
-    lua_pushinteger(state, static_cast<lua_Integer>(kRoomGridFallbackHeight));
+    std::uint32_t width = 0;
+    std::uint32_t height = 0;
+    if (!ReadRoomGridDimensions(CurrentRoomAddress(), &width, &height)) {
+        return luaL_error(state, "Room:GetGridHeight could not read the native grid dimensions");
+    }
+    lua_pushinteger(state, static_cast<lua_Integer>(height));
     return 1;
 }
 
@@ -785,15 +880,26 @@ int RoomGetGridSize(lua_State* state) {
     if (!RoomArgumentCountIs(state, 1, "Room:GetGridSize")) {
         return 0;
     }
-    // PC 返回网格格子总数（`width * height`）。
-    lua_pushinteger(state,
-                    static_cast<lua_Integer>(kRoomGridFallbackWidth) * kRoomGridFallbackHeight);
+    std::uint32_t width = 0;
+    std::uint32_t height = 0;
+    if (!ReadRoomGridDimensions(CurrentRoomAddress(), &width, &height)) {
+        return luaL_error(state, "Room:GetGridSize could not read the native grid dimensions");
+    }
+    // PC 返回格子总数（`width * height`）；真机标准房间是 13×7 = 91，不再是以前那个 169。
+    lua_pushinteger(state, static_cast<lua_Integer>(width) * static_cast<lua_Integer>(height));
     return 1;
 }
 
 int RoomGetGridIndex(lua_State* state) {
     luaL_checkudata(state, 1, kRoomMetatable);
     const int argumentCount = lua_gettop(state);
+    std::uint32_t width = 0;
+    std::uint32_t height = 0;
+    if (!ReadRoomGridDimensions(CurrentRoomAddress(), &width, &height)) {
+        return luaL_error(state, "Room:GetGridIndex could not read the native grid dimensions");
+    }
+    std::int32_t gridX = 0;
+    std::int32_t gridY = 0;
     // 两个重载：`GetGridIndex(int,int)` 与 `GetGridIndex(Vector)`。EID 用的是 Vector 版
     // （`eid_api.lua:3375` 的 `room:GetGridIndex(startPos)`），但 PC 两种都有，这里都支持。
     if (argumentCount == 2) {
@@ -802,27 +908,31 @@ int RoomGetGridIndex(lua_State* state) {
         if (position == nullptr) {
             return luaL_error(state, "Room:GetGridIndex accepts a Vector");
         }
-        // PC：格坐标 = 世界坐标 / 40（一格 40 像素，EID 的注释也是这么写的）。
-        const auto toCell = [](float world) {
-            const float cell = world / 40.0F;
-            return cell < 0.0F ? 0 : static_cast<lua_Integer>(cell);
-        };
-        const lua_Integer x = toCell(position->x);
-        const lua_Integer y = toCell(position->y);
-        lua_pushinteger(state, x * static_cast<lua_Integer>(kRoomGridFallbackWidth) + y);
-        return 1;
-    }
-    lua_Integer x = 0;
-    lua_Integer y = 0;
-    if (argumentCount != 3 || !isaac::runtime::IsIntegerArgument(state, 2) || !isaac::runtime::IsIntegerArgument(state, 3)) {
+        gridX = RoomGridCoordinateFromWorld(position->x, kRoomGridWorldOffsetX);
+        gridY = RoomGridCoordinateFromWorld(position->y, kRoomGridWorldOffsetY);
+    } else if (argumentCount == 3 && isaac::runtime::IsIntegerArgument(state, 2) &&
+               isaac::runtime::IsIntegerArgument(state, 3)) {
+        const lua_Integer x = lua_tointegerx(state, 2, nullptr);
+        const lua_Integer y = lua_tointegerx(state, 3, nullptr);
+        if (x > std::numeric_limits<std::int32_t>::max() ||
+            x < std::numeric_limits<std::int32_t>::min() ||
+            y > std::numeric_limits<std::int32_t>::max() ||
+            y < std::numeric_limits<std::int32_t>::min()) {
+            return luaL_error(state, "Room:GetGridIndex integer coordinates are out of range");
+        }
+        gridX = static_cast<std::int32_t>(x);
+        gridY = static_cast<std::int32_t>(y);
+    } else {
         return luaL_error(state, "Room:GetGridIndex accepts a Vector or two integers");
     }
-    x = lua_tointegerx(state, 2, nullptr);
-    y = lua_tointegerx(state, 3, nullptr);
-    if (x < 0 || y < 0) {
-        return luaL_error(state, "Room:GetGridIndex does not accept negative coordinates");
+    // PC 语义（`analysis/isaacdocs-snapshot/docs/Room.md`）："Returns -1 for invalid index."
+    // —— 越界是**合法输入**、答案是 −1，不是报错（EID 拿它当"这一格不合法"用）。
+    if (gridX < 0 || gridY < 0 || static_cast<std::uint32_t>(gridX) >= width ||
+        static_cast<std::uint32_t>(gridY) >= height) {
+        lua_pushinteger(state, -1);
+        return 1;
     }
-    lua_pushinteger(state, x * static_cast<lua_Integer>(kRoomGridFallbackWidth) + y);
+    lua_pushinteger(state, static_cast<lua_Integer>(width) * gridY + gridX);
     return 1;
 }
 
@@ -831,8 +941,30 @@ int RoomGetGridPath(lua_State* state) {
     if (lua_gettop(state) != 2 || !RoomGridIndexArgument(state, 2, nullptr)) {
         return luaL_error(state, "Room:GetGridPath accepts one grid index");
     }
-    // 见上面的口径说明：恒报"不可走"（1000 > EID 的 900 阈值），不按假数据画出可达路径。
-    lua_pushinteger(state, static_cast<lua_Integer>(kRoomGridPathBlocked));
+    const lua_Integer index = lua_tointegerx(state, 2, nullptr);
+    std::uint32_t width = 0;
+    std::uint32_t height = 0;
+    if (!ReadRoomGridDimensions(CurrentRoomAddress(), &width, &height)) {
+        return luaL_error(state, "Room:GetGridPath could not read the native grid dimensions");
+    }
+    // 越界（负数、或 >= W*H）：按**引擎自己对越界坐标的答案**（`Room::GetGridPath(int,int)`
+    // 在参数越界时返回 0），而不是像 PC 的 Lua 那样直接按下标读、读进相邻内存。
+    // 这条口径写进了 `api_deviation.cpp`（唯一残留的那条偏离）。
+    const std::uint64_t cellCount = static_cast<std::uint64_t>(width) * height;
+    if (index < 0 || static_cast<std::uint64_t>(index) >= cellCount) {
+        lua_pushinteger(state, 0);
+        return 1;
+    }
+    const std::uintptr_t room = CurrentRoomAddress();
+    const std::uintptr_t address =
+        room + kRoomGridPathArrayOffset + static_cast<std::uintptr_t>(index) * sizeof(std::int32_t);
+    if (room == 0 || room > UINTPTR_MAX - kRoomGridPathArrayOffset - cellCount * sizeof(std::int32_t) ||
+        !IsEngineMemoryReadable(address, sizeof(std::int32_t))) {
+        return luaL_error(state, "Room:GetGridPath could not read the native grid path table");
+    }
+    std::int32_t collision = 0;
+    std::memcpy(&collision, reinterpret_cast<const void*>(address), sizeof(collision));
+    lua_pushinteger(state, static_cast<lua_Integer>(collision));
     return 1;
 }
 

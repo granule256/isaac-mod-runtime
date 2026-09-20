@@ -82,6 +82,15 @@ class HookSkipSwitchTests(unittest.TestCase):
             "ManagerPresent": "PRESENT",
             "RebuildMountPoints": "REBUILDMOUNTS",
             "GameStart": "GAMESTART",
+            # 批次 102 的四个事件中继（可选点）。
+            "UseActiveItem": "USEACTIVEITEM",
+            "UseCard": "USECARD",
+            "UsePill": "USEPILL",
+            "GameExit": "GAMEEXIT",
+            # 批次 103 的掉落物碰撞（可选点）。
+            "PickupCollision": "PICKUPCOLLISION",
+            # 批次 104 的房间生成实体（可选点）。
+            "RoomEntitySpawn": "ROOMENTITYSPAWN",
         }
         makefile = MAKEFILE.read_text(encoding="utf-8")
         source = HOOK_MANAGER.read_text(encoding="utf-8")

@@ -69,6 +69,22 @@ inline constexpr CallbackId kCallbackPostEffectRender = 56;
 inline constexpr CallbackId kCallbackPostBombInit = 57;
 inline constexpr CallbackId kCallbackPostBombUpdate = 58;
 inline constexpr CallbackId kCallbackPostBombRender = 59;
+// --- 2026-09-20 批次 101/102：EID 与 GoodTrip 在等的那 8 条 -------------------------
+//
+// 这 8 条在 PC 上由引擎在事件发生的那一刻触发；我们此前**一条都没接**（`tools/callback_surface.json`
+// 里全是 `needs_hook`/`hookable`）。它们各自的引擎触发点见 `docs/交接文档-20260920-回调面补齐.md`
+// 与 `runtime_constants.hpp` 里的入口中继台账（本批用入口中继挂的 5 个入口）。
+//
+// 取值同样必须等于 PC 表（`analysis/isaacdocs-snapshot/docs/enums/ModCallbacks.md`）。
+// 命名规则（被 `test_callback_surface.py` 与读数工具的门禁钉住）：`MC_XXX_YYY` ↔ `kCallbackXxxYyy`。
+inline constexpr CallbackId kCallbackUseItem = 3;
+inline constexpr CallbackId kCallbackUseCard = 5;
+inline constexpr CallbackId kCallbackUsePill = 10;
+inline constexpr CallbackId kCallbackPreGameExit = 17;
+inline constexpr CallbackId kCallbackPreUseItem = 23;
+inline constexpr CallbackId kCallbackPrePickupCollision = 38;
+inline constexpr CallbackId kCallbackPostGetCollectible = 63;
+inline constexpr CallbackId kCallbackPreRoomEntitySpawn = 71;
 // 目前已挂钩派发点的回调种类上限（含未挂钩但允许登记的）：PC 表到 73。
 inline constexpr CallbackId kCallbackMaximumId = 73;
 

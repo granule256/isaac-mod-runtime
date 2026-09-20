@@ -1,4 +1,6 @@
 #include "lua_runtime.hpp"
+// 批次 106：`Level:GetStartingRoomIndex()` 的派生记账（纯逻辑，见该头文件顶部的取证说明）。
+#include "level_start_room.hpp"
 // `GameFileReader::Bindings` 出现在公开入口的签名里（`InitializeManifestMod` / `InitializeEmbeddedMenuMod`）：
 // 之前它靠别的头间接带进来，宿主 harness 的包含路径不同就会"未声明"，所以显式包含。
 #include "game_file_reader.hpp"
@@ -3053,6 +3055,70 @@ bool IsMusicReadyForDefaultCallback(uintptr_t manager) {
 }
 #endif
 
+//: 一条回调实参（`mod` 之外的那些）。
+//:
+//: 为什么做成一张小表、而不是像从前那样一串 `bool` 开关字段：本轮要接的回调形状从 3 种涨到
+//: 8 种（`(bool)`、`(int, 玩家, int)`、`(int, 玩家, int, int, int)`、`(int, int, bool, int)`…），
+//: 每加一种就加两个字段会很快失控，而且"到底压几个实参"会散落到构造点去。表里只描述数据，
+//: 压栈、计数、过滤器三件事各在一处做。
+struct CallbackArgument {
+    enum class Kind : std::uint8_t {
+        None = 0,  //: 哨兵（表尾，不压栈）
+        Integer,   //: 整数
+        Boolean,   //: 布尔（`lua_pushboolean`，不是整数 0/1）
+        Entity,    //: 实体句柄（视图与 `Isaac.GetRoomEntities()` 给的一致）
+        Nil,       //: 明确压 `nil`
+        Vector,    //: 渲染回调的 `RenderOffset`（`Vector` userdata）
+    };
+    Kind kind{Kind::None};
+    std::int64_t number{0};
+    std::uintptr_t entity{0};
+    float x{0.0F};
+    float y{0.0F};
+};
+
+struct CallbackArguments {
+    static constexpr std::size_t kMaximum = 6;
+    CallbackArgument items[kMaximum]{};
+    std::size_t count{0};
+
+    void AddInteger(std::int64_t value) noexcept { Push(CallbackArgument::Kind::Integer, value); }
+    void AddBoolean(bool value) noexcept {
+        Push(CallbackArgument::Kind::Boolean, value ? 1 : 0);
+    }
+    void AddNil() noexcept { Push(CallbackArgument::Kind::Nil, 0); }
+    void AddEntity(std::uintptr_t value) noexcept {
+        if (count >= kMaximum) {
+            return;
+        }
+        items[count].kind = CallbackArgument::Kind::Entity;
+        items[count].entity = value;
+        ++count;
+    }
+    void AddVector(float x, float y) noexcept {
+        if (count >= kMaximum) {
+            return;
+        }
+        items[count].kind = CallbackArgument::Kind::Vector;
+        items[count].x = x;
+        items[count].y = y;
+        ++count;
+    }
+
+private:
+    void Push(CallbackArgument::Kind kind, std::int64_t value) noexcept {
+        if (count >= kMaximum) {
+            // 超容量是**调用点的编程错误**（不是模组能造成的）：`kMaximum` 取 6 是照 PC 回调
+            // 实参最多的那条（`MC_PRE_USE_ITEM` 的 6 个）定的。这里静默丢弃而不是截断式压栈：
+            // 少压一个实参 ⇒ 模组拿到 `nil`，比"多压一个把后面的挤掉"更容易发现。
+            return;
+        }
+        items[count].kind = kind;
+        items[count].number = value;
+        ++count;
+    }
+};
+
 // Invokes one registered callback with the same context the legacy single-slot
 // path used: the Mod userdata is the only argument. A Lua error is recorded and
 // isolated, but the callback remains registered so one missing API cannot
@@ -3061,35 +3127,25 @@ struct LuaCallbackInvoker final : isaac::runtime::ICallbackInvoker {
     std::uintptr_t manager{0};
     bool hasManager{false};
     bool postUpdate{false};
-    // 可选的第二个实参。目前只有 `MC_POST_GAME_STARTED` 用（EID 的处理函数签名是
-    // `(mod, isSave)`）；其余回调仍然只收到 Mod 对象一个参数，行为不变。
-    std::int64_t secondArgument{0};
-    bool hasSecondArgument{false};
-    // 第二个实参是**实体句柄**而不是整数（每帧事件的 `(mod, pickup)`、`(mod, player)` 签名）。
-    // 它只决定"怎么压第二个实参"，**不**参与"有几个实参"的判定 —— 那条判据仍然只有
-    // `hasSecondArgument` 一个（`test_embedded_lua_runtime.py` 把调用点的实参个数表达式
-    // 钉在 `hasThirdArgument ? 3 : (hasSecondArgument ? 2 : 1)` 上，多一个开关就等于多一条会漂的判据）。
-    std::uintptr_t entityArgument{0};
-    bool secondArgumentIsEntity{false};
-    // 可选的第三个实参：`Vector`（渲染回调的 `RenderOffset`，见 `MC_POST_*_RENDER`）。
-    // PC 上这一族的签名是 `(mod, 实体, RenderOffset)`，模组会在自己的绘制里用它定位；
-    // 少给一个实参 ⇒ 模组拿到 `nil` ⇒ 当场报错或画错位置（比"这一帧没有事件"更难查）。
-    float thirdArgumentX{0.0F};
-    float thirdArgumentY{0.0F};
-    bool hasThirdArgument{false};
+    // 除 `mod` 之外的实参（见 `CallbackArguments`）。
+    CallbackArguments arguments{};
 
     LuaCallbackInvoker(std::uintptr_t managerValue, bool withManager, bool updatePhase,
                        std::int64_t extra = 0, bool withExtra = false) noexcept
-        : manager(managerValue), hasManager(withManager), postUpdate(updatePhase),
-          secondArgument(extra), hasSecondArgument(withExtra) {}
+        : manager(managerValue), hasManager(withManager), postUpdate(updatePhase) {
+        // 老式构造：`extra/withExtra` 就是"一个整数实参"。保留它是因为调用点遍布三十来处
+        // （`DispatchFrameEvents` 那一族的 `LuaCallbackInvoker{0, false, false}` 最典型），
+        // 而门禁 `test_embedded_lua_runtime.py` 也钉着那个字面写法。
+        if (withExtra) {
+            arguments.AddInteger(extra);
+        }
+    }
 
-    // 带**实体实参**的那种（见 `entityArgument`）。做成工厂函数是为了调用点只写一行，
+    // 带**实体实参**的那种（见 `AddEntity`）。做成工厂函数是为了调用点只写一行，
     // 而"派发点"的写法被门禁 `test_lua_callback_dispatch_sites.py` 盯着，越短越不容易写歪。
     [[nodiscard]] static LuaCallbackInvoker ForEntity(std::uintptr_t entity) noexcept {
         LuaCallbackInvoker invoker{0, false, false};
-        invoker.entityArgument = entity;
-        invoker.hasSecondArgument = true;
-        invoker.secondArgumentIsEntity = true;
+        invoker.arguments.AddEntity(entity);
         return invoker;
     }
 
@@ -3097,14 +3153,35 @@ struct LuaCallbackInvoker final : isaac::runtime::ICallbackInvoker {
     [[nodiscard]] static LuaCallbackInvoker ForEntityWithVector(std::uintptr_t entity, float x,
                                                                 float y) noexcept {
         LuaCallbackInvoker invoker = ForEntity(entity);
-        invoker.thirdArgumentX = x;
-        invoker.thirdArgumentY = y;
-        invoker.hasThirdArgument = true;
+        invoker.arguments.AddVector(x, y);
         return invoker;
     }
 
     isaac::runtime::Status Invoke(
         const isaac::runtime::CallbackDescriptor& descriptor) noexcept override {
+        return InvokeCore(descriptor, false, nullptr);
+    }
+
+    isaac::runtime::Status InvokeCollecting(const isaac::runtime::CallbackDescriptor& descriptor,
+                                           isaac::runtime::CallbackReturn* result) noexcept override {
+        if (result != nullptr) {
+            *result = isaac::runtime::CallbackReturn{};
+        }
+        return InvokeCore(descriptor, true, result);
+    }
+
+private:
+    //: `Invoke` 与 `InvokeCollecting` 的唯一实现（"要几个返回值、要不要读栈顶"由
+    //: `collecting` 决定，其余一字不差）。分成两个公开入口是因为调用点要能一眼看出
+    //: "这一条读了返回值"。
+    //:
+    //: ⚠️ 本注释里**故意不写那次 Lua 调用的函数名**：`test_manager_render_hook.py` 与
+    //: `test_lua_game_ispaused_stage37.py` 都是纯文本门禁，它们按"第一个出现的位置"判断
+    //: "回调作用域标记必须在那次调用之前"——注释里出现一次就会把判据指到注释上（本批第一版
+    //: 就是这么红的）。与 `test_lua_callback_dispatch_sites.py` 同一条约定。
+    isaac::runtime::Status InvokeCore(const isaac::runtime::CallbackDescriptor& descriptor,
+                                      bool collecting,
+                                      isaac::runtime::CallbackReturn* result) noexcept {
         if (g_LuaState == nullptr) {
             return isaac::runtime::Status{isaac::runtime::StatusCode::InvalidState};
         }
@@ -3136,24 +3213,41 @@ struct LuaCallbackInvoker final : isaac::runtime::ICallbackInvoker {
         g_ErrorContextOwner = static_cast<std::uint32_t>(descriptor.owner.index) |
                               (static_cast<std::uint32_t>(descriptor.owner.generation) << 16);
         g_ErrorContextCallbackId = descriptor.id;
-        if (hasSecondArgument) {
-            if (secondArgumentIsEntity) {
-                // 视图与 `Isaac.GetRoomEntities()` 给出的一致（玩家给 `EntityPlayer`），
-                // 否则模组在回调里对参数调 `player:HasCollectible()` 会失败。
-                isaac::runtime::PushEntityCallbackArgument(g_LuaState, entityArgument);
-            } else {
-                lua_pushinteger(g_LuaState, static_cast<lua_Integer>(secondArgument));
+        // 实参按编组表顺序压栈（`mod` 已经在栈上，是第 1 个）。
+        for (std::size_t index = 0; index < arguments.count; ++index) {
+            const CallbackArgument& argument = arguments.items[index];
+            switch (argument.kind) {
+                case CallbackArgument::Kind::Integer:
+                    lua_pushinteger(g_LuaState, static_cast<lua_Integer>(argument.number));
+                    break;
+                case CallbackArgument::Kind::Boolean:
+                    lua_pushboolean(g_LuaState, argument.number != 0 ? 1 : 0);
+                    break;
+                case CallbackArgument::Kind::Nil:
+                    lua_pushnil(g_LuaState);
+                    break;
+                case CallbackArgument::Kind::Entity:
+                    // 视图与 `Isaac.GetRoomEntities()` 给出的一致（玩家给 `EntityPlayer`），
+                    // 否则模组在回调里对参数调 `player:HasCollectible()` 会失败。
+                    isaac::runtime::PushEntityCallbackArgument(g_LuaState, argument.entity);
+                    break;
+                case CallbackArgument::Kind::Vector:
+                    // 渲染偏移（`Vector` userdata，与 `Room:GetRenderScrollOffset()` 给出的是同一种值类型）。
+                    isaac::runtime::PushLuaVector(g_LuaState, argument.x, argument.y);
+                    break;
+                case CallbackArgument::Kind::None:
+                    break;
             }
-        }
-        if (hasThirdArgument) {
-            // 渲染偏移（`Vector` userdata，与 `Room:GetRenderScrollOffset()` 给出的是同一种值类型）。
-            isaac::runtime::PushLuaVector(g_LuaState, thirdArgumentX, thirdArgumentY);
         }
         // 批次 084：同 TU 的 file-local 计数（不碰数据 GOT），只读一次 `cntpct_el0`
         // （**物理**计数器；`cntvct_el0` 在 EL0 会被禁止读，批次 085 的真机崩溃就是它）。
         const std::uint64_t perfStart = isaac::runtime::RuntimePerfTick();
-        const int callbackStatus = lua_pcallk(
-            g_LuaState, hasThirdArgument ? 3 : (hasSecondArgument ? 2 : 1), 0, 0, 0, nullptr);
+        // 实参个数 = 1（`mod`）+ 编组表的条数；返回值个数 = 要不要读（`collecting`）。
+        // 写成这个表达式而不是 `1 + arguments.count` 直接内联，是为了让"实参个数由编组表决定"
+        // 这条不变量在源码里是一个可被门禁钉住的字面量（`test_embedded_lua_runtime.py`）。
+        const int argumentCount = 1 + static_cast<int>(arguments.count);
+        const int callbackStatus = lua_pcallk(g_LuaState, argumentCount, collecting ? 1 : 0, 0, 0,
+                                             nullptr);
         {
             const std::uint64_t perfEnd = isaac::runtime::RuntimePerfTick();
             g_RuntimePerfCallbackCalls.fetch_add(1, std::memory_order_relaxed);
@@ -3204,6 +3298,25 @@ struct LuaCallbackInvoker final : isaac::runtime::ICallbackInvoker {
             g_ErrorContextCallbackId = previousCallbackId;
             g_CallbackError.store(true, std::memory_order_release);
             return isaac::runtime::Status{isaac::runtime::StatusCode::Rejected};
+        }
+        // 读回返回值。受保护调用在 `collecting` 时**保证**栈上恰好有 1 个结果
+        // （函数没 `return` 时 Lua 补 `nil`），所以这里不需要"检查栈高"。
+        // ⚠️ 这里同样**不写那次调用的函数名**（理由见 `InvokeCore` 上方的注释）。
+        if (result != nullptr) {
+            result->called = true;
+            if (lua_isnil(g_LuaState, -1) == 0) {
+                result->nonNil = true;
+                // "真值"用 `lua_toboolean`（Lua 的真值语义：`1`、字符串等非假值都算）。
+                // 依据是 PC 文档对 `MC_PRE_USE_ITEM` 的那句 ——"返回除 nil 以外的任何值都会阻止
+                // 后续回调"—— 说明引擎读的不是"严格等于 boolean true"。
+                result->truthy = lua_toboolean(g_LuaState, -1) != 0;
+                if (lua_isinteger(g_LuaState, -1) != 0) {
+                    result->hasInteger = true;
+                    result->integer =
+                        static_cast<std::int64_t>(lua_tointegerx(g_LuaState, -1, nullptr));
+                }
+            }
+            lua_pop(g_LuaState, 1);
         }
         return isaac::runtime::Status::Ok();
     }
@@ -3319,6 +3432,17 @@ struct FrameEventState {
 };
 
 FrameEventState g_FrameEventState{};
+
+//: 本层"起始房间"的记账（批次 106）。与 `g_FrameEventState` 同一条约定：只有游戏线程的派发路径
+//: 读写它，所以是普通全局、不是原子。读数工具不读它（它只有 API 层按需取值）。
+LuaRuntime::LevelStartRoomTracker g_LevelStartRoom{};
+
+// 新建 Lua 会话时清空（只在本 TU 调用：会话重置那一处）⇒ 定义在调用点之前即可。
+void ResetLevelStartRoomTracker() noexcept {
+    g_LevelStartRoom.Reset();
+}
+
+
 
 //: 记一个"这次见过的"实体；返回 true 表示它是**新出现的**（调用方据此派发 INIT）。
 //:
@@ -3772,6 +3896,8 @@ void DispatchFrameEvents() {
         // 一次瞬时读失败不该让模组收到一次凭空的 INIT。
         g_FrameEventState.roomKnown = 0;
         g_FrameEventState.levelKnown = 0;
+    // 新会话 ⇒ 起始房间记账也清空（否则上一局的记录会被当成这一局的起始房间）。
+    ResetLevelStartRoomTracker();
     }
 
     bool enteredNewRoom = false;
@@ -3796,6 +3922,13 @@ void DispatchFrameEvents() {
             ClearSeenEntities(&g_FrameEventState.seenKnifeCount);
             ClearSeenEntities(&g_FrameEventState.seenEffectCount);
             ClearSeenEntities(&g_FrameEventState.seenBombCount);
+        }
+        // 开始房间记账（批次 106）：层号变了、或**第一次**读到身份，都把当时的房间索引记下来。
+        // 为什么"第一次"也算：那是我们唯一能知道本层起始房间的时机；正常路径（开局/换层后第一次
+        // 看到新层）玩家正站在起始房间。已知偏的情形只有"运行时在该层中途才加载"，写在
+        // `api_deviation.cpp` 的 0x03010011 那条里。
+        if (enteredNewLevel || g_FrameEventState.levelKnown == 0) {
+            g_LevelStartRoom.Observe(location.stage, location.stageType, location.roomIndex);
         }
         // 第一次读到身份时**不判变化**：那时这一局刚开局，`MC_POST_GAME_STARTED` 已经承担了
         // "开局"这件事，再补一次"进入新房间"会让模组把开局那间房当成第二间房。
@@ -3901,60 +4034,330 @@ void DispatchPostRender(uintptr_t manager) {
     isaac::runtime::EngineGuardLeaveDispatch();
 }
 
+// --- 回调面补齐（批次 102）：四个事件中继的派发入口 -------------------------------
+//
+// 这一族与"每帧事件"那一族的共同点：调用点都在**引擎自己的函数里**（入口中继的回调体），
+// 不是我们的帧时机。所以每一个都自己做三件事：
+//   ① 判"现在能不能派发"（`IsReady` / Lua 状态 / `ShouldDispatchManagedCallbacks`）；
+//   ② 判"有没有人登记"（没有人登记就直接返回 —— 不给没有听众的事件付代价）；
+//   ③ 进出派发窗口（`EngineGuardEnterDispatch` / `LeaveDispatch`，与其它派发点同一口径）。
+//
+// 实参一律**照 PC 的签名逐位对齐**（依据写在 `runtime_constants.hpp` 的靶点注释里），
+// 拿不到的实参压 `nil` 并在偏离台账里登记 —— 本轮唯一一处是 `MC_PRE_USE_ITEM` / `MC_USE_ITEM`
+// 的第二个实参 `RNG`（PC 上由引擎现造，我们没有对应对象）。
+namespace {
+
+//: 把"玩家"作为一个实体实参压栈（视图与 `Isaac.GetRoomEntities()` 一致）。
+void AddPlayerArgument(CallbackArguments* arguments, std::uintptr_t player) noexcept {
+    if (arguments != nullptr) {
+        arguments->AddEntity(player);
+    }
+}
+
+}  // namespace
+
+void DispatchPreGameExit(bool shouldSave) {
+    if (!IsReady() || g_LuaState == nullptr) {
+        return;
+    }
+    if (g_CallbackRegistry.CountOf(isaac::runtime::kCallbackPreGameExit) == 0) {
+        return;
+    }
+    // ★ 对"房间/玩家可解析"的要求在这里**必须放宽**：`Game::Exit` 触发时这一局正在结束，
+    // `ShouldDispatchManagedCallbacks()`（要求房间非空且至少一个可验证玩家）很可能已经不成立。
+    // 用它会让"退出时保存配置"这条**唯一的**保存点再次静默失效 —— 而那正是本批要修的东西。
+    // 付出的代价写在明处：如果 Lua 处理器读了已经不存在的引擎对象，它会在自己的那一行报错，
+    // 错误进环形历史、回调被隔离（不向上抛）。EID 的 `EID:OnGameExit` 恰好是"先算术、后调
+    // `EID.SaveData`、最后才碰渲染"的顺序，所以报错也不会发生在保存之前。
+    isaac::runtime::EngineGuardEnterDispatch();
+    LuaCallbackInvoker invoker{0, false, false};
+    invoker.arguments.AddBoolean(shouldSave);
+    isaac::runtime::CallbackDispatcher dispatcher{g_CallbackRegistry, invoker};
+    static_cast<void>(dispatcher.Dispatch(isaac::runtime::kCallbackPreGameExit,
+                                          isaac::runtime::ThreadAffinity::Any));
+    isaac::runtime::EngineGuardLeaveDispatch();
+}
+
+bool DispatchPreUseItem(std::uintptr_t player, std::int32_t collectibleType, std::int32_t useFlags,
+                        std::int32_t activeSlot, std::int32_t customVarData) {
+    if (!IsReady() || g_LuaState == nullptr ||
+        !isaac::runtime::ShouldDispatchManagedCallbacks()) {
+        return false;
+    }
+    if (g_CallbackRegistry.CountOf(isaac::runtime::kCallbackPreUseItem) == 0) {
+        return false;
+    }
+    isaac::runtime::EngineGuardEnterDispatch();
+    LuaCallbackInvoker invoker{0, false, false};
+    // PC 签名：`(CollectibleType, RNG, EntityPlayer, UseFlags, ActiveSlot, CustomVarData)`。
+    // RNG 压 `nil`（偏离已登记：EID 的处理器全都忽略它）。
+    invoker.arguments.AddInteger(collectibleType);
+    invoker.arguments.AddNil();
+    AddPlayerArgument(&invoker.arguments, player);
+    invoker.arguments.AddInteger(useFlags);
+    invoker.arguments.AddInteger(activeSlot);
+    invoker.arguments.AddInteger(customVarData);
+    isaac::runtime::CallbackDispatcher dispatcher{g_CallbackRegistry, invoker};
+    // 过滤值 = 第一个实参（PC 的 `AddCallback(id, fn, entityId)`：`MC_PRE_USE_ITEM` 的可选实参
+    // 类型就是 `CollectibleType`）。EID 用它把 6 个处理器分别绑到 Smelter / Void / Flip /
+    // D4 / Genesis / Lemegeton 上，不筛的话每一个都会在**任何**主动道具使用时跑。
+    const isaac::runtime::CallbackDispatchOutcome outcome =
+        dispatcher.DispatchModifying(isaac::runtime::kCallbackPreUseItem,
+                                     isaac::runtime::ThreadAffinity::Any,
+                                     static_cast<std::int64_t>(collectibleType));
+    isaac::runtime::EngineGuardLeaveDispatch();
+    // PC 约定：任一条返回 true 即"取消这次使用"。
+    return outcome.blocked();
+}
+
+void DispatchUseItem(std::uintptr_t player, std::int32_t collectibleType, std::int32_t useFlags,
+                     std::int32_t activeSlot, std::int32_t customVarData) {
+    if (!IsReady() || g_LuaState == nullptr ||
+        !isaac::runtime::ShouldDispatchManagedCallbacks()) {
+        return;
+    }
+    if (g_CallbackRegistry.CountOf(isaac::runtime::kCallbackUseItem) == 0) {
+        return;
+    }
+    isaac::runtime::EngineGuardEnterDispatch();
+    LuaCallbackInvoker invoker{0, false, false};
+    invoker.arguments.AddInteger(collectibleType);
+    invoker.arguments.AddNil();  // RNG（同上）
+    AddPlayerArgument(&invoker.arguments, player);
+    invoker.arguments.AddInteger(useFlags);
+    invoker.arguments.AddInteger(activeSlot);
+    invoker.arguments.AddInteger(customVarData);
+    isaac::runtime::CallbackDispatcher dispatcher{g_CallbackRegistry, invoker};
+    // **不读返回值**：PC 上 `MC_USE_ITEM` 的返回值只表示"要不要播使用动画"（返回 table 还能改
+    // 放电/移除），它**不拦**任何事。我们不复刻那部分（见存档 README 的偏离登记），所以用
+    // 只通知的那条入口，读它反而会让"读了一个本来用不上的值"变成下一轮的误解。
+    static_cast<void>(dispatcher.DispatchFiltered(isaac::runtime::kCallbackUseItem,
+                                                 isaac::runtime::ThreadAffinity::Any,
+                                                 static_cast<std::int64_t>(collectibleType)));
+    isaac::runtime::EngineGuardLeaveDispatch();
+}
+
+void DispatchUseCard(std::uintptr_t player, std::int32_t card, std::int32_t useFlags) {
+    if (!IsReady() || g_LuaState == nullptr ||
+        !isaac::runtime::ShouldDispatchManagedCallbacks()) {
+        return;
+    }
+    if (g_CallbackRegistry.CountOf(isaac::runtime::kCallbackUseCard) == 0) {
+        return;
+    }
+    isaac::runtime::EngineGuardEnterDispatch();
+    LuaCallbackInvoker invoker{0, false, false};
+    // PC 签名：`(Card, EntityPlayer, UseFlags)`。
+    invoker.arguments.AddInteger(card);
+    AddPlayerArgument(&invoker.arguments, player);
+    invoker.arguments.AddInteger(useFlags);
+    isaac::runtime::CallbackDispatcher dispatcher{g_CallbackRegistry, invoker};
+    static_cast<void>(dispatcher.DispatchFiltered(isaac::runtime::kCallbackUseCard,
+                                                 isaac::runtime::ThreadAffinity::Any,
+                                                 static_cast<std::int64_t>(card)));
+    isaac::runtime::EngineGuardLeaveDispatch();
+}
+
+void DispatchUsePill(std::uintptr_t player, std::int32_t pillEffect, std::int32_t useFlags) {
+    if (!IsReady() || g_LuaState == nullptr ||
+        !isaac::runtime::ShouldDispatchManagedCallbacks()) {
+        return;
+    }
+    if (g_CallbackRegistry.CountOf(isaac::runtime::kCallbackUsePill) == 0) {
+        return;
+    }
+    isaac::runtime::EngineGuardEnterDispatch();
+    LuaCallbackInvoker invoker{0, false, false};
+    // PC 签名：`(PillEffect, EntityPlayer, UseFlags)` —— **没有**药丸颜色这个实参
+    // （EID 的 `OnUsePill` 自己从玩家口袋读颜色：`EID.PlayerHeldPill[...]`）。
+    invoker.arguments.AddInteger(pillEffect);
+    AddPlayerArgument(&invoker.arguments, player);
+    invoker.arguments.AddInteger(useFlags);
+    isaac::runtime::CallbackDispatcher dispatcher{g_CallbackRegistry, invoker};
+    static_cast<void>(dispatcher.DispatchFiltered(isaac::runtime::kCallbackUsePill,
+                                                 isaac::runtime::ThreadAffinity::Any,
+                                                 static_cast<std::int64_t>(pillEffect)));
+    isaac::runtime::EngineGuardLeaveDispatch();
+}
+
+bool DispatchPrePickupCollision(std::uintptr_t pickup, std::uintptr_t collider, bool low,
+                                std::int32_t pickupVariant) {
+    if (!IsReady() || g_LuaState == nullptr ||
+        !isaac::runtime::ShouldDispatchManagedCallbacks()) {
+        return false;
+    }
+    if (g_CallbackRegistry.CountOf(isaac::runtime::kCallbackPrePickupCollision) == 0) {
+        return false;
+    }
+    isaac::runtime::EngineGuardEnterDispatch();
+    LuaCallbackInvoker invoker{0, false, false};
+    // PC 签名：`(EntityPickup, Collider [Entity], Low [bool])`。
+    // 两个实参都是实体视图（EID 的处理器读 `collider.Type` 判"是玩家/跟班还是别的"）。
+    AddPlayerArgument(&invoker.arguments, pickup);
+    invoker.arguments.AddEntity(collider);
+    invoker.arguments.AddBoolean(low);
+    isaac::runtime::CallbackDispatcher dispatcher{g_CallbackRegistry, invoker};
+    // 过滤值 = **掉落物的变体**：PC 给这条回调的可选实参类型是 `PickupVariant`（而第一个实参是
+    // 实体、不是数字，所以过滤值必须由调用点从实体上读出来并单独传进来 —— 见
+    // `CallbackDispatchOutcome` 的说明）。反汇编也印证了这个字段：
+    // `handle_collision` 开头就是 `ldr w8, [x0, #0x3C]; cmp w8, #0x64`（变体 100 = 可拾取物）。
+    const isaac::runtime::CallbackDispatchOutcome outcome =
+        dispatcher.DispatchModifying(isaac::runtime::kCallbackPrePickupCollision,
+                                     isaac::runtime::ThreadAffinity::Any,
+                                     static_cast<std::int64_t>(pickupVariant));
+    isaac::runtime::EngineGuardLeaveDispatch();
+    // PC 的三态里 `true`（忽略碰撞）与 `false`（算碰撞但不执行内部代码）**都不执行**内部代码，
+    // 只有 `nil` 才照常执行 ⇒ 判据是"**非 nil**"而不是"真值"。
+    return outcome.anyNonNil;
+}
+
+void DispatchPreRoomEntitySpawn(std::int32_t entityType, std::int32_t variant,
+                                std::int32_t subType, std::int32_t gridIndex,
+                                std::int32_t seed) {
+    if (!IsReady() || g_LuaState == nullptr ||
+        !isaac::runtime::ShouldDispatchManagedCallbacks()) {
+        return;
+    }
+    if (g_CallbackRegistry.CountOf(isaac::runtime::kCallbackPreRoomEntitySpawn) == 0) {
+        return;
+    }
+    isaac::runtime::EngineGuardEnterDispatch();
+    LuaCallbackInvoker invoker{0, false, false};
+    // PC 签名：`(EntityType, Variant, SubType, GridIndex, Seed)` —— 五个整数，**没有实体实参**。
+    invoker.arguments.AddInteger(entityType);
+    invoker.arguments.AddInteger(variant);
+    invoker.arguments.AddInteger(subType);
+    invoker.arguments.AddInteger(gridIndex);
+    invoker.arguments.AddInteger(seed);
+    isaac::runtime::CallbackDispatcher dispatcher{g_CallbackRegistry, invoker};
+    // 用"只通知"那条入口：PC 给这条的可选实参是 `-`（没有过滤语义），返回值是一个
+    // **可以覆盖 Type/Variant/SubType 的表** —— 我们第一版不支持表覆盖（见存档 README 的偏离登记），
+    // 所以**不读**返回值（读了也只有"收到一张表"这一个事实，没有可用的语义）。
+    static_cast<void>(dispatcher.Dispatch(isaac::runtime::kCallbackPreRoomEntitySpawn,
+                                          isaac::runtime::ThreadAffinity::Any));
+    isaac::runtime::EngineGuardLeaveDispatch();
+}
+
+std::uint64_t DispatchPostGetCollectible(void* itemPool, std::uint32_t itemPoolType,
+                                         std::uint32_t seed, std::uint32_t decrease,
+                                         std::uint32_t selectedCollectible) {
+    (void)itemPool;
+    // 打包口径与 `DispatchPreGetCollectible` 完全相同（高 32 位非零 = "拿到了替换值"），
+    // 这样中继回调那侧只有一条判断。
+    if (!IsReady() || g_InPreGetCollectibleDispatch || g_LuaState == nullptr) {
+        return 0;
+    }
+    if (!isaac::runtime::ShouldDispatchManagedCallbacks()) {
+        return 0;
+    }
+    if (g_CallbackRegistry.CountOf(isaac::runtime::kCallbackPostGetCollectible) == 0) {
+        return 0;
+    }
+    isaac::runtime::EngineGuardEnterDispatch();
+    LuaCallbackInvoker invoker{0, false, false};
+    // PC 签名：`(SelectedCollectible, ItemPoolType, Decrease [bool], Seed [int])`。
+    // ★ 这一条与 `MC_PRE_GET_COLLECTIBLE` 的差别就在第一个实参：PRE 那侧引擎还没选，所以
+    // 只有 `(poolType, decrease, seed)`；POST 这一侧我们**拿得到**刚选出来的道具，必须放在
+    // 第一位 —— EID 的 `EID:postGetCollectible(selectedCollectible, itemPoolType)` 就是按
+    // 这个顺序读的（`main.lua:259`）。
+    invoker.arguments.AddInteger(static_cast<std::int64_t>(selectedCollectible));
+    invoker.arguments.AddInteger(static_cast<std::int64_t>(itemPoolType));
+    invoker.arguments.AddBoolean(decrease != 0);
+    invoker.arguments.AddInteger(static_cast<std::int64_t>(seed));
+    isaac::runtime::CallbackDispatcher dispatcher{g_CallbackRegistry, invoker};
+    const isaac::runtime::CallbackDispatchOutcome outcome =
+        dispatcher.DispatchModifying(isaac::runtime::kCallbackPostGetCollectible,
+                                     isaac::runtime::ThreadAffinity::Any,
+                                     isaac::runtime::CallbackRegistry::kNoCallbackFilter);
+    isaac::runtime::EngineGuardLeaveDispatch();
+    if (!outcome.hasInteger || outcome.integer < 0 ||
+        static_cast<std::uint64_t>(outcome.integer) >
+            std::numeric_limits<std::uint32_t>::max()) {
+        return 0;
+    }
+    return (std::uint64_t{1} << 32) | static_cast<std::uint32_t>(outcome.integer);
+}
+
 std::uint64_t DispatchPreGetCollectible(void* itemPool, std::uint32_t itemPoolType,
                                         std::uint32_t seed, std::uint32_t noDecrease,
                                         std::uint32_t lastCollectibleType) {
     (void)itemPool;
     (void)lastCollectibleType;
-    // The collectible callback returns a value to the game, so it keeps the
-    // legacy single-callback semantics; storage still comes from the shared
-    // registry, so there is only one place that owns registrations.
-    const isaac::runtime::CallbackDescriptor* descriptor =
-        g_CallbackRegistry.At(isaac::runtime::kCallbackPreGetCollectible, 0);
-    if (!IsReady() || g_InPreGetCollectibleDispatch || descriptor == nullptr ||
-        g_LuaState == nullptr) {
+    if (!IsReady() || g_InPreGetCollectibleDispatch || g_LuaState == nullptr) {
         return 0;
     }
-    const int functionRef = descriptor->luaReference;
-    const int modRef = descriptor->modReference;
-
-    lua_rawgeti(g_LuaState, LUA_REGISTRYINDEX, functionRef);
-    lua_rawgeti(g_LuaState, LUA_REGISTRYINDEX, modRef);
-    lua_pushinteger(g_LuaState, static_cast<lua_Integer>(itemPoolType));
-    lua_pushboolean(g_LuaState, noDecrease == 0);
-    lua_pushinteger(g_LuaState, static_cast<lua_Integer>(seed));
+    if (!isaac::runtime::ShouldDispatchManagedCallbacks()) {
+        return 0;
+    }
+    if (g_CallbackRegistry.CountOf(isaac::runtime::kCallbackPreGetCollectible) == 0) {
+        return 0;
+    }
+    // 打包口径（调用方 = 取道具中继的回调体，只有它读这两个位）：
+    //   bit 32 = "拿到了替换值"，`value` 里有那 32 位；
+    //   bit 33 = "**返回过非 nil**"（可能是 `false`、字符串…，但没有可用整数）。
+    // 为什么要第二位：PC 文档写着"若 `MC_PRE_GET_COLLECTIBLE` 返回了非 nil，`MC_POST_GET_COLLECTIBLE`
+    // 就跳过" —— 那是"非 nil"、不是"有替换值"。只留 bit 32 的话，某条回调返回 `false` 时我们会
+    // 照常派发 POST，而 PC 不会（多派发一次 = 模组多做一遍它以为不该做的事）。
+    isaac::runtime::EngineGuardEnterDispatch();
+    LuaCallbackInvoker invoker{0, false, false};
+    // PC 签名：`(ItemPoolType, Decrease [bool], Seed [int])` —— 这一条**没有**可选实参
+    // （`ModCallbacks.md` 的 Optional Args 栏是 `-`），所以过滤值传"没有过滤语义"。
+    invoker.arguments.AddInteger(static_cast<std::int64_t>(itemPoolType));
+    invoker.arguments.AddBoolean(noDecrease == 0);
+    invoker.arguments.AddInteger(static_cast<std::int64_t>(seed));
+    isaac::runtime::CallbackDispatcher dispatcher{g_CallbackRegistry, invoker};
+    // ★ 2026-09-20 批次 103：这一条原来**手工取第 0 条登记**（`g_CallbackRegistry.At(id, 0)`），
+    // 于是同一 id 上第二条及以后的登记永远收不到事件 —— 与 PC 的"同一 id 可登记多条、按登记顺序
+    // 全部调用"不符。现在改走通用派发器（`DispatchModifying`），因此同时获得了：
+    //   * 多条登记全部被调用；
+    //   * 返回值按文档口径取**第一条**整数（"返回的值不会更新后续回调看到的 SelectedCollectible"）；
+    //   * `anyNonNil`（bit 33 的来处）。
+    // 重入守卫（`g_InPreGetCollectibleDispatch`）仍然保留：Lua 里直接调
+    // `ItemPool:GetCollectible` 会再进这条中继，守卫让内层不派发（引擎照原样跑）。
     g_InPreGetCollectibleDispatch = true;
-    g_InManagedCallbackDispatch.store(true, std::memory_order_release);
-    const int callbackStatus = lua_pcallk(g_LuaState, 4, 1, 0, 0, nullptr);
-    g_InManagedCallbackDispatch.store(false, std::memory_order_release);
+    const isaac::runtime::CallbackDispatchOutcome outcome =
+        dispatcher.DispatchModifying(isaac::runtime::kCallbackPreGetCollectible,
+                                     isaac::runtime::ThreadAffinity::Any,
+                                     isaac::runtime::CallbackRegistry::kNoCallbackFilter);
     g_InPreGetCollectibleDispatch = false;
-
-    const auto recordError = [&]() {
+    isaac::runtime::EngineGuardLeaveDispatch();
+    std::uint64_t packed = outcome.anyNonNil ? (std::uint64_t{1} << 33) : 0;
+    if (!outcome.hasInteger) {
+        if (outcome.anyNonNil) {
+            // 返回了"非 nil 但拿不到整数"的东西（`true`、字符串…）：**记一次回调错误**。
+            // 这一条是改动前就有的诊断（原来写的是"非整数 ⇒ 报错"），保留它是因为
+            // "报错是响的、假值是哑的" —— 模组在这里返回了没法当道具用的值，属于它自己的 bug，
+            // 让它进错误环形历史比静默忽略有用得多。同时仍置 bit 33：PC 的"PRE 返回非 nil
+            // ⇒ 跳过 POST"是另一回事（它只看是不是 nil）。
+            g_CallbackError.store(true, std::memory_order_release);
+        }
+        return packed;
+    }
+    if (outcome.integer < 0 ||
+        static_cast<std::uint64_t>(outcome.integer) > std::numeric_limits<std::uint32_t>::max()) {
+        // 越界整数：与改动前的口径一致 —— 记一次回调错误，且**不给替换值**
+        // （`test_lua_pre_get_collectible` 的 `out_of_range` 场景钉着这一条）。
         g_CallbackError.store(true, std::memory_order_release);
-    };
+        return packed;
+    }
+    return packed | (std::uint64_t{1} << 32) | static_cast<std::uint32_t>(outcome.integer);
+}
 
-    if (callbackStatus != LUA_OK) {
-        lua_pop(g_LuaState, 1);
-        recordError();
-        return 0;
+// ---- 批次 106：`Level:GetStartingRoomIndex()` 的派生记账（**外部链接**）-----------------
+//
+// ⚠️ 这两个函数必须定义在**匿名命名空间之外**：它们要给 `remaining_api.cpp`（另一个 TU）链接。
+// 本批第一版把它们定义在匿名命名空间里（内部链接）⇒ 只编译 API 层的宿主 harness 集体链接失败，
+// 而宿主门禁把 `-Werror=unused-function` 也一起报了出来（那个警告正是"内部链接、没人用"的信号）。
+std::uint32_t StartingRoomIndexForCurrentLevel() noexcept {
+    return g_LevelStartRoom.Value();
+}
+
+void NoteCurrentLocationForStartRoom() noexcept {
+    GameLocationKey location{};
+    if (ReadGameLocationKey(GameOwnerSlot(), &location) != GameRoomObservation::Success) {
+        return;  // 读不到就不动记录：宁可继续答"还不知道"，也不编一个房间号
     }
-    if (lua_isnil(g_LuaState, -1)) {
-        lua_pop(g_LuaState, 1);
-        return 0;
-    }
-    if (!lua_isinteger(g_LuaState, -1)) {
-        lua_pop(g_LuaState, 1);
-        recordError();
-        return 0;
-    }
-    const lua_Integer result = lua_tointegerx(g_LuaState, -1, nullptr);
-    lua_pop(g_LuaState, 1);
-    if (result < 0 ||
-        static_cast<std::uint64_t>(result) > std::numeric_limits<std::uint32_t>::max()) {
-        recordError();
-        return 0;
-    }
-    return (std::uint64_t{1} << 32) | static_cast<std::uint32_t>(result);
+    g_LevelStartRoom.Observe(location.stage, location.stageType, location.roomIndex);
 }
 
 bool IsReady() {

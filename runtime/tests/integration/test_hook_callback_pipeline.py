@@ -31,6 +31,7 @@ DRIVER = textwrap.dedent(
     #include "ports/thread_port.hpp"
 
     #include <cstdio>
+    #include <map>
     #include <vector>
 
     using namespace isaac::runtime;
@@ -56,10 +57,30 @@ DRIVER = textwrap.dedent(
     struct RecordingInvoker final : ICallbackInvoker {
         std::vector<int> called;
         int failingReference = -1;
+        //: 读回返回值的那条路径：按 `luaReference` 给出预设的返回值
+        //: （键 = luaReference，值 = 这条回调"返回"的东西）。
+        std::map<int, CallbackReturn> returns;
         Status Invoke(const CallbackDescriptor& descriptor) noexcept override {
             called.push_back(descriptor.luaReference);
             if (descriptor.luaReference == failingReference) {
                 return Status{StatusCode::Rejected};
+            }
+            return Status::Ok();
+        }
+        Status InvokeCollecting(const CallbackDescriptor& descriptor,
+                                CallbackReturn* result) noexcept override {
+            called.push_back(descriptor.luaReference);
+            if (descriptor.luaReference == failingReference) {
+                return Status{StatusCode::Rejected};
+            }
+            if (result != nullptr) {
+                *result = CallbackReturn{};
+                result->called = true;
+                const auto found = returns.find(descriptor.luaReference);
+                if (found != returns.end()) {
+                    *result = found->second;
+                    result->called = true;
+                }
             }
             return Status::Ok();
         }
@@ -109,6 +130,21 @@ DRIVER = textwrap.dedent(
         std::uint32_t presentCalls = 0;
         std::uint32_t rebuildCalls = 0;
         std::uint32_t gameStartCalls = 0;
+        // 批次 102 加的四路（`UseActiveItem` / `UseCard` / `UsePill` / `GameExit`）。
+        Status useActiveItem{StatusCode::Ok};
+        Status useCard{StatusCode::Ok};
+        Status usePill{StatusCode::Ok};
+        Status gameExit{StatusCode::Ok};
+        std::uint32_t useActiveItemCalls = 0;
+        std::uint32_t useCardCalls = 0;
+        std::uint32_t usePillCalls = 0;
+        std::uint32_t gameExitCalls = 0;
+        // 批次 103 加的一路（掉落物碰撞）。
+        Status pickupCollision{StatusCode::Ok};
+        std::uint32_t pickupCollisionCalls = 0;
+        // 批次 104 加的一路（房间生成实体）。
+        Status roomEntitySpawn{StatusCode::Ok};
+        std::uint32_t roomEntitySpawnCalls = 0;
 
         Status Install(HookId id, const HookTarget&) noexcept override {
             switch (id) {
@@ -121,6 +157,14 @@ DRIVER = textwrap.dedent(
                 // 见 `domain/runtime/hook_catalog.hpp`）。夹具里必须为它留一支，
                 // 否则 `-Werror,-Wswitch` 直接判编译失败。
                 case HookId::GameStart: ++gameStartCalls; return gameStart;
+                // 批次 102 的四个事件中继（都走 `EntryRelay`）：同样是"夹具必须留一支"，
+                // 计数分开是因为下面的用例要逐点断言"装了几个、失败在第几个槽"。
+                case HookId::UseActiveItem: ++useActiveItemCalls; return useActiveItem;
+                case HookId::UseCard: ++useCardCalls; return useCard;
+                case HookId::UsePill: ++usePillCalls; return usePill;
+                case HookId::GameExit: ++gameExitCalls; return gameExit;
+                case HookId::PickupCollision: ++pickupCollisionCalls; return pickupCollision;
+                case HookId::RoomEntitySpawn: ++roomEntitySpawnCalls; return roomEntitySpawn;
                 case HookId::Count: break;
             }
             return Status{StatusCode::InvalidArgument};
@@ -234,6 +278,165 @@ DRIVER = textwrap.dedent(
         Check(report.skippedAffinity == 0 && report.invoked == 3, "unknown_context_does_not_skip");
     }
 
+    // 批次 101：过滤器（PC 的 `Mod:AddCallback(id, fn, entityId)` 第三个实参）与
+    // "读回返回值"（PC 的 `MC_PRE_*` 拦下语义 / `MC_*_GET_COLLECTIBLE` 替换语义）。
+    void TestFilterAndReturnValues() {
+        CallbackRegistry registry{};
+        RecordingInvoker invoker{};
+        CallbackDispatcher dispatcher{registry, invoker};
+
+        // 三条登记：两条带过滤器（7 / 9），一条不带。
+        Check(registry.Register(Descriptor(kCallbackPreUseItem, Handle(1), 11), 7).ok(),
+              "f_reg_filtered_7");
+        Check(registry.Register(Descriptor(kCallbackPreUseItem, Handle(2), 22), 9).ok(),
+              "f_reg_filtered_9");
+        Check(registry.Register(Descriptor(kCallbackPreUseItem, Handle(3), 33)).ok(),
+              "f_reg_unfiltered");
+        Check(registry.FilterAt(0) == 7 && registry.FilterAt(1) == 9 &&
+                  registry.FilterAt(2) == CallbackRegistry::kNoCallbackFilter,
+              "f_filter_stored_parallel");
+
+        // 过滤值 7 ⇒ "过滤器 7" 与 "无过滤器" 各一条被调用（PC 语义：过滤是**逐条**的）。
+        invoker.called.clear();
+        DispatchReport report =
+            dispatcher.DispatchFiltered(kCallbackPreUseItem, ThreadAffinity::Any, 7);
+        Check(report.invoked == 2 && report.skippedFilter == 1, "f_filter_selects");
+        Check(invoker.called.size() == 2 && invoker.called[0] == 11 && invoker.called[1] == 33,
+              "f_filter_keeps_unfiltered_and_order");
+
+        // 过滤值 9 ⇒ 换成第二条被选中。
+        invoker.called.clear();
+        report = dispatcher.DispatchFiltered(kCallbackPreUseItem, ThreadAffinity::Any, 9);
+        Check(invoker.called.size() == 2 && invoker.called[0] == 22 && invoker.called[1] == 33,
+              "f_filter_other_value");
+
+        // 调用点说不出过滤值 ⇒ 带过滤器的两条都**不**调用（"说不出就不调用"）。
+        invoker.called.clear();
+        report = dispatcher.DispatchFiltered(kCallbackPreUseItem, ThreadAffinity::Any,
+                                            CallbackRegistry::kNoCallbackFilter);
+        Check(report.invoked == 1 && report.skippedFilter == 2 && invoker.called[0] == 33,
+              "f_unknown_filter_skips_filtered");
+
+        // 不筛的那条入口保持改动前的口径：三条全调用（PC 的 `ModCallbacks.md` 里大多数回调
+        // 根本没有过滤语义，那些 id 上的第三个实参是无意义的）。
+        invoker.called.clear();
+        report = dispatcher.Dispatch(kCallbackPreUseItem, ThreadAffinity::Any);
+        Check(report.invoked == 3 && report.skippedFilter == 0, "f_unfiltered_dispatch_keeps_all");
+
+        // ★ 摘掉中间那条：剩下两条的过滤器必须跟着前移。
+        // 漏了这一步的症状是"别的回调静默不触发"（过滤值整体错位），本类最该钉的一条。
+        Check(registry.Remove(kCallbackPreUseItem, Handle(2)) == 1, "f_remove_found");
+        Check(registry.Count() == 2 && registry.FilterAt(1) == CallbackRegistry::kNoCallbackFilter,
+              "f_filter_shifted_after_remove");
+        invoker.called.clear();
+        report = dispatcher.DispatchFiltered(kCallbackPreUseItem, ThreadAffinity::Any, 7);
+        Check(report.invoked == 2 && report.skippedFilter == 0, "f_shift_keeps_filtering_right");
+
+        // --- 返回值收集 ---
+        CallbackRegistry returns{};
+        RecordingInvoker returnInvoker{};
+        CallbackDispatcher returnDispatcher{returns, returnInvoker};
+        CallbackReturn truthy{};
+        truthy.called = true;
+        truthy.nonNil = true;
+        truthy.truthy = true;
+        CallbackReturn integer{};
+        integer.called = true;
+        integer.nonNil = true;
+        integer.hasInteger = true;
+        integer.integer = 42;
+        CallbackReturn silent{};
+        silent.called = true;
+        CallbackReturn laterInteger{};
+        laterInteger.called = true;
+        laterInteger.nonNil = true;
+        laterInteger.hasInteger = true;
+        laterInteger.integer = 99;
+        returnInvoker.returns[11] = truthy;
+        returnInvoker.returns[22] = silent;
+        returnInvoker.returns[33] = integer;
+        returnInvoker.returns[44] = laterInteger;
+        Check(returns.Register(Descriptor(kCallbackPreUseItem, Handle(1), 11)).ok(), "r_reg_11");
+        Check(returns.Register(Descriptor(kCallbackPreUseItem, Handle(1), 22)).ok(), "r_reg_22");
+        Check(returns.Register(Descriptor(kCallbackPreUseItem, Handle(1), 33)).ok(), "r_reg_33");
+        Check(returns.Register(Descriptor(kCallbackPreUseItem, Handle(1), 44)).ok(), "r_reg_44");
+
+        CallbackDispatchOutcome outcome = returnDispatcher.DispatchModifying(
+            kCallbackPreUseItem, ThreadAffinity::Any, CallbackRegistry::kNoCallbackFilter);
+        Check(outcome.invoked == 4 && outcome.failed == 0, "r_all_invoked");
+        Check(outcome.anyTruthy && outcome.blocked(), "r_any_true_blocks");
+        Check(outcome.anyNonNil, "r_any_non_nil");
+        // "第一条胜出"：`MC_POST_GET_COLLECTIBLE` 的文档写明"返回的值不会更新后续回调看到的
+        // SelectedCollectible" ⇒ 后一条（99）不许覆盖前一条（42）。
+        Check(outcome.hasInteger && outcome.integer == 42, "r_first_integer_wins");
+
+        // 一条都没返回 ⇒ 不拦、也没有整数。
+        returnInvoker.returns.clear();
+        outcome = returnDispatcher.DispatchModifying(kCallbackPreUseItem, ThreadAffinity::Any,
+                                                     CallbackRegistry::kNoCallbackFilter);
+        Check(outcome.invoked == 4 && !outcome.blocked() && !outcome.hasInteger && !outcome.anyNonNil,
+              "r_no_return_blocks_nothing");
+
+        // 回调里报错：记 failed，但**不**拦（PC 语义"报错 ≠ 拒绝"，且派发继续往下走）。
+        returnInvoker.failingReference = 11;
+        outcome = returnDispatcher.DispatchModifying(kCallbackPreUseItem, ThreadAffinity::Any,
+                                                     CallbackRegistry::kNoCallbackFilter);
+        Check(outcome.failed == 1 && !outcome.blocked() && outcome.invoked == 3,
+              "r_error_does_not_block");
+        returnInvoker.failingReference = -1;
+    }
+
+    // 批次 105：**优先级真排序**。PC 的 `CallbackPriority` 是
+    // `IMPORTANT=-200 / EARLY=-100 / DEFAULT=0 / LATE=100`，**数值越小越早执行**；
+    // 同优先级之间保持登记顺序（稳定）。
+    void TestPriorityOrdering() {
+        CallbackRegistry registry{};
+        RecordingInvoker invoker{};
+        CallbackDispatcher dispatcher{registry, invoker};
+        const ModHandle owner = Handle(3);
+
+        // 故意**乱序**登记：先 LATE、再 EARLY、再默认、再 IMPORTANT。
+        Check(registry.Register(Descriptor(kCallbackPostRender, owner, 1),
+                                CallbackRegistry::kNoCallbackFilter, 100).ok(), "p_reg_late");
+        Check(registry.Register(Descriptor(kCallbackPostRender, owner, 2),
+                                CallbackRegistry::kNoCallbackFilter, -100).ok(), "p_reg_early");
+        Check(registry.Register(Descriptor(kCallbackPostRender, owner, 3)).ok(), "p_reg_default");
+        Check(registry.Register(Descriptor(kCallbackPostRender, owner, 4),
+                                CallbackRegistry::kNoCallbackFilter, -200).ok(), "p_reg_important");
+        Check(registry.PriorityAt(0) == 100 && registry.PriorityAt(1) == -100 &&
+                  registry.PriorityAt(2) == CallbackRegistry::kDefaultCallbackPriority &&
+                  registry.PriorityAt(3) == -200,
+              "p_priority_stored_parallel");
+
+        invoker.called.clear();
+        const DispatchReport report =
+            dispatcher.Dispatch(kCallbackPostRender, ThreadAffinity::ManagedCallback);
+        Check(report.invoked == 4, "p_all_invoked");
+        Check(invoker.called.size() == 4 && invoker.called[0] == 4 && invoker.called[1] == 2 &&
+                  invoker.called[2] == 3 && invoker.called[3] == 1,
+              "p_order_is_priority_ascending");  // IMPORTANT, EARLY, DEFAULT, LATE
+
+        // 同优先级之间保持**登记顺序**（这里 1 与 5 都是 LATE）。
+        Check(registry.Register(Descriptor(kCallbackPostRender, owner, 5),
+                                CallbackRegistry::kNoCallbackFilter, 100).ok(), "p_reg_second_late");
+        invoker.called.clear();
+        static_cast<void>(dispatcher.Dispatch(kCallbackPostRender, ThreadAffinity::ManagedCallback));
+        Check(invoker.called.size() == 5 && invoker.called[0] == 4 && invoker.called[4] == 5 &&
+                  invoker.called[3] == 1,
+              "p_ties_keep_registration_order");
+
+        // ★ 摘掉一条：剩下那些的优先级必须跟着**前移**（漏了就会"顺序莫名其妙"）。
+        // `Remove(id, owner)` 摘的是**第一条**匹配（ref 1 / LATE）⇒ 剩下
+        // ref2(-100) / ref3(0) / ref4(-200) / ref5(100) ⇒ 升序排列 = 4, 2, 3, 5。
+        Check(registry.Remove(kCallbackPostRender, owner) == 1, "p_remove_found");
+        Check(registry.CountOf(kCallbackPostRender) == 4, "p_remove_left_four");
+        invoker.called.clear();
+        static_cast<void>(dispatcher.Dispatch(kCallbackPostRender, ThreadAffinity::ManagedCallback));
+        Check(invoker.called.size() == 4 && invoker.called[0] == 4 && invoker.called[1] == 2 &&
+                  invoker.called[2] == 3 && invoker.called[3] == 5,
+              "p_priorities_shift_after_remove");
+    }
+
     void TestScanService() {
         ScriptedScanner scanner{};
         CountingThreads threads{};
@@ -304,18 +507,29 @@ DRIVER = textwrap.dedent(
               "installed_count_counts_every_hook");
         Check(report.FirstFailureSlot() == 0, "no_failure_slot_when_every_hook_is_installed");
         Check(hooks.updateCalls == 1 && hooks.renderCalls == 1 && hooks.collectibleCalls == 1 &&
-                  hooks.presentCalls == 1 && hooks.rebuildCalls == 1 && hooks.gameStartCalls == 1,
+                  hooks.presentCalls == 1 && hooks.rebuildCalls == 1 && hooks.gameStartCalls == 1 &&
+                  hooks.useActiveItemCalls == 1 && hooks.useCardCalls == 1 &&
+                  hooks.usePillCalls == 1 && hooks.gameExitCalls == 1 &&
+                  hooks.pickupCollisionCalls == 1 && hooks.roomEntitySpawnCalls == 1,
               "each_hook_installed_once");
 
         // 所有**可选**挂点都被端口拒绝：`GameStart` 同样是可选点（`kHookCatalog` 里
         // `required == false`），所以这里也把它拒掉 —— 否则 `InstalledCount()` 会变成 2，
         // 而这条检查要证明的正是"被跳过的不计入已安装数"。
+        // 批次 102 加的四路全部也是可选点 ⇒ 同样要在这里拒掉，否则它们会让
+        // `InstalledCount()` 变成 5 而这条断言失去意义（**不是放宽断言，是把新挂点补进"全部可选点"**）。
         ScriptedHooks optionalMissing{};
         optionalMissing.render = Status{StatusCode::Rejected};
         optionalMissing.collectible = Status{StatusCode::Rejected};
         optionalMissing.present = Status{StatusCode::Rejected};
         optionalMissing.rebuild = Status{StatusCode::Rejected};
         optionalMissing.gameStart = Status{StatusCode::Rejected};
+        optionalMissing.useActiveItem = Status{StatusCode::Rejected};
+        optionalMissing.useCard = Status{StatusCode::Rejected};
+        optionalMissing.usePill = Status{StatusCode::Rejected};
+        optionalMissing.gameExit = Status{StatusCode::Rejected};
+        optionalMissing.pickupCollision = Status{StatusCode::Rejected};
+        optionalMissing.roomEntitySpawn = Status{StatusCode::Rejected};
         HookInstallService optionalService{optionalMissing};
         HookInstallReport optionalReport{};
         Check(optionalService.InstallProductionHooks(ValidModule(), &optionalReport).ok(),
@@ -325,7 +539,13 @@ DRIVER = textwrap.dedent(
                   optionalReport.OutcomeOf(HookId::PreGetCollectible) == HookOutcome::Skipped &&
                   optionalReport.OutcomeOf(HookId::ManagerPresent) == HookOutcome::Skipped &&
                   optionalReport.OutcomeOf(HookId::RebuildMountPoints) == HookOutcome::Skipped &&
-                  optionalReport.OutcomeOf(HookId::GameStart) == HookOutcome::Skipped,
+                  optionalReport.OutcomeOf(HookId::GameStart) == HookOutcome::Skipped &&
+                  optionalReport.OutcomeOf(HookId::UseActiveItem) == HookOutcome::Skipped &&
+                  optionalReport.OutcomeOf(HookId::UseCard) == HookOutcome::Skipped &&
+                  optionalReport.OutcomeOf(HookId::UsePill) == HookOutcome::Skipped &&
+                  optionalReport.OutcomeOf(HookId::GameExit) == HookOutcome::Skipped &&
+                  optionalReport.OutcomeOf(HookId::PickupCollision) == HookOutcome::Skipped &&
+                  optionalReport.OutcomeOf(HookId::RoomEntitySpawn) == HookOutcome::Skipped,
               "optional_hooks_recorded_as_skipped");
         Check(optionalReport.productionReady(), "optional_failure_still_ready");
         Check(optionalReport.InstalledCount() == 1, "skipped_hooks_are_not_counted");
@@ -475,6 +695,8 @@ DRIVER = textwrap.dedent(
     int main() {
         TestRegistry();
         TestDispatcher();
+        TestFilterAndReturnValues();
+        TestPriorityOrdering();
         TestScanService();
         TestHookInstallService();
         TestHookSkipPredicate();

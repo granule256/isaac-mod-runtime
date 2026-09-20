@@ -45,7 +45,25 @@ DEVIATIONS = ROOT / "runtime" / "src" / "interfaces" / "lua" / "api_deviation.cp
 #: （理由见 `api_deviation.cpp` 那一整段：网格实体随时销毁，而句柄只存实体地址、拿不到网格
 #: 下标，做不到"每次访问重新解析并校验"）。同批的 `ItemPool:IsPillIdentified`（`0x05010003`）
 #: 与 `RNG:GetSeed`（`0x07010003`）都是真读引擎字段/自身句柄，**不**记偏离。
-EXPECTED_DEVIATIONS = 23
+#:
+#: **23 → 19（2026-09-20，批次 098）**：`Room` 网格族的四条偏离**被真正的实现消掉** ——
+#: `GetGridWidth`（`0x04010002`）、`GetGridHeight`（`0x04010003`）、`GetGridSize`（`0x04010004`）、
+#: `GetGridIndex`（`0x04010005`）。起因是**用户可见**缺陷：`GetGridPath` 恒返 1000
+#: （> EID 的 900 阈值）⇒ 地上每一颗药丸、每一张卡片都被判"够不到"、只画问号。
+#: 网格尺寸字段（`Room + 0x14`/`+0x18`）、通行代价数组（`Room + 0xE98`）与格坐标换算
+#: （`Room::GetGridIndex(Vector2) @ 0x459e3c`）本轮全部定位，证据见 `runtime_constants.hpp`；
+#: `GetGridPath`（`0x04010006`）由 `Placeholder` 降为 `Partial`（只剩"越界给 0 而不是越界读"
+#: 这一条口径差异）。判据：`runtime/tests/test_lua_room_grid.py`、
+#: `tools/room_grid_reachability_probe.py`。
+EXPECTED_DEVIATIONS = 21
+
+#: "判据：暂无（…）"的条数 —— **欠账**，只能降不能升。
+#:
+#: 2026-09-20（批次 099）建立这条记账方式时是 **0**：当天给 19 条全部补上了可执行判据
+#: （每条点名一个仓库里真实存在的测试文件，并写明它钉住了什么、**哪一半没钉**）。
+#: 以后新增偏离又一时给不出判据的，可以写"判据：暂无（理由…）"，但必须把这个数字 +1
+#: 并在这段注释里说明 —— 让欠账有数字、有出处，而不是靠记性。
+EXPECTED_JUDGEMENT_GAPS = 0
 
 #: 允许的偏离种类（与 `ApiDeviationKind` 一致）。
 KINDS = {"Partial", "Placeholder", "NotInEngine"}
@@ -76,18 +94,12 @@ def catalog_ids(text: str) -> set[int]:
 def deviation_entries(text: str) -> list[tuple[int, str, str]]:
     """从 `api_deviation.cpp` 提取 `(id, kind, 文本)`。
 
-    一个条目的形状是 `{0x…, ApiDeviationKind::<Kind>, "…" "…" …}` —— 文本可能跨多行拼接，
-    这里的正则接受任意段落的相邻字符串字面量。
+    解析口径**只有一份**，在 `tools/api_deviation_ledger.py`（读数的"风险面"那一段也用它，
+    两边不许各写一套正则）。这里保留这个函数名只是为了不动既有调用方。
     """
-    entries: list[tuple[int, str, str]] = []
-    for match in re.finditer(
-        r"\{\s*(0x[0-9A-Fa-f]{8})\s*,\s*ApiDeviationKind::(\w+)\s*,\s*((?:\s*\"(?:[^\"\\]|\\.)*\"\s*)+)\}",
-        text,
-    ):
-        identifier, kind, raw = match.groups()
-        pieces = re.findall(r'"((?:[^"\\]|\\.)*)"', raw)
-        entries.append((int(identifier, 16), kind, "".join(pieces)))
-    return entries
+    from tools.api_deviation_ledger import load_entries
+
+    return [(entry.identifier, entry.kind, entry.text) for entry in load_entries(DEVIATIONS)]
 
 
 class ApiDeviationContractTests(unittest.TestCase):
@@ -113,14 +125,62 @@ class ApiDeviationContractTests(unittest.TestCase):
         self.assertTrue(kinds <= KINDS, f"出现了未知的偏离种类：{sorted(kinds - KINDS)}")
 
     def test_each_entry_states_the_consequence(self):
-        """每条都必须说清后果（"偏离后果"或"只会/不会造成…"），否则无法判断要不要现在修。"""
-        for identifier, _, text in deviation_entries(self.deviations):
-            with self.subTest(id=hex(identifier)):
-                self.assertGreater(len(text), 40, f"{hex(identifier)} 的说明太短，说不清后果")
+        """每条都必须有**明确写出来的**"偏离后果：…"。
+
+        ★ 2026-09-20（批次 099）为什么加强：原来的判据是"文本里出现'后果'/'只'/'不'之一"，
+        而 `EntityPlayer:GetName()` 那条一个字都没写后果，却因为正文里有"EID **只**做字符串拼接"
+        而**通过了** —— 关键词是顺带出现的，判据等于没判。改成要求台账里那个**固定标记**
+        （`api_deviation_ledger.CONSEQUENCE_MARKER`）。这类"关键词恰好出现"的假通过，
+        与 047 那次"布局表里有这一行就算已实现"是同一族。
+        """
+        from tools.api_deviation_ledger import CONSEQUENCE_MARKER, load_entries
+
+        entries = load_entries(DEVIATIONS)
+        self.assertGreater(len(entries), 10, "一条偏离都没解析到 —— 门禁失去意义")
+        missing = [hex(entry.identifier) for entry in entries if not entry.has_consequence]
+        self.assertEqual(missing, [],
+                         f"这些偏离没有写'{CONSEQUENCE_MARKER}'：{missing}。"
+                         "后果必须写清'模组会看到什么'，否则没人能判断要不要现在修。")
+        for entry in entries:
+            with self.subTest(id=hex(entry.identifier)):
+                self.assertGreater(len(entry.consequence), 8,
+                                   f"{hex(entry.identifier)} 的'偏离后果'太短，等于没写")
+                self.assertNotIn("暂无", entry.consequence,
+                                 f"{hex(entry.identifier)} 的后果是'暂无'式占位 —— 那等于没写")
+
+    def test_each_entry_names_an_existing_judgement(self):
+        """★ 每条必须给出"判据：<仓库里的测试文件>"，且那个文件真的存在。
+
+        为什么（098 事故的直接教训）：`Room:GetGridPath` 那条偏离**登记过**，但后果那一栏写的是
+        "不画路径提示"，真相是"藏掉整条描述" —— 没有判据就没有人会发现写错了。
+        所以从现在起，每条偏离都要能回答"**这条偏离靠什么被钉住**"：
+
+        * 判据必须点名至少一个 `tests/**.py`，且该文件**在当前仓库里存在**（改名/删掉会红）；
+        * 确实还没有可执行判据的，必须写成"判据：暂无（理由…）"—— 那是**欠账**，
+          条数被 `EXPECTED_JUDGEMENT_GAPS` 钉住，**只能降不能升**（与安全桩台账同一套记账方式）。
+        """
+        from tools.api_deviation_ledger import JUDGEMENT_MARKER, load_entries
+
+        entries = load_entries(DEVIATIONS)
+        gaps: list[str] = []
+        for entry in entries:
+            with self.subTest(id=hex(entry.identifier)):
+                if entry.judgement_missing:
+                    gaps.append(hex(entry.identifier))
+                    continue
+                paths = entry.judgement_paths
                 self.assertTrue(
-                    ("后果" in text) or ("只" in text) or ("不" in text),
-                    f"{hex(identifier)} 没有说清'偏离会带来什么'：{text!r}",
-                )
+                    paths,
+                    f"{hex(entry.identifier)} 的'{JUDGEMENT_MARKER}'里没有点名任何 tests/*.py："
+                    f"{entry.judgement!r}")
+                for relative in paths:
+                    self.assertTrue(
+                        (ROOT / relative).is_file(),
+                        f"{hex(entry.identifier)} 的判据指向不存在的文件：{relative}")
+        self.assertEqual(
+            len(gaps), EXPECTED_JUDGEMENT_GAPS,
+            f"'暂无判据'的偏离条数变了（现在 {len(gaps)} 条：{gaps}）。"
+            "要么补上可执行判据，要么在 EXPECTED_JUDGEMENT_GAPS 上面写清为什么又多欠一条。")
 
     def test_no_duplicate_ids(self):
         identifiers = [identifier for identifier, _, _ in deviation_entries(self.deviations)]
@@ -135,6 +195,103 @@ class ApiDeviationContractTests(unittest.TestCase):
             "偏离表的条数变了。请确认每条都写清了'差在哪 + 为什么 + 后果'，"
             "再同步 EXPECTED_DEVIATIONS 并在上面补一行说明。",
         )
+
+
+class PcContractCitationTests(unittest.TestCase):
+    """★ 每条偏离都必须引用 **PC 文档的原文**（批次 111，用户的直接要求）。
+
+    ## 为什么加这条门禁
+
+    2026-09-20 的 107→109→110 三批都在改**同一个** API（`Input.IsActionTriggered`），
+    根因是 107 那次**凭推断断言了 PC 的语义**（注释里写着"PC 是同一帧内问多少次都答 true"，
+    但**没有任何出处**），而不是去读仓库里本来就有的 PC 文档快照。三批的返工就是这个的账单。
+
+    "以后先读文档"不能靠记性 ⇒ 做成**能红的门禁**：每条偏离（我们与 PC 不同的地方，也就是
+    最需要契约的地方）都必须写出
+
+        PC 契约：tools/pc_contract_docs/<页>.md:<行号> 「<原文片段>」
+
+    而这条门禁会**回头核对**：那一页存在、那一行存在、而且那个片段**确实出现在那一行里**
+    ⇒ 抄错行、抄错页、凭记忆写一句、都过不去。
+
+    文档里**确实没有**这一条时，写 `PC 契约：文档里没有 <说明>` —— 明确写出来也算数
+    （不许留空，也不许用"大概是这样"糊过去）。
+
+    ## 契约页**必须待在仓库里**（批次 111 的嵌套门禁抓出来的）
+
+    第一版引用的是 `analysis/isaacdocs-snapshot/docs/` —— 而 `analysis/` 是 **gitignore 的**，
+    于是"只复制已跟踪文件再跑一遍"的嵌套套件（`test_game_file_reader_stage10`）里，
+    这些页**根本不存在** ⇒ 所有引用当场失效。这与批次 048 撞 `RoomShape` 时是同一个教训：
+    **契约源不在仓库里 = 这一类工作对任何其他人都不可做**。
+    所以那 13 页被**逐字节**复制进 `tools/pc_contract_docs/`（带 `.gitattributes` 的 `* -text`），
+    引用也改指向副本 —— 下面是"字节被改过就红"的钉子（改了要先核对上游、再来改这里）。
+    """
+
+    #: 契约页的**字节数**（跨机器/行尾都不会变；`gitattributes` 标了 `-text`）。
+    CONTRACT_PAGE_SIZES = {
+        "Entity.md": 37788,
+        "EntityPickup.md": 6651,
+        "EntityPlayer.md": 92938,
+        "Game.md": 28363,
+        "GridEntity.md": 8270,
+        "Input.md": 5525,
+        "Isaac.md": 31975,
+        "ItemConfig_Item.md": 9616,
+        "Level.md": 21972,
+        "Options.md": 5783,
+        "Room.md": 48849,
+        "Seeds.md": 7079,
+        "Sprite.md": 19065,
+    }
+
+    def test_contract_pages_are_tracked_and_unchanged(self):
+        for name, size in self.CONTRACT_PAGE_SIZES.items():
+            with self.subTest(page=name):
+                page = ROOT / "tools" / "pc_contract_docs" / name
+                self.assertTrue(page.is_file(), f"缺契约页 {name}")
+                self.assertEqual(page.stat().st_size, size,
+                                 f"{name} 的字节数变了 —— 契约页被改动过，先核对上游再改这里")
+
+    @classmethod
+    def setUpClass(cls):
+        cls.entries = deviation_entries(DEVIATIONS.read_text(encoding="utf-8"))
+
+    def test_every_entry_states_the_pc_contract(self):
+        marker = "PC 契约："
+        missing = [f"0x{identifier:08X}" for identifier, _, text in self.entries
+                   if marker not in text]
+        self.assertEqual(missing, [],
+                         f"这些偏离没有写'{marker}'：{missing}。\n"
+                         "先读 `tools/pc_contract_docs/` 里那一页（PC 文档快照的逐字节副本），把原文与行号抄进来；\n"
+                         "文档里确实没有这一条就写'PC 契约：文档里没有 …'（也要写明是什么）。")
+
+    def test_citations_really_point_at_the_doc_text(self):
+        """★ 关键：**回头核对**引用 —— 页要在、行要在、片段要真的在那一行里。"""
+        pattern = re.compile(r'([^\s「」]+?):(\d+)(?:\s*「([^」]*)」)?')
+        checked = 0
+        for identifier, _, text in self.entries:
+            match = re.search(r'PC 契约：(.*?)(?:"|$)', text, re.S)
+            self.assertIsNotNone(match, f"0x{identifier:08X} 的'PC 契约：'后面是空的")
+            body = match.group(1).strip()
+            if body.startswith("文档里没有"):
+                self.assertGreater(len(body), len("文档里没有"),
+                                   f"0x{identifier:08X} 写了'文档里没有'但没说是什么")
+                continue
+            parsed = pattern.match(body)
+            self.assertIsNotNone(parsed, f"0x{identifier:08X} 的契约引用格式不对：{body!r}")
+            path_text, line_text, quote = parsed.groups()
+            page = ROOT / path_text
+            with self.subTest(entry=f"0x{identifier:08X}"):
+                self.assertTrue(page.is_file(), f"{path_text} 不存在")
+                lines = page.read_text(encoding="utf-8").splitlines()
+                index = int(line_text)
+                self.assertLessEqual(index, len(lines), f"{path_text} 没有第 {index} 行")
+                line = lines[index - 1]
+                if quote:
+                    self.assertIn(quote, line,
+                                  f"{path_text}:{index} 里没有「{quote}」—— 引用与文档对不上")
+                checked += 1
+        self.assertGreater(checked, 0, "一条带文档引用的契约都没有？先补起来")
 
 
 if __name__ == "__main__":

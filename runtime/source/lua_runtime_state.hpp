@@ -308,6 +308,18 @@ using GameOperatorDeleteFn = void (*)(void*);
 [[nodiscard]] bool ValidateRngNextBinding(std::uintptr_t address) noexcept;
 
 [[nodiscard]] isaac::runtime::CallbackRegistry& ManagedCallbackRegistry() noexcept;
+
+// ---- 批次 106：`Level:GetStartingRoomIndex()` 的派生记账 ------------------------
+//
+// 模型：**本层第一次被看到的那个房间索引**就是"起始房间"（引擎里没有这个函数/字段的符号，
+// 取证过程见 `level_start_room.hpp` 顶部与 `api_deviation.cpp` 的 0x03010011 那条）。
+//
+// * `NoteCurrentLocationForStartRoom()`：API 层在取值前调一次 —— 自己读一次"当前层 + 当前房间"
+//   喂给记账，于是**不依赖**有没有模组登记帧事件族（那条路径有"没人听就整段跳过"的早退）。
+// * `StartingRoomIndexForCurrentLevel()`：取当前层的起始房间索引；还没观察到任何一层时给
+//   `LevelStartRoomTracker::kUnknownRoomIndex`（= -1，模组那边的比较会判成"不是起始房间"）。
+void NoteCurrentLocationForStartRoom() noexcept;
+[[nodiscard]] std::uint32_t StartingRoomIndexForCurrentLevel() noexcept;
 [[nodiscard]] isaac::runtime::ModHandle RuntimeOwnerHandle() noexcept;
 
 // 多模组（2026-09-16）：把 `ModHandle::ownerPacked` 还原成 domain 的 owner 句柄。

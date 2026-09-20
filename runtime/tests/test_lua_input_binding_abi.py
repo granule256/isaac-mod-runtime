@@ -17,6 +17,13 @@ x0（被覆盖）、手柄序号塞进 x1（被当成动作号）⇒ 引擎永�
 
 这条测试用**假的跳板**（记录它收到了什么）驱动真实的 handler，钉住"动作号必须落到第 2 个参数、
 手柄序号落到第 3 个参数"。它不依赖真机、不依赖游戏。
+
+## 2026-09-20（批次 107）追加：`IsActionTriggered` 改成"问按住、自己算边沿"
+
+真机上引擎那条"刚按下"**从来没答过 true**（同一条控制器、同一个动作，`IsActionPressed` 通、
+`IsActionTriggered` 永远假）⇒ EID 的"库存概况"导航按下去没反应。本批把它换成
+"问引擎的**按住** + Runtime 自己算上升沿"，所以这条测试追加了三段：**按住（不算边沿）→ 松开 →
+再按住（报一次边沿）**，并断言引擎那条 Triggered 跳板**一次都不再被调用**。
 """
 
 import subprocess
@@ -46,8 +53,10 @@ DRIVER = textwrap.dedent(
     #include <lualib.h>
     }
     
+    #include <chrono>
     #include <cstdio>
     #include <cstring>
+    #include <thread>
 
     // 假跳板：记录它收到的 (x0 占位, x1, x2)，并按脚本给的答案回答。
     namespace {
@@ -61,22 +70,34 @@ DRIVER = textwrap.dedent(
     Call g_lastPressed{nullptr, 0xFFFFFFFFu, 0xFFFFFFFFu};
     Call g_lastValue{nullptr, 0xFFFFFFFFu, 0xFFFFFFFFu};
     bool g_triggeredAnswer = false;
-    bool g_pressedAnswer = false;
     float g_valueAnswer = 0.0f;
+    //: 哪些动作"此刻被按住"（按动作号取位）。测试在几次脚本执行之间改它，模拟"按住/松开"。
+    unsigned g_heldActions = 0;
 
     bool FakeTriggered(void* self, unsigned action, unsigned controller) {
         g_lastTriggered = {self, action, controller};
         return g_triggeredAnswer;
     }
+    //: "按住"那条绑定的**调用序列**（前几次的动作号）—— `IsActionTriggered` 也走它，
+    //: 所以序列里应当能看到"先 13（来自 IsActionTriggered）、再 15（来自 IsActionPressed）"。
+    unsigned g_pressedHistory[8] = {};
+    unsigned g_pressedHistoryCount = 0;
+
     bool FakePressed(void* self, unsigned action, unsigned controller) {
         g_lastPressed = {self, action, controller};
-        return g_pressedAnswer;
+        if (g_pressedHistoryCount < 8) {
+            g_pressedHistory[g_pressedHistoryCount++] = action;
+        }
+        return ((g_heldActions >> (action & 31u)) & 1u) != 0;
     }
     float FakeValue(void* self, unsigned action, unsigned controller) {
         g_lastValue = {self, action, controller};
         return g_valueAnswer;
     }
 
+    // 脚本跑三次，用来验**端到端的上升沿**：按住 → 松开 → 再按住。
+    // ★ 2026-09-20（批次 107）：`IsActionTriggered` 不再问引擎那条"刚按下"（真机上它永远是假），
+    // 而是问引擎的"按住"（`g_heldActions` 决定）、再由 Runtime 自己算边沿。
     const char* kScript = R"LUA(
         local results = {}
         results[1] = Input.IsActionTriggered(13, 1)          -- 动作 13、手柄 1
@@ -103,41 +124,69 @@ DRIVER = textwrap.dedent(
         static_cast<void>(isaac::runtime::AttachInputMethods(state));
         lua_setglobal(state, "Input");
 
-        // 先让假跳板答"是"，脚本里的调用才会返回 true（同时记录它收到的参数）。
-        g_triggeredAnswer = true;
-        g_pressedAnswer = true;
         g_valueAnswer = 0.5f;
-        if (luaL_dostring(state, kScript) != LUA_OK) {
-            std::printf("FAILED_CHECK script error: %s\n", lua_tostring(state, -1));
-            return 1;
-        }
+        const auto run_script = [&]() {
+            if (luaL_dostring(state, kScript) != LUA_OK) {
+                std::printf("FAILED_CHECK script error: %s\n", lua_tostring(state, -1));
+                failures += 1;
+            }
+        };
+        //: 读 `captured[index]`（脚本每次执行都会覆盖它）。
+        const auto captured_flag = [&](int index) {
+            lua_getglobal(state, "captured");
+            if (!lua_istable(state, -1)) { lua_pop(state, 1); return -1; }
+            lua_rawgeti(state, -1, index);
+            const int value = lua_toboolean(state, -1);
+            lua_pop(state, 2);
+            return value;
+        };
+
+        // ---- 第 1 次：动作 13 与 15 被按住（13 是首次观察 ⇒ **不算边沿**）------------
+        g_heldActions = (1u << 13) | (1u << 15);
+        run_script();
+        Check(captured_flag(1) == 0, "首次观察（按住）不算边沿");
+        // ★ 约定：动作号落在第 2 个参数、手柄序号落在第 3 个（第 1 个是被跳板覆盖的占位）。
+        //   而且**"刚按下"这条 API 现在问的是"按住"那个绑定** ⇒ 序列里先 13（IsActionTriggered）
+        //   再 15（IsActionPressed），而引擎那条 Triggered 跳板**一次都不该被调用**（真机上它永远是假）。
+        // 脚本里的三次动作查询**全部**走"按住"那条绑定，按脚本顺序 = 13、14、15。
+        Check(g_pressedHistoryCount >= 3 && g_pressedHistory[0] == 13 &&
+                  g_pressedHistory[1] == 14 && g_pressedHistory[2] == 15,
+              "IsActionTriggered/IsActionPressed 都应当把动作号交给**按住**那条绑定");
+        Check(g_lastTriggered.action == 0xFFFFFFFFu,
+              "引擎那条\"刚按下\"跳板不该再被调用（真机上它永远是假）");
+
+        // ---- 第 2 次：松开（不报边沿）--------------------------------------------
+        // ⚠️ 批次 109/110 起边沿是**按帧**判、并且"松手"要连续超过去抖窗口（6 帧）才算真松手
+        // ⇒ 三次脚本执行之间必须睡够（把窗口跨过去）。宿主上没有引擎，帧号走"毫秒 / 4"兜底
+        // ⇒ 睡 40 毫秒 ≈ 10 帧 > 窗口（真机上用的是引擎自己的帧计数，每帧必进）。
+        std::this_thread::sleep_for(std::chrono::milliseconds(40));
+        g_heldActions = 0;
+        run_script();
+        Check(captured_flag(1) == 0, "松开不报边沿");
+        Check(captured_flag(2) == 0, "松开（另一个动作）不报边沿");
+        Check(captured_flag(3) == 0, "IsActionPressed 松开时为 false");
+        Check(captured_flag(4) == 1, "GetActionValue 的 0.5 在 Lua 里是真值");
+
+        // ---- 第 3 次：再按住 ⇒ **这次才是真正的上升沿** ---------------------------
+        std::this_thread::sleep_for(std::chrono::milliseconds(40));
+        g_heldActions = (1u << 13) | (1u << 15);
+        run_script();
+        Check(captured_flag(1) == 1, "松开后再按住 = 上升沿，必须为 true");
+        Check(captured_flag(2) == 0, "没被按住的另一个动作仍为 false");
+        Check(captured_flag(3) == 1, "IsActionPressed 按住时为 true");
+        Check(captured_flag(4) == 1, "GetActionValue 的 0.5 在 Lua 里是真值");
+        Check(g_lastValue.action == 16 && g_lastValue.controller == 1,
+              "GetActionValue 应当把 (动作=16, 手柄=1) 放进 x1/x2");
+        // 数值透传：`captured[4]` 必须**是** 0.5（不是"真值"）。
+        lua_getglobal(state, "captured");
+        lua_rawgeti(state, -1, 4);
+        Check(lua_tonumber(state, -1) == 0.5, "GetActionValue 的 float 必须透传");
+        lua_pop(state, 2);
 
         std::printf("RECORDED triggered=(%u,%u) pressed=(%u,%u) value=(%u,%u)\n",
                     g_lastTriggered.action, g_lastTriggered.controller,
                     g_lastPressed.action, g_lastPressed.controller,
                     g_lastValue.action, g_lastValue.controller);
-        // ★ 判据：动作号落在第 2 个参数、手柄序号落在第 3 个（第 1 个是被跳板覆盖的占位）。
-        Check(g_lastTriggered.action == 14 && g_lastTriggered.controller == 0,
-              "IsActionTriggered 第二次调用应当把 (动作=14, 手柄=0) 放进 x1/x2");
-        Check(g_lastPressed.action == 15 && g_lastPressed.controller == 1,
-              "IsActionPressed 应当把 (动作=15, 手柄=1) 放进 x1/x2");
-        Check(g_lastValue.action == 16 && g_lastValue.controller == 1,
-              "GetActionValue 应当把 (动作=16, 手柄=1) 放进 x1/x2");
-
-        // 返回值也要透传（脚本把结果存在 `captured` 里）。
-        lua_getglobal(state, "captured");
-        Check(lua_istable(state, -1), "脚本应当把结果存进 captured");
-        for (int index = 1; index <= 2; ++index) {
-            lua_rawgeti(state, -1, index);
-            Check(lua_toboolean(state, -1) == 1, "IsActionTriggered 的 true 必须透传");
-            lua_pop(state, 1);
-        }
-        lua_rawgeti(state, -1, 3);
-        Check(lua_toboolean(state, -1) == 1, "IsActionPressed 的 true 必须透传");
-        lua_pop(state, 1);
-        lua_rawgeti(state, -1, 4);
-        Check(lua_tonumber(state, -1) == 0.5, "GetActionValue 的 float 必须透传");
-        lua_pop(state, 2);
 
         lua_close(state);
         if (failures == 0) { std::printf("INPUT_ABI_CHECKS_PASSED\n"); }

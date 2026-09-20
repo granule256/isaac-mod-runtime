@@ -82,6 +82,26 @@ int main(int argc, char** argv) {
         script = "local mod=RegisterMod('Probe',1); "
                  "mod:AddCallback(ModCallbacks.MC_PRE_GET_COLLECTIBLE,function(self,pool,decrease,seed) "
                  "if self~=mod or pool~=1 or decrease~=true or seed~=2 then error('override args') end return 733 end)";
+    } else if (std::strcmp(scenario, "multi_later_returns") == 0) {
+        // 同一 id 登记两条：第一条不返回、第二条返回 733 ⇒ 第二条的值生效。
+        // ★ 这一条钉住批次 103 的改动：从前只取登记表第 0 条 ⇒ 第二条**永远不会被调用**。
+        script =
+            "local mod = RegisterMod('Probe', 1) "
+            "_probe = { first = 0, second = 0 } "
+            "mod:AddCallback(ModCallbacks.MC_PRE_GET_COLLECTIBLE, function() "
+            "  _probe.first = _probe.first + 1 end) "
+            "mod:AddCallback(ModCallbacks.MC_PRE_GET_COLLECTIBLE, function() "
+            "  _probe.second = _probe.second + 1 return 733 end)";
+    } else if (std::strcmp(scenario, "multi_first_wins") == 0) {
+        // 两条都返回整数 ⇒ **第一条**生效（文档："返回的值不会更新后续回调看到的
+        // SelectedCollectible"），但第二条仍然要被调用。
+        script =
+            "local mod = RegisterMod('Probe', 1) "
+            "_probe = { first = 0, second = 0 } "
+            "mod:AddCallback(ModCallbacks.MC_PRE_GET_COLLECTIBLE, function() "
+            "  _probe.first = _probe.first + 1 return 733 end) "
+            "mod:AddCallback(ModCallbacks.MC_PRE_GET_COLLECTIBLE, function() "
+            "  _probe.second = _probe.second + 1 return 999 end)";
     } else if (std::strcmp(scenario, "bad_return") == 0) {
         script = "local mod=RegisterMod('Probe',1); "
                  "mod:AddCallback(ModCallbacks.MC_POST_UPDATE,function(self) if self~=mod then error('update self') end RuntimeTest.MarkPostUpdate() end); "
@@ -98,16 +118,42 @@ int main(int argc, char** argv) {
         return result == 0 && LuaRuntime::PostUpdateCount() == 1 && !LuaRuntime::TakeCallbackError() ? 0 : 2;
     }
     if (std::strcmp(scenario, "override") == 0) {
-        return LuaRuntime::DispatchPreGetCollectible(nullptr, 1, 2, 0, 0) == 0x1000002DDULL &&
+        // 打包口径（批次 103 起有两位）：bit 32 = 有替换值、bit 33 = **返回过非 nil**
+        // ⇒ 回了一个整数时两位都置上：`(1<<33) | (1<<32) | 733`。
+        return LuaRuntime::DispatchPreGetCollectible(nullptr, 1, 2, 0, 0) == 0x3000002DDULL &&
                        !LuaRuntime::TakeCallbackError()
                    ? 0
                    : 3;
     }
+    if (std::strcmp(scenario, "multi_later_returns") == 0) {
+        const auto multi = LuaRuntime::DispatchPreGetCollectible(nullptr, 1, 2, 0, 0);
+        double first = 0, second = 0;
+        // ⚠️ `ReadLuaTableNumber` **成功返回 0**（1/2/3 = 三种读不到的原因），
+        // 别写成 `!ReadLuaTableNumber(...)` —— 那是"成功就报错"（本用例第一版正是这么写的）。
+        if (LuaRuntime::ReadLuaTableNumber("_probe", "first", &first) != 0 || first != 1) return 7;
+        if (LuaRuntime::ReadLuaTableNumber("_probe", "second", &second) != 0 || second != 1) return 8;
+        if (multi != 0x3000002DDULL) return 9;
+        return LuaRuntime::TakeCallbackError() ? 10 : 0;
+    }
+    if (std::strcmp(scenario, "multi_first_wins") == 0) {
+        const auto multi = LuaRuntime::DispatchPreGetCollectible(nullptr, 1, 2, 0, 0);
+        double first = 0, second = 0;
+        // ⚠️ `ReadLuaTableNumber` **成功返回 0**（1/2/3 = 三种读不到的原因），
+        // 别写成 `!ReadLuaTableNumber(...)` —— 那是"成功就报错"（本用例第一版正是这么写的）。
+        if (LuaRuntime::ReadLuaTableNumber("_probe", "first", &first) != 0 || first != 1) return 7;
+        if (LuaRuntime::ReadLuaTableNumber("_probe", "second", &second) != 0 || second != 1) return 8;
+        // ★ 第一条胜出：733（0x2DD）而不是第二条的 999（0x3E7）。
+        if (multi != 0x3000002DDULL) return 9;
+        return LuaRuntime::TakeCallbackError() ? 10 : 0;
+    }
+    // `bad_return`（返回 `true`）与 `out_of_range`（返回 0x100000000）都**没有可用的替换值**
+    // ⇒ 只有 bit 33（非 nil）而没有 bit 32；两者也都必须记一次回调错误
+    // （"返回了没法当道具用的值"是模组自己的 bug，不能静默吞掉）。
     const auto result = LuaRuntime::DispatchPreGetCollectible(nullptr, 1, 2, 1, 0);
-    if (result != 0 || !LuaRuntime::TakeCallbackError()) return 4;
+    if (result != 0x200000000ULL || !LuaRuntime::TakeCallbackError()) return 4;
     if (std::strcmp(scenario, "bad_return") == 0) {
         const auto second = LuaRuntime::DispatchPreGetCollectible(nullptr, 1, 2, 1, 0);
-        if (second != 0 || !LuaRuntime::TakeCallbackError()) return 6;
+        if (second != 0x200000000ULL || !LuaRuntime::TakeCallbackError()) return 6;
     }
     LuaRuntime::DispatchPostUpdate();
     return std::strcmp(scenario, "bad_return") != 0 ||
@@ -159,6 +205,13 @@ int main(int argc, char** argv) {
 
     def test_integer_result_is_an_explicit_collectible_override(self):
         self.run_harness("override")
+
+    def test_every_registration_on_the_same_id_is_called_and_the_first_integer_wins(self):
+        """批次 103：这一条以前是**手工取第 0 条登记**（`g_CallbackRegistry.At(id, 0)`），
+        同一 id 上第二条及以后的登记永远收不到事件 —— 与 PC"同一 id 可登记多条、按登记顺序
+        全部调用"不符。现在走通用派发器，两个场景分别钉住"都会跑"与"第一条整数胜出"。"""
+        self.run_harness("multi_later_returns")
+        self.run_harness("multi_first_wins")
 
     def test_invalid_non_nil_result_is_recorded_without_unregistering_the_callback(self):
         self.run_harness("bad_return")

@@ -15,6 +15,34 @@ struct DispatchReport {
     std::uint32_t invoked{0};
     std::uint32_t failed{0};
     std::uint32_t skippedAffinity{0};
+    //: 因为过滤器对不上而没被调用（`DispatchFiltered` 才有非零值）。
+    std::uint32_t skippedFilter{0};
+};
+
+// --- "可改返回值"派发的结果 --------------------------------------------------
+//
+// PC 上有一族回调的返回值会影响引擎接下来的行为（`MC_PRE_USE_ITEM` 返回 true 就取消这次使用、
+// `MC_PRE_PICKUP_COLLISION` 返回 true 就不算碰上、`MC_PRE_GET_COLLECTIBLE` 返回整数就替换道具）。
+// 这一族必须**逐条收集**再汇总，所以结果不能只有 invoked/failed。
+//
+// 汇总口径（PC 的 `ModCallbacks.md`）：
+//   * `anyTruthy` —— 任一条返回 true。`MC_PRE_*` 的"拦"约定就是它；
+//   * `hasInteger` / `integer` —— **第一条**返回整数的登记的值。`MC_POST_GET_COLLECTIBLE`
+//     的文档明确写着"返回的值不会更新后续回调看到的 SelectedCollectible"⇒ 后续回调拿到的仍是
+//     同一个原值，所以这里是"第一条胜出"，不是"最后一条覆盖"；
+//   * `anyNonNil` —— 任一条返回过非 nil。用来实现"`MC_PRE_GET_COLLECTIBLE` 返回了非 nil
+//     ⇒ 跳过 `MC_POST_GET_COLLECTIBLE`"（同一份文档）。
+struct CallbackDispatchOutcome {
+    std::uint32_t invoked{0};
+    std::uint32_t failed{0};
+    std::uint32_t skippedAffinity{0};
+    std::uint32_t skippedFilter{0};
+    bool anyNonNil{false};
+    bool anyTruthy{false};
+    bool hasInteger{false};
+    std::int64_t integer{0};
+
+    [[nodiscard]] constexpr bool blocked() const noexcept { return anyTruthy; }
 };
 
 // --- 派发计数（环境面地基 · 回调面）--------------------------------------------
@@ -74,6 +102,19 @@ public:
     [[nodiscard]] static std::uint64_t Count() noexcept;
 };
 
+//: 这一轮要不要**按登记时声明的过滤器**筛（与"调用点说不出过滤值"是两件事，见 `DispatchFiltered`）。
+enum class FilterMode : std::uint8_t {
+    //: 不筛（`Dispatch` / `DispatchOwner`）：带过滤器的登记照常调用 —— 与改动前完全一致。
+    Ignore,
+    //: 按过滤器筛（`DispatchFiltered` / `DispatchModifying`）。
+    Apply,
+};
+
+//: 派发顺序缓冲的容量 = 登记表容量：**永远不会不够**（下标能用 `uint8_t` 表示，下面 `static_assert` 钉住）。
+inline constexpr std::size_t kCallbackDispatchOrderCapacity = CallbackRegistry::kCapacity;
+static_assert(CallbackRegistry::kCapacity <= 256,
+              "派发顺序缓冲用 uint8_t 存下标；容量一旦超过 256 就要改缓冲的元素类型");
+
 // Synchronous dispatch for one callback id. One Mod's failure never stops the
 // others, and a callback registered for another thread is skipped rather than
 // run in the wrong context.
@@ -88,7 +129,80 @@ public:
     [[nodiscard]] DispatchReport DispatchOwner(ModHandle owner, CallbackId id,
                                                ThreadAffinity current) noexcept;
 
+    // 与 `Dispatch` 相同，但**按过滤器筛**：只有"没带过滤器"或"过滤器恰好等于 `filter`"的
+    // 登记会被调用。
+    //
+    // 为什么保留一个不筛的 `Dispatch`：PC 的 `ModCallbacks.md` 里大多数回调的"可选实参"是 `-`
+    // （根本没有过滤语义），而 `Mod:AddCallback` 在那些 id 上传第三个实参是无意义的。对它们
+    // 用不筛的路径 = 与改动前完全一致，既不会把"无效过滤参数"变成静默不派发，也不必让每个
+    // 派发点都去关心"这个 id 在 PC 上有没有过滤语义"。
+    [[nodiscard]] DispatchReport DispatchFiltered(CallbackId id, ThreadAffinity current,
+                                                 std::int64_t filter) noexcept;
+
+    // 派发"返回值会影响引擎行为"的那一族回调，并**读回返回值**。
+    // 见 `CallbackDispatchOutcome` 的汇总口径。`filter` 语义同 `DispatchFiltered`。
+    [[nodiscard]] CallbackDispatchOutcome DispatchModifying(CallbackId id, ThreadAffinity current,
+                                                            std::int64_t filter) noexcept;
+
 private:
+    //: 收集"这一轮要调用的登记下标"，按 **优先级升序** 排好；同优先级保持登记顺序（稳定排序）。
+    //: 返回条数；调用方按 `order[0..count)` 依次取 `AtIndex()` 调用。
+    //:
+    //: ★ 为什么写在头里内联（而不是 `.cpp` 里的自由函数）：① 它要用私有的 `AffinityMatches`；
+    //: ② 门禁 `test_callback_dispatch_counters` 按"**类名限定的函数定义**"数派发入口 ——
+    //: 再多一个 `CallbackDispatcher::` 的 `.cpp` 定义会让那条门禁判红（那种红要同步改门禁，
+    //: 不是把入口数搞乱）。内联在这里既不进那份名单，也不改变那四个入口的语义。
+    //:
+    //: ★ 排序为什么是"升序 + 稳定"：PC 的 `CallbackPriority` 是
+    //: `IMPORTANT=-200 / EARLY=-100 / DEFAULT=0 / LATE=100`，**数值越小越早执行**；
+    //: 同优先级之间 PC 保持登记顺序（这本来也是我们的旧行为，改动只在"有优先级声明时"生效）。
+    [[nodiscard]] static std::size_t CollectCallOrder(
+        const CallbackRegistry& registry, CallbackId id, bool hasOwner, ModHandle owner,
+        ThreadAffinity current, FilterMode filterMode, std::int64_t filter,
+        std::uint8_t* order, std::uint32_t* skippedAffinity,
+        std::uint32_t* skippedFilter) noexcept {
+        std::size_t count = 0;
+        for (std::size_t index = 0; index < registry.Count(); ++index) {
+            const CallbackDescriptor* descriptor = registry.AtIndex(index);
+            if (descriptor == nullptr || descriptor->id != id) {
+                continue;
+            }
+            if (hasOwner && descriptor->owner != owner) {
+                continue;
+            }
+            if (filterMode == FilterMode::Apply) {
+                const std::int64_t declared = registry.FilterAt(index);
+                if (declared != CallbackRegistry::kNoCallbackFilter &&
+                    (filter == CallbackRegistry::kNoCallbackFilter || declared != filter)) {
+                    if (skippedFilter != nullptr) {
+                        ++(*skippedFilter);
+                    }
+                    continue;
+                }
+            }
+            if (!AffinityMatches(descriptor->affinity, current)) {
+                if (skippedAffinity != nullptr) {
+                    ++(*skippedAffinity);
+                }
+                continue;
+            }
+            order[count++] = static_cast<std::uint8_t>(index);
+        }
+        // 稳定插入排序：k 很小（EID 一家最多 10 条、GoodTrip 7 条），插入排序最快也最短，
+        // 而且天然稳定（严格大于才前移 ⇒ 相等的保持原相对次序）。
+        for (std::size_t i = 1; i < count; ++i) {
+            const std::uint8_t moved = order[i];
+            const std::int32_t movedPriority = registry.PriorityAt(moved);
+            std::size_t j = i;
+            while (j > 0 && registry.PriorityAt(order[j - 1]) > movedPriority) {
+                order[j] = order[j - 1];
+                --j;
+            }
+            order[j] = moved;
+        }
+        return count;
+    }
+
     [[nodiscard]] static bool AffinityMatches(ThreadAffinity declared,
                                               ThreadAffinity current) noexcept {
         // `current == Any` means the caller cannot name its context, so no

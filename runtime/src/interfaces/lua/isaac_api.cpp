@@ -7,6 +7,7 @@
 #include "interfaces/lua/engine_method_api.hpp"
 #include "interfaces/lua/engine_method_lookup.hpp"
 #include "game_observer.hpp"
+#include "interfaces/lua/input_api.hpp"
 #include "interfaces/lua/isaac_api.hpp"
 #include "interfaces/lua/engine_memory_guard.hpp"
 #include "interfaces/lua/field_api.hpp"
@@ -407,9 +408,6 @@ constexpr std::size_t RowCount(const Table& table) noexcept {
     return sizeof(table) / sizeof(table[0]);
 }
 
-// `Isaac.GetTime()` 的换算率：Runtime 的 update 派发在未暂停时按 30 Hz 标称运行。
-constexpr std::int64_t kFramesPerSecond = 30;
-
 // `Isaac.RunCallback` 的递归上限。PC 版没有这个限制，但我们的派发是同步 Lua 调用，
 // 一个回调再 `RunCallback` 它自己就会一直套下去；给一个小上限，越界直接报 Lua 错误。
 constexpr std::size_t kRunCallbackMaximumDepth = 8;
@@ -496,6 +494,8 @@ void ResetSessionState() {
     // 而"有没有被派发过"这个判断就永远为真了（见 `callback_dispatcher.hpp` 的说明）。
     ResetCallbackDispatchCounters();
     ResetEntityDataStore();
+    // 批次 107：`IsActionTriggered` 的上升沿表也是"每会话"口径。
+    ResetInputEdgeState();
 }
 
 std::int64_t FrameCount() {
@@ -543,10 +543,18 @@ int IsaacGetTime(lua_State* state) {
     if (lua_gettop(state) != 0) {
         return luaL_error(state, "Isaac.GetTime accepts no arguments");
     }
-    // **近似**：`GetFrameCount() / 30` 的整数秒。PC 版返回的是引擎自己的游戏内计时
-    // （暂停、过场、加载都由引擎扣减），我们的引擎时钟偏移尚未定位，所以这里只是
-    // "Runtime 帧数换算成秒"，不声称与 PC 逐值一致。
-    lua_pushinteger(state, static_cast<lua_Integer>(FrameCount() / kFramesPerSecond));
+    // ★ 2026-09-20（批次 108）：**单位必须是毫秒**。PC 文档（`Isaac.md:448`）写明
+    // `int GetTime()` = "milliseconds since the computer's operating system was started"。
+    //
+    // 以前这里是 `GetFrameCount() / 30` 的**整数秒** —— 单位差 1000 倍，而后果不是"显示差一点"：
+    // EID 的库存概况翻页判据是 `Isaac.GetTime() - lastInputTime > 50`（**50 毫秒**防抖），
+    // 秒口径下这条几乎永远不成立 ⇒ **整段翻页逻辑被闸住**（模组侧明明已经收到
+    // `IsActionTriggered` 的 true）。真机读数 + 用户实测一起指到这里的（见 107/108 的存档）。
+    //
+    // 实现见 `engine_memory_guard.hpp` 的 `EngineMillisecondsNow()`（`cntpct_el0` / 19.2 MHz；
+    // 宿主构建走 `steady_clock`）。与 PC 的剩余差别只有 **epoch**（PC 是"OS 启动起"，我们是
+    // Switch 的 tick 起点）—— 模组都算差值，所以语义一致。
+    lua_pushinteger(state, static_cast<lua_Integer>(isaac::runtime::EngineMillisecondsNow()));
     return 1;
 }
 
@@ -4772,6 +4780,40 @@ bool ReadEntityIdentity(std::uintptr_t entity, std::uint32_t* type,
     }
     return ReadEngine(entity + kEntityTypeOffset, type) &&
            ReadEngine(entity + kEntityVariantOffset, variant);
+}
+
+// 批次 104：`RoomConfig::Entry` 的前三个字段。宽度按 `runtime_constants.hpp` 里那三行常量上方
+// 记的证据（`Type` i32、`Variant`/`SubType` **i16**）—— 用 i16 读是刻意的：按 i32 读会把相邻的
+// 两个字段拼成一个数（EID 拿变体/子类型去建索引，拼错的数会让它查错东西、还不报错）。
+std::uint32_t EngineFrameCountNow() noexcept {
+    const std::uintptr_t game = ResolveGameAddress();   // 与 `Game:GetFrameCount` 同一条解析链
+    if (game == 0) {
+        return 0;
+    }
+    std::uint32_t frames = 0;
+    if (!ReadEngine(game + kGameFrameCountOffset, &frames)) {
+        return 0;
+    }
+    return frames;
+}
+
+bool ReadRoomConfigEntryFields(std::uintptr_t entry, std::int32_t* type, std::int32_t* variant,
+                               std::int32_t* subType) noexcept {
+    if (entry == 0 || type == nullptr || variant == nullptr || subType == nullptr) {
+        return false;
+    }
+    std::uint32_t rawType = 0;
+    std::uint16_t rawVariant = 0;
+    std::uint16_t rawSubType = 0;
+    if (!ReadEngine(entry + kRoomConfigEntryTypeOffset, &rawType) ||
+        !ReadEngine(entry + kRoomConfigEntryVariantOffset, &rawVariant) ||
+        !ReadEngine(entry + kRoomConfigEntrySubTypeOffset, &rawSubType)) {
+        return false;
+    }
+    *type = static_cast<std::int32_t>(rawType);
+    *variant = static_cast<std::int32_t>(rawVariant);
+    *subType = static_cast<std::int32_t>(rawSubType);
+    return true;
 }
 
 

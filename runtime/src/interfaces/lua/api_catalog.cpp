@@ -218,6 +218,14 @@ constexpr LuaApiDescriptor kDefaultApis[] = {
      ThreadAffinity::ManagedCallback, ApiMaturity::Experimental},
     {MakeId(ApiDomain::Level, 1, 0x0005), ApiDomain::Level, "Level", "GetCurrentRoom", kV1, 0,
      ThreadAffinity::ManagedCallback, ApiMaturity::HostVerified},
+    // 批次 106：`Level:GetStartingRoomIndex()`（EID 的 `eid_holdmapdesc.lua:35` 每帧都在等它）。
+    // ★ 与上面几条不同：引擎里**没有**这个符号/字段（符号表、Ghidra 类型库、镜像字符串、
+    // `RoomDescriptor` 的 24 个标志、`RoomConfig::Room` 的字段、`Level/Game` 的 0x215xx 全镜像扫描
+    // —— 都查过了），所以取值是**派生**的（本层第一次被看到的房间索引）。
+    // 成熟度记 `Experimental`：逻辑在宿主上全验过，但**真机语义**（尤其"运行时在层中途加载"那种
+    // 情形）还没上机。偏离已登记 `api_deviation.cpp` 的 0x03010011。
+    {MakeId(ApiDomain::Level, 1, 0x0011), ApiDomain::Level, "Level", "GetStartingRoomIndex", kV1, 0,
+     ThreadAffinity::ManagedCallback, ApiMaturity::Experimental},
     {MakeId(ApiDomain::Level, 1, 0x0006), ApiDomain::Level, "Level", "GetAbsoluteStage", kV1, 0,
      ThreadAffinity::ManagedCallback, ApiMaturity::Experimental},
     {MakeId(ApiDomain::Level, 1, 0x0007), ApiDomain::Level, "Level", "IsNextStageAvailable", kV1, 0,
@@ -258,20 +266,27 @@ constexpr LuaApiDescriptor kDefaultApis[] = {
      ThreadAffinity::ManagedCallback, ApiMaturity::HostVerified},
     // 批次 7（2026-09-12）：EID 在网格/寻路路径上无条件调用的一批 `Room` 成员
     // （`eid_api.lua:3351` 的 `EvaluateLocation`、`3371` 的 `HasPathToPosition`、`2593` 的
-    // 网格实体查询）。缺任何一个都是"调 nil"、整条回调被摘除。当前是**保守占位**实现：
-    // 宽高给标准房间边长 13（避免除零）、`GetGridPath` 恒报不可走、`GetGridEntity` 返回 nil，
-    // 因此 EID 的寻路判定恒为"没有可达路径"—— 不会用假数据画出错误提示。要变真实现需先做
-    // 静态审计定位 `Room::GetGridIndex`/`GetGridEntity` 的文件偏移与网格尺寸字段偏移。
+    // 网格实体查询）。缺任何一个都是"调 nil"、整条回调被摘除。
+    //
+    // ★ 批次 098（2026-09-20）：**从"保守占位"改成真实现** —— 起因是用户报"走到地上药丸/
+    //   卡片旁边只显示一个问号"。旧口径 `GetGridPath` 恒返 1000（> EID 的 900 阈值）⇒
+    //   地上每一颗药丸、每一张卡片都被判"够不到"、只画问号（当时只评估成"不画路径提示"，
+    //   漏看了它在药丸/卡片上等于藏掉整条描述）。现在读真值：宽 `Room + 0x14`、
+    //   高 `+0x18`、通行代价表 `+0xE98`（int32/格、下标 `W*y + x`）、格坐标按
+    //   `Room::GetGridIndex(Vector2) @ 0x459e3c` 的算术；证据与宿主判据见
+    //   `runtime_constants.hpp` 与 `runtime/tests/test_lua_room_grid.py`。
+    //   成熟度给 `HostVerified`：宿主门禁（含 EID 自己的寻路器）通过，
+    //   **真机读数确认后再升 `HardwareVerified`**。
     {MakeId(ApiDomain::Room, 1, 0x0002), ApiDomain::Room, "Room", "GetGridWidth", kV1, 0,
-     ThreadAffinity::ManagedCallback, ApiMaturity::Experimental},
+     ThreadAffinity::ManagedCallback, ApiMaturity::HostVerified},
     {MakeId(ApiDomain::Room, 1, 0x0003), ApiDomain::Room, "Room", "GetGridHeight", kV1, 0,
-     ThreadAffinity::ManagedCallback, ApiMaturity::Experimental},
+     ThreadAffinity::ManagedCallback, ApiMaturity::HostVerified},
     {MakeId(ApiDomain::Room, 1, 0x0004), ApiDomain::Room, "Room", "GetGridSize", kV1, 0,
-     ThreadAffinity::ManagedCallback, ApiMaturity::Experimental},
+     ThreadAffinity::ManagedCallback, ApiMaturity::HostVerified},
     {MakeId(ApiDomain::Room, 1, 0x0005), ApiDomain::Room, "Room", "GetGridIndex", kV1, 0,
-     ThreadAffinity::ManagedCallback, ApiMaturity::Experimental},
+     ThreadAffinity::ManagedCallback, ApiMaturity::HostVerified},
     {MakeId(ApiDomain::Room, 1, 0x0006), ApiDomain::Room, "Room", "GetGridPath", kV1, 0,
-     ThreadAffinity::ManagedCallback, ApiMaturity::Experimental},
+     ThreadAffinity::ManagedCallback, ApiMaturity::HostVerified},
     {MakeId(ApiDomain::Room, 1, 0x0007), ApiDomain::Room, "Room", "GetGridEntity", kV1, 0,
      ThreadAffinity::ManagedCallback, ApiMaturity::Experimental},
     // 2026-09-15：`Room:GetRenderScrollOffset()` —— EID 用到而运行时里没有的一条。
@@ -505,7 +520,8 @@ constexpr LuaApiDescriptor kDefaultApis[] = {
     // `Isaac` 门面：PC Mod 的第一句常常就是 `Isaac.GetItemConfig()`（EID 正是如此），
     // 所以这一族先保证**存在且被调用时不报 Lua 错误**。
     //
-    // 有真实行为的成员：`GetFrameCount`/`GetTime` 读 Runtime 自己的帧计数、
+    // 有真实行为的成员：`GetFrameCount` 读 Runtime 自己的帧计数、`GetTime` 读**系统毫秒时钟**
+    // （`cntpct_el0`，批次 108 起；以前是"帧数/30 的整数秒"，单位差 1000 倍把 EID 的翻页闸死了）；
     // `DebugString` 走 Lua `print` 的同一个输出通道、`IsInGame` 读托管回调作用域、
     // `RunCallback` 走 Runtime 自己的回调注册表，以及批次 2 起的 `GetPlayer`（引擎基址 →
     // `Game*` → `players` 向量 → `Entity_Player`，带 vptr 校验）；其余是安全 stub——返回安全

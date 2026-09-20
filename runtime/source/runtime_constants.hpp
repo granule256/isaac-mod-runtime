@@ -452,7 +452,34 @@ inline constexpr uintptr_t kGridEntityDoorTargetRoomIndexOffset = 0x30C;
 inline constexpr std::int32_t kRoomDoorSlotMinimum = -1;
 inline constexpr std::int32_t kRoomDoorSlotMaximum = 7;
 //: `Room + 0x14` = 房间**网格宽度**（`GetDoorSlotPosition` 用它把线性下标拆成行/列）。
+//: **2026-09-20（批次 098）第二条独立证据**：`Room::GetGridPath(int,int) @ 0x484120` 与
+//: `Room::GetGridIndex(int,int) @ 0x45a264` 的第一件事都是 `ldr w9,[x0,#0x14]` → `cmp w9,w1`
+//: （第一个参数的上限），随后 `madd w9, w9, w2, w1` 即 `index = W*y + x` —— 同一格既当宽度用
+//: 又当线性下标里的步长用，两处互相印证。
 inline constexpr uintptr_t kRoomGridWidthOffset = 0x14;
+//: `Room + 0x18` = 房间**网格高度**（int32）。以前记的是"未定位"，批次 098 由上面那两条
+//: 函数的第二条边界 `ldr w10,[x0,#0x18]` → `cmp w10,w2` 定位（第二个参数的上限）。
+//: 标准房间是 13 宽 × 7 高（引擎 `GetGridIndex(Vector)` 的 y 偏移 −120 = −3 格，
+//: 正是"房间在 13×13 网格里偏下 3 格"的来处），**具体数字以真机读数为准，代码里不写死**。
+inline constexpr uintptr_t kRoomGridHeightOffset = 0x18;
+//: `Room + 0xE98` = 网格的**通行代价数组**（每个格子 int32，共 `W*H` 格，下标 `W*y + x`）。
+//: 证据：`Room::GetGridPath(int,int) @ 0x484120` 的尾部
+//: `add x8, x8, w9, uxtw #2` → `ldr w0, [x8, #0xe98]`（`x8` 是 `this`），
+//: 越界（参数为负、或 `>= W/H`、或算出的下标为负）时该函数一律返回 **0**。
+//: 语义（PC 文档 `Room.md` 的 `GetGridPath`）：0 = 最可走，数值越大越不优先，
+//: **> 900 = 不可走**（900 是敌人走过留下的降优先值，950 是火，石头/坑更高）。
+inline constexpr uintptr_t kRoomGridPathArrayOffset = 0xE98;
+//: 世界坐标 → 格坐标的换算常量，取自 `Room::GetGridIndex(Vector2 const&) @ 0x459e3c`：
+//:   `gx = (int)((pos.x − 40.0f) / 40.0f + 0.5f)`、`gy = (int)((pos.y − 120.0f) / 40.0f + 0.5f)`
+//: 然后 `gx ∈ [0,W)`、`gy ∈ [0,H)` 才算合法，返回 **`W*gy + gx`**；越界返回 **−1**。
+//: `(int)` 是 AArch64 `fcvtzs`（**向零截断**，所以 `pos=(0,0)` 得 `gx=0`、`gy=-2` ⇒ 越界）。
+//: −40/−120 不是随手写的：−120 = 3 格，与"房间在 13×13 网格里偏下 3 格"这条已知事实吻合；
+//: 于是格 k 的横向跨度是 `[40k+20, 40k+60)`、格心在 `40k+40`（标准房间左下格心即 (40,120)）。
+//: ⚠️ 这两个常量是**先减后除**里的被减数（`pos − 常量`），别把符号写反 —— 写反时
+//: `pos=(120,240)` 会算成格 (4,9)、直接越界成 −1，宿主门禁 `test_lua_room_grid` 会当场抓到。
+inline constexpr float kRoomGridCellSize = 40.0F;
+inline constexpr float kRoomGridWorldOffsetX = 40.0F;
+inline constexpr float kRoomGridWorldOffsetY = 120.0F;
 //: `Room::GetDoorSlotPosition(eDoorSlot) const`（返回 `XY`：两个 float 走 `s0`/`s1`；
 //: 槽位非法时返回 `Vector2::Zero`）。用它取门的**世界坐标**（GoodTrip 的 `door.Position` 用得到）。
 //: 入口首字 `d10083ff`（`sub sp, sp, #0x20`）。
@@ -2364,3 +2391,102 @@ inline constexpr std::uint32_t kLevelGetLastRoomDescEntryWord = 0x5282AB88U;
 // （模组拿到的 NPC 是基类 `Entity` 视图）⇒ 加了也调不到，属于"先要有视图"的欠账。
 inline constexpr uintptr_t kEntityPickupCanRerollOffset = 0x26AFA8;
 inline constexpr std::uint32_t kEntityPickupCanRerollEntryWord = 0x39470C09U;
+
+// --- 回调面补齐（2026-09-20 批次 102）：第 1 期的四个**入口中继**靶点 -------------
+//
+// 这四条都是"引擎在事件发生的那一刻调用"的函数，我们用入口中继（零占洞：只改目标函数入口
+// 的 16 字节、跳到本模块自己竞技场里的槽）挂它们。16 字节必须是**目标函数真实序言的前
+// 16 字节**（`entry_relay` 会把它们原样搬进槽里回放），且不许含 PC 相对指令 ——
+// 由 `runtime/tests/test_entry_relay_ledger.py` 对着 NRO 逐字节核对。
+//
+// 四个靶点的选法与实参映射的依据（本地符号表 `dist/.tmp-demangle/symbols.json` +
+// `analysis/isaacdocs-snapshot` 的 PC 文档 + `tools/nro_disasm.py` 反汇编）：
+//   * `Entity_Player::UseActiveItem(eCollectibleType /*w1*/, unsigned /*w2*/, int /*w3*/,
+//     int /*w4*/)` —— PC 的 Lua 签名是
+//     `UseActiveItem(CollectibleType Item, UseFlags UseFlags = 0, ActiveSlot Slot = -1,
+//     int CustomVarData = 0)`（`EntityPlayer.md:1853`）⇒ w2 = UseFlags、
+//     w3 = ActiveSlot、w4 = CustomVarData。反汇编印证：函数体开头就是
+//     `and w20, w2, #0x1`（= `UseFlags & USE_NOANIM`，`UseFlag.md`：`USE_NOANIM = 1 << 0`）。
+//   * `Entity_Player::UseCard(eCard /*w1*/, unsigned /*w2*/)` —— PC：
+//     `UseCard(Card ID, UseFlags UseFlags = 0)`（`EntityPlayer.md:1865`）⇒ w2 = UseFlags。
+//   * `Entity_Player::UsePill(ePillEffect /*w1*/, ePillColor /*w2*/, unsigned /*w3*/)` ——
+//     PC 的 `MC_USE_PILL` 只给 `(PillEffect, EntityPlayer, UseFlags)`，所以 w3 = UseFlags；
+//     反汇编印证：w2 进 `and w9, w21, #0x7ff`（药丸颜色掩码）、w3 另有去处。
+//   * `Game::Exit(bool)` —— PC 的 `MC_PRE_GAME_EXIT` 只有 `(ShouldSave [bool])` 一个实参。
+inline constexpr uintptr_t kEntityPlayerUseActiveItemOffset = 0x30653C;
+inline constexpr std::array<u8, 16> kEntityPlayerUseActiveItemExpectedBytes = {
+    0xEF, 0x3B, 0xB6, 0x6D, 0xED, 0x33, 0x01, 0x6D,
+    0xEB, 0x2B, 0x02, 0x6D, 0xE9, 0x23, 0x03, 0x6D,
+};
+inline constexpr uintptr_t kEntityPlayerUseCardOffset = 0x2E9040;
+inline constexpr std::array<u8, 16> kEntityPlayerUseCardExpectedBytes = {
+    0xEE, 0x0F, 0x16, 0xFC, 0xED, 0x33, 0x01, 0x6D,
+    0xEB, 0x2B, 0x02, 0x6D, 0xE9, 0x23, 0x03, 0x6D,
+};
+inline constexpr uintptr_t kEntityPlayerUsePillOffset = 0x2DFC04;
+inline constexpr std::array<u8, 16> kEntityPlayerUsePillExpectedBytes = {
+    0xEC, 0x0F, 0x17, 0xFC, 0xEB, 0x2B, 0x01, 0x6D,
+    0xE9, 0x23, 0x02, 0x6D, 0xFD, 0x7B, 0x03, 0xA9,
+};
+inline constexpr uintptr_t kGameExitOffset = 0x3512F4;
+inline constexpr std::array<u8, 16> kGameExitExpectedBytes = {
+    0xFD, 0x7B, 0xBC, 0xA9, 0xF8, 0x5F, 0x01, 0xA9,
+    0xFD, 0x03, 0x00, 0x91, 0xF6, 0x57, 0x02, 0xA9,
+};
+
+// `Entity_Pickup::handle_collision(Entity*, bool)`（符号
+// `_ZN15IsaacRepentance13Entity_Pickup16handle_collisionEPNS_6EntityEb`）——批次 103 的
+// `MC_PRE_PICKUP_COLLISION` 靶点。反汇编（`tools/nro_disasm.py 0x271F2C 0x80`）确认实参：
+// `x0` = 掉落物自身、`x1` = 碰它的那个实体（EID 的处理器读 `collider.Type`）、`w2` = `low`
+// （PC 文档：`true` 表示"掉落物先撞上对方"，`false` 表示"对方先撞上掉落物"）。
+//
+// PC 的返回值是三态（`ModCallbacks.md`）：`true` = 忽略这次碰撞、`false` = 算碰撞但**不执行**
+// 内部代码、`nil` = 照常执行内部代码 ⇒ 我们只区分"非 nil ⇒ 不跑原函数"（第三态照跑）。
+inline constexpr uintptr_t kEntityPickupHandleCollisionOffset = 0x271F2C;
+inline constexpr std::array<u8, 16> kEntityPickupHandleCollisionExpectedBytes = {
+    0xFF, 0x83, 0x07, 0xD1, 0xEA, 0xB3, 0x00, 0xFD,
+    0xE9, 0x23, 0x17, 0x6D, 0xFD, 0x7B, 0x18, 0xA9,
+};
+
+// `Room::spawn_entity(unsigned GridIndex, RoomConfig::Entry const&, unsigned Seed,
+// Entity**, bool)`（符号 `_ZN15IsaacRepentance4Room12spawn_entityEjRKNS_10RoomConfig5EntryEjPPNS_6EntityEb`）
+// —— 批次 104 的 `MC_PRE_ROOM_ENTITY_SPAWN`(71) 靶点。
+//
+// ★ 实参映射是**逐项坐实**的（不是猜；反汇编 + 重定位表，2026-09-20）：
+//
+//  1. **这个函数没有直接调用者** —— Repentance.nro 里既没有 `bl`、也没有取地址。原因是这些
+//     NRO 是 **PIC 共享对象**：模块内部调用**导出**符号也要走 PLT。顺着
+//     `R_AARCH64_JUMP_SLOT`（jmprel 里 `spawn_entity` 的 GOT 槽 `0xA9EB18`）找到 PLT 桩
+//     `0x671760`，再扫 `bl` 到该桩 ⇒ **5 个调用点**：`0x401A8`、`0x35BB18`、`0x45D034`、
+//     `0x46C7EC`、`0x488C00`（后三个是"遍历房间生成表、逐条生成"的循环体）。
+//  2. `0x45D034` / `0x46C7EC` 两处的调用序列一致：`w1` = 循环下标、`x2` = 一个 12 字节条目
+//     的指针、`w3` = 调用者自己的一个 4 字节局部、`x4 = nullptr`、`w5 = 0`。
+//  3. `w1` = **GridIndex**：函数体内 `udiv w21, w19, w8` + `msub w19, w21, w8, w19`
+//     （= 拿 w1 按房间宽度拆成行/列），并且它被原样传给 `Room::FixSpawnEntry`。
+//  4. `w3` = **Seed**：函数入口用它构造 `RNG(seed, 35)`（PLT 调用解析出来是
+//     `_ZN15IsaacRepentance3RNGC1Ejj`），并且和 `w1` 一起传给 `FixSpawnEntry`。
+//  5. `x2` = `RoomConfig::Entry const&`：函数先把它的**前 12 字节**拷到栈上，再以
+//     "可写引用"传给 `Room::FixSpawnEntry(Entry&, unsigned, unsigned)`（所以必须先拷贝）。
+//     ⇒ 我们在**函数入口**派发，拿到的正是"引擎自然替换**之前**"的 Type/Variant/SubType
+//     —— 与 PC 文档一致（"Returning such a table will override any replacements that might
+//     naturally occur" ⇒ 回调本来就发生在替换之前）。
+//  6. `x4` = `Entity**` 出参、`w5` = bool：本轮用不到（我们只派发，不接管生成）。
+//
+// ⚠️ 一个与 PC 文档**不一致**的地方（记在明处）：PC 的 `RoomConfig::Entry` 是
+// `{int Subtype; int Type; int Variant; float Weight}`（16 字节、三个都是 `int`），
+// 而这个构建里**不是**那个形状 —— `Room::FixSpawnEntry` 与 `RoomConfig::Spawn::PickEntry`
+// 两处独立证据都显示：`Type` 是 32 位、`Variant`/`SubType` 是 **16 位**：
+//   * `FixSpawnEntry`：`ldr w8,[x19]` 后 `cmp w8,#5`（`EntityType.PICKUP`）/`#6`（`SLOT`）
+//     ⇒ `[+0]` 是 `Type`；随后 `ldrh w8,[x19,#4]`、`cmp w8,#0x12d`、`strh #0x12c,[x19,#4]`
+//     ⇒ `[+4]` 是 16 位的**变体**（能改写成另一个变体）；另有 `strh w0,[x19,#6]` ⇒ `[+6]` 是 16 位。
+//   * `Spawn::PickEntry`：`ldr w2,[x8]`（32 位）+ `ldrh w3,[x8,#4]` + `ldrh w4,[x8,#6]`
+//     —— 同一组三连读，宽度也一致。
+inline constexpr uintptr_t kRoomSpawnEntityOffset = 0x453918;
+inline constexpr std::array<u8, 16> kRoomSpawnEntityExpectedBytes = {
+    0xFF, 0x83, 0x03, 0xD1, 0xEB, 0x2B, 0x07, 0x6D,
+    0xE9, 0x23, 0x08, 0x6D, 0xFD, 0x7B, 0x09, 0xA9,
+};
+// `RoomConfig::Entry` 的前三个字段（证据见上面那段：两条独立的三连读）。
+inline constexpr uintptr_t kRoomConfigEntryTypeOffset = 0x00;     // i32：`EntityType`
+inline constexpr uintptr_t kRoomConfigEntryVariantOffset = 0x04;  // i16（**不是** i32！）
+inline constexpr uintptr_t kRoomConfigEntrySubTypeOffset = 0x06;  // i16（**不是** i32！）

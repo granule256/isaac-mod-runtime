@@ -42,11 +42,13 @@ mod:AddCallback(ModCallbacks.MC_POST_RENDER, function()
   local gridIndex = room:GetGridIndex(player.Position)   -- 冒号调用（owner 确定）
   MyOwnHelper(gridIndex)
   local t = player:GetPlayerType()           -- 冒号调用（owner 确定）
-  Game():GetLevel():GetStartingRoomIndex()   -- 链式 + 运行时没有这个方法
-  -- ★ 这一行换过两次，都是因为"夹具里那个方法被实现掉了"：
+  Game():GetRoom():GetDecorationSeed()       -- 链式 + 运行时没有这个方法
+  -- ★ 这一行换过**三次**，每次都是因为"夹具里那个方法被实现掉了"：
   --   ① 原来是 `Game():ChangeRoom(1, 1)`，批次 050 实现 `Game:ChangeRoom` ⇒ 不再算缺口；
-  --   ② 换成 `Game():StartRoomTransition(1, 1)`，批次 055 又把它实现掉了（GoodTrip 传送要用）
-  --      ⇒ 现在换成仍然缺的 `Level:GetStartingRoomIndex`（EID 的 `eid_holdmapdesc.lua:35`
+  --   ② 换成 `Game():StartRoomTransition(1, 1)`，批次 055 又把它实现掉了（GoodTrip 传送要用）；
+  --   ③ 换成 `Game():GetLevel():GetStartingRoomIndex()`，**批次 106** 把它实现掉了
+  --      （EID 的 `eid_holdmapdesc.lua:35` 每条回调都在调 ⇒ 不能一直缺着）
+  --      ⇒ 现在换成仍然缺的 `Room:GetDecorationSeed`（属批次 028 记下的"6 条无引擎符号成员"之一）。
   --      真机就报过它；它在引擎里没有访问器符号，要还原 `Level` 布局才能做，属真欠账）。
   local w = Isaac.GetScreenWidth()           -- 点号调用 + 运行时没有这个方法
   return t, w
@@ -102,18 +104,19 @@ class ModApiGapReportTests(unittest.TestCase):
     def test_chained_calls_are_reported_without_guessing_the_owner(self) -> None:
         """链式调用要报出**候选 owner**（不猜是哪一家），而且已经实现的不能再算缺口。
 
-        ★ 设计变更记两次（都是"夹具里那个方法被实现掉了"）：批次 050 把 `Game:ChangeRoom`
+        ★ 设计变更记**三次**（每次都是"夹具里那个方法被实现掉了"）：批次 050 把 `Game:ChangeRoom`
         实现掉 ⇒ 夹具换成 `StartRoomTransition`；批次 055 又把它实现掉（GoodTrip 传送要用）
-        ⇒ 夹具换成仍然缺的 `Level:GetStartingRoomIndex`。这条门禁要验的东西没变：
+        ⇒ 换成 `Level:GetStartingRoomIndex`；**批次 106** 又把它实现掉（EID 每条回调都在调）
+        ⇒ 现在换成仍然缺的 `Room:GetDecorationSeed`。这条门禁要验的东西一次都没变：
         **接收者类型未知时列出全部候选 owner，不猜**。
         """
         report = self.run_tool()
         chained = report["chained_calls"]
         names = {row["name"] for row in chained["every_candidate_missing"]}
-        self.assertIn("GetStartingRoomIndex", names)
+        self.assertIn("GetDecorationSeed", names)
         row = next(r for r in chained["every_candidate_missing"]
-                   if r["name"] == "GetStartingRoomIndex")
-        self.assertIn("Level", row["candidate_owners"])
+                   if r["name"] == "GetDecorationSeed")
+        self.assertIn("Room", row["candidate_owners"])
 
     def test_the_mods_own_methods_never_show_up_as_gaps(self) -> None:
         report = self.run_tool()

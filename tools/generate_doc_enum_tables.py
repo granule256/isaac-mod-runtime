@@ -58,6 +58,13 @@ TABLES = (
     "StageType",
     "DamageFlag",
     "RoomDescriptor",
+    # 2026-09-20 批次 105：`CallbackPriority`。
+    # ★ 这一张是**又一条"模组读不到"的实例**，而且是 GoodTrip 的**加载期**拦路虎：
+    #   它的 `main.lua:84` 起有 **7 处** `_gt:AddPriorityCallback(…, CallbackPriority.EARLY, …)`
+    #   **没有被 pcall 包住** ⇒ 这个全局是 nil 时整块 main.lua 在第 84 行中止，
+    #   后面所有回调一个都注册不上（"小地图不出现"就是这么来的）。
+    #   值：IMPORTANT=-200 / EARLY=-100 / DEFAULT=0 / LATE=100（**数值越小越早执行**）。
+    "CallbackPriority",
 )
 
 #: 与 `pc_lua_enum_data.cpp` 的表名列表比对用的对方文件。

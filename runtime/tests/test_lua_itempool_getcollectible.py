@@ -29,15 +29,20 @@ class LuaItemPoolGetCollectibleTests(unittest.TestCase):
 #include "lua_runtime.hpp"
 #include "game_observer.hpp"
 #include "domain/callback/callback_descriptor.hpp"
+#include "runtime_constants.hpp"
 
 #include <array>
 #include <cstdint>
 #include <cstring>
+#include <vector>
 
 namespace {
 GameItemPoolObservation g_Observation = GameItemPoolObservation::Success;
 alignas(8) std::array<std::uint8_t, 0x8C8> g_ItemPool{};
-std::uint64_t g_Room = 0;
+// 假房间：批次 098 起 `Room:GetGridPath` 会真的去读 `Room + 0xE98 + index*4`
+// 与 `+0x14`/`+0x18` 两个尺寸字段，所以这里必须是**够大的字节块**，
+// 不能再是一个 u64（那样会读到相邻内存、被尺寸合法性检查拦下）。
+std::vector<std::uint8_t> g_RoomBytes;
 int g_CallCount = 0;
 std::uint64_t g_NestedResult = 1;
 }
@@ -63,7 +68,7 @@ GameItemPoolObservation ReadCurrentGameItemPool(uintptr_t ownerSlot, void** item
 
 GameRoomObservation ReadCurrentGameRoom(uintptr_t ownerSlot, void** room) {
     if (ownerSlot != 0x1111 || room == nullptr) return GameRoomObservation::OwnerUnreadable;
-    *room = &g_Room;
+    *room = g_RoomBytes.data();
     return GameRoomObservation::Success;
 }
 
@@ -102,7 +107,12 @@ int main(int argc, char** argv) {
             "local mod=RegisterMod('Probe',1);"
             "mod:AddCallback(ModCallbacks.MC_POST_UPDATE,function()"
             "  local room=Game():GetRoom();"
-            "  if room:GetGridPath(5.0)~=1000 then error('grid path') end;"
+            // ★ 设计变更（2026-09-20 批次 098）：占位实现（恒 1000）换成真实现后，
+            // 这条场景的**意图仍是"整值浮点实参被接受"**，但判据改成"两个重载同值"
+            // 且"读到的就是假房间表里那一格"（777）—— 不然它只是把一个常量比一遍，
+            // 常量换成什么都通过。
+            "  if room:GetGridPath(5.0)~=room:GetGridPath(5) then error('grid path float') end;"
+            "  if room:GetGridPath(5)~=777 then error('grid path value') end;"
             "end)";
     } else if (std::strcmp(scenario, "invalid") == 0) {
         script = "local mod=RegisterMod('Probe',1); mod:AddCallback(ModCallbacks.MC_PRE_GET_COLLECTIBLE,function() Game():GetItemPool():GetCollectible(-1,false,11) end)";
@@ -113,6 +123,12 @@ int main(int argc, char** argv) {
         script = "local mod=RegisterMod('Probe',1); mod:AddCallback(ModCallbacks.MC_PRE_GET_COLLECTIBLE,function() local p=Game():GetItemPool(); if p:GetCollectible(7,false,11)~=701 then error('first get') end; if p:GetCollectible(8,true,12,13)~=802 then error('second get') end; if p:GetLastPool()~=12345 then error('last pool') end end)";
     }
     *reinterpret_cast<std::uint32_t*>(g_ItemPool.data() + 0x8C0) = 12345;
+    // 假房间：13 宽 × 7 高，第 5 格的通行代价写成 777（其余 0 = 可走）。
+    g_RoomBytes.assign(kRoomGridPathArrayOffset + 13 * 7 * sizeof(std::int32_t) + 8, 0);
+    *reinterpret_cast<std::uint32_t*>(g_RoomBytes.data() + kRoomGridWidthOffset) = 13;
+    *reinterpret_cast<std::uint32_t*>(g_RoomBytes.data() + kRoomGridHeightOffset) = 7;
+    *reinterpret_cast<std::int32_t*>(g_RoomBytes.data() + kRoomGridPathArrayOffset +
+                                      5 * sizeof(std::int32_t)) = 777;
     LuaRuntime::SetGameBindings(0x1111, 0x2222);
     LuaRuntime::SetItemPoolGetCollectibleBinding(reinterpret_cast<uintptr_t>(&GetCollectible));
     const auto result = LuaRuntime::InitializeFromBuffer(script, std::strlen(script), "@itempool.lua");

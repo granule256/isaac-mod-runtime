@@ -130,7 +130,7 @@ SYMS = _SymbolTable({
     'g_CallbackDispatchCounts': 0x0,
     'g_LastDispatchedCallbackId': 0x0,
     'g_CallbackDispatchGeneration': 0x0,
-    'g_CallbackRegistry': 0xa0578,     # 回调登记表：每项 20 字节，count_ 在 +0x1400
+    'g_CallbackRegistry': 0xa0578,     # 回调登记表：布局见下面的 `CALLBACK_REGISTRY_*` 常量
     # ---- 运行时读进来的文件内容（诊断"模组为什么算纯资源型"的关键）----
     'g_DefaultManifest': 0x1b4560,     # 上次读进来的 `manifest.json` 原文（512 KiB 缓冲）
     'g_DefaultEntry': 0xb4560,         # 上次读进来的入口脚本原文（1 MiB 缓冲）
@@ -153,6 +153,13 @@ SYM_ELF_NAMES = {
     'entry_relay_render': 'EntryRelayManagerRenderCallback',
     'entry_relay_collectible': 'EntryRelayPreGetCollectibleCallback',
     'entry_relay_rebuild': 'EntryRelayRebuildMountPointsCallback',
+    # 批次 102 的四个事件中继回调（`g_hookCallbacks` 里应当出现的四个新指针）。
+    'entry_relay_use_active_item': 'EntryRelayUseActiveItemCallback',
+    'entry_relay_use_card': 'EntryRelayUseCardCallback',
+    'entry_relay_use_pill': 'EntryRelayUsePillCallback',
+    'entry_relay_game_exit': 'EntryRelayGameExitCallback',
+    'entry_relay_pickup_collision': 'EntryRelayPickupCollisionCallback',
+    'entry_relay_room_entity_spawn': 'EntryRelayRoomEntitySpawnCallback',
     'present_got_intercept': 'IsaacModRuntime_PresentGotSlotIntercept',
     'g_runtimeSelfAddress': 'g_runtimeSelfAddress',
     'g_sequence': '_ZN12_GLOBAL__N_1L10g_sequenceE',
@@ -223,6 +230,10 @@ SYM_ELF_NAMES = {
     # 菜单/输入诊断量（名字按 `nm` 直出，长度前缀由脚本核对）
     'g_InputActionQueriedMask': '_ZN5isaac7runtime24g_InputActionQueriedMaskE',
     'g_InputActionTriggeredMask': '_ZN5isaac7runtime26g_InputActionTriggeredMaskE',
+    # 批次 109：每个动作报过几次"刚按下"（32 个 u32，下标 = 动作号 & 31）。
+    'g_InputEdgeCounts': '_ZN5isaac7runtime17g_InputEdgeCountsE',
+    # 批次 110：每个动作观察到的最长"闪断"帧数（按住期间连续多少帧读到"没按住"）。
+    'g_InputReleaseRunPeak': '_ZN5isaac7runtime21g_InputReleaseRunPeakE',
     'g_InputActionTriggeredMaskOther': '_ZN5isaac7runtime31g_InputActionTriggeredMaskOtherE',
     'g_InputActionPressedMask': '_ZN5isaac7runtime24g_InputActionPressedMaskE',
     'g_InputActionPressedMaskOther': '_ZN5isaac7runtime29g_InputActionPressedMaskOtherE',
@@ -331,17 +342,32 @@ SYM_UNRESOLVABLE = ()
 _syms_synced = False
 
 HOOK_NAMES = ['ManagerUpdate', 'ManagerRender', 'PreGetCollectible',
-              'ManagerPresent', 'RebuildMountPoints', 'GameStart']
+              'ManagerPresent', 'RebuildMountPoints', 'GameStart',
+              # 2026-09-20 批次 102：顺次追加（`HookId` 的顺序就是这张表的顺序，
+              # 读数里的 `[i]` 与 `HookInstallReport` 的槽位一一对应）。
+              'UseActiveItem', 'UseCard', 'UsePill', 'GameExit',
+              # 批次 103/104：掉落物碰撞、房间生成实体。
+              'PickupCollision', 'RoomEntitySpawn']
 # 只用来做比对、本身不是"要读的内存变量"的符号（读数请求要跳过它们）。
 SYM_ONLY = ('identity', 'manifest_install',
             'entry_relay_update', 'entry_relay_render',
             'entry_relay_collectible', 'entry_relay_rebuild',
+            'entry_relay_use_active_item', 'entry_relay_use_card',
+            'entry_relay_use_pill', 'entry_relay_game_exit',
+            'entry_relay_pickup_collision', 'entry_relay_room_entity_spawn',
             'present_got_slot', 'present_target', 'present_callsite_offset')
 # 已经切到零占洞入口中继的挂点 → 它的回调应当等于"模块基址 + 下面这个符号的偏移"。
 RELAY_BY_HOOK = {'ManagerUpdate': 'entry_relay_update',
                  'ManagerRender': 'entry_relay_render',
                  'PreGetCollectible': 'entry_relay_collectible',
-                 'RebuildMountPoints': 'entry_relay_rebuild'}
+                 'RebuildMountPoints': 'entry_relay_rebuild',
+                 # 批次 102 的四路事件中继。
+                 'UseActiveItem': 'entry_relay_use_active_item',
+                 'UseCard': 'entry_relay_use_card',
+                 'UsePill': 'entry_relay_use_pill',
+                 'GameExit': 'entry_relay_game_exit',
+                 'PickupCollision': 'entry_relay_pickup_collision',
+                 'RoomEntitySpawn': 'entry_relay_room_entity_spawn'}
 # 插件里 g_helper 的位置：0xd220 就是它在插件 ELF 里的虚拟地址——插件的段是连续的，
 # 所以**物理地址 = 插件代码段基址 + 虚拟地址**（实测：0x090ec1e000 + 0xd220 = 0x090ec2b220）。
 PLUGIN_HELPER = 0xd220
@@ -779,7 +805,11 @@ def build_requests(base: int, game_base: int, plugin_base: int):
         # `ModPersistence::detail::RecordAt`）。读它就能把探针写进 `Mod:SaveData` 的文本
         # 从内存里取回来 —— **不依赖屏幕、不依赖 Lua 错误槽**（2026-09-18：探索针的屏幕读数
         # 只画了一帧就没了，正是靠这条通道才把结论拿到手）。
-        ('mod_data_head', base + SYMS['g_ModDataCache'], 512),
+        # ⚠️ 窗口必须**盖住整个 payload**，否则记录表会在中间"走不通就停"，
+        # 而现象是"某条模组的记录不见了"（2026-09-20 实测：EID 的配置记录比 GoodTrip 的大，
+        # 4096 字节的窗口正好把它切掉 ⇒ 读数里只有别的模组）。
+        # 容器容量是 0x4000（16 KiB）、当前用量在 `mod_data_tail` 里报；这里给 8192 字节。
+        ('mod_data_head', base + SYMS['g_ModDataCache'], 1024),
         # API 调用序列（`ApiSequenceState` 的声明顺序：u64 mainMask、u64 secondaryMask、
         # u32 drawCalls、u32 drawBytes、u32 itemConfigFound、u32 itemConfigMissing、
         # u64 filterMask、u32 lastPrimary、u32 lastPrimaryCalls）—— 读前 5 个字（40 字节）够用。
@@ -789,7 +819,13 @@ def build_requests(base: int, game_base: int, plugin_base: int):
         # 回调登记表：**按字节**解（每项 20 字节，见 `decode_callback_entries`）。
         # 请求 90 个 8 字节字 = 720 字节 ⇒ 够看满 36 条登记（容量 256 条，EID 一家约 34 条）。
         ('callback_registry', base + SYMS['g_CallbackRegistry'], 90),
-        ('callback_count', base + SYMS['g_CallbackRegistry'] + 0x1400, 1),
+        ('callback_count', base + SYMS['g_CallbackRegistry'] + CALLBACK_REGISTRY_COUNT_OFFSET, 1),
+        # 批次 109：`Input.IsActionTriggered` **每个动作报过几次**（32 个 u32 = 16 个字）。
+        # 用途：按**一次**键之后读这里 —— 某个动作 +2 就是"一次按键报了两次边沿"
+        # （用户实测的"按一次跳两格"就是这么来的）；+1 才是正常。
+        ('input_edge_counts', base + SYMS['g_InputEdgeCounts'], 16),
+        # 批次 110：最长"闪断"帧数（32 个 u32 = 16 个字）。去抖窗口够不够看它。
+        ('input_release_peak', base + SYMS['g_InputReleaseRunPeak'], 16),
         # 回调耗时桶（批次 086）：按 `PERF_BUCKET_COUNT × PERF_BUCKET_BYTES` 整块读，
         # 旁边那个溢出计数是独立全局 ⇒ 各读各的。
         ('perf_buckets',
@@ -825,7 +861,7 @@ def build_requests(base: int, game_base: int, plugin_base: int):
         ('callback_dispatch_last', base + SYMS['g_LastDispatchedCallbackId'], 1),
         ('callback_dispatch_generation', base + SYMS['g_CallbackDispatchGeneration'], 1),
         ('filetable', base + SYMS['g_diagnosticFileApi'], 4),
-        ('hook_callbacks', base + SYMS['g_hookCallbacks'], 6),
+        ('hook_callbacks', base + SYMS['g_hookCallbacks'], len(HOOK_NAMES)),
         ('update_entry', game_base + SYMS['manager_update_entry'], 2),
         ('render_entry', game_base + SYMS['manager_render_entry'], 2),
         ('present_slot', game_base + SYMS['present_got_slot'], 1),
@@ -842,6 +878,25 @@ def build_requests(base: int, game_base: int, plugin_base: int):
                if not (key in skipped and address == base)]
     return present, skipped
 
+
+#: 回调登记表（`CallbackRegistry`）在模块内的**布局** —— 三张平行数组 + 一个计数，全是手算的：
+#:
+#:   | 成员 | 元素大小 | 总计 |
+#:   | --- | --- | --- |
+#:   | `entries_`（`CallbackDescriptor`） | 20 B | 256 × 20 = **0x1400** |
+#:   | `filters_`（过滤器，批次 101 加） | 8 B | 256 ×  8 = **0x0800** |
+#:   | `priorities_`（优先级，批次 105 加） | 4 B | 256 ×  4 = **0x0400** |
+#:   | `count_`（`size_t`） | — | 落在 **0x2000** |
+#:
+#: ★★ 这是读数工具里**最容易过期的一处**：任何一次往 `CallbackRegistry` 里加数组都会让 `count_`
+#: 整体后移，而后果不是报错、是"**读出一个像模像样的垃圾数**"——
+#: 2026-09-20 实测：`+0x1400` 读到了 `filters_[0]` 的哨兵 `kNoCallbackFilter`（= `0x8000000000000000`
+#: = 打印出来的 9223372036854775808）。所以下面读回来会**先做合理性判断**
+#: （超过容量就响亮报"布局可能变过、来核对这里"），而不是把它当真的登记数念出来。
+CALLBACK_REGISTRY_COUNT_OFFSET = 0x2000
+#: 与 `CallbackRegistry::kCapacity` 一致（门禁 `test_callback_dispatch_counters` 会核对表长那一条，
+#: 这一条靠这里的一致性判断兜住）。
+CALLBACK_REGISTRY_CAPACITY = 256
 
 #: 回调登记表的一项 = 20 字节（`CallbackDescriptor`）：
 #:   +0 `id`(u32)、+4 `owner.index`(u16)、+6 `owner.generation`(u16)、
@@ -894,14 +949,28 @@ CALLBACK_NAMES = {
     58: 'MC_POST_BOMB_UPDATE',
     59: 'MC_POST_BOMB_RENDER',
     62: 'MC_PRE_GET_COLLECTIBLE',
+    # --- 2026-09-20 批次 102（EID / GoodTrip 在等的那几个事件，走入口中继）---------
+    3: 'MC_USE_ITEM',
+    5: 'MC_USE_CARD',
+    10: 'MC_USE_PILL',
+    17: 'MC_PRE_GAME_EXIT',
+    23: 'MC_PRE_USE_ITEM',
+    38: 'MC_PRE_PICKUP_COLLISION',
+    63: 'MC_POST_GET_COLLECTIBLE',
+    71: 'MC_PRE_ROOM_ENTITY_SPAWN',
 }
 
 #: 我们**故意还没接线**、但读数里要标出名字的 id（标名字是为了"这个数字是哪一种"一眼可读）。
-#: 与 `CALLBACK_NAMES` 分开是有意的：门禁要求这里每一个 id 在 `callback_descriptor.hpp` 里
-#: **没有**对应常量 —— 有常量就说明它已经接线了，该挪到上面那张表去。
+#: 与 `CALLBACK_NAMES` 分开是有意的，门禁（`test_callback_dispatch_counters.py` 的
+#: `test_reader_callback_names_have_a_matching_constant`）要求这里每一个 id **不许**出现在
+#: `HasDispatchSite` 名单里。两种形态都合法：**有常量但没派发点**（`MC_INPUT_ACTION` 13）
+#: 或**连常量都还没有**；一旦它的常量进了 `HasDispatchSite`，就该挪到上面那张表去。
+#: （2026-09-20 修正注释：原文说"门禁要求这里没有对应常量"，而门禁实际只判"不在派发点名单里"。）
 CALLBACK_NOT_WIRED = {
     13: 'MC_INPUT_ACTION  ← 已登记但无派发点（见 `HasDispatchSite` 的注释）',
-    17: 'MC_PRE_GAME_EXIT  ← 判据未定，2026-09-18 明确不做（见 `callback_surface.json`）',
+    # 17 `MC_PRE_GAME_EXIT`（批次 102）、38 `MC_PRE_PICKUP_COLLISION`（批次 103）、
+    # 71 `MC_PRE_ROOM_ENTITY_SPAWN`（批次 104）都已接线 ⇒ 都挪到上面的 `CALLBACK_NAMES`。
+    # 也就是说：EID 在意的 9 种里，现在只剩 `MC_INPUT_ACTION`(13) 故意不接（它要钩热函数）。
 }
 
 #: 派发计数表的长度（= PC `ModCallbacks` 的最大值 73 + 1）。与 `callback_dispatcher.hpp` 的
@@ -1458,6 +1527,11 @@ def report(values: dict[str, list[int]], base: int, game_base: int, plugin_base:
               f'generation={generation}、payload={length} 字节')
         print('    ⇒ 第一次开机后应当"存档里有 + generation>=1"；'
               '重启后再读一次 generation 应当继续增大（说明真的落盘了）')
+    # ⚠️ `payload_sources` 原来只在"读到了 API 序列那一段"时才被赋值，而**一次读数里只要有一个
+    # 地址读不到（例如 `--read` 指到未映射区），gdb 那批输出就会缺后面几段** ⇒ 后面用到它时
+    # `UnboundLocalError`，**整份报告崩掉**（2026-09-20 实测）。所以在这里先置空表：
+    # "读不到"应当表现为"少一段"，不是"整份报告看不到"。
+    payload_sources: list[str] = []
     # 模组数据的**记录表**（探针把报告写在 `Mod:SaveData` 里就从这儿读回来）。
     # 除了固定读的那一段，`--read` 指定的区域里也一起找 —— 报告超过固定窗口时（2026-09-18
     # 真机就发生了：payload 长到 1060 字节、探针那条记录被挤出 1 KiB 窗口），
@@ -1751,9 +1825,20 @@ def report(values: dict[str, list[int]], base: int, game_base: int, plugin_base:
             print('  环形历史里还没有记录。')
     else:
         print('  最后的 Lua 错误：无（长度 0）')
+    # ⚠️ 这个量在生产构建里**恒为 0**：它只由宿主测试脚本用的那个 Lua 全局
+    # `RuntimeTest.MarkPostUpdate()` 累加（`lua_runtime.cpp` 的 `MarkPostUpdate`），
+    # 真实派发走的是 `g_CallbackDispatchCounts[MC_POST_UPDATE]`（上面那段）。别把它当故障。
     print(f'  g_PostUpdateCount = {first(values, "g_PostUpdateCount") & 0xFFFFFFFF}')
     count = first(values, 'callback_count')
-    print(f'  回调登记数 = {count}')
+    if count > CALLBACK_REGISTRY_CAPACITY:
+        # 响亮地报"这个数不可信"，而不是把它当真的念出来 —— 布局一变这里就会漂
+        # （2026-09-20 就是这么读到 `kNoCallbackFilter` 的哨兵值的）。
+        print(f'  回调登记数 = {count} ⚠ **不合理**（容量只有 {CALLBACK_REGISTRY_CAPACITY}）'
+              f' ⇒ `CallbackRegistry` 的布局可能变过了：'
+              f'去核对 `callback_registry.hpp` 的平行数组与 `CALLBACK_REGISTRY_COUNT_OFFSET`'
+              f'（= 0x{CALLBACK_REGISTRY_COUNT_OFFSET:X}）')
+    else:
+        print(f'  回调登记数 = {count}')
     reg = values.get('callback_registry') or []
     entries = decode_callback_entries(words_to_bytes(reg))[:count]
     if entries:
@@ -1841,7 +1926,7 @@ def report(values: dict[str, list[int]], base: int, game_base: int, plugin_base:
           + (f'{head[:80].decode("utf-8", "replace")!r}' if head else '（空 ⇒ 没有脚本被读进来）'))
 
     print()
-    print('=== 五个挂点：各自的回调指针（g_hookCallbacks）===')
+    print(f'=== {len(HOOK_NAMES)} 个挂点：各自的回调指针（g_hookCallbacks）===')
     callbacks = values.get('hook_callbacks') or []
     for i, name in enumerate(HOOK_NAMES):
         ptr = callbacks[i] if i < len(callbacks) else None
@@ -1957,6 +2042,11 @@ def report(values: dict[str, list[int]], base: int, game_base: int, plugin_base:
         pressed_mask = first(values, 'g_InputActionPressedMask') & 0xFFFFFFFF
         pressed_other = first(values, 'g_InputActionPressedMaskOther') & 0xFFFFFFFF
         pressed_ctrl = first(values, 'g_InputPressedControllerMask') & 0xFFFFFFFF
+        # ⚠️ 批次 107 起这两张位图的**含义**变了：`Input.IsActionTriggered` 不再问引擎那条"刚按下"
+        # （真机上它永远答假 ⇒ EID 的库存概况导航没反应），改成"问引擎的按住 + Runtime 自己算上升沿"。
+        # 所以这里的 `triggered` 记的是**我们判定的上升沿**（不再是引擎的答案），
+        # 而 `pressed` 那两张位图仍然来自引擎 —— 两者对照着看就能二分：
+        # "按住有、上升沿没有" = 我们的边沿判定没生效；"按住也没有" = 引擎那条查询/控制器号有问题。
         print(f'  输入：问过的动作号 = 0x{queried:08x}、回答"是"的 = 0x{triggered:08x}'
               + f'（最后一次问 {first(values, "g_InputLastActionCode") & 0xFFFFFFFF}，'
               + f'结果 {first(values, "g_InputLastActionResult") & 0xFFFFFFFF}）')
@@ -1969,6 +2059,28 @@ def report(values: dict[str, list[int]], base: int, game_base: int, plugin_base:
               f'按到过：{", ".join(fired) if fired else "**一个都没有**"}')
         fired_other = [str(code) for code in range(32) if triggered_other & (1 << code)]
         pressed = [str(code) for code in range(32) if pressed_mask & (1 << code)]
+        if 'input_edge_counts' in values:
+            counts = []
+            for word in values['input_edge_counts']:
+                counts.append(word & 0xFFFFFFFF)
+                counts.append((word >> 32) & 0xFFFFFFFF)
+            fired_counts = [f'{code}={counts[code]}' for code in range(32) if counts[code]]
+            print(f'  "刚按下"累计报过几次（按动作号）：'
+                  + (', '.join(fired_counts) if fired_counts else '（一次都没报过）'))
+            if fired_counts:
+                print('    ⇒ 按**一次**键之后看这里：某个动作 +2 = "一次按键报了两次边沿"'
+                      '（那就是"按一次跳两格"的成因）；+1 = 正常。')
+        if 'input_release_peak' in values:
+            peaks = []
+            for word in values['input_release_peak']:
+                peaks.append(word & 0xFFFFFFFF)
+                peaks.append((word >> 32) & 0xFFFFFFFF)
+            fired_peaks = [f'{code}={peaks[code]}帧' for code in range(32) if peaks[code]]
+            print(f'  "按住"最长闪断（按动作号）：'
+                  + (', '.join(fired_peaks) if fired_peaks else '（没断过）'))
+            if fired_peaks:
+                print('    ⇒ 闪断帧数若 ≥ 松手去抖窗口（6 帧）就还会"长按不停翻页"'
+                      '（那时要把窗口调大）。')
         print(f'  非 0 号 controller 上按到过的动作号：'
               f'{", ".join(fired_other) if fired_other else "（无）"}'
               f'（最后一次问的 controller = '
@@ -1980,6 +2092,65 @@ def report(values: dict[str, list[int]], base: int, game_base: int, plugin_base:
         if not fired and not fired_other:
             print('    ⇒ 两个 controller 序号都没有任何动作被判定为按下：说明**查询本身**没通'
                   '（不是键位对不上）—— 下一步要换机制，而不是继续猜动作号。')
+
+    # 注意：这里**不**用上面那段里的 `catalog_names` —— 它只在"有 API 桶"时才会被赋值
+    # （生产构建下桶是空的），照抄会直接 NameError。接口名现算。
+    print_degradation_surface()
+
+
+# ---------------------------------------------------------------------------
+# 风险面：还在返回兜底值的接口（数据来自仓库里的偏离台账，不是设备读数）
+# ---------------------------------------------------------------------------
+#
+# 为什么要放在**每一次读数**里（2026-09-20 批次 099，由 098 事故推动）：
+# `Room:GetGridPath` 恒返回 1000 那条偏离**登记过**，但"后果"写的是"不画路径提示"，
+# 真相是"地上每一颗药丸/卡片只显示问号"—— 登记了却没人看、后果还写错了。
+# ⇒ 把"还有哪些接口不是真值"摊在每次读数旁边：风险面在眼前，而不是等人踩上去。
+def print_degradation_surface() -> None:
+    """打印偏离台账的现状（接口名 + 后果 + 判据），缺账本时如实说明而不是静默跳过。"""
+    try:
+        sys.path.insert(0, str(ROOT / 'tools'))
+        from api_deviation_ledger import CONSEQUENCE_MARKER, load_entries, summarise
+    except ImportError as error:  # 换台机器只拷了工具、没拷台账
+        print()
+        print(f'=== 还在返回兜底值的接口（风险面）===')
+        print(f'  ⚠ 读不到偏离台账（{error}）⇒ 这一段跳过；'
+              f'别把"没打印"当成"没有偏离"')
+        return
+    try:
+        entries = load_entries()
+    except (OSError, ValueError) as error:
+        print()
+        print('=== 还在返回兜底值的接口（风险面）===')
+        print(f'  ⚠ 台账解析失败（{error}）⇒ 这一段跳过')
+        return
+
+    try:
+        catalog_names = api_catalog_names()
+    except Exception:  # 目录读不到不该让整份读数崩掉，最多是名字显示成 id
+        catalog_names = {}
+    stats = summarise(entries)
+    by_kind = '、'.join(f'{kind} {count}' for kind, count in sorted(stats['by_kind'].items()))
+    print()
+    print('=== 还在返回兜底值/近似值的接口（风险面；数据来自 api_deviation.cpp）===')
+    gaps = stats['missing_judgement']
+    suffix = f'（{gaps}）' if gaps else ''
+    print(f'  共 {stats["total"]} 条偏离：{by_kind}；其中"暂无判据" {len(gaps)} 条{suffix}')
+    print('  ★ 这些接口交回的不是引擎真值。模组拿它们当判据时会出现"看着正常、其实答错"的行为')
+    print('     （098 的实例：`Room:GetGridPath` 恒返 1000 ⇒ EID 认为地上药丸/卡片都够不到、只画问号）。')
+    for entry in entries:
+        name = catalog_names.get(entry.identifier) or f'未知 id 0x{entry.identifier:08X}'
+        consequence = entry.consequence.replace('\n', ' ')
+        judgement = entry.judgement.replace('\n', ' ')
+        if len(consequence) > 110:
+            consequence = consequence[:110] + '…'
+        if len(judgement) > 110:
+            judgement = judgement[:110] + '…'
+        print(f'  · 0x{entry.identifier:08X} {name}（{entry.kind}）')
+        print(f'      后果：{consequence or f"**缺 {CONSEQUENCE_MARKER}**（门禁会红）"}')
+        print('      ' + (f'判据：{judgement}' if judgement else '**缺判据：……**（门禁会红）'))
+    print('  （完整正文与判据：`python3 tools/api_deviation_ledger.py`；'
+          '条数由 `runtime/tests/contract/test_api_deviation.py` 钉住）')
 
 
 # ---------------------------------------------------------------------------

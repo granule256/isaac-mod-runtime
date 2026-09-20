@@ -114,7 +114,18 @@ bool HasDispatchSite(CallbackId id) {
            id == kCallbackPostKnifeRender || id == kCallbackPostEffectInit ||
            id == kCallbackPostEffectUpdate || id == kCallbackPostEffectRender ||
            id == kCallbackPostBombInit || id == kCallbackPostBombUpdate ||
-           id == kCallbackPostBombRender;
+           id == kCallbackPostBombRender ||
+           // --- 2026-09-20 批次 102：EID / GoodTrip 在等的那几个事件（入口中继）---
+           // 前四条走中继回调里的 `DispatchFiltered` / `DispatchModifying`，
+           // `kCallbackPreGetCollectible` 旁边那条（`kCallbackPostGetCollectible`）走的是
+           // **已有的**取道具中继、在原函数返回之后派发。
+           id == kCallbackPreGameExit || id == kCallbackUseItem || id == kCallbackUseCard ||
+           id == kCallbackUsePill || id == kCallbackPreUseItem ||
+           id == kCallbackPostGetCollectible ||
+           // 批次 103（第 2 期）：掉落物碰撞（中继回调里 `DispatchModifying`，过滤值是掉落物变体）。
+           id == kCallbackPrePickupCollision ||
+           // 批次 104（第 2 期）：房间生成实体（中继回调里 `Dispatch`，只通知）。
+           id == kCallbackPreRoomEntitySpawn;
 }
 
 bool ResolveCallbackId(lua_Integer callback, CallbackId* id) {
@@ -134,11 +145,25 @@ bool ResolveCallbackId(lua_Integer callback, CallbackId* id) {
     return true;
 }
 
-int ModAddCallback(lua_State* state) {
-    luaL_checkudata(state, 1, kModMetatable);
-    // PC 版签名是 `Mod:AddCallback(kind, function[, optionalParam])`：可选的第三个
-    // 参数（过滤用，例如 CollectibleType）我们接受但忽略——过滤器只影响派发筛选，
-    // 而我们尚未实现这些种类的派发。多传参数仍然报错，避免静默吞掉调用方的笔误。
+//: 登记一条回调的**共用实现**（`Mod:AddCallback` 与 `Mod:AddPriorityCallback` 都走它）。
+//:
+//: 进入时栈上必须是 `(self, id, fn[, filter])` —— 优先级由 `ModAddPriorityCallback` 先摘掉、
+//: 再作为实参传进来。这样拆的好处是**两条登记路径的其余行为一字不差**（校验、命名回调、
+//: 过滤参数、追加语义、普查计数都在这一份里），差别只有"优先级"这一处 ——
+//: 而"两处各写一遍"正是本项目栽过的坑（`SKIP_HOOK_*` 那次）。
+int RegisterCallbackFromStack(lua_State* state, std::int32_t priority) {
+    // PC 版签名是 `Mod:AddCallback(kind, function[, entityId])`（`ModReference.md:17`：
+    // `void AddCallback(ModCallbacks callbackId, function callbackFn, int entityId)`）。
+    //
+    // 第三个实参是**过滤器**：官方文档里叫 `entityId`，取值类型随回调而异
+    // （`CollectibleType` / `Card` / `PillEffect` / `PickupVariant`…），语义是"这条登记只在
+    // 过滤值相等时被派发"。EID 重度依赖它 —— 它把 `MC_PRE_USE_ITEM` 登记了 6 条各自带
+    // CollectibleType 过滤器的处理函数（Smelter / Void / Flip / D4 / Genesis / Lemegeton）；
+    // 不筛的话 `EID.OnUseSmelter` 会在**每一次**主动道具使用时都跑一遍。
+    //
+    // 2026-09-20（批次 101）之前这里是"接受但忽略"（那时这些种类还没有派发点，忽略的后果
+    // 只是"以后接上时要记得补"）。现在过滤值真的存进登记表并与登记项平行（见
+    // `CallbackRegistry::kNoCallbackFilter`），派发侧按它筛。
     const int argumentCount = lua_gettop(state);
     if (argumentCount != 3 && argumentCount != 4) {
         return luaL_error(state, "unsupported callback id for this Runtime phase");
@@ -161,6 +186,22 @@ int ModAddCallback(lua_State* state) {
     CallbackId id = 0;
     if (!ResolveCallbackId(callback, &id)) {
         return luaL_error(state, "unsupported callback id for this Runtime phase");
+    }
+    // 过滤器（可选第三个实参）：`nil` / 缺省 = 不带过滤器。
+    //
+    // 数值判定用 `IsIntegerArgument`（接受 `5.0` 这类"整数值的浮点"）而不是 `luaL_checkinteger`：
+    // 与 09-13 修 `Room:GetGridPath(5.0)` 那次同一个理由 —— 模组把枚举值当浮点传是常态，
+    // 在这里严格拒绝会让**整条 `Mod:AddCallback` 报错**，而它通常写在模组入口脚本里
+    // ⇒ 一个参数写法把整个模组打成"加载失败"。真给一个非整数（例如 `0.5`）时仍然报错：
+    // 那种值不可能是 PC 的 `int entityId`，静默取整会让登记的过滤值不是模组想要的。
+    std::int64_t filter = CallbackRegistry::kNoCallbackFilter;
+    if (argumentCount == 4 && lua_type(state, 4) != LUA_TNIL) {
+        lua_Integer value = 0;
+        if (!isaac::runtime::IntegerArgumentAt(state, 4, &value)) {
+            return luaL_error(state,
+                              "Mod:AddCallback expects an integer filter value as its third argument");
+        }
+        filter = static_cast<std::int64_t>(value);
     }
     lua_pushvalue(state, 3);
     const int functionRef = luaL_ref(state, LUA_REGISTRYINDEX);
@@ -194,7 +235,7 @@ int ModAddCallback(lua_State* state) {
     descriptor.affinity = isaac::runtime::ThreadAffinity::Any;
     descriptor.luaReference = functionRef;
     descriptor.modReference = modRef;
-    if (!registry.Register(descriptor).ok()) {
+    if (!registry.Register(descriptor, filter, priority).ok()) {
         luaL_unref(state, LUA_REGISTRYINDEX, functionRef);
         luaL_unref(state, LUA_REGISTRYINDEX, modRef);
         // 容量耗尽：把可判据的原因说清楚（`CallbackRegistry::kCapacity` 是全 Mod 共享的上限）。
@@ -270,21 +311,40 @@ int ModRemoveCallback(lua_State* state) {
 // PC：`Mod:AddPriorityCallback(callbackId, CallbackPriority, fn)` —— 与 `AddCallback` 同路，
 // 差别只是"同一 id 内的执行顺序"（GoodTrip 的 `main.lua:84` 起就用它）。
 //
-// **本批口径（如实说明的偏差）**：登记行为与 `AddCallback` 完全一致，**优先级只校验、暂不排序**
-// ⇒ "回调都跑，只是顺序不一定与 PC 相同"（影响"窗口会不会被别的 HUD 盖住"这类视觉差异）。
-// 真排序要在 `CallbackRegistry` 加**并行优先级数组**；**不许往 `CallbackDescriptor` 加字段**
-// —— 那会改"20 字节/项"的布局，读数工具与离线解码都得跟着改。
+// ★ 2026-09-20（批次 105）：**优先级已经真的参与排序**了（此前是"只校验、暂不排序"，见
+// `docs/改动日志-20260920.md` 的 105 与 `mod_api.cpp` 的历史注释）。做法与过滤器同一套：
+// `CallbackRegistry` 里加一张**与登记项平行的优先级数组**（不往 `CallbackDescriptor` 加字段
+// —— 那会改"20 字节/项"的布局，读数工具与离线解码都得跟着改），派发时按它**升序稳定排序**：
+//   * 升序 = PC 语义（`CallbackPriority.EARLY = -100` 比 `DEFAULT = 0` **先**执行）；
+//   * 稳定 = 同优先级之间保持**登记顺序**（PC 也是这个观感，而且是我们此前的行为）。
+// 为什么值得做：GoodTrip 的**每一个**回调都用 `AddPriorityCallback(…, EARLY, …)` 登记
+// （`main.lua:84-104`），而它的绘制要压在其他 HUD 之前 —— 优先级不生效等于"它以为自己在最前，
+// 实际排在最后"。
+int ModAddCallback(lua_State* state) {
+    luaL_checkudata(state, 1, kModMetatable);
+    return RegisterCallbackFromStack(state, CallbackRegistry::kDefaultCallbackPriority);
+}
+
 int ModAddPriorityCallback(lua_State* state) {
-    if (lua_gettop(state) != 4) {
-        return luaL_error(state,
-                          "Mod:AddPriorityCallback expects a callback id, a priority and a function");
+    luaL_checkudata(state, 1, kModMetatable);
+    // PC 版签名：`AddPriorityCallback(callbackId, CallbackPriority priority, function callbackFn,
+    // int entityId)`（`ModReference.md:21`）—— 第四个实参（过滤器）是可选的。
+    const int argumentCount = lua_gettop(state);
+    if (argumentCount != 4 && argumentCount != 5) {
+        return luaL_error(
+            state,
+            "Mod:AddPriorityCallback expects (callbackId, priority, function[, entityId])");
     }
     if (!isaac::runtime::IsIntegerArgument(state, 2) ||
         !isaac::runtime::IsIntegerArgument(state, 3)) {
         return luaL_error(state, "Mod:AddPriorityCallback expects integer id and priority");
     }
-    lua_remove(state, 3);  // 摘掉 priority ⇒ 栈变 (self, id, fn)，转调同一条登记路径
-    return ModAddCallback(state);
+    lua_Integer priority = 0;
+    if (!isaac::runtime::IntegerArgumentAt(state, 3, &priority)) {
+        return luaL_error(state, "Mod:AddPriorityCallback expects integer id and priority");
+    }
+    lua_remove(state, 3);  // 摘掉 priority ⇒ 栈变 (self, id, fn[, filter])，转调同一条登记路径
+    return RegisterCallbackFromStack(state, static_cast<std::int32_t>(priority));
 }
 
 int ModHasData(lua_State* state) {

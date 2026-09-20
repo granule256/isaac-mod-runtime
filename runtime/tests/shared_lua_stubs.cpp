@@ -15,6 +15,7 @@
 
 #include "game_observer.hpp"
 #include "game_file_reader.hpp"
+#include "level_start_room.hpp"
 
 #include <cstddef>
 #include <cstdint>
@@ -100,3 +101,26 @@ ISAAC_TEST_WEAK GameFileReader::TextReadResult GameFileReader::ReadTextFile(
 }
 #endif
 
+// 批次 106：`Level:GetStartingRoomIndex()` 的派生记账 —— 真实实现在 `lua_runtime.cpp`
+// （那里才有帧事件状态与 `GameOwnerSlot()` 那条链）。**只编译 API 层的那些宿主 harness**
+// 不链接 `lua_runtime.cpp` ⇒ 不给弱默认就会"链接失败"（本批第一版就是这么红 40 个模块的）。
+// 弱默认的语义与"还没观察到任何一层"一致：答 -1（模组那边会判成"不是起始房间"）。
+namespace LuaRuntime {
+
+ISAAC_TEST_WEAK void NoteCurrentLocationForStartRoom() noexcept {}
+
+ISAAC_TEST_WEAK std::uint32_t StartingRoomIndexForCurrentLevel() noexcept {
+    return LevelStartRoomTracker::kUnknownRoomIndex;
+}
+
+}  // namespace LuaRuntime
+
+// 批次 107：`IsActionTriggered` 上升沿表的会话级重置。真实实现在 `input_api.cpp`；
+// **有些宿主 harness 只编译 API 层的一部分**（`isaac_api.cpp` 编译、`input_api.cpp` 不编译）
+// ⇒ 不给弱默认就会"链接失败"（本批第一版正是这么红掉 39 个模块的）。那些 harness 不用上升沿表，
+// 所以默认空实现即可。
+namespace isaac::runtime {
+
+ISAAC_TEST_WEAK void ResetInputEdgeState() noexcept {}
+
+}  // namespace isaac::runtime

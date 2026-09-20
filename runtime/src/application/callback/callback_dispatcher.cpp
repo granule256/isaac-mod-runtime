@@ -60,14 +60,15 @@ DispatchReport CallbackDispatcher::Dispatch(CallbackId id, ThreadAffinity curren
         // 每个 update 恰好一次：这是 `Isaac.GetFrameCount()` 的唯一累加点。
         ManagedFrameClock::MarkPostUpdateDispatch();
     }
-    const std::size_t total = registry_.CountOf(id);
-    for (std::size_t index = 0; index < total; ++index) {
-        const CallbackDescriptor* descriptor = registry_.At(id, index);
+    // 顺序按**优先级升序 + 同优先级登记顺序**（见 `CollectCallOrder` 的注释）。
+    std::uint8_t order[kCallbackDispatchOrderCapacity];
+    const std::size_t total = CollectCallOrder(registry_, id, false, ModHandle{}, current,
+                                              FilterMode::Ignore,
+                                              CallbackRegistry::kNoCallbackFilter, order,
+                                              &report.skippedAffinity, &report.skippedFilter);
+    for (std::size_t position = 0; position < total; ++position) {
+        const CallbackDescriptor* descriptor = registry_.AtIndex(order[position]);
         if (descriptor == nullptr) {
-            break;
-        }
-        if (!AffinityMatches(descriptor->affinity, current)) {
-            ++report.skippedAffinity;
             continue;
         }
         if (invoker_.Invoke(*descriptor).ok()) {
@@ -79,18 +80,88 @@ DispatchReport CallbackDispatcher::Dispatch(CallbackId id, ThreadAffinity curren
     return report;
 }
 
+DispatchReport CallbackDispatcher::DispatchFiltered(CallbackId id, ThreadAffinity current,
+                                                   std::int64_t filter) noexcept {
+    RecordDispatch(id);
+    DispatchReport report{};
+    if (id == kCallbackPostUpdate) {
+        ManagedFrameClock::MarkPostUpdateDispatch();
+    }
+    // 过滤器与描述符的平行关系按**全表下标**定义（`CallbackRegistry::FilterAt`），
+    // 所以收集也在全表上走；顺序同样按优先级（见 `CollectCallOrder`）。
+    std::uint8_t order[kCallbackDispatchOrderCapacity];
+    const std::size_t total = CollectCallOrder(registry_, id, false, ModHandle{}, current,
+                                              FilterMode::Apply, filter, order,
+                                              &report.skippedAffinity, &report.skippedFilter);
+    for (std::size_t position = 0; position < total; ++position) {
+        const CallbackDescriptor* descriptor = registry_.AtIndex(order[position]);
+        if (descriptor == nullptr) {
+            continue;
+        }
+        if (invoker_.Invoke(*descriptor).ok()) {
+            ++report.invoked;
+        } else {
+            ++report.failed;
+        }
+    }
+    return report;
+}
+
+CallbackDispatchOutcome CallbackDispatcher::DispatchModifying(CallbackId id, ThreadAffinity current,
+                                                             std::int64_t filter) noexcept {
+    RecordDispatch(id);
+    CallbackDispatchOutcome outcome{};
+    // 全表遍历的理由同 `DispatchFiltered`（过滤器按全表下标与描述符平行）；
+    // 顺序同样按**优先级升序 + 同优先级登记顺序**（见 `CollectCallOrder`）。
+    std::uint8_t order[kCallbackDispatchOrderCapacity];
+    const std::size_t total = CollectCallOrder(registry_, id, false, ModHandle{}, current,
+                                              FilterMode::Apply, filter, order,
+                                              &outcome.skippedAffinity, &outcome.skippedFilter);
+    for (std::size_t position = 0; position < total; ++position) {
+        const CallbackDescriptor* descriptor = registry_.AtIndex(order[position]);
+        if (descriptor == nullptr) {
+            continue;
+        }
+        CallbackReturn returned{};
+        if (!invoker_.InvokeCollecting(*descriptor, &returned).ok()) {
+            ++outcome.failed;
+            continue;
+        }
+        ++outcome.invoked;
+        if (!returned.called) {
+            continue;
+        }
+        if (returned.nonNil) {
+            outcome.anyNonNil = true;
+        }
+        if (returned.truthy) {
+            outcome.anyTruthy = true;
+        }
+        // "第一条胜出"：`MC_POST_GET_COLLECTIBLE` 的文档写明"返回的值**不会**更新后续回调
+        // 看到的 SelectedCollectible"⇒ 后续回调拿到的仍是同一个原值，因此后一条的返回值
+        // 不会覆盖前一条。写成"第一条胜出"与那个语义一致（且不会让最后一条默默赢）。
+        if (returned.hasInteger && !outcome.hasInteger) {
+            outcome.hasInteger = true;
+            outcome.integer = returned.integer;
+        }
+    }
+    return outcome;
+}
+
 DispatchReport CallbackDispatcher::DispatchOwner(ModHandle owner, CallbackId id,
                                                  ThreadAffinity current) noexcept {
     // 与 `Dispatch` 同一个口径：数的是"这种回调被派发过几次"，与谁来听、听了几个无关。
     RecordDispatch(id);
     DispatchReport report{};
-    for (std::size_t index = 0; index < registry_.Count(); ++index) {
-        const CallbackDescriptor* descriptor = registry_.AtIndex(index);
-        if (descriptor == nullptr || descriptor->id != id || descriptor->owner != owner) {
-            continue;
-        }
-        if (!AffinityMatches(descriptor->affinity, current)) {
-            ++report.skippedAffinity;
+    // 与其它入口同一套顺序（优先级升序 + 同优先级登记顺序），只是多一个属主条件。
+    std::uint8_t order[kCallbackDispatchOrderCapacity];
+    const std::size_t total = CollectCallOrder(registry_, id, true, owner, current,
+                                              FilterMode::Ignore,
+                                              CallbackRegistry::kNoCallbackFilter, order,
+                                              &report.skippedAffinity, &report.skippedFilter);
+    for (std::size_t position = 0; position < total; ++position) {
+        const CallbackDescriptor* descriptor = registry_.AtIndex(order[position]);
+        if (descriptor == nullptr) {
             continue;
         }
         if (invoker_.Invoke(*descriptor).ok()) {

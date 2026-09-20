@@ -633,7 +633,8 @@ class ApiCatalogContractTests(unittest.TestCase):
         #   按接收者选入口）。同一批还加了全局 `EntityRef(entity)` —— 那是**全局**构造器，
         #   不进家族绑定表（与 `Vector`/`Color`/`Sprite` 同例），所以这里只 +1。
         #   两件都是 GoodTrip 诅咒房过路费（`trip.lua:70`）的必需项。
-        self.assertEqual(checked, 212, "家族绑定行数应与已登记 API 数一致")
+        # 批次 106 加了一条（`Level:GetStartingRoomIndex`）⇒ 212 → 213。
+        self.assertEqual(checked, 213, "家族绑定行数应与已登记 API 数一致")
 
     def test_options_fields_are_registered_as_values(self):
         """`Options` 的两个字段是**值**而不是方法：Catalog 里有条目、绑定表里没有绑定行。

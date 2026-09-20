@@ -104,22 +104,28 @@ class EmbeddedLuaRuntimeBoundaryTests(unittest.TestCase):
             runtime,
         )
         # `POST_UPDATE` 仍然只收到 Mod 对象**一个**实参：`DispatchPostUpdate` 用
-        # `LuaCallbackInvoker invoker{0, false, true}`（无 manager、无第二个实参）构造调用者，
-        # 于是调用点的实参个数表达式落到 `hasThirdArgument ? 3 : (hasSecondArgument ? 2 : 1)`
-        # 的 1 那一支。
+        # `LuaCallbackInvoker invoker{0, false, true}`（无 manager、无额外实参）构造调用者，
+        # 于是实参个数 = 1（`mod`）+ 编组表的 0 条。
         #
         # 原断言写死了 `lua_pcallk(g_LuaState, 1, 0, 0, 0, nullptr)`。第二个实参是为
         # `MC_POST_GAME_STARTED` 加的（EID 的处理函数签名是 `(mod, isSave)`），
-        # 调用点因而改成条件表达式，所以这里改为分别钉住"POST_UPDATE 那条调用者不带第二实参"
-        # 与"调用点的实参个数表达式"两件事，而不是放宽断言。
+        # 调用点因而改成条件表达式，所以这里改为分别钉住"POST_UPDATE 那条调用者不带额外实参"
+        # 与"调用点的实参个数由编组表决定"两件事，而不是放宽断言。
         #
         # 第三个实参是 2026-09-18（批次 010）为渲染族 `MC_POST_*_RENDER` 加的：PC 的签名是
-        # `(mod, 实体, RenderOffset)`，少一个实参模组会拿到 `nil` 并当场报错。这一次同样
-        # **没有放宽断言**：表达式改变，但"实参个数由调用者的开关决定"这条不变量照旧，
-        # 且下面那条"POST_UPDATE 的调用者不带第二个实参"一个字没动（用户 2026-09-18 批准）。
+        # `(mod, 实体, RenderOffset)`，少一个实参模组会拿到 `nil` 并当场报错。
+        #
+        # ★ 2026-09-20（批次 101）：形状从"3 个 `bool` 开关"（`hasSecondArgument` /
+        # `hasThirdArgument`…）换成**一张实参编组表**（`CallbackArguments`）—— 本轮要接的回调
+        # 形状从 3 种涨到 8 种（`(bool)`、`(int, 玩家, int)`、`(int, 玩家, int, int, int)`…），
+        # 每加一种就加两个开关字段会失控。**没有放宽断言**：不变量仍然是"实参个数由调用者
+        # 描述的数据决定"，只是那个"调用者描述"现在是一张表；下面两条断言把新的两处字面量
+        # 钉住（编组表算出的个数、`mod` 占的那 1 个），而"POST_UPDATE 的调用者不带额外实参"
+        # 一个字没动。
         self.assertIn("LuaCallbackInvoker invoker{0, false, true};", runtime)
+        self.assertIn("const int argumentCount = 1 + static_cast<int>(arguments.count);", runtime)
         self.assertIn(
-            "g_LuaState, hasThirdArgument ? 3 : (hasSecondArgument ? 2 : 1), 0, 0, 0, nullptr",
+            "lua_pcallk(g_LuaState, argumentCount, collecting ? 1 : 0, 0, 0,",
             runtime)
 
     def test_lua_runtime_is_included_by_the_program_source_module(self):

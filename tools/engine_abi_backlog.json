@@ -1,110 +1,145 @@
 {
-  "note": "ABI 体检覆盖不到的那些偏移常量：为什么读不出来、要不要补。由 runtime/tests/test_engine_offset_signatures.py 的门禁核对——'工具读不出声明的每一条都必须在这里，且这里不许留已经覆盖的条目'，所以覆盖率一提升而台账没跟着改就会判红。类别定义见 tools/engine_offset_abi_report.py 头部。 2026-09-17 第二批：ItemConfig 那三条已改成'一个常量对应一个签名'（源码侧拆开 kind 分派）⇒ 从台账移出。",
-  "classes": {
-    "A": "真有消费者、应该能机器核对，但工具暂时读不出来（要改源码或改工具）——属于欠账",
-    "B": "只当挂点/中继目标：我们替换它的入口、或发布自己的中继桩，不为它声明'调用签名'——没有可错的签名，不必补",
-    "C": "全仓库没有消费者（只在常量表/文档里出现）——没有可错的签名，不必补"
+ "note": "ABI 体检覆盖不到的那些偏移常量：为什么读不出来、要不要补。由 runtime/tests/test_engine_offset_signatures.py 的门禁核对——'工具读不出声明的每一条都必须在这里，且这里不许留已经覆盖的条目'，所以覆盖率一提升而台账没跟着改就会判红。类别定义见 tools/engine_offset_abi_report.py 头部。 2026-09-17 第二批：ItemConfig 那三条已改成'一个常量对应一个签名'（源码侧拆开 kind 分派）⇒ 从台账移出。",
+ "classes": {
+  "A": "真有消费者、应该能机器核对，但工具暂时读不出来（要改源码或改工具）——属于欠账",
+  "B": "只当挂点/中继目标：我们替换它的入口、或发布自己的中继桩，不为它声明'调用签名'——没有可错的签名，不必补",
+  "C": "全仓库没有消费者（只在常量表/文档里出现）——没有可错的签名，不必补"
+ },
+ "rows": {
+  "kPreGetCollectibleRelayOffset": {
+   "class": "B",
+   "why": "中继目标：发布的地址是**我们自己的中继桩**（经 SetItemPoolGetCollectibleBinding 写成绑定），不是直接按引擎签名跳进去调的引擎函数。",
+   "evidence": "runtime/source/hook_manager.cpp:2186、:2391-2396；runtime/src/infrastructure/relay/entry_relay_hook_adapter.cpp:50；另见 docs/改动日志-20260917.md 024-4 对这条的说明"
   },
-  "rows": {
-    "kPreGetCollectibleRelayOffset": {
-      "class": "B",
-      "why": "中继目标：发布的地址是**我们自己的中继桩**（经 SetItemPoolGetCollectibleBinding 写成绑定），不是直接按引擎签名跳进去调的引擎函数。",
-      "evidence": "runtime/source/hook_manager.cpp:2186、:2391-2396；runtime/src/infrastructure/relay/entry_relay_hook_adapter.cpp:50；另见 docs/改动日志-20260917.md 024-4 对这条的说明"
-    },
-    "kManagerPresentTargetOffset": {
-      "class": "B",
-      "why": "Present 挂点目标：我们替换它的入口（转发桩），不按引擎签名调用它。",
-      "evidence": "runtime/source/hook_manager.cpp:4277（target_address(module.base, kManagerPresentTargetOffset)）"
-    },
-    "kManagerLoadConfigsFileOffset": {
-      "class": "B",
-      "why": "挂点目标（加载配置文件的引擎函数，我们拦截它）。",
-      "evidence": "runtime/source/hook_manager.cpp:3767-3787"
-    },
-    "kManagerUpdateFileOffset": {
-      "class": "B",
-      "why": "挂点目标（更新钩子的入口，我们拦截它）。",
-      "evidence": "runtime/source/module_finder.cpp:130-135；runtime/source/hook_manager.cpp:2282-2288"
-    },
-    "kManagerRenderFileOffset": {
-      "class": "B",
-      "why": "挂点目标（渲染钩子的入口，我们拦截它）。",
-      "evidence": "runtime/source/hook_manager.cpp:2338-2354；runtime/src/infrastructure/relay/entry_relay_hook_adapter.cpp:47"
-    },
-    "kModManagerResetFileOffset": {
-      "class": "B",
-      "why": "挂点目标（模组管理器重置，我们拦截它）。",
-      "evidence": "runtime/source/hook_manager.cpp:4397"
-    },
-    "kStage48MusicPlayOffset": {
-      "class": "B",
-      "why": "挂点目标（Stage48 音乐播放，经 VerifyStage48Relay 校验后拦截）。",
-      "evidence": "runtime/source/hook_manager.cpp:3477"
-    },
-    "kStage48SoundActorPlayOffset": {
-      "class": "B",
-      "why": "挂点目标（Stage48 音效播放）。",
-      "evidence": "runtime/source/hook_manager.cpp:3482"
-    },
-    "kStage48SoundActorPauseOffset": {
-      "class": "B",
-      "why": "挂点目标（Stage48 音效暂停）。",
-      "evidence": "runtime/source/hook_manager.cpp:3487"
-    },
-    "kFilesysFileCtorOffset": {
-      "class": "C",
-      "why": "全仓库没有消费者：它是退役的『插件持久化』旧线留下的常量（那条线依赖外部 SaltyNX 插件注册文件函数，插件按裁定长期禁用，2026-09-17 已退役）。",
-      "evidence": "grep -rn kFilesysFileCtorOffset runtime/ --include=*.cpp --include=*.hpp 除 runtime_constants.hpp 外 0 处；退役记录 dist/change-archive-20260917/019-retire-plugin-persistence/"
-    },
-    "kFilesysFileOpenReadOffset": {
-      "class": "C",
-      "why": "同 kFilesysFileCtorOffset（退役的插件持久化旧线遗留）。",
-      "evidence": "同族常量在 runtime/ 下 0 处引用"
-    },
-    "kFilesysFileOpenWriteOffset": {
-      "class": "C",
-      "why": "同 kFilesysFileCtorOffset（退役的插件持久化旧线遗留）。",
-      "evidence": "同族常量在 runtime/ 下 0 处引用"
-    },
-    "kFilesysFileOpenWriteWithMountOffset": {
-      "class": "C",
-      "why": "同 kFilesysFileCtorOffset（退役的插件持久化旧线遗留）。",
-      "evidence": "同族常量在 runtime/ 下 0 处引用"
-    },
-    "kFilesysFileCloseOffset": {
-      "class": "C",
-      "why": "同 kFilesysFileCtorOffset（退役的插件持久化旧线遗留）。",
-      "evidence": "同族常量在 runtime/ 下 0 处引用"
-    },
-    "kFilesysFileGetLengthOffset": {
-      "class": "C",
-      "why": "同 kFilesysFileCtorOffset（退役的插件持久化旧线遗留）。",
-      "evidence": "同族常量在 runtime/ 下 0 处引用"
-    },
-    "kFilesysFileWriteOffset": {
-      "class": "C",
-      "why": "同 kFilesysFileCtorOffset（退役的插件持久化旧线遗留）。",
-      "evidence": "同族常量在 runtime/ 下 0 处引用"
-    },
-    "kFilesysFileReadStreamDataOffset": {
-      "class": "C",
-      "why": "同 kFilesysFileCtorOffset（退役的插件持久化旧线遗留）。",
-      "evidence": "同族常量在 runtime/ 下 0 处引用"
-    },
-    "kFilesysFileWriteStreamDataOffset": {
-      "class": "C",
-      "why": "同 kFilesysFileCtorOffset（退役的插件持久化旧线遗留）。",
-      "evidence": "同族常量在 runtime/ 下 0 处引用"
-    },
-    "kFilesysFileOpenFileHandleOffset": {
-      "class": "C",
-      "why": "同 kFilesysFileCtorOffset（退役的插件持久化旧线遗留）。",
-      "evidence": "同族常量在 runtime/ 下 0 处引用"
-    },
-    "kSaveDataDeleteFileOffset": {
-      "class": "C",
-      "why": "同 kFilesysFileCtorOffset（退役的插件持久化旧线遗留）。",
-      "evidence": "grep -rn kSaveDataDeleteFileOffset runtime/ --include=*.cpp --include=*.hpp 除 runtime_constants.hpp 外 0 处"
-    }
+  "kManagerPresentTargetOffset": {
+   "class": "B",
+   "why": "Present 挂点目标：我们替换它的入口（转发桩），不按引擎签名调用它。",
+   "evidence": "runtime/source/hook_manager.cpp:4277（target_address(module.base, kManagerPresentTargetOffset)）"
+  },
+  "kManagerLoadConfigsFileOffset": {
+   "class": "B",
+   "why": "挂点目标（加载配置文件的引擎函数，我们拦截它）。",
+   "evidence": "runtime/source/hook_manager.cpp:3767-3787"
+  },
+  "kManagerUpdateFileOffset": {
+   "class": "B",
+   "why": "挂点目标（更新钩子的入口，我们拦截它）。",
+   "evidence": "runtime/source/module_finder.cpp:130-135；runtime/source/hook_manager.cpp:2282-2288"
+  },
+  "kManagerRenderFileOffset": {
+   "class": "B",
+   "why": "挂点目标（渲染钩子的入口，我们拦截它）。",
+   "evidence": "runtime/source/hook_manager.cpp:2338-2354；runtime/src/infrastructure/relay/entry_relay_hook_adapter.cpp:47"
+  },
+  "kModManagerResetFileOffset": {
+   "class": "B",
+   "why": "挂点目标（模组管理器重置，我们拦截它）。",
+   "evidence": "runtime/source/hook_manager.cpp:4397"
+  },
+  "kStage48MusicPlayOffset": {
+   "class": "B",
+   "why": "挂点目标（Stage48 音乐播放，经 VerifyStage48Relay 校验后拦截）。",
+   "evidence": "runtime/source/hook_manager.cpp:3477"
+  },
+  "kStage48SoundActorPlayOffset": {
+   "class": "B",
+   "why": "挂点目标（Stage48 音效播放）。",
+   "evidence": "runtime/source/hook_manager.cpp:3482"
+  },
+  "kStage48SoundActorPauseOffset": {
+   "class": "B",
+   "why": "挂点目标（Stage48 音效暂停）。",
+   "evidence": "runtime/source/hook_manager.cpp:3487"
+  },
+  "kFilesysFileCtorOffset": {
+   "class": "C",
+   "why": "全仓库没有消费者：它是退役的『插件持久化』旧线留下的常量（那条线依赖外部 SaltyNX 插件注册文件函数，插件按裁定长期禁用，2026-09-17 已退役）。",
+   "evidence": "grep -rn kFilesysFileCtorOffset runtime/ --include=*.cpp --include=*.hpp 除 runtime_constants.hpp 外 0 处；退役记录 dist/change-archive-20260917/019-retire-plugin-persistence/"
+  },
+  "kFilesysFileOpenReadOffset": {
+   "class": "C",
+   "why": "同 kFilesysFileCtorOffset（退役的插件持久化旧线遗留）。",
+   "evidence": "同族常量在 runtime/ 下 0 处引用"
+  },
+  "kFilesysFileOpenWriteOffset": {
+   "class": "C",
+   "why": "同 kFilesysFileCtorOffset（退役的插件持久化旧线遗留）。",
+   "evidence": "同族常量在 runtime/ 下 0 处引用"
+  },
+  "kFilesysFileOpenWriteWithMountOffset": {
+   "class": "C",
+   "why": "同 kFilesysFileCtorOffset（退役的插件持久化旧线遗留）。",
+   "evidence": "同族常量在 runtime/ 下 0 处引用"
+  },
+  "kFilesysFileCloseOffset": {
+   "class": "C",
+   "why": "同 kFilesysFileCtorOffset（退役的插件持久化旧线遗留）。",
+   "evidence": "同族常量在 runtime/ 下 0 处引用"
+  },
+  "kFilesysFileGetLengthOffset": {
+   "class": "C",
+   "why": "同 kFilesysFileCtorOffset（退役的插件持久化旧线遗留）。",
+   "evidence": "同族常量在 runtime/ 下 0 处引用"
+  },
+  "kFilesysFileWriteOffset": {
+   "class": "C",
+   "why": "同 kFilesysFileCtorOffset（退役的插件持久化旧线遗留）。",
+   "evidence": "同族常量在 runtime/ 下 0 处引用"
+  },
+  "kFilesysFileReadStreamDataOffset": {
+   "class": "C",
+   "why": "同 kFilesysFileCtorOffset（退役的插件持久化旧线遗留）。",
+   "evidence": "同族常量在 runtime/ 下 0 处引用"
+  },
+  "kFilesysFileWriteStreamDataOffset": {
+   "class": "C",
+   "why": "同 kFilesysFileCtorOffset（退役的插件持久化旧线遗留）。",
+   "evidence": "同族常量在 runtime/ 下 0 处引用"
+  },
+  "kFilesysFileOpenFileHandleOffset": {
+   "class": "C",
+   "why": "同 kFilesysFileCtorOffset（退役的插件持久化旧线遗留）。",
+   "evidence": "同族常量在 runtime/ 下 0 处引用"
+  },
+  "kSaveDataDeleteFileOffset": {
+   "class": "C",
+   "why": "同 kFilesysFileCtorOffset（退役的插件持久化旧线遗留）。",
+   "evidence": "grep -rn kSaveDataDeleteFileOffset runtime/ --include=*.cpp --include=*.hpp 除 runtime_constants.hpp 外 0 处"
+  },
+  "kEntityPlayerUseActiveItemOffset": {
+   "class": "B",
+   "why": "中继目标（批次 102 的 `Entity_Player::UseActiveItem` 入口）：我们只拦截它的入口、跳进自己的中继桩，不按引擎签名直接调用它 ⇒ 没有可错的调用签名。",
+   "evidence": "runtime/src/infrastructure/relay/entry_relay_hook_adapter.cpp（BindingOf 的对应 case）；runtime/source/hook_manager.cpp 的 EntryRelay*Callback（回调体）；runtime/source/runtime_constants.hpp 的靶点注释（含实参映射依据）"
+  },
+  "kEntityPlayerUseCardOffset": {
+   "class": "B",
+   "why": "中继目标（批次 102 的 `Entity_Player::UseCard` 入口）：同上。",
+   "evidence": "runtime/src/infrastructure/relay/entry_relay_hook_adapter.cpp（BindingOf 的对应 case）；runtime/source/hook_manager.cpp 的 EntryRelay*Callback（回调体）；runtime/source/runtime_constants.hpp 的靶点注释（含实参映射依据）"
+  },
+  "kEntityPlayerUsePillOffset": {
+   "class": "B",
+   "why": "中继目标（批次 102 的 `Entity_Player::UsePill` 入口）：同上。",
+   "evidence": "runtime/src/infrastructure/relay/entry_relay_hook_adapter.cpp（BindingOf 的对应 case）；runtime/source/hook_manager.cpp 的 EntryRelay*Callback（回调体）；runtime/source/runtime_constants.hpp 的靶点注释（含实参映射依据）"
+  },
+  "kGameExitOffset": {
+   "class": "B",
+   "why": "中继目标（批次 102 的 `Game::Exit` 入口）：同上。",
+   "evidence": "runtime/src/infrastructure/relay/entry_relay_hook_adapter.cpp（BindingOf 的对应 case）；runtime/source/hook_manager.cpp 的 EntryRelay*Callback（回调体）；runtime/source/runtime_constants.hpp 的靶点注释（含实参映射依据）"
+  },
+  "kEntityPickupHandleCollisionOffset": {
+   "class": "B",
+   "why": "中继目标（批次 103 的 `Entity_Pickup::handle_collision` 入口）：我们只拦截它的入口、跳进自己的中继桩，不按引擎签名直接调用它 ⇒ 没有可错的调用签名。",
+   "evidence": "runtime/src/infrastructure/relay/entry_relay_hook_adapter.cpp（BindingOf 的 case）；runtime/source/hook_manager.cpp 的 EntryRelayPickupCollisionCallback；runtime/source/runtime_constants.hpp 的靶点注释"
+  },
+  "kRoomSpawnEntityOffset": {
+   "class": "B",
+   "why": "中继目标（批次 104 的 `Room::spawn_entity` 入口）：我们只拦截它的入口、跳进自己的中继桩，不按引擎签名直接调用它 ⇒ 没有可错的调用签名。",
+   "evidence": "runtime/src/infrastructure/relay/entry_relay_hook_adapter.cpp（BindingOf 的 case）；runtime/source/hook_manager.cpp 的 EntryRelayRoomEntitySpawnCallback；runtime/source/runtime_constants.hpp 的靶点注释（含调用点与实参证据）"
+  },
+  "kManagerIsActionTriggeredOffset": {
+   "class": "B",
+   "why": "批次 107 起**不再调用**：这个引擎入口（`KAGE::Input::ManagerBase::IsActionTriggered`）在真机上永远答假（同时刻同控制器同动作，`IsActionPressed` 为真而它恒假）⇒ `Input.IsActionTriggered` 改成「问引擎的按住 + Runtime 自己算上升沿」⇒ 没有调用点，「常量 → 校验助手 → 发布 → 取址助手 → 调用点」这条链按设计断开（工具判「没比过」）。保留常量只为记录\"我们查过它、它在哪\"；真函数在 `0x4F9A64`（同 `IsActionPressed` 结构，只差调用手柄对象的虚函数槽 `vtable+0x48` vs `+0x50`）。",
+   "evidence": "runtime/source/input_edge.hpp 顶部（证据与做法）；runtime/src/interfaces/lua/api_deviation.cpp 的 0x09010004；runtime/tests/test_lua_input_binding_abi.py（跨三次脚本执行验\"按住→松开→再按住\"）"
   }
+ }
 }

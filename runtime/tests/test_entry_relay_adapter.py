@@ -85,14 +85,29 @@ class EntryRelayAdapterContractTests(unittest.TestCase):
             self.assertIn(token, FORBIDDEN_TOKENS)
 
     def test_ledger_constants_come_from_the_shared_ledger(self):
-        """四个入口型挂点必须引用台账里的既有常量名，不得自造第二套真值源。"""
+        """入口型挂点必须引用台账里的既有常量名，不得自造第二套真值源。"""
         text = (RELAY / "entry_relay_hook_adapter.cpp").read_text(encoding="utf-8")
         for constant in ("kManagerUpdateFileOffset", "kManagerUpdateExpectedBytes",
                          "kManagerRenderFileOffset", "kManagerRenderExpectedBytes",
                          "kPreGetCollectibleRelayOffset",
                          "kPreGetCollectibleRelayExpectedOriginal",
                          "kRebuildContentMountPointsOffset",
-                         "kRebuildContentMountPointsExpectedBytes"):
+                         "kRebuildContentMountPointsExpectedBytes",
+                         # 批次 102 的四路事件中继
+                         "kEntityPlayerUseActiveItemOffset",
+                         "kEntityPlayerUseActiveItemExpectedBytes",
+                         "kEntityPlayerUseCardOffset",
+                         "kEntityPlayerUseCardExpectedBytes",
+                         "kEntityPlayerUsePillOffset",
+                         "kEntityPlayerUsePillExpectedBytes",
+                         "kGameExitOffset",
+                         "kGameExitExpectedBytes",
+                         # 批次 103 的掉落物碰撞中继
+                         "kEntityPickupHandleCollisionOffset",
+                         "kEntityPickupHandleCollisionExpectedBytes",
+                         # 批次 104 的房间生成实体中继
+                         "kRoomSpawnEntityOffset",
+                         "kRoomSpawnEntityExpectedBytes"):
             self.assertIn(constant, text, f"绑定表必须引用台账常量 {constant}")
 
     def test_adapter_does_not_extend_the_port(self):
@@ -174,6 +189,55 @@ extern "C" std::uint32_t EntryRelayPreGetCollectibleCallback(void* itemPool, std
 }
 
 extern "C" void EntryRelayRebuildMountPointsCallback() {}
+
+// 批次 102 加的四路事件中继（同样只编译适配器 ⇒ 桩定义满足链接）。
+extern "C" void EntryRelayUseActiveItemCallback(void* player, std::uint32_t item,
+                                                std::uint32_t useFlags, std::int32_t activeSlot,
+                                                std::int32_t customVarData) {
+    (void)player;
+    (void)item;
+    (void)useFlags;
+    (void)activeSlot;
+    (void)customVarData;
+}
+
+extern "C" void EntryRelayUseCardCallback(void* player, std::uint32_t card,
+                                          std::uint32_t useFlags) {
+    (void)player;
+    (void)card;
+    (void)useFlags;
+}
+
+extern "C" void EntryRelayUsePillCallback(void* player, std::uint32_t pillEffect,
+                                          std::uint32_t pillColor, std::uint32_t useFlags) {
+    (void)player;
+    (void)pillEffect;
+    (void)pillColor;
+    (void)useFlags;
+}
+
+extern "C" void EntryRelayGameExitCallback(void* game, std::uint32_t shouldSave) {
+    (void)game;
+    (void)shouldSave;
+}
+
+extern "C" void EntryRelayPickupCollisionCallback(void* pickup, void* collider,
+                                                  std::uint32_t low) {
+    (void)pickup;
+    (void)collider;
+    (void)low;
+}
+
+extern "C" void EntryRelayRoomEntitySpawnCallback(void* room, std::uint32_t gridIndex,
+                                                  const void* entry, std::uint32_t seed,
+                                                  void** outEntity, std::uint32_t flags) {
+    (void)room;
+    (void)gridIndex;
+    (void)entry;
+    (void)seed;
+    (void)outEntity;
+    (void)flags;
+}
 
 static int g_failures = 0;
 
