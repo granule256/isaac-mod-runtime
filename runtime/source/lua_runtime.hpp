@@ -186,9 +186,52 @@ void DispatchPostUpdate();
 // `isSave`：真 = 读档进游戏，假 = 新开一局（来自中继的事件种类）。
 void NoteGameStarted(bool isSave) noexcept;
 void DispatchPostRender(uintptr_t manager);
+// MC_PRE_GET_COLLECTIBLE（id 62）：挂在 `ItemPool::GetCollectible` 的入口中继里，
+// **先于**原函数派发；返回值（若有）就是"这次该给的道具"，调用方据此跳过原函数。
 std::uint64_t DispatchPreGetCollectible(void* itemPool, std::uint32_t itemPoolType,
                                         std::uint32_t seed, std::uint32_t noDecrease,
                                         std::uint32_t lastCollectibleType);
+// --- 回调面补齐（2026-09-20 批次 102）：四个事件中继的派发入口 -------------------
+//
+// ★ 为什么不照"开局中继只记账、下一帧再派发"那条先例推迟（那条先例见上面 `NoteGameStarted`
+// 的注释）：这四条**要么推不了、要么推了就不对**——
+//   * `MC_PRE_USE_ITEM` 的返回值决定"要不要取消这次使用"，必须在引擎动手**之前**派发；
+//   * `MC_PRE_GAME_EXIT` 之后没有"下一帧"（这一局正在结束），而 EID 唯一的存档点就在这里；
+//   * 另外两条（USE_ITEM / USE_CARD / USE_PILL）是纯通知，PC 也是内联触发的，推迟只会让
+//     "用过的东西进历史"晚一帧、并打乱与其它事件的先后。
+// 风险用另外两条防线兜住：①每个函数都自己判"现在到底能不能派发"（`ShouldDispatchManagedCallbacks`）；
+// ②回调里报错由派发器隔离（记进错误环形历史，不向上抛、不摘掉登记）。
+void DispatchPreGameExit(bool shouldSave);
+//: 返回 true = **拦下**这次使用（PC 的 `MC_PRE_USE_ITEM` 约定：任一条返回 true 即取消）。
+[[nodiscard]] bool DispatchPreUseItem(std::uintptr_t player, std::int32_t collectibleType,
+                                      std::int32_t useFlags, std::int32_t activeSlot,
+                                      std::int32_t customVarData);
+void DispatchUseItem(std::uintptr_t player, std::int32_t collectibleType, std::int32_t useFlags,
+                     std::int32_t activeSlot, std::int32_t customVarData);
+void DispatchUseCard(std::uintptr_t player, std::int32_t card, std::int32_t useFlags);
+void DispatchUsePill(std::uintptr_t player, std::int32_t pillEffect, std::int32_t useFlags);
+// 批次 103：`MC_PRE_PICKUP_COLLISION`（38）。返回 true = **不要跑原函数**
+// （PC 的三态里 `true` 与 `false` 都不执行内部代码、只有 `nil` 才照常执行，所以这里合成一个
+// "非 nil 即拦"。`PickupVariant` 是 PC 给这条回调的可选实参类型 ⇒ `filter` 传掉落物的变体）。
+[[nodiscard]] bool DispatchPrePickupCollision(std::uintptr_t pickup, std::uintptr_t collider,
+                                             bool low, std::int32_t pickupVariant);
+// 批次 104：`MC_PRE_ROOM_ENTITY_SPAWN`（71）。实参 = PC 的
+// `(EntityType, Variant, SubType, GridIndex, Seed)`（PC 的 `Seed` 我们**有**：引擎用它构造
+// `RNG(seed, ...)`，见 `runtime_constants.hpp` 的靶点注释）。
+//
+// `fieldsReadable`：那三个字段读不到时**不派发**（不编造 Type/Variant/SubType —— EID 拿它们
+// 建索引，给错的比给不到更糟）。调用点（`room_spawn_entity` 的入口中继）负责传这个事实。
+void DispatchPreRoomEntitySpawn(std::int32_t entityType, std::int32_t variant,
+                                std::int32_t subType, std::int32_t gridIndex,
+                                std::int32_t seed);
+//: 调用点**先**读 `RoomConfig::Entry` 的前三个字段（`ReadRoomConfigEntryFields`）；
+//: 读不到就**不要调**上面那个派发函数 —— 不编造 Type/Variant/SubType（EID 拿它们去建索引，
+//: 给错的比给不到更糟；理由与 `runtime_constants.hpp` 里那段靶点证据同一节）。
+// PC 文档：`MC_POST_GET_COLLECTIBLE` 在道具**已经选出来之后**触发，返回值可以替换它；
+// 而"`MC_PRE_GET_COLLECTIBLE` 返回过非 nil"时本条**跳过**（由调用方判，见中继回调）。
+std::uint64_t DispatchPostGetCollectible(void* itemPool, std::uint32_t itemPoolType,
+                                         std::uint32_t seed, std::uint32_t decrease,
+                                         std::uint32_t selectedCollectible);
 #if !defined(EXL_DIAGNOSTIC_STAGE)
 bool IsMusicReadyForDefaultCallback(uintptr_t manager);
 #endif

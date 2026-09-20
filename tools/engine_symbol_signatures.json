@@ -36,6 +36,15 @@
   "kind": "field"
  },
  {
+  "constant": "kRoomConfigEntryTypeOffset",
+  "offset": "0x0",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
   "constant": "kItemConfigItemIdOffset",
   "offset": "0x4",
   "mangled": null,
@@ -47,6 +56,24 @@
  {
   "constant": "kLevelStageTypeOffset",
   "offset": "0x4",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kRoomConfigEntryVariantOffset",
+  "offset": "0x4",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kRoomConfigEntrySubTypeOffset",
+  "offset": "0x6",
   "mangled": null,
   "demangled": null,
   "parameters": null,
@@ -118,6 +145,15 @@
  },
  {
   "constant": "kItemConfigTrinketBeginOffset",
+  "offset": "0x18",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kRoomGridHeightOffset",
   "offset": "0x18",
   "mangled": null,
   "demangled": null,
@@ -792,6 +828,15 @@
   "kind": "field"
  },
  {
+  "constant": "kRoomGridPathArrayOffset",
+  "offset": "0xe98",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
   "constant": "kEntityPlayerRedHeartContainersOffset",
   "offset": "0x16b8",
   "mangled": null,
@@ -1433,6 +1478,18 @@
   "kind": "field"
  },
  {
+  "constant": "kEntityPickupHandleCollisionOffset",
+  "offset": "0x271f2c",
+  "mangled": "_ZN15IsaacRepentance13Entity_Pickup16handle_collisionEPNS_6EntityEb",
+  "demangled": "IsaacRepentance::Entity_Pickup::handle_collision(IsaacRepentance::Entity*, bool)",
+  "parameters": [
+   "IsaacRepentance::Entity*",
+   "bool"
+  ],
+  "parameter_count": 2,
+  "kind": "function"
+ },
+ {
   "constant": "kEntityPlayerHasCollectibleOffset",
   "offset": "0x27d3f4",
   "mangled": "_ZNK15IsaacRepentance13Entity_Player14HasCollectibleENS_16eCollectibleTypeEb",
@@ -1494,6 +1551,31 @@
   "kind": "function"
  },
  {
+  "constant": "kEntityPlayerUsePillOffset",
+  "offset": "0x2dfc04",
+  "mangled": "_ZN15IsaacRepentance13Entity_Player7UsePillENS_11ePillEffectENS_10ePillColorEj",
+  "demangled": "IsaacRepentance::Entity_Player::UsePill(IsaacRepentance::ePillEffect, IsaacRepentance::ePillColor, unsigned int)",
+  "parameters": [
+   "IsaacRepentance::ePillEffect",
+   "IsaacRepentance::ePillColor",
+   "unsigned int"
+  ],
+  "parameter_count": 3,
+  "kind": "function"
+ },
+ {
+  "constant": "kEntityPlayerUseCardOffset",
+  "offset": "0x2e9040",
+  "mangled": "_ZN15IsaacRepentance13Entity_Player7UseCardENS_5eCardEj",
+  "demangled": "IsaacRepentance::Entity_Player::UseCard(IsaacRepentance::eCard, unsigned int)",
+  "parameters": [
+   "IsaacRepentance::eCard",
+   "unsigned int"
+  ],
+  "parameter_count": 2,
+  "kind": "function"
+ },
+ {
   "constant": "kGameDifficultyOffset",
   "offset": "0x2f0028",
   "mangled": null,
@@ -1532,6 +1614,20 @@
   "kind": "function"
  },
  {
+  "constant": "kEntityPlayerUseActiveItemOffset",
+  "offset": "0x30653c",
+  "mangled": "_ZN15IsaacRepentance13Entity_Player13UseActiveItemENS_16eCollectibleTypeEjii",
+  "demangled": "IsaacRepentance::Entity_Player::UseActiveItem(IsaacRepentance::eCollectibleType, unsigned int, int, int)",
+  "parameters": [
+   "IsaacRepentance::eCollectibleType",
+   "unsigned int",
+   "int",
+   "int"
+  ],
+  "parameter_count": 4,
+  "kind": "function"
+ },
+ {
   "constant": "kGameIsPausedRenderCallFileOffset",
   "offset": "0x3429a4",
   "mangled": null,
@@ -1565,6 +1661,17 @@
   "demangled": "IsaacRepentance::Game::GetSpecialSeedBannedCurses() const",
   "parameters": [],
   "parameter_count": 0,
+  "kind": "function"
+ },
+ {
+  "constant": "kGameExitOffset",
+  "offset": "0x3512f4",
+  "mangled": "_ZN15IsaacRepentance4Game4ExitEb",
+  "demangled": "IsaacRepentance::Game::Exit(bool)",
+  "parameters": [
+   "bool"
+  ],
+  "parameter_count": 1,
   "kind": "function"
  },
  {
@@ -2020,6 +2127,21 @@
   "demangled": "IsaacRepentance::Room::PlayMusic()",
   "parameters": [],
   "parameter_count": 0,
+  "kind": "function"
+ },
+ {
+  "constant": "kRoomSpawnEntityOffset",
+  "offset": "0x453918",
+  "mangled": "_ZN15IsaacRepentance4Room12spawn_entityEjRKNS_10RoomConfig5EntryEjPPNS_6EntityEb",
+  "demangled": "IsaacRepentance::Room::spawn_entity(unsigned int, IsaacRepentance::RoomConfig::Entry const&, unsigned int, IsaacRepentance::Entity**, bool)",
+  "parameters": [
+   "unsigned int",
+   "IsaacRepentance::RoomConfig::Entry const&",
+   "unsigned int",
+   "IsaacRepentance::Entity**",
+   "bool"
+  ],
+  "parameter_count": 5,
   "kind": "function"
  },
  {

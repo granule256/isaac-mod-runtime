@@ -202,6 +202,22 @@ struct PlayerLookupProbe {
 [[nodiscard]] bool ReadEntityIdentity(std::uintptr_t entity, std::uint32_t* type,
                                       std::uint32_t* variant) noexcept;
 
+// 批次 104：读 `RoomConfig::Entry` 的前三个字段（`Type`/`Variant`/`SubType`），
+// 给 `Room::spawn_entity` 的入口中继用（`MC_PRE_ROOM_ENTITY_SPAWN` 的三个实参）。
+// 偏移与**宽度**的依据（`Type` 是 i32、`Variant`/`SubType` 是 **i16**）写在
+// `runtime_constants.hpp` 里那三行常量上方（两条独立的三连读证据）。
+// 从 `isaac_api.cpp` 导出的理由与 `ReadEntityIdentity` 相同：**"读引擎字段前先判可读"那套判据
+// 只有那一份实现**，别处再写一份就会漂。任一字段读不到 ⇒ 返回 false（调用方按"不编造值"处理）。
+//: 引擎自己的帧计数（`Game + 0x24F99C`，`Game::Update` 每帧 +1；`Game:GetFrameCount` 读的
+//: 就是它，指令级证据见 `runtime_constants.hpp`）。
+//: 批次 109：`Input.IsActionTriggered` 的"按帧判上升沿"要用它当帧号 —— 读不到时返回 0，
+//: 调用方自己退化成用毫秒时钟当序号（**不能让读失败变成"边沿永远不刷新"**）。
+[[nodiscard]] std::uint32_t EngineFrameCountNow() noexcept;
+
+[[nodiscard]] bool ReadRoomConfigEntryFields(std::uintptr_t entry, std::int32_t* type,
+                                            std::int32_t* variant,
+                                            std::int32_t* subType) noexcept;
+
 #if !defined(__SWITCH__)
 // 宿主测试注入点。**设备构建（`-D__SWITCH__`）里不存在这个类型和这个函数。**
 //

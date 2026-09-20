@@ -223,9 +223,14 @@ class EngineOffsetSignatureTests(unittest.TestCase):
         spec = importlib.util.spec_from_file_location("abi_report", TOOL)
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
+        # ★ 2026-09-20（批次 107）：`kManagerIsActionTriggeredOffset` **从这份名单里移出** ——
+        # 那个引擎入口（`ManagerBase::IsActionTriggered`）在真机上**永远答假**（同一条控制器、
+        # 同一个动作，`IsActionPressed` 通、它永远假），于是 `Input.IsActionTriggered` 改成
+        # "问按住 + 自己算边沿"，**不再有调用点** ⇒ 这条链按设计断开，工具会判「没比过」。
+        # 它不是被静默忽略：已在 `tools/engine_abi_backlog.json` 里分诊（B 类），
+        # 理由与证据写在 `api_deviation.cpp` 的 0x09010004。
         for constant in (
             "kManagerIsActionPressedOffset",
-            "kManagerIsActionTriggeredOffset",
             "kManagerGetActionValueOffset",
             "kMusicGetCurrentMusicIdOffset",
             "kMusicPauseOffset",

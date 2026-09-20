@@ -99,8 +99,12 @@ mod:AddCallback(ModCallbacks.MC_POST_UPDATE, function()
   if Input.GetButtonValue(Keyboard.KEY_R, 0) ~= 0 then error('button value') end
   -- The action queries are bound to real native trampolines on hardware; here they are bound
   -- to fakes, so these assertions prove the handler passes (action, controllerId) through.
-  if Input.IsActionTriggered(15, 0) ~= true then error('action trigger') end
-  if Input.IsActionTriggered(16, 0) ~= false then error('action trigger argument') end
+  -- ★ 2026-09-20（批次 107）改写：`Input.IsActionTriggered` **不再问引擎那条"刚按下"**
+  --   （真机上它永远是假 —— 见 api_deviation.cpp 的 0x09010004），而是问引擎的"按住"、
+  --   再自己算上升沿。这里的假绑定对 (16,0) 答"按住" ⇒ **首次观察不算边沿** ⇒ false；
+  --   完整的边沿往返（松开再按）在 test_lua_input_binding_abi.py 里跨两次脚本执行验。
+  if Input.IsActionTriggered(16, 0) ~= false then error('action trigger first observation') end
+  if Input.IsActionTriggered(15, 0) ~= false then error('action trigger not held') end
   if Input.IsActionPressed(16, 0) ~= true then error('action pressed') end
   if Input.IsActionPressed(15, 0) ~= false then error('action pressed argument') end
   if Input.GetActionValue(16, 0) ~= 0.5 then error('action value') end

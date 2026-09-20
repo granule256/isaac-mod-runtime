@@ -126,18 +126,36 @@ class CallbackDispatchCounterTests(unittest.TestCase):
                 self.assertIn(token, text, f"读数工具没有读 {token}")
 
     def test_every_dispatch_entry_point_counts(self):
-        """★ 累加点必须在派发器的**唯一入口**：两条路径各一处，少一处就等于那条路径不计入。
+        """★ 累加点必须在派发器的**每一个**入口，少一处就等于那条路径不计入。
 
-        `Dispatch` 与 `DispatchOwner` 是仅有的两个派发入口（`CallbackDispatcher` 只有这两个
-        成员函数）。日后新增第三个入口时这条门禁会红 —— 提醒把它也接上，而不是让计数悄悄漏。
+        `CallbackDispatcher` 现在有四个派发入口（批次 101 从两个涨到四个）：
+        `Dispatch` / `DispatchFiltered`（通知，后者多一个过滤器）与 `DispatchOwner` /
+        `DispatchModifying`（后者读回返回值）。这里**逐个数出来**再核对，而不是靠"取两段源码
+        切片"——切片法在新增第三个入口时会静默把它包括进去（碰巧通过），覆盖面取决于函数
+        定义的先后顺序，是一处会漂的判据。
         """
-        dispatch = self.source[self.source.index("DispatchReport CallbackDispatcher::Dispatch("):
-                               self.source.index("DispatchReport CallbackDispatcher::DispatchOwner(")]
-        owner = self.source[self.source.index("DispatchReport CallbackDispatcher::DispatchOwner("):
-                            self.source.rindex("} // namespace isaac::runtime")]
-        for name, body in (("Dispatch", dispatch), ("DispatchOwner", owner)):
+        text = READER.read_text(encoding="utf-8")
+        self.assertIn("'callback_dispatch_counts'", text, "读数工具没有请求派发计数表")
+        # 定义处的写法：`DispatchReport CallbackDispatcher::Dispatch(…`（`[[nodiscard]]` 只写在
+        # 头文件的声明上），所以按"返回类型 + 类名限定"取。
+        entries = re.findall(r"^[A-Za-z_][\w:<>]*\s+CallbackDispatcher::(\w+)\(", self.source, re.M)
+        self.assertEqual(
+            sorted(entries),
+            ["Dispatch", "DispatchFiltered", "DispatchModifying", "DispatchOwner"],
+            f"派发器的入口集合变了（现在解析到 {sorted(entries)}）—— 请同步本条门禁与读数口径",
+        )
+        for name in entries:
             with self.subTest(entry=name):
-                self.assertIn("RecordDispatch(id);", body,
+                start = self.source.index(f"CallbackDispatcher::{name}(")
+                # 取到下一个入口（或文件尾）为止的那一段。
+                end = len(self.source)
+                for other in entries:
+                    if other == name:
+                        continue
+                    position = self.source.find(f"CallbackDispatcher::{other}(", start + 1)
+                    if position != -1:
+                        end = min(end, position)
+                self.assertIn("RecordDispatch(id);", self.source[start:end],
                               f"{name} 没有记派发计数 ⇒ 走这条路的回调在设备上读出来恒为 0")
 
     def test_reader_callback_names_have_a_matching_constant(self):

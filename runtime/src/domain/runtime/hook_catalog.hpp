@@ -24,6 +24,20 @@ enum class HookId : std::uint8_t {
     // 游戏开局：引擎在 `Game::Start` / `Game::StartFromSavedState` **返回之后**通知我们。
     // 模组的 `MC_POST_GAME_STARTED` 依赖它（没有它，EID 的开局初始化永远不执行）。
     GameStart,
+    // --- 回调面补齐（2026-09-20 批次 102）：EID / GoodTrip 在等的四个事件 -----------
+    //
+    // 四条都走 `EntryRelay`（零占洞：改目标函数入口 16 字节），四个靶点的偏移与 16 字节守卫
+    // 在 `runtime_constants.hpp`（那里的注释写了实参映射的依据）。
+    // 全部标 `required = false`：装不上只让对应的回调静默不派发（与改造前一样），
+    // 不该因此让整个 Mod 加载失败。
+    UseActiveItem,
+    UseCard,
+    UsePill,
+    GameExit,
+    // 批次 103（第 2 期）：掉落物碰撞（`MC_PRE_PICKUP_COLLISION`）。
+    PickupCollision,
+    // 批次 104（第 2 期）：房间生成实体（`MC_PRE_ROOM_ENTITY_SPAWN`）。
+    RoomEntitySpawn,
     Count,
 };
 
@@ -53,6 +67,12 @@ inline constexpr std::array<HookDescriptor, kHookIdCount> kHookCatalog = {{
     {HookId::ManagerPresent, "ManagerPresent", HookBackend::GotSlot, false},
     {HookId::RebuildMountPoints, "RebuildMountPoints", HookBackend::EntryRelay, false},
     {HookId::GameStart, "GameStart", HookBackend::RelaySlot, false},
+    {HookId::UseActiveItem, "UseActiveItem", HookBackend::EntryRelay, false},
+    {HookId::UseCard, "UseCard", HookBackend::EntryRelay, false},
+    {HookId::UsePill, "UsePill", HookBackend::EntryRelay, false},
+    {HookId::GameExit, "GameExit", HookBackend::EntryRelay, false},
+    {HookId::PickupCollision, "PickupCollision", HookBackend::EntryRelay, false},
+    {HookId::RoomEntitySpawn, "RoomEntitySpawn", HookBackend::EntryRelay, false},
 }};
 
 // 取登记项。传入 `HookId::Count` 或越界值属于调用方错误，这里退化成第一个登记项

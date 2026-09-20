@@ -85,6 +85,23 @@ class ByteExactDeliveryDirTests(unittest.TestCase):
         inside = git("rev-parse", "--is-inside-work-tree")
         cls.has_git = inside.returncode == 0 and inside.stdout.strip() == b"true"
 
+    def test_every_release_directory_is_covered_by_a_text_rule(self):
+        """`dist/*release*` 的每个目录都必须被 `-text` 规则罩住。
+
+        **为什么加**（2026-09-20 实测）：新整合包叫 `dist/isaac-switch-release-20260920/`，
+        而顶层规则只写了 `dist/isaac-eid-release-*/**` ⇒ **罩不到**；同时本门禁只检查
+        "自带 `.gitattributes` 的目录"与"被顶层规则罩住的目录"⇒ 这个包**根本没被检查**，
+        提交时 80 个 EID 文件被 CRLF→LF 规范化（`main.lua` 仓库对象 `85ceec91…` / 磁盘 `46a391dd…`，
+        正是 2026-09-15 那次同一个坑）。**只检查"被罩住的"永远发现不了"没被罩住的"**，
+        所以这里改成按**命名约定**点名要求。
+        """
+        covered = delivery_dirs()
+        suspects = sorted(path for path in DIST.glob("*release*") if path.is_dir())
+        self.assertTrue(suspects, "dist/ 下应当至少有一个发布包目录；一个都没有说明约定变了，改这条门禁")
+        uncovered = [path.name for path in suspects if path not in covered]
+        self.assertFalse(uncovered, "这些发布包目录没被 -text 规则罩住（会被 git 规范化）："
+                         + ", ".join(uncovered))
+
     def test_gitattributes_rules_have_a_pattern(self):
         """裸 `-text` 是非法行、会被 git 忽略 —— 这正是本次栽的那一跤。
 
@@ -144,9 +161,14 @@ class ByteExactDeliveryDirTests(unittest.TestCase):
                 path = ROOT / relative
                 if not path.is_file() or path.name == ".gitattributes":
                     continue
-                blob = git("show", f":{relative}").stdout
+                result = git("show", f":{relative}")
+                blob = result.stdout
                 with self.subTest(file=relative):
-                    self.assertTrue(blob, f"{relative} 没进索引")
+                    # 判"在不在索引里"要看返回码，不能看内容真值：**空文件是合法的**
+                    # （2026-09-20：发布包里 goodtripfixed 的 `changes.txt` 就是 0 字节，
+                    #  `assertTrue(blob)` 把它误报成"没进索引" ⇒ 门禁自己也会咬人）。
+                    self.assertEqual(result.returncode, 0, f"{relative} 没进索引")
+                    self.assertTrue(result.stdout is not None)
                     self.assertEqual(
                         hashlib.sha256(blob).hexdigest(),
                         hashlib.sha256(path.read_bytes()).hexdigest(),

@@ -39,8 +39,14 @@ RUNTIME = SOURCE / "lua_runtime.cpp"
 CONTRACT_DOCS = ROOT / "tools" / "pc_enum_docs"
 
 #: 本批发布的表（**只能多不能少地解释**：改这张清单要在此处写明原因）。
+#:
+#: 2026-09-20（批次 105）加 `CallbackPriority`：**又一条"模组读不到"的实例**，而且它是
+#: GoodTrip 的**加载期**拦路虎 —— `main.lua:84` 起有 7 处
+#: `_gt:AddPriorityCallback(…, CallbackPriority.EARLY, …)` **没被 pcall 包住**，
+#: 这个全局是 nil 时整块 main.lua 就在第 84 行中止（后面所有回调都注册不上）。
+#: 它同时是"优先级真排序"那条改动的**输入**：模组用 `CallbackPriority.EARLY/LATE` 表达顺序。
 EXPECTED_TABLES = ("RoomShape", "DoorVariant", "Direction", "StageType", "DamageFlag",
-                   "RoomDescriptor")
+                   "RoomDescriptor", "CallbackPriority")
 
 #: 每张表的条目数（文档快照被改动时，这里会红 —— 那时要人工确认改了什么）。
 EXPECTED_ENTRY_COUNTS = {
@@ -50,6 +56,7 @@ EXPECTED_ENTRY_COUNTS = {
     "StageType": 6,
     "DamageFlag": 33,
     "RoomDescriptor": 24,
+    "CallbackPriority": 4,
 }
 
 #: GoodTrip 在真机上真正读过的常量（值来自文档快照）。
@@ -63,6 +70,12 @@ EXPECTED_VALUES = {
     ("Direction", "NO_DIRECTION"): -1,
     ("StageType", "STAGETYPE_REPENTANCE"): 4,
     ("RoomDescriptor", "FLAG_RED_ROOM"): 1024,
+    # 批次 105：优先级的四个值。**数值大小就是执行顺序**（越小越早），
+    # 所以这四个值必须与文档逐字一致 —— 写错会让模组以为自己是 EARLY 而实际排在最后。
+    ("CallbackPriority", "IMPORTANT"): -200,
+    ("CallbackPriority", "EARLY"): -100,
+    ("CallbackPriority", "DEFAULT"): 0,
+    ("CallbackPriority", "LATE"): 100,
 }
 
 #: 超出 32 位的那些：一旦有人把生成器的值类型改回 32 位，这几条会立刻红。
@@ -202,6 +215,7 @@ class DocEnumTableGateTests(unittest.TestCase):
             "StageType.md": 724,
             "DamageFlag.md": 4607,
             "RoomDescriptor.md": 3487,
+            "CallbackPriority.md": 380,
         }
         for name, size in expected.items():
             with self.subTest(name):

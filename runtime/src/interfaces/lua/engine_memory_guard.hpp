@@ -2,6 +2,7 @@
 
 #include <atomic>
 #include <cstddef>
+#include <chrono>
 #include <cstdint>
 
 #include "interfaces/lua/runtime_perf.hpp"
@@ -257,6 +258,31 @@ inline std::uint64_t EngineGuardTick() noexcept {
 
 // Tegra X1 上 tick 频率 = 19.2 MHz（Atmosphère 自己也是硬编码这个值）。
 constexpr std::uint64_t kEngineGuardFallbackTicksPerSecond = 19200000ULL;
+
+// `Isaac.GetTime()` 用的**毫秒单调时钟**（批次 108）。
+//
+// 为什么需要它：PC 文档（`Isaac.md:448`）写明 `int GetTime()` 是
+// "**milliseconds** since the computer's operating system was started"。我们以前返回的是
+// "`GetFrameCount() / 30` 的整数秒"⇒ **单位差 1000 倍**，直接把 EID 的库存概况翻页闸死
+// （`Isaac.GetTime() - lastInputTime > 50` 本意是 **50 毫秒**防抖，秒口径下几乎永不成立）。
+//
+// 读取方式与探针那只 (`EngineGuardTick`) 完全一样，只是**生产构建也要读**：
+// `mrs cntpct_el0`（**物理**计数器；虚拟的 `cntvct_el0` 在 EL0 被禁止读 —— 批次 085 的真机
+// 崩溃就是它），频率用常量 19.2 MHz（**不读** `cntfrq_el0`，理由见上）。**不引 libnx**
+// （本头文件不能引：vendored 与 devkitpro 的 `MemoryInfo` 布局不同；`mrs` 不需要头文件）。
+// 宿主构建走 `std::chrono::steady_clock`，只为了让门禁在没有引擎的机器上也能跑。
+inline std::int64_t EngineMillisecondsNow() noexcept {
+#if defined(__SWITCH__)
+    std::uint64_t tick = 0;
+    __asm__ __volatile__("mrs %0, cntpct_el0" : "=r"(tick));
+    return static_cast<std::int64_t>(tick / (kEngineGuardFallbackTicksPerSecond / 1000ULL));
+#else
+    return static_cast<std::int64_t>(
+        std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now().time_since_epoch())
+            .count());
+#endif
+}
 
 // 频率**不读寄存器**（批次 085 起，连探针构建也不读）：
 // `cntfrq_el0` 是"定时器控制"那一组的寄存器，和计数器本身不是同一个开关；我们**没有**它可读的

@@ -7,14 +7,19 @@
 
 1. 表面齐全：`Isaac` 19 个成员逐个点名、`Options` 两个字段的类型与默认值；
 2. 有真实行为的成员真的在做事：帧计数随 `MC_POST_UPDATE` 派发单调递增、每帧正好加一、
-   `GetTime() == GetFrameCount() // 30`（近似换算，逐帧校验）、
+   **`GetTime()` 是毫秒**（睡 30 ms 之后它至少涨 20）、
    `DebugString` 走 Lua `print` 的同一个通道、`IsInGame` 在托管回调里为真、
    `RunCallback` 参数原样透传且递归越界报错后深度能还回去；
 3. 安全 stub 真的安全：全部用 `pcall` 包裹并断言成功、返回值是安全默认值，
    而且每个成员每会话只告警一次（第一帧每个 stub 恰好 1 行告警，第二帧 0 行）。
 
-`GetTime()` 是**近似**：帧计数 / 30。PC 版返回引擎自己的游戏内计时，我们的引擎时钟
-偏移尚未定位，所以这里只断言 Runtime 自己的换算关系，不声称与 PC 逐值一致。
+★ 2026-09-20（批次 108）修正：`GetTime()` 以前返回"帧数 / 30 的整数秒"，而 PC 文档
+（`Isaac.md:448`）写明它是**毫秒**（自操作系统启动起）⇒ 单位差 1000 倍，直接把 EID 的
+库存概况翻页闸死（`Isaac.GetTime() - lastInputTime > 50` 本是 50 毫秒防抖）。
+现在读 **`cntpct_el0`**（物理计数器，19.2 MHz ⇒ 1 ms = 19200 tick；虚拟的那个 `cntvct_el0`
+在 EL0 被禁止读，批次 085 的真机崩溃就是它），宿主构建走 `std::chrono::steady_clock`。
+与 PC 的剩余差别只有 **epoch**（PC 是"OS 启动起"、我们是 Switch 的 tick 起点）——
+模组都是算差值，所以语义一致。
 
 数值口径：脚本把结论写进全局，C++ harness 用 `ReadLuaGlobalNumber` 逐条核对（并额外核对
 `ManagedFrameClock::Count()` 确实每次派发加一），Python 侧再对 harness 打印出来的观测值
@@ -36,7 +41,7 @@ except ImportError:
 ROOT = Path(__file__).resolve().parents[2]
 SOURCE = ROOT / "runtime" / "source"
 
-# 宿主场景派发的帧数：够让 `GetTime()` 走完一秒（30 帧），近似换算就不只是在 0 上成立。
+# 宿主场景派发的帧数：够让帧计数走到 31（逐帧 +1 的判据需要多帧），并且中途睡一次 30 ms 验毫秒。
 FRAMES = 31
 
 
@@ -50,11 +55,13 @@ HARNESS = r'''
 #include "application/callback/callback_dispatcher.hpp"
 
 #include <array>
+#include <chrono>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <string_view>
+#include <thread>
 
 // Observation seams owned by other families: the Lua runtime links them, so the harness answers
 // "unavailable" exactly like the other Lua runtime tests do.
@@ -90,6 +97,15 @@ namespace {
 const char* kSurfaceScript = R"lua(@SURFACE_SCRIPT@)lua";
 const char* kEidScript = R"lua(@EID_SCRIPT@)lua";
 const char* g_HostLanguage = "zh";
+
+// 读脚本写下的全局数值（读不到给 -1，由调用方自己判）。
+double Value(const char* name) {
+    double value = 0.0;
+    if (!LuaRuntime::ReadLuaGlobalNumber(name, &value)) {
+        return -1.0;
+    }
+    return value;
+}
 
 // 读脚本写下的全局并核对；脚本侧的自检结果只有真的写下来才算数。
 bool Expect(const char* name, double expected, const char* stage) {
@@ -147,6 +163,14 @@ int main(int argc, char** argv) {
     const int frames = surface ? @FRAMES@ : 1;
     for (int frame = 0; frame < frames; ++frame) {
         LuaRuntime::DispatchPostUpdate();
+        // ★ 批次 108：`Isaac.GetTime()` 必须是**毫秒**（PC 文档 `Isaac.md:448`：
+        // "milliseconds since the computer's operating system was started"）。
+        // 判据是"睡 30 毫秒之后它至少涨 20" —— 如果谁把它改回"秒"，这条立刻红。
+        // 以前那版是"帧数 / 30 的整数秒"，于是 EID 的库存概况翻页
+        // （`Isaac.GetTime() - lastInputTime > 50`，本意是 **50 毫秒**防抖）永远不成立。
+        if (frame == 0) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(30));
+        }
     }
     if (LuaRuntime::TakeCallbackError()) return ReportScriptFailure(stage);
 
@@ -169,8 +193,14 @@ int main(int argc, char** argv) {
     if (!Expect("ISAAC_FRAMES", static_cast<double>(frames), stage)) return 1;
     if (!Expect("ISAAC_MONOTONIC", 1.0, stage)) return 1;
     if (!Expect("ISAAC_FRAME_STEP_OK", 1.0, stage)) return 1;
-    if (!Expect("ISAAC_TIME_OK", 1.0, stage)) return 1;
-    if (!Expect("ISAAC_TIME_REACHED_ONE", 1.0, stage)) return 1;
+    if (!Expect("ISAAC_TIME_MONOTONIC", 1.0, stage)) return 1;
+    // 毫秒口径：两次采样之间睡了 30 ms ⇒ 差值必须 ≥ 20 且远小于 2000。
+    const double timeDelta = Value("ISAAC_TIME_SECOND") - Value("ISAAC_TIME_FIRST");
+    if (timeDelta < 20.0 || timeDelta > 2000.0) {
+        std::printf("ISAAC_FAIL %s: Isaac.GetTime() delta after a 30 ms sleep = %.0f"
+                    "（应当是毫秒；秒口径会得到 0）\n", stage, timeDelta);
+        return 1;
+    }
     if (!Expect("ISAAC_FIRST_COUNT", 1.0, stage)) return 1;
     if (!Expect("ISAAC_LAST_COUNT", static_cast<double>(frames), stage)) return 1;
     if (!Expect("ISAAC_RUN_CALLBACK_OK", 1.0, stage)) return 1;
@@ -242,8 +272,10 @@ local lastCount = nil
 local lastSampled = nil
 local monotonic = true
 local frameStep = true
-local timeMatchesFrames = true
-local timeReachedOne = false
+-- ★ 批次 108：`Isaac.GetTime()` 改成**毫秒**之后，这里只断言它"单调不减"；
+-- "确实是毫秒"由 C++ 侧那次 30 毫秒睡眠的差值判据钉住（旧的"帧数//30"换算断言已删）。
+local timeMonotonic = true
+local lastTime = nil
 
 -- RunCallback 的目标：21 号自递归（验递归上限），22 号记录参数（验原样透传）。
 local forwarded, forwardedNumber
@@ -331,16 +363,18 @@ local function sample()
     if count ~= lastCount + 1 then frameStep = false end
   end
   lastCount = count
-  -- 近似换算逐帧成立：GetTime() 就是 GetFrameCount() // 30。
-  if time ~= math.floor(count / 30) then timeMatchesFrames = false end
-  if time >= 1 then timeReachedOne = true end
+  -- ★ 批次 108：`Isaac.GetTime()` 是**毫秒**（PC 文档 `Isaac.md:448`），不再是"帧数 // 30"。
+  -- 这里只断言"单调不减"；"确实是毫秒"由 C++ 侧那次 30 ms 睡眠的差值判据钉住。
+  if lastTime ~= nil and time < lastTime then timeMonotonic = false end
+  lastTime = time
+  if ISAAC_TIME_FIRST == nil then ISAAC_TIME_FIRST = time end
+  ISAAC_TIME_SECOND = time
   ISAAC_FRAMES = frames
   ISAAC_FIRST_COUNT = firstCount
   ISAAC_LAST_COUNT = lastCount
   ISAAC_MONOTONIC = monotonic and 1 or 0
   ISAAC_FRAME_STEP_OK = frameStep and 1 or 0
-  ISAAC_TIME_OK = timeMatchesFrames and 1 or 0
-  ISAAC_TIME_REACHED_ONE = timeReachedOne and 1 or 0
+  ISAAC_TIME_MONOTONIC = timeMonotonic and 1 or 0
 
   if frames == 2 then
     -- 第二帧再调同样的 stub：每会话只告警一次，所以这里必须一行告警都没有。

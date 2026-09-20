@@ -19,4 +19,8 @@ namespace isaac::runtime {
 // Returns how many methods were attached.
 [[nodiscard]] std::size_t AttachInputMethods(lua_State* state) noexcept;
 
+// 批次 107：`Input.IsActionTriggered` 的上升沿表是**会话级**状态（与 `ManagedFrameClock` 同一口径），
+// 新建 Lua 会话时要清空 —— 不清的话上一次会话"按住过"的记录会让新会话的第一次询问凭空报一次"刚按下"。
+void ResetInputEdgeState() noexcept;
+
 } // namespace isaac::runtime

@@ -2,7 +2,8 @@
 
 namespace isaac::runtime {
 
-Status CallbackRegistry::Register(const CallbackDescriptor& descriptor) noexcept {
+Status CallbackRegistry::Register(const CallbackDescriptor& descriptor, std::int64_t filter,
+                                  std::int32_t priority) noexcept {
     if (!descriptor.valid()) {
         return Status{StatusCode::InvalidArgument};
     }
@@ -21,8 +22,21 @@ Status CallbackRegistry::Register(const CallbackDescriptor& descriptor) noexcept
     // 不同 Mod 之间的隔离仍由 `owner` 承担；同一 Mod 的多次登记按登记顺序派发
     // （`CallbackDispatcher::Dispatch` 用 `CountOf(id)` + `At(id, index)` 遍历多条，无需改动）。
     entries_[count_] = descriptor;
+    // 过滤器与描述符在**同一处**写入（同一把下标），这是"两张表永不脱钩"的唯一保证点：
+    // 只要新增登记路径都走这里，就不可能出现"描述符有、过滤器没跟上"的错位。
+    filters_[count_] = filter;
+    // 优先级与描述符同样在**同一处**写入（同一把下标）—— 三张表永不脱钩。
+    priorities_[count_] = priority;
     ++count_;
     return Status::Ok();
+}
+
+std::int64_t CallbackRegistry::FilterAt(std::size_t index) const noexcept {
+    return index < count_ ? filters_[index] : kNoCallbackFilter;
+}
+
+std::int32_t CallbackRegistry::PriorityAt(std::size_t index) const noexcept {
+    return index < count_ ? priorities_[index] : kDefaultCallbackPriority;
 }
 
 const CallbackDescriptor* CallbackRegistry::Find(CallbackId id, ModHandle owner) const noexcept {
@@ -57,8 +71,16 @@ std::uint32_t CallbackRegistry::RemoveAtIndex(std::size_t index,
     }
     for (std::size_t move = index + 1; move < count_; ++move) {
         entries_[move - 1] = entries_[move];
+        // ★ 过滤器与优先级必须跟着一起前移（见头文件里 `filters_` 的注释）：漏了这一步会让
+        // 其余登记的过滤器/优先级整体错位，而症状是"别的回调静默不触发"或"顺序莫名其妙"。
+        filters_[move - 1] = filters_[move];
+        priorities_[move - 1] = priorities_[move];
     }
     --count_;
+    // 尾槽复位：不必须（`count_` 已经把它排除在外），但留着上一次的值会让"表尾长什么样"
+    // 取决于历史操作顺序，调试读数时容易看成一条真登记。
+    filters_[count_] = kNoCallbackFilter;
+    priorities_[count_] = kDefaultCallbackPriority;
     return 1;
 }
 
@@ -71,6 +93,8 @@ std::uint32_t CallbackRegistry::RemoveOwner(ModHandle owner) noexcept {
             continue;
         }
         entries_[write] = entries_[index];
+        filters_[write] = filters_[index];
+        priorities_[write] = priorities_[index];
         ++write;
     }
     count_ = write;
@@ -110,6 +134,10 @@ const CallbackDescriptor* CallbackRegistry::AtIndex(std::size_t index) const noe
 
 void CallbackRegistry::Reset() noexcept {
     entries_ = {};
+    // 用哨兵值而不是全零：零是**有意义**的过滤值（`Card.CARD_FOOL` 等），
+    // 全零会让"空表"与"每一条都带 0 号过滤器"长得一样。
+    filters_.fill(kNoCallbackFilter);
+    priorities_.fill(kDefaultCallbackPriority);
     count_ = 0;
 }
 

@@ -114,7 +114,11 @@ class LuaCallbackPipelineTests(unittest.TestCase):
         source = LUA_RUNTIME.read_text(encoding="utf-8")
         self.assertNotIn("g_CallbackRegistry.Remove(", source)
         mod_api = (SRC / "interfaces" / "lua" / "mod_api.cpp").read_text(encoding="utf-8")
-        self.assertIn("registry.Register(descriptor)", mod_api)
+        # 批次 101 起登记多带一个**过滤器**参数；批次 105 起再多一个**优先级**
+        # （`Mod:AddPriorityCallback` 的第二个实参，见 `CallbackRegistry::PriorityAt`）
+        # ⇒ 这里的字面量再放宽一个实参位；"走 `Register` 这一条路"与"不先删旧的"
+        # 两条不变量都没变。
+        self.assertIn("registry.Register(descriptor, filter, priority)", mod_api)
         # 追加语义：登记前不得调用 `Remove`（那正是被推翻的替换语义）。
         self.assertNotIn("registry.Remove(", mod_api)
 

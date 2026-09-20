@@ -1,7 +1,11 @@
-"""后端选择来自 domain 的**侵入点登记表**（`kHookCatalog`）：四路入口中继 + 一路 GOT 槽。
+"""后端选择来自 domain 的**侵入点登记表**（`kHookCatalog`）：入口中继 + GOT 槽 + RelaySlot。
 
 登记表是唯一真值源（路由适配器用 `CatalogBackends()` 派生 `kHookBackends`），
 所以这里解析登记表本身，并顺带钉住它的几条不变量。
+
+（2026-09-20 批次 102：入口中继从四路涨到八路 —— 新增的四个事件靶点
+`UseActiveItem`/`UseCard`/`UsePill`/`GameExit` 全部走 `EntryRelay`。下面两条期望值
+跟着加长；**不是放宽**：每个挂点仍必须恰好一行、顺序仍必须与 `HookId` 一致。）
 """
 
 import re
@@ -14,7 +18,9 @@ CATALOG = SRC / "domain" / "runtime" / "hook_catalog.hpp"
 ROUTING = SRC / "infrastructure" / "hook_routing_adapter.hpp"
 
 EXPECTED = ("ManagerUpdate", "ManagerRender", "PreGetCollectible",
-            "ManagerPresent", "RebuildMountPoints", "GameStart")
+            "ManagerPresent", "RebuildMountPoints", "GameStart",
+            "UseActiveItem", "UseCard", "UsePill", "GameExit", "PickupCollision",
+            "RoomEntitySpawn")
 
 
 def catalog_entries(text):
@@ -43,9 +49,12 @@ class HookCatalogTests(unittest.TestCase):
         backends = [row[1] for row in catalog_entries(self.text)]
         self.assertEqual(
             backends,
-            ["EntryRelay", "EntryRelay", "EntryRelay", "GotSlot", "EntryRelay", "RelaySlot"],
-            "M2b 之后：四路入口中继 + ManagerPresent 走 GOT 槽；"
-            "GameStart 走 RelaySlot（引擎侧中继已放好代码，我们只往槽里写回调指针）")
+            ["EntryRelay", "EntryRelay", "EntryRelay", "GotSlot", "EntryRelay", "RelaySlot",
+             "EntryRelay", "EntryRelay", "EntryRelay", "EntryRelay", "EntryRelay",
+             "EntryRelay"],
+            "M2b 之后：入口中继 + ManagerPresent 走 GOT 槽；"
+            "GameStart 走 RelaySlot（引擎侧中继已放好代码，我们只往槽里写回调指针）；"
+            "批次 102 的四个事件靶点都走入口中继（零占洞）")
 
     def test_exactly_one_required_point_and_it_is_manager_update(self):
         required = [row[0] for row in catalog_entries(self.text) if row[2]]
