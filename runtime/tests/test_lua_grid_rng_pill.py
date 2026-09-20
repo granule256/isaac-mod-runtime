@@ -181,11 +181,18 @@ int main(int argc, char** argv) {
                               reinterpret_cast<uintptr_t>(&HostRngNext));
 
     const char* script = nullptr;
+    // ★ 设计变更（2026-09-19 批次 043）：顶层（非托管回调）调用**不再被作用域守卫拒绝**
+    //（PC 允许模组在加载期读引擎状态；报错会让整个模组的功能整块消失）。
+    // 两个场景都用 `pcall` 包住并打印结果：Python 侧据此确认"这次调用真的被执行了"，
+    // 且错误文本里不再出现 "only available during a Runtime callback"。
     if (std::strcmp(scenario, "top_level") == 0) {
-        // 顶层调用：`GetRNG` 与 `IsPillIdentified` 都必须拒绝（"only available during a callback"）。
-        script = "Game():GetItemPool():IsPillIdentified(3)";
+        script =
+            "local ok, v = pcall(function() return Game():GetItemPool():IsPillIdentified(3) end)"
+            " print('TOPLEVEL ok='..tostring(ok)..' v='..tostring(v))";
     } else if (std::strcmp(scenario, "top_level_grid") == 0) {
-        script = "Game():GetRoom():GetGridEntity(5):GetRNG()";
+        script =
+            "local ok, v = pcall(function() return Game():GetRoom():GetGridEntity(5):GetRNG() end)"
+            " print('TOPLEVEL_GRID ok='..tostring(ok)..' v='..tostring(v))";
     } else if (noOwner) {
         // 读不到 ItemPool ⇒ 必须报错；`GetRNG` 只依赖句柄自己的地址，仍然要能用。
         script =
@@ -238,7 +245,9 @@ int main(int argc, char** argv) {
     const auto result = LuaRuntime::InitializeFromBuffer(script, std::strlen(script), "@grid13.lua");
     if (std::strcmp(scenario, "top_level") == 0 ||
         std::strcmp(scenario, "top_level_grid") == 0) {
-        return result == LuaRuntime::LuaInitResult::ScriptRunFailed ? 0 : 1;
+        // 判据在 Python 层（能看 stdout）：脚本必须跑通并打印，且不再出现作用域守卫那句话。
+        static_cast<void>(result);
+        return 0;
     }
     if (result != LuaRuntime::LuaInitResult::Success) return 2;
     LuaRuntime::DispatchPreGetCollectible(nullptr, 0, 0, 1, 0);
@@ -325,10 +334,14 @@ class LuaGridRngPillTests(unittest.TestCase):
 
     def test_outside_a_managed_callback_the_apis_refuse_to_run(self):
         """Mod 脚本顶层调用必须失败（与其它族同一口径）。"""
-        for scenario in ("top_level", "top_level_grid"):
+        # ★ 设计变更（2026-09-19 批次 043）：这两个场景原来要求"顶层调用必须被拒绝"；
+        # 守卫删除后改为要求"顶层调用被执行了、且不再是被守卫拒绝的那句话"。
+        for scenario, marker in (("top_level", "TOPLEVEL ok="), ("top_level_grid", "TOPLEVEL_GRID ok=")):
             with self.subTest(scenario=scenario):
                 result = self.run_scenario(scenario)
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertIn(marker, result.stdout)
+                self.assertNotIn("only available during a Runtime callback", result.stdout)
 
 
 if __name__ == "__main__":

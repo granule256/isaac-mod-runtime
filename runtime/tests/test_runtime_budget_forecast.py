@@ -19,7 +19,9 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "tools"))
 
 from runtime_budget_forecast import (  # noqa: E402
+    DEFAULT_CODE_LIMIT,
     DEFAULT_FLOOR_KIB,
+    DEFAULT_RO_END_LIMIT,
     ENGINE_METHOD_API_CODE_BYTES,
     FIELD_READ_API_CODE_BYTES,
     POLICY_ADVICE,
@@ -29,39 +31,46 @@ from runtime_budget_forecast import (  # noqa: E402
 )
 
 
+# 夹具里的"基线"必须**跟着上限走**：这些用例测的是"余量够不够、先撞哪一段"的算术，
+# 用字面量写死 0x80000/0x100000 会在上限调整后把"余量很紧"的夹具变成"余量很宽"，
+# 于是断言与它想测的场景脱节（2026-09-19 抬闸门时正是这样红的）。
+CODE_LIMIT = DEFAULT_CODE_LIMIT
+RO_LIMIT = DEFAULT_RO_END_LIMIT
+
+
 class RuntimeBudgetForecastTests(unittest.TestCase):
     def test_capacity_is_limited_by_the_tighter_segment(self):
         """两段余量都很大时，上限取较小者；且明确指出是哪一段。"""
         # 代码余 4900 B（正好 10 条），只读余 2720 B（正好 10 条）—— 两边打平。
-        result = forecast(0x80000 - 4900, 0x100000 - 2720, apis=0, kind="engine")
+        result = forecast(CODE_LIMIT - 4900, RO_LIMIT - 2720, apis=0, kind="engine")
         self.assertEqual(result["capacity_by_code"], 10)
         self.assertEqual(result["capacity_by_rodata"], 10)
         self.assertEqual(result["capacity"], 10)
 
         # 代码段更紧（余 4900 B ⇒ 10 条），只读段很宽 ⇒ 先撞代码段。
-        result = forecast(0x80000 - 4900, 0x100000 - 272000, apis=0, kind="engine")
+        result = forecast(CODE_LIMIT - 4900, RO_LIMIT - 272000, apis=0, kind="engine")
         self.assertEqual(result["binding_segment"], "code")
         self.assertEqual(result["capacity"], 10)
 
         # 只读段更紧（余 2720 B ⇒ 10 条），代码段很宽 ⇒ 先撞只读段。
-        result = forecast(0x80000 - 49000, 0x100000 - 2720, apis=0, kind="engine")
+        result = forecast(CODE_LIMIT - 49000, RO_LIMIT - 2720, apis=0, kind="engine")
         self.assertEqual(result["binding_segment"], "rodata")
         self.assertEqual(result["capacity"], 10)
 
     def test_field_read_apis_are_cheaper_than_guarded_engine_methods(self):
         """字段直读类没有 16 字节守卫校验函数，因此同样的余量能放更多条。"""
-        code_end = 0x80000 - 49000
-        engine = forecast(code_end, 0x100000, apis=0, kind="engine")
-        field = forecast(code_end, 0x100000, apis=0, kind="field")
+        code_end = CODE_LIMIT - 49000
+        engine = forecast(code_end, RO_LIMIT, apis=0, kind="engine")
+        field = forecast(code_end, RO_LIMIT, apis=0, kind="field")
         self.assertEqual(engine["code_per_api"], ENGINE_METHOD_API_CODE_BYTES)
         self.assertEqual(field["code_per_api"], FIELD_READ_API_CODE_BYTES)
         self.assertGreater(field["capacity_by_code"], engine["capacity_by_code"])
 
     def test_requested_batch_fit_is_decided_by_the_limit(self):
         """一个批次放不放得下，按上限判 —— 边界值两边都要对。"""
-        code_end = 0x80000 - 10 * ENGINE_METHOD_API_CODE_BYTES
+        code_end = CODE_LIMIT - 10 * ENGINE_METHOD_API_CODE_BYTES
         # 只读段留足余量：否则上限会被只读段压到 0，测的就不是代码段这条边界了。
-        ro_end = 0x100000 - 100 * RODATA_BYTES_PER_API
+        ro_end = RO_LIMIT - 100 * RODATA_BYTES_PER_API
         fits = forecast(code_end, ro_end, apis=10, kind="engine")
         self.assertTrue(fits["requested_fits"])
         over = forecast(code_end, ro_end, apis=11, kind="engine")
@@ -84,20 +93,20 @@ class RuntimeBudgetForecastTests(unittest.TestCase):
         这是有意为之：它把"先省再写"变成构建期的事实，而不是靠记性。
         """
         # 余量足够覆盖这一批、且做完仍在保留线之上 ⇒ 通过。
-        code_end = 0x80000 - 100 * 1024
-        ro_end = 0x100000 - 200 * 1024
+        code_end = CODE_LIMIT - 100 * 1024
+        ro_end = RO_LIMIT - 200 * 1024
         ok = evaluate_policy(code_end, ro_end, apis=50, kind="engine")
         self.assertTrue(ok["ok"], ok["problems"])
         self.assertGreaterEqual(ok["remaining_code"], DEFAULT_FLOOR_KIB * 1024)
 
         # 做完之后余量掉到保留线下面 ⇒ 失败，并明确指出是哪一段。
-        code_end = 0x80000 - 40 * 1024
+        code_end = CODE_LIMIT - 40 * 1024
         below = evaluate_policy(code_end, ro_end, apis=50, kind="engine")
         self.assertFalse(below["ok"])
         self.assertTrue(any("代码段" in problem for problem in below["problems"]))
 
         # 放不下（超过容量上限）⇒ 同样是失败，理由要说"放不下"。
-        over = evaluate_policy(0x80000 - 490, ro_end, apis=10, kind="engine")
+        over = evaluate_policy(CODE_LIMIT - 490, ro_end, apis=10, kind="engine")
         self.assertFalse(over["ok"])
         self.assertTrue(any("放不下" in problem for problem in over["problems"]))
 

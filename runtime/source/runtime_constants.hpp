@@ -52,6 +52,51 @@ inline constexpr std::uint32_t kStageTypeRepentanceEraMasked = 0x4;
 //: 幕府/革赫那第二层（`STAGE4_3 == 9`）—— PC 文档说 `IsPreAscent()` 指的是"通往升华的那一层"。
 inline constexpr std::uint32_t kLevelStagePreAscent = 9;
 inline constexpr uintptr_t kLevelCurrentRoomDimensionOffset = 0x21560;    //   … 对应的维度参数
+
+//: 引擎自己的 `Level::GetRoomByIdx(int, int) const`（**描述符解析的唯一权威**）。
+//:
+//: 为什么改成直接调它（批次 077）：我们手写的那套"扫描 `+0x00 == 下标` + 引擎映射表 + 足迹校验"
+//: 在真机上解析率很低（一次会话 8844 次解析里 5162 次给了空句柄），而且**从某些房间走进两格房时
+//: 解析出来的不是那个房间** —— 于是 GoodTrip 的地图条件 `grid_room[crd.SafeGridIndex] ~= nil`
+//: 为假、整张地图不画（`rules.lua` 的 `check_teleble`），而错误历史干干净净（条件为假，不是异常）。
+//: 用户实测的判据非常干净：**从银色道具房 / 贪婪最下方那间走进两格房必现，传送进去则不现**
+//: —— 两者唯一的差别就是"进房间时踩在哪一格"（`Level + 0x21558`）。
+//:
+//: 引擎这条函数就是 PC 的 Lua 绑定走的同一条路（`Level::GetCurrentRoomDesc @ 0x3DC684` 内部
+//: 就是读 `+0x21558`/`+0x21560` 后转调它），所以它的答案**按定义**就是"PC 会得到的答案"；
+//: 无效格子它返回自己的静态空描述符（**对象，不是 nil**），这也正是 PC 的语义。
+//:
+//: **入口**（固定 NRO，`python3 tools/nro_disasm.py 0x3dc3b0 0xd0`）：
+//:   `d10103ff sub sp, sp, #0x40`（**真正的函数开头**；0x3DC5B0 是它的中段，不能当入口调 ——
+//:    那一段用 `w10` 当维度，而 `w10` 是**函数前半段**才赋值的）
+//:   `5282a209 mov w9,#0x1510 ; movk w9,#0x2` → `x11 = Level + 0x21510`（描述符区基址）
+//:   `36f80042 tbz w2,#31` + `b9405162 ldr w2,[x11,#0x50]` ⇒ **维度传 -1 = 用当前维度**
+//:    `7100085f cmp w2,#0x2 ; b.hi` ⇒ 维度 > 2 直接给空描述符
+//:   `3101943f cmn w1,#0x65` / `3101903f cmn w1,#0x64` ⇒ 索引 **-101 / -100** 两个特殊值
+//:   `52803f49 mov w9,#0x1fa(506) ; 4b010129 sub w9,w9,w1` ⇒ **负数索引**映射到"尾部槽位"
+//:    （`槽号 = 506 - 索引`）—— 也就是说 PC 的 `-1`/`-2` 语义就在这条函数里，我们不必再猜
+//:   `1b090549 madd w9, w10, w9(169), w1` + `b8aa6929 ldrsw x9,[x9,#0x2d18]` ⇒ 映射表取**有符号**槽号
+//:   `9a88b000 csel x0, x0, x8, lt` ⇒ 槽号 < 0 时返回**静态空描述符**（`0xabc000+0xa10`，是对象不是 nil）
+//:   `d65f03c0 ret`（函数尾在 0x3DC680，紧挨着 `Level::GetCurrentRoomDesc @ 0x3DC684` ⇒ 长度自洽）
+inline constexpr uintptr_t kLevelGetRoomByIdxOffset = 0x3DC3B0;
+//: 入口 4 字节指纹（同一份 NRO 的第一条指令 `sub sp, sp, #0x40`）。
+inline constexpr std::uint32_t kLevelGetRoomByIdxEntryWord = 0xD10103FFu;
+// `Room:IsMirrorWorld()` 的判据：**当前房间的维度 == 1**。
+//
+// 证据（两条独立）：
+//   ① `Level + 0x21560` 就是"当前 descriptor 的维度参数" —— `Level::GetCurrentRoomDesc @ 0x3DC684`
+//      把它当 `Level::GetRoomByIdx(index, dimension)` 的**第 2 个实参**（见本文件
+//      `kLevelCurrentRoomIndexOffset` 那一段的反汇编记录，那条偏移本来就是为此取的）；
+//   ② PC 文档快照 `RoomDescriptor.md` 写明维度枚举的含义：
+//      `0 = main dimension`、**`1 = secondary dimension, used by downpour mirror dimension
+//      and mines escape sequence`**、`2 = death certificate dimension`。
+//      而 PC 对 `Room:IsMirrorWorld()` 的说明是"Returns true if the player is inside the
+//      mirror dimension"（`Room.md`）⇒ 两者合起来就是"当前维度 == 1"。
+//
+// ⚠️ **已知过宽（写在这里免得以后当 bug 查）**：文档同上写着维度 1 也被**矿坑逃脱序列**用
+// ⇒ 那一幕这条 API 也会答 true。PC 的说明只到"玩家在镜像维度里"这一层，无法再细分；
+// 要细分得另找引擎判据（层号/关卡类型），目前没有证据。
+inline constexpr std::uint32_t kMirrorWorldDimension = 1;
 inline constexpr uintptr_t kGameHudOffset = 0xE8468;                      // Game → HUD
 
 // `Manager::GetLanguageCode() const`：读取 `Manager + 0x36CC0` 的 StringTable 当前语言索引，
@@ -187,6 +232,136 @@ inline constexpr uintptr_t kEntityPlayerAddCollectibleOffset = 0x292A74;
 // 就能核对，不必逐字节读。
 inline constexpr std::uint32_t kEntityPlayerAddCollectibleEntryWord = 0xD10443FFU;
 
+// `Entity_Player::AddCoins(int Amount)`（`0x280068`，符号
+// `_ZN15IsaacRepentance13Entity_Player8AddCoinsEi`）。清单里同样是 `missing_easy`（有底座、
+// 由我们自己接）。接法与 `AddCollectible` 逐字相同：模块基址 + 偏移 + 4 字节入口指纹 ——
+// 它会**改玩家状态**，偏移写错就会去调别的函数，那一层指认不是可选项。
+inline constexpr uintptr_t kEntityPlayerAddCoinsOffset = 0x280068;
+// 首 4 字节按小端整字存（`FD 7B BD A9` → `0xA9BD7BFD`，即 `stp x29,x30,[sp,#-0x30]!`）。
+inline constexpr std::uint32_t kEntityPlayerAddCoinsEntryWord = 0xA9BD7BFDU;
+
+// --- 批次 050（2026-09-19）：GoodTrip 真机上接下来会撞到的一批"引擎方法" -------------------
+//
+// 来源：`tools/mod_api_gap_report.py` 对 goodtripfixed 的高置信缺口清单（每条都带真机调用次数），
+// 以及 GoodTrip 源码里的实际调用点。偏移取自固定 NRO 的动态符号表（`file_offset` 就是运行时模块
+// 里的偏移，见 `runtime/tests/test_lua_level_batch8.py` 的说明），入口 4 字节指纹由
+// `nro_symbols.parse_dynamic_symbols` + 读文件前 4 字节得出。
+//
+// `Entity_Player::SetShootingCooldown(int)`（`0x2FB994`）。GoodTrip 在**打开地图后按方向键**时
+// 会调它（`scripts/control.lua:100` 的 `M.player_shoot_cooldown()`，`widget.lua:560` 也调）——
+// 而在它**之后**的 `widget.draw_minimap_ui()` 才是真正画小地图的地方 ⇒
+// 缺它是"按住地图键 + 方向键，屏幕什么都不画"的直接原因。
+inline constexpr uintptr_t kEntityPlayerSetShootingCooldownOffset = 0x2FB994;
+inline constexpr std::uint32_t kEntityPlayerSetShootingCooldownEntryWord = 0xB9440808U;
+
+// `Entity_Player::AnimateHappy()`（`0x2F6CA8`）/ `AnimateSad()`（`0x2F6D2C`）。
+// GoodTrip 传送成功/失败时各播一个动画（`scripts/control.lua:226`/`234`）。
+// 两者开头都是 `stp x29,x30,[sp,#-0x30]!` ⇒ **指纹相同**，靠偏移区分。
+// （批次 051 起它们走"引擎方法数据行"，每个 API 只花 16 字节只读数据 ⇒ 不再受预算限制。）
+inline constexpr uintptr_t kEntityPlayerAnimateHappyOffset = 0x2F6CA8;
+inline constexpr std::uint32_t kEntityPlayerAnimateHappyEntryWord = 0xA9BD7BFDU;
+inline constexpr std::uintptr_t kEntityPlayerAnimateSadOffset = 0x2F6D2C;
+inline constexpr std::uint32_t kEntityPlayerAnimateSadEntryWord = 0xA9BD7BFDU;
+
+// `Entity_Player::GetNumBlackHearts()`（const，`0x27FF84`）。
+// ★ PC 的 Lua 名字是 `EntityPlayer:GetBlackHearts()`，而**引擎里的符号叫 `GetNumBlackHearts`**
+// （同族 `GetNumCoins`/`GetNumKeys` 都是这个名字形状）。GoodTrip 在传送前的体力判断里连调两次
+// （`scripts/trip.lua:111`/`116`）⇒ 缺它同样是"方法不存在"，整条回调被打断。
+inline constexpr uintptr_t kEntityPlayerGetNumBlackHeartsOffset = 0x27FF84;
+inline constexpr std::uint32_t kEntityPlayerGetNumBlackHeartsEntryWord = 0xB956C40AU;
+
+// `Game::ChangeRoom(int, int)`（`0x353FE0`）。GoodTrip 的传送主路径（`scripts/trip.lua:150` 起
+// 共 6 处）就是 `Game():ChangeRoom(目标格, -1)`；第二参 `-1` 表示"按当前维度"。
+inline constexpr uintptr_t kGameChangeRoomOffset = 0x353FE0;
+inline constexpr std::uint32_t kGameChangeRoomEntryWord = 0xA9BC7BFDU;
+
+// 批次 055：`Game::StartRoomTransition(int RoomIndex, eDirection, eAnimation,
+// Entity_Player* Player, int Dimension)`（`0x353CBC`，入口 `0xD10343FF`）。
+//
+// 为什么必需：GoodTrip 的传送**默认路径**就是它（`scripts/trip.lua:207`，而
+// `cfg.FastTransition` 默认 false ⇒ 走的就是这一条）。缺它时模组报
+// "attempt to call a nil value (method 'StartRoomTransition')"，传送这一步整条断掉。
+// 5 个参数、其中第 4 个是**玩家实体指针** ⇒ 这是"通用跳板 + 签名描述符"第一个真实消费者
+// （见 `engine_call_trampoline.hpp` 与 `EngineCallShape::VoidIntIntIntHandleInt`）。
+inline constexpr uintptr_t kGameStartRoomTransitionOffset = 0x353CBC;
+inline constexpr std::uint32_t kGameStartRoomTransitionEntryWord = 0xD10343FFU;
+
+// 批次 063：`Entity::IsFlying() const`（`0x5C744`，入口 `0xB941E008`）。
+//
+// 为什么必须有：GoodTrip 的诅咒房判定（`scripts/trip.lua:90`）问的是
+// `floor.player:IsFlying()`（飞着进诅咒房不掉血），没有它就报
+// "attempt to call a nil value (method 'IsFlying')" ⇒ **刺房（type 10）整条传送路径断掉**。
+// PC 里它在基类 `Entity` 上（`Entity.md`），而 `EntityPlayer` 会继承基类方法
+// （`IndexEntity()` 查完自己的表会回落到 `kEntityMetatable`），所以这一行挂在 `Entity` 族。
+// 签名：无参（只有隐式 this）、返回 bool ⇒ 用 `EngineCallShape::Bool0`（批次 055 的返回种类里已有 Bool）。
+inline constexpr uintptr_t kEntityIsFlyingOffset = 0x5C744;
+inline constexpr std::uint32_t kEntityIsFlyingEntryWord = 0xB941E008U;
+
+// 批次 065：`Entity::TakeDamage(float, EntityRef const&, int)` @ `0x5DCA4`（入口 `0xD10343FF`）
+// 与玩家的重载 `Entity_Player::TakeDamage(...)` @ `0x2A34D0`（入口 `0xD107C3FF`）。
+//
+// 为什么两条都要：GoodTrip 的诅咒房过路费（`scripts/trip.lua:70`）打的是**玩家**，而玩家的重载
+// 才有玩家专属逻辑（无敌帧、血量、动画）。PC 那边 `TakeDamage` 是**虚函数**
+// （各子类各有实现、模块内只走虚表），我们这里按"接收者是不是玩家"二选一：
+// 玩家走 `0x2A34D0`，其余走基类 `0x5DCA4`。**已知偏离**：非玩家子类自己的重载不会被执行
+// （例如 `Entity_NPC::TakeDamage` 的额外处理），写在实现处的注释里。
+inline constexpr uintptr_t kEntityTakeDamageOffset = 0x5DCA4;
+inline constexpr std::uint32_t kEntityTakeDamageEntryWord = 0xD10343FFU;
+inline constexpr uintptr_t kEntityPlayerTakeDamageOffset = 0x2A34D0;
+inline constexpr std::uint32_t kEntityPlayerTakeDamageEntryWord = 0xD107C3FFU;
+
+// `Room::PlayMusic()`（`0x451834`）与 `Level::AddCurse(eLevelCurse,bool)`（`0x3E7E08`）/
+// `Level::RemoveCurses(uint)`（`0x3D8EC4`）—— 传送路径上"补音乐 / 临时加撤迷宫诅咒"用的
+// （`scripts/trip.lua:202`/`26`/`126`）。批次 051 起它们走"引擎方法数据行"（每个 16 字节只读）。
+inline constexpr uintptr_t kRoomPlayMusicOffset = 0x451834;
+inline constexpr std::uint32_t kRoomPlayMusicEntryWord = 0xD101C3FFU;
+inline constexpr uintptr_t kLevelAddCurseOffset = 0x3E7E08;
+inline constexpr std::uint32_t kLevelAddCurseEntryWord = 0xD10143FFU;
+inline constexpr uintptr_t kLevelRemoveCursesOffset = 0x3D8EC4;
+inline constexpr std::uint32_t kLevelRemoveCursesEntryWord = 0xD10143FFU;
+
+// `Entity_Player + 0x16E0` = **金币数**（u32）。证据（2026-09-18，`tools/nro_disasm.py 0x280068`）：
+// `Entity_Player::AddCoins` 的"取-加-夹-存"四条指令连着写同一个字段 ——
+//   0x280100 `ldr w9,[x19,#0x16e0]` → 0x280104 `add w9,w9,w20`（w20 = 入参 Amount）
+//   → 0x28010C `csel w8,w9,w8,lt` 夹到上限 → 0x28011C `str w8,[x19,#0x16e0]`，
+// 之后 0x280120 调 `Entity_Player::consumable_count_changed(1)`、0x280144 尾调到
+// `HUD::SetSecondScreenRefresh(HudRefreshType, 1)` —— 这两条是"消耗品数量变了要刷 HUD"的引擎侧效应。
+// 上限来自同函数 0x2800F4 的 `csel w8, 99, 999`（999 = 拥有 INDEX 416 那件收藏品时）⇒ 即 PC 的
+// `GetMaxCoins()` 语义，**独立说明这就是"加钱"而不是别的计数器**。
+// 还有一条独立印证：0x280088 读 `[x19,#0x1738]`（= `kEntityPlayerTypeOffset`，PlayerType）
+// 与 0x21/0x0E 比较后转去 `AddHearts` —— 那正是 Keeper（14）"金币当血加"的引擎分支。
+inline constexpr uintptr_t kEntityPlayerCoinsOffset = 0x16E0;
+
+// `Entity_Player` 的另外四个"计数类"字段（2026-09-18 取证）。四个都出自**同一个配方**：
+// 引擎自己的 `Add<X>(int)` 就是"取-加-夹-存"**同一个**字段（并夹到 99），所以字段偏移能从它读出来。
+// 取证命令：`python3 tools/nro_disasm.py <Add 函数偏移> 0x40`。
+//   * **钥匙** `+0x16D4`：`AddKeys @ 0x2804E8` ——
+//     `ldr w8,[x0,#0x16d4]` → `add w8,w8,w1` → `cmp w8,#0x63`+`csel` 夹到 99 → `str w10,[x0,#0x16d4]`;
+//   * **炸弹** `+0x16DC`：⚠️ **2026-09-18 夜更正**（原写 `+0x16E4`，是错的；下面"更正证据"三条）;
+//   * **魂充能** `+0x2478`：`AddSoulCharge @ 0x27FD98` —— 同形 + 尾调
+//     `Entity_Player::update_soul_charges(int)`（这条引擎调用是语义锚点）;
+//   * **血充能** `+0x247C`：`AddBloodCharge @ 0x27F5B0` —— 同形 + 尾调 `update_blood_charges(int)`。
+// ★ **2026-09-18 夜更正（`+0x16E4` → `+0x16DC`）**，三条独立证据（都出自引擎自己的"消耗品"路径）：
+//   ① `Entity_Player::store_consumable_data`（`0x28D300`）把消耗品存进 `ConsumableData` 的**顺序**是
+//      `+0x16E0`→结构 `+0x00`、`+0x16D4`→`+0x04`、**`+0x16DC`→`+0x08`**（金币/钥匙/炸弹），
+//      而 `+0x16E4` **压根不在这个集合里**；
+//   ② `Entity_Player::sync_consumable_counts`（`0x2806C0`）联机同步按位分支：bit0 金币(`0x16E0`)、
+//      bit1 钥匙(`0x16D4`)、**bit2 炸弹(`0x16DC`)**，并且比较 `+0x24A4` 作上限；
+//   ③ `AddBombs` 的**常规路径**就是 `+0x16DC`（`ldr w8,[x19,#0x16dc]` → `add` → `cmp #0x63` →
+//      `csel` 夹到 99 → `str`），并把值镜像给同伴；`+0x16E4` 只出现在
+//      `PlayerType == 0x19`（`PLAYER_BLUEBABY_B`）那条**特殊分支**上（还伴随"立即生成炸弹实体"）。
+//   原证据为什么错：它抄的是那条特殊分支的指令，而"访问次数"与"是不是消耗品"都不能替代
+//   **"引擎自己在哪里把它当消耗品存取"** 这一条真值源（这次的判据工具 `tools/engine_field_recipe.py`
+//   就是按"读出来的值被加上入参"排序，并在校验既有常数时把这条差异暴露出来的）。
+// 交叉印证：三个"消耗品计数"连在一起（`0x16D4` 钥匙 / `0x16E0` 金币 / `0x16DC` 炸弹），
+// 两个"充能"连在一起（`0x2478` 魂 / `0x247C` 血）—— 两条独立线索都指向同一簇，不是巧合。
+// `AddKeys` 里还读了 `[x0,#0x19f0]`（玩家在 players 向量里的下标）⇒ 这些字段是**每个玩家各自**的，
+// 所以读法是"玩家实体 + 偏移"，不是全局量。
+inline constexpr uintptr_t kEntityPlayerKeysOffset = 0x16D4;
+inline constexpr uintptr_t kEntityPlayerBombsOffset = 0x16DC;
+inline constexpr uintptr_t kEntityPlayerSoulChargeOffset = 0x2478;
+inline constexpr uintptr_t kEntityPlayerBloodChargeOffset = 0x247C;
+
 // --- Entity_Player 的字段（2026-09-14 反汇编定位）--------------------------------------
 //
 // `ControllerIndex`（`+0x19EC`，u32）：`Entity_Player::SetControllerIndex(unsigned, bool)`
@@ -242,9 +417,97 @@ inline constexpr uintptr_t kRoomEntityListOffset = 0x1950;      // Room → 内�
 // 里 `add x8, x0, w1, uxtw #3; ldr x8, [x8, #0x30]` —— 就是用网格下标取这一族的指针；
 // 同处还看到 `ldr w0, [x8, #0x40]`（`GridEntity + 0x40` 参与碰撞判定）。
 inline constexpr uintptr_t kRoomGridEntityTableOffset = 0x30;
-// `GridEntity + 0x18` = 类型（`eGridEntityType`）：`GridEntity::Init(eGridEntityType) @ 0x37E438`
-// 的第一条存值就是 `str w1, [x0, #0x18]`（w1 即类型参数）。
-inline constexpr uintptr_t kGridEntityTypeOffset = 0x18;
+// ============================================================================
+// 门族（批次 078，2026-09-19）：`Room:GetDoor(slot)` 及其字段
+// ============================================================================
+//
+// 为什么现在做：`Room:GetDoor` 长期是"恒返回 nil"的降级（批次 046），而 GoodTrip 的
+// **连通图完全建立在它之上**（`floor.sweep_doors()` → `floor.linked()` → `rules.check_teleble()`）。
+// 它返回 nil 时我们只能靠临时钉子 `AllowAnyRoom = true` 让传送能用 —— 那个钉子的副作用就是
+// **能传送到没去过的房间**（用户实测反馈）。把门族做实，钉子才能撤掉。
+//
+// 取门路线（证据：`Room::GetDoorSlotPosition(eDoorSlot) const @ 0x464B8C` 的前 20 条指令）：
+//   `11000428 add w8, w1, #1 ; cmp w8, #9 ; b.lo`  ⇒ 槽位合法范围 **-1..7**
+//   `8b21c808 add x8, x0, w1, sxtw #2 ; b94e7108 ldr w8, [x8, #0xe70]`
+//     ⇒ **每个槽位的门在"网格下标"就存在 `Room + 0xE70 + slot*4`**（有符号）
+//   `b9401409 ldr w9, [x0, #0x14]`（= 房间网格宽度）后 `sdiv/msub` 把线性的网格下标拆成 行/列
+//   ⇒ 再用 `Room + 0x30` 的网格实体表取 `GridEntity_Door*`（那条表是老证据）
+//: 门槽位 → 网格下标的数组基址（`Room::GetDoorSlotPosition` 用的就是它）。
+inline constexpr uintptr_t kRoomDoorGridIndexTableOffset = 0xE70;
+//: **门槽位 → `GridEntity_Door*`**（0..7 直接索引）—— `Room:GetDoor(slot)` 走这一张，
+//: 比"先取网格下标、再查网格实体表"短一步。证据：`Room::make_door(eDoorSlot) @ 0x454EE4`
+//: `add x22,x0,w1,sxtw #3; ldr x8,[x22,#0xe30]`（判重）与末尾 `str x20,[x22]`（存门）；
+//: `Room::TriggerRedRoomDoorCreated` 用 `0xE30/0xE38/0xE40` 对应 `make_door(0/1/2)`，
+//: `TrySpawnTheVoidDoor` 用 `make_door(5)` 即 `0xE58` ✓。
+inline constexpr uintptr_t kRoomDoorObjectTableOffset = 0xE30;
+//: 门自己也记着自己的槽位（`Room::make_door` 的 `0x454FF4 str w19,[x20,#0x1a0]`）。
+inline constexpr uintptr_t kGridEntityDoorSlotOffset = 0x1A0;
+//: `GridEntity_Door + 0x30C` = **`TargetRoomIndex`**（门通向哪个房间，按 `Level` 描述符下标）。
+//: 证据（四条独立）：`InitSubclass @ 0x385F98` 初始化成 -1；
+//: `Update @ 0x38175C` 读它后 `bl Level::GetRoomByIdx(int,int)`；`SetRoomTypes @ 0x385A78` 同形；
+//: 写入方 `Room::TriggerRedRoomDoorCreated @ 0x48BE74` 把描述符的 `+0x04`（该房下标）`str` 进门的 `+0x30C`。
+//: 也与 GoodTrip `floor.lua:225` 的 `GetRoomByIdx(door.TargetRoomIndex, -1)` 逐字同形。
+inline constexpr uintptr_t kGridEntityDoorTargetRoomIndexOffset = 0x30C;
+//: 槽位的合法范围（`GetDoorSlotPosition` 里 `w1 + 1 < 9` ⇒ -1..7）。
+inline constexpr std::int32_t kRoomDoorSlotMinimum = -1;
+inline constexpr std::int32_t kRoomDoorSlotMaximum = 7;
+//: `Room + 0x14` = 房间**网格宽度**（`GetDoorSlotPosition` 用它把线性下标拆成行/列）。
+inline constexpr uintptr_t kRoomGridWidthOffset = 0x14;
+//: `Room::GetDoorSlotPosition(eDoorSlot) const`（返回 `XY`：两个 float 走 `s0`/`s1`；
+//: 槽位非法时返回 `Vector2::Zero`）。用它取门的**世界坐标**（GoodTrip 的 `door.Position` 用得到）。
+//: 入口首字 `d10083ff`（`sub sp, sp, #0x20`）。
+inline constexpr uintptr_t kRoomGetDoorSlotPositionOffset = 0x464B8C;
+inline constexpr std::uint32_t kRoomGetDoorSlotPositionEntryWord = 0xD10083FFu;
+//: `GridEntity_Door` 的字段（证据：`GridEntity_Door::InitSubclass @ 0x385F98` 的存值序列
+//: `str wzr,[x0,#0x1a4]` / `str x8,[x0,#0x1a8]`（x8 = -0x100000000 ⇒ 0x1A8=0、0x1AC=-1）/
+//: `str wzr,[x0,#0x318]`；以及 `SetRoomTypes @ 0x385A78` 写 0x1A4/0x1A8、`SetDirection @ 0x385F7C`
+//: 写 0x1AC、`IsTargetRoomArcade @ 0x386038` 读 0x1A8）。
+inline constexpr uintptr_t kGridEntityDoorCurrentRoomTypeOffset = 0x1A4;
+inline constexpr uintptr_t kGridEntityDoorTargetRoomTypeOffset = 0x1A8;
+inline constexpr uintptr_t kGridEntityDoorDirectionOffset = 0x1AC;
+//: 门自己的标志字（`Open()`/`CanEnter()` 读它的 bit4/bit5）。
+inline constexpr uintptr_t kGridEntityDoorFlagsOffset = 0x318;
+//: `GridEntity_Door::CanEnter() const`（`0x384FC8`）—— **"这扇门现在能不能过"的引擎判据**。
+//:
+//: 为什么用它实现 PC 的 `GridEntityDoor:IsOpen()`：PC 文档（`GridEntityDoor.md:56`）只给了
+//: `boolean IsOpen()` 这一个签名、**没有语义说明**；而 GoodTrip 的用途是
+//: `rules.lua` 的 `check_room_open()`（"这个房间还有没有能走的门"，用来判小 BOSS/挑战房是否算开），
+//: 那正是"能不能过"这个语义。引擎自己这条函数就是它内部问同一个问题的判据，所以直接调它。
+//:
+//: 反汇编（`python3 tools/nro_disasm.py 0x384fc8 0x50`，共 6 条指令、叶函数）：
+//:   `b9401009 ldr w9,[x0,#0x10]`（门对象的 variant）
+//:   `7100093f cmp w9,#0x2` + `1a9f17e9 cset w9,eq`
+//:   `394c6008 ldrb w8,[x0,#0x318]` + `121c0108 and w8,w8,#0x10`（标志字 bit4）
+//:   `4a481120 eor w0, w9, w8, lsr #4` ⇒ **`CanEnter = (variant == 2) XOR bit4`**
+//: 入口首字 = `b9401009`。
+inline constexpr uintptr_t kGridEntityDoorCanEnterOffset = 0x384FC8;
+inline constexpr std::uint32_t kGridEntityDoorCanEnterEntryWord = 0xB9401009u;
+//: `Rect`（`XY` 的小表）用于把 `Room::GetDoorSlotPosition` 的返回值读回来。
+struct RoomDoorPosition {
+    float x;
+    float y;
+};
+// `GridEntity + 0x08` = 类型（`eGridEntityType`）。
+//
+// ★ 2026-09-19 修正（批次 078，独立取证）：**旧结论 `+0x18` 是错的**。
+//   * `Room::CreateGridEntity(eGridEntityType, unsigned gridIndex) @ 0x37FC50`：
+//     `0x380084 str w20(类型实参),[x21,#0x8]` —— 类型直接落在 `+0x08`；
+//   * `GridEntity::IsRock() @ 0x37FBEC` 读 `+0x08` 后 `sub w8,w8,#2; cmp #0x19` 查位集
+//     `0x03D0001F`，解出来正好 {2,3,4,5,6,22,24,25,26,27}，与 PC `GridEntityType.md` 的岩石族逐项吻合；
+//   * `+0x18` 是 `GridEntity::Init(unsigned)` 写的槽，而所有创建路径都给它 `RandomU32()`
+//     （`make_door` 0x454FC4、`make_wall` 0x454E2C、`SpawnGridEntity` 第 4 实参）⇒ 它是**生成种子**。
+//   * 结构对照：`GridEntity::Init(const Desc&)` 把 `Desc[0x00..0x1F]` 拷到对象 `+0x08..+0x27`
+//     ⇒ 对象 `+0x08` = `Desc+0x00` = Type、`+0x10` = `Desc+0x08` = Variant、`+0x1C` = `Desc+0x14` = VarData。
+inline constexpr uintptr_t kGridEntityTypeOffset = 0x08;
+//: `GridEntity + 0x1C` = **`VarData`**（PC 的 `GridEntity.VarData`）。
+//: 证据：`Room::SpawnGridEntity(int, eGridEntityType, unsigned, unsigned, int) @ 0x452528` 把第 5 个实参
+//: 写进 `+0x1C`（`0x452634 str w20,[x24,#0x1c]`），而"活板门 `VarData = 1` ⇒ 虚空传送门"这条 PC 语义
+//: 在引擎里对得上（`GridEntity_TrapDoor::InitSubclass @ 0x395F1C` 读 `+0x1C` 判 1 后换 `VoidTrapdoor.anm2`）。
+//: 门的诅咒房标记也走它（`GridEntity_Door::Update` 在 `CURSE_OF_THE_CURSED` 分支读 `+0x1C`）。
+inline constexpr uintptr_t kGridEntityVarDataOffset = 0x1C;
+//: `GridEntity + 0x28` = **网格下标**（位置由引擎按格子算，不存 float）：
+//: `GridEntity::GetPosition() @ 0x37E498` 读它后转调 `Room::GetGridPosition(int)`。
+inline constexpr uintptr_t kGridEntityGridIndexOffset = 0x28;
 // `GridEntity + 0x10` = **variant**。证据（2026-09-16，行为锚点）：
 // `GridEntity_Poop::InitSubclass` / `GridEntity_Poop::Update` 反复读 `+0x10` 并与 **1000 (0x3E8)**
 // 比较 —— Isaac 里便便的 variant 正是 1000 起（1000=普通便便、1001=玉米…），共 4 处独立比较。
@@ -327,6 +590,17 @@ inline constexpr uintptr_t kEntityPickupVtableOffset = 0xA36E28;
 inline constexpr uintptr_t kEntityFamiliarVtableOffset = 0xA35728;
 inline constexpr std::uint32_t kEntityTypePlayer = 1;
 inline constexpr std::uint32_t kEntityTypePickup = 5;
+// 实体族回调（2026-09-18 批次 010）要按 `EntityType` 把实体分派给对应的回调。下面这几个值
+// 取自 PC 的 `EntityType` 枚举（`analysis/isaacdocs-snapshot/docs/enums/EntityType.md`），
+// 已与本仓库既有的分区代码交叉核对：`2` 眼泪、`4` 炸弹、`7` 激光、`8` 刀、`9` 弹射物
+// （`ClassifyEntity` 里的 `type == 2`/`== 8`/`== 9`/`== 4` 四条与枚举一致）。
+// 判据说明：这几类**没有各自的 vtable 常量**（没取证过），所以只能用 `Type` 判；
+// 玩家/掉落物/跟班那三类有 vtable 常量，判据必须是"Type + vptr 精确相等"（见 `isaac_api.cpp`）。
+inline constexpr std::uint32_t kEntityTypeTear = 2;
+inline constexpr std::uint32_t kEntityTypeBomb = 4;
+inline constexpr std::uint32_t kEntityTypeLaser = 7;
+inline constexpr std::uint32_t kEntityTypeKnife = 8;
+inline constexpr std::uint32_t kEntityTypeProjectile = 9;
 // `EntityType.ENTITY_FAMILIAR == 3`（PC 枚举；本项目既有的实体分区代码里也用 `type == 3`
 // 判"跟班"，且 `variant == 0xEF` 的特例归到敌人那一类）。
 inline constexpr std::uint32_t kEntityTypeFamiliar = 3;
@@ -334,6 +608,19 @@ inline constexpr std::uint32_t kEntityTypeEffect = 0x3E8;
 // `IsEnemy = (u32)(Type - 10) < 0x3DE`（引擎 `EntityList::collide()` 里的同一条比较）。
 inline constexpr std::uint32_t kEntityEnemyTypeBase = 10;
 inline constexpr std::uint32_t kEntityEnemyTypeSpan = 0x3DE;
+// `Entity + 0xCC9`：**boss 标记字节**（`Isaac.CountBosses` 的判据；2026-09-18 批次 026 取证）。
+//
+// 证据（三条互证）：
+//   ① `Entity_NPC::IsBoss()`（符号 `_ZNK15IsaacRepentance10Entity_NPC6IsBossEv` @ `0x124B20`）
+//      的**整个函数体**就是 `ldrb w0, [x0, #0xcc9]` + `ret` ⇒ 这条 PC 访问器读的就是这个字节；
+//   ② 基类 `Entity::IsBoss()` @ `0x67580` 是 `mov w0, wzr; ret`（恒 false）⇒ 这个字段只对
+//      NPC 有意义，别的类里读它是无意义数据（下面的 `IsBossEntity` 因此先要求"这是敌人"）；
+//   ③ 全镜像扫"对 `[x?, #0xcc9]` 的字节访问"共 **15 处**（4 写 11 读，含①那一处）：
+//      写入处 `0x108A10` 把 NPC 配置结构（`[实体+0x300]`）里 `+0x30` 的字节**拷进**实体
+//      `+0xCC9`（同一段里还有 `+0x5C→+0xCC8`、`+0x120→+0xCCC`、`+0x124→+0xCD0`），
+//      读取处 `0x106374` 在 NPC 寻路重置（`NPCAI_Pathfinder::Reset`）之后按它分支 ⇒
+//      这是一个由 NPC 配置驱动、被 AI 代码真正使用的字段。
+inline constexpr uintptr_t kEntityBossFlagOffset = 0xCC9;
 
 // 扫描一个实体需要的字段区间：最远的字段是 `Size`（`+0x344`，4 字节），所以一次可读性检查
 // 覆盖 `[entity, entity + 0x348)` 就够，之后的逐字段读取只是 `memcpy`（真机上 `svcQueryMemory`
@@ -794,6 +1081,11 @@ inline constexpr std::size_t kSpriteObjectSize = 0x158;
 inline constexpr std::size_t kSpriteObjectAlignment = 16;
 // `ANM2+0x149` 是"图形是否加载完成"的标志；为 0 时 `Render`/`Update` 是安全空操作（stage150 审计）。
 inline constexpr std::size_t kSpriteLoadedFlagOffset = 0x149;
+
+// 批次 065：`EntityRef`（`Entity::EntityRef`）的**替身缓冲区**大小。引擎按引用读它，
+// 已知被读到的最大偏移是 `+0x28`（源实体指针，8 字节）⇒ 需要 ≥ `0x30`；这里给 `0x40` 留余量。
+// 布局证据（哪几个格子、各自凭什么）写在 `interfaces/lua/entity_ref_api.hpp`。
+inline constexpr std::size_t kEntityRefStorageSize = 0x40;
 
 // `Entity+0x50` = 内嵌的 `ANM2`（PC Lua 的 `Entity:GetSprite()`）。两条独立指令序列互证
 // （都在 `Repentance.nro` 的 `.dynsym` 里，用 `tools/nro_disasm.py` 复现）：
@@ -1748,6 +2040,17 @@ inline constexpr std::array<u8, 16> kContentGetDirectoryEntriesExpectedBytes = {
 //     里的 `add x21, x21, #0x10`。
 inline constexpr std::size_t kDirectoryEntrySize = 0x10;
 inline constexpr std::size_t kDirectoryEntryNameOffset = 0x08;
+// ⚠️ **返回值不是分配起点**：`GetDirectoryEntries` 返回的是**条目数组的首地址**，条目数组前面还压着
+// 一个 8 字节的"条目数"头，真正的 `new[]` 指针在返回值的**前 8 字节**（`返回值 - 8`）。
+// 反汇编（2026-09-17 逐条读出 `0x4C23C4`）：
+//   * `0x4C2480 orr x8, x22, #0x8` + `0x4C2488 bl _Znam` ⇒ 申请的是 `条目区字节数 + 8`；
+//   * `0x4C2490 str x21, [x20], #0x8` ⇒ 把条目数写进块首 8 字节，并把指针推到 +8；
+//   * 之后的构造/拷贝循环都以 `x20`（= 块首 + 8）为条目基址（`add x21, x21, #0x10`）；
+//   * `0x4C2534 mov x0, x20` + `ret` ⇒ **返回的就是"块首 + 8"**。
+// ⇒ 释放必须用 `返回值 - kDirectoryEntryCountHeaderSize`。用返回值直接 `delete[]` 等于释放一个
+//   偏移指针（不是块首）⇒ 踩坏游戏线程本地堆的空闲链表 ⇒ **几层调用之后**在一次毫不相干的
+//   分配里炸掉（真机现象见 `docs/问题与解决记录.md` 续三十七）。
+inline constexpr std::size_t kDirectoryEntryCountHeaderSize = 0x08;
 inline constexpr unsigned kDirectoryEntryFileBit = 0;
 inline constexpr unsigned kDirectoryEntryDirectoryBit = 1;
 
@@ -2021,3 +2324,43 @@ inline constexpr std::array<u8, 0x30> kRebuildMountPointsRelayExpectedBytes = {
 };
 inline constexpr char kLogDirectory[] = "/atmosphere/logs";
 inline constexpr char kLogPath[] = "/atmosphere/logs/isaac-runtime-probe.log";
+
+// --- 接口面补缺一批（2026-09-18 夜，批次 028）------------------------------------------
+//
+// 这一批接的是**EID 真的在调、而我们没有**的四个成员（判据来自真机报错与 EID 源码引用）。
+// 入口地址与 4 字节入口指纹都取自游戏镜像：
+// `python3 tools/nro_disasm.py <地址> 0x20`（指纹 = 入口那条指令的整字）。
+// 调用方式与 `EntityPlayer:AddCollectible`/`AddCoins` 一族相同：模块基址 + 偏移 + **调用前核对指纹**
+// （这些都会真的进引擎，偏移写错就会去调别的函数 ⇒ 指纹不是可选项）。
+
+// `ItemPool::GetPillEffect(ePillColor, Entity_Player*)`（符号
+// `_ZN15IsaacRepentance8ItemPool13GetPillEffectENS_10ePillColorEPNS_13Entity_PlayerE`）。
+// PC 文档 `ItemPool.md:65`：`PillEffect GetPillEffect(PillColor, EntityPlayer = nil)`。
+// ★ 为什么这条最急：EID 在 `features/eid_api.lua:881` 调 `pool:GetPillEffect(SubType, player) + 1`，
+// 真机报 `attempt to call a nil value (method 'GetPillEffect')` ⇒ **那颗药的描述整条消失**。
+inline constexpr uintptr_t kItemPoolGetPillEffectOffset = 0x3C857C;
+inline constexpr std::uint32_t kItemPoolGetPillEffectEntryWord = 0xA9BD7BFDU;
+
+// `ItemPool::GetPoolForRoom(eRoomType, unsigned)`（符号
+// `_ZNK15IsaacRepentance8ItemPool14GetPoolForRoomENS_9eRoomTypeEj`；`const` 成员）。
+// PC 文档 `ItemPool.md:74`：`ItemPoolType GetPoolForRoom(RoomType, int Seed)`。
+// EID 在"这个房间的池子是什么"那条路径上调用它（`features/eid_api.lua` 的链式调用）。
+inline constexpr uintptr_t kItemPoolGetPoolForRoomOffset = 0x3C5C7C;
+inline constexpr std::uint32_t kItemPoolGetPoolForRoomEntryWord = 0xD10103FFU;
+
+// `Level::GetLastRoomDesc()`（符号 `_ZN15IsaacRepentance5Level15GetLastRoomDescEv`）。
+// PC 文档 `Level.md:172`：`const RoomDescriptor GetLastRoomDesc()`。
+// 函数体只有 6 条指令，且**尾调用** `Level::GetRoomByIdx(int, int)`：
+//   `add x8, x0, #0x2155C` → `ldr w1, [x8]`、`ldr w2, [x8, #0x8]` → `b GetRoomByIdx`
+// ⇒ 它读的是"上一个房间"的（索引 `+0x2155C`、维度 `+0x21564`）——正好紧挨着我们早就用着的
+// "当前房间"那一对（`+0x21558`/`+0x21560`），互相印证。返回值是 `RoomDescriptor*`，
+// 我们用现成的 `PushRoomDescriptor` 把它交给 Lua。
+inline constexpr uintptr_t kLevelGetLastRoomDescOffset = 0x3DC69C;
+inline constexpr std::uint32_t kLevelGetLastRoomDescEntryWord = 0x5282AB88U;
+
+// `Entity_Pickup::CanReroll()`（符号 `_ZNK15IsaacRepentance13Entity_Pickup9CanRerollEv`）。
+// PC 文档 `EntityPickup.md:25`：`boolean CanReroll()`。EID 用它判断"这个掉落物能不能被重掷"。
+// ⚠️ 同名的 `Entity_NPC::CanReroll`（`0x11FAF4`）**本批不做**：我们还没有 `EntityNPC` 视图
+// （模组拿到的 NPC 是基类 `Entity` 视图）⇒ 加了也调不到，属于"先要有视图"的欠账。
+inline constexpr uintptr_t kEntityPickupCanRerollOffset = 0x26AFA8;
+inline constexpr std::uint32_t kEntityPickupCanRerollEntryWord = 0x39470C09U;

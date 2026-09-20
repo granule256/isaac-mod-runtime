@@ -223,6 +223,27 @@ if GridEntityType.GRID_ROCK ~= 2 then error('grid entity enum') end
 if EffectVariant.EFFECT_NULL ~= 0 then error('effect variant enum') end
 if EntityPartition.PLAYER ~= 32 then error('entity partition enum') end
 if Card.CARD_FOOL ~= 1 then error('card enum') end
+-- 批次 048：由**仓库自带的 PC 文档快照**生成的那几张表（`pc_lua_enum_data` 之外的补充，
+-- 见 `tools/generate_doc_enum_tables.py`）。真机事故：GoodTrip 的 `widget.lua:185` 读
+-- `RoomShape.ROOMSHAPE_LTL`，我们没发这张表 ⇒ `attempt to index a nil value (global 'RoomShape')`
+-- ⇒ 整条绘制回调在小地图画出来之前被打断（用户只看到"按地图键没反应"）。
+for _, name in ipairs({'RoomShape', 'DoorVariant', 'Direction', 'StageType', 'DamageFlag',
+                       'RoomDescriptor'}) do
+    if _G[name] == nil then error('missing PC enum table: ' .. name) end
+end
+if RoomShape.ROOMSHAPE_1x1 ~= 1 or RoomShape.ROOMSHAPE_LTL ~= 9 then error('RoomShape 1x1/LTL') end
+if RoomShape.ROOMSHAPE_IIH ~= 7 or RoomShape.ROOMSHAPE_LBR ~= 12 then error('RoomShape IIH/LBR') end
+if DoorVariant.DOOR_HIDDEN ~= 7 or DoorVariant.DOOR_UNSPECIFIED ~= 0 then error('DoorVariant') end
+-- `NO_DIRECTION` 是负数：寄存器里按有符号存/取，压成无符号会变成 4294967295。
+if Direction.NO_DIRECTION ~= -1 or Direction.LEFT ~= 0 then error('Direction') end
+if StageType.STAGETYPE_REPENTANCE ~= 4 then error('StageType') end
+-- `DamageFlag` 里有 `1 << 32`：用 32 位装会**静默回绕成 0**（假读数）。这条钉的就是它。
+if DamageFlag.DAMAGE_CURSED_DOOR ~= 65536 then error('DamageFlag.DAMAGE_CURSED_DOOR') end
+if DamageFlag.DAMAGE_NO_PENALTIES ~= 268435456 then error('DamageFlag.DAMAGE_NO_PENALTIES') end
+if DamageFlag.DAMAGE_SPAWN_RUNE ~= 4294967296 then error('DamageFlag.DAMAGE_SPAWN_RUNE (1<<32)') end
+-- `RoomDescriptor` 页上有两张表格（`DISPLAY_*` 与 `FLAG_*`），PC 把它们都挂在同一个全局下。
+if RoomDescriptor.FLAG_RED_ROOM ~= 1024 then error('RoomDescriptor.FLAG_RED_ROOM') end
+if RoomDescriptor.DISPLAY_ALL ~= 4 then error('RoomDescriptor.DISPLAY_ALL') end
 -- Bit-flag tables: `enums.lua` writes every one of these as a shift expression
 -- (`1<<5`, `1 << 5`), and the generator used to truncate each one to its leading
 -- `1`. Every member is pinned here so that regression cannot come back silently.

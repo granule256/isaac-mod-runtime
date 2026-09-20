@@ -6,9 +6,16 @@
 运行时**直接读内存**，一次拿到全部读数：启动状态机走到第几步、清单安装为什么失败、
 挂点各自装成什么样、运行时的文件表是否已植入、Lua 侧有没有登记成功。
 
-★ 2026-09-14 夜间改版：**默认走"一次挂载读完所有地址"**。
-原因：实测这个调试桩**每次开机只可靠支撑很少几次 attach**，用光后重试不会恢复，只能重启主机
-（见 `docs/交接文档-20260914.md` 第五节 B 与 `.workbuddy/memory/2026-09-14.md` 的"调试桩使用预算"）。
+★ 2026-09-17 更正（用户实测，原记录作废）：**不存在"attach 次数配额"** ——
+此前写的"每次开机只可靠支撑很少几次 attach、用光要重启主机"是**错的**（用户原话：
+"那个调试桩预算的，没有预算这回事"）。**可以放心多次 attach。**
+
+仍然成立的是**稳定性**问题（这次实测也遇到了）：`monitor get info` 有时**不返回模块表**，
+工具会退化成 mappings 扫描；扫描认不出可执行段时，可以用 `--base/--game-base` 手动指定，
+或重启设备后第一次连接（那一次通常最完整）。**这跟"配额"是两件事，别再混为一谈。**
+
+★ 2026-09-14 夜间改版：**默认走"一次挂载读完所有地址"**（这个行为保留）——
+理由现在只是"**一次连完更快**"，不再是"省配额"。
 旧版一次读数要 attach 四次（找进程 → 取基址 → 读身份 → 读变量），常常读到一半就没预算了。
 新版把四件事合并进**同一个 gdb 会话、只 attach 一次**：会话是交互式的（gdb 从管道读命令），
 先用 `monitor get info` 拿到基址，再用算出来的地址继续发读命令，最后 `detach`。
@@ -98,7 +105,11 @@ SYMS = _SymbolTable({
     'g_DefaultManifestState': 0x2345a0,          # 0 未武装 1 已武装 2 安装中 3 就绪 4 失败
     'g_HookInstallFailureCode': 0x234614,        # 入口中继后端转发的失败码（0 = 无失败）
     'g_HookInstallFailureSlot': 0x234618,        # 第一个失败挂点 index+1（0 = 没有装失败的）
-    'g_HookInstallInstalledCount': 0x23461c,     # 装好的挂点数
+    'g_HookInstallInstalledCount': 0x23461c,     # 装好的挂点数（函数内静态，见 SYM_ELF_NAMES）
+    # 模组数据容器（`ModPersistence::detail::g_cache`）的**尾部字段**：payload 是 16 KiB，
+    # 尾部依次是 payloadLength(u64)/generation(u64)/loaded(u8)/exists(u8)。
+    # 取值时用 `SYMS['g_ModDataCache'] + 0x4000`（见 build_requests 的 `mod_data_tail`）。
+    'g_ModDataCache': 0x2353208,
     'g_PendingGameStarted': 0x234624,            # 待派发的"游戏开局"事件
     # ---- Lua 侧 ----
     'g_ModRegistered': 0x334da4,       # 模组是否登记成功（1 字节；= Lua 真的跑起来了）
@@ -113,6 +124,12 @@ SYMS = _SymbolTable({
     'g_LastLuaErrorLength': 0x334c94,
     'g_LastLuaErrorText': 0x334c98,    # 256 字节文本
     'g_PostUpdateCount': 0x334c80,
+    # 回调派发计数（2026-09-18 新增，见 `callback_dispatcher.hpp`）：74 个 u32，下标就是 PC
+    # `ModCallbacks` 的数值；相邻两个标量**分散**排布（链接器重排过），所以各读各的地址。
+    # 无 ELF 时下面这三个兜底值不可信 —— 一律靠 `sync_syms_from_elf()` 按符号名同步。
+    'g_CallbackDispatchCounts': 0x0,
+    'g_LastDispatchedCallbackId': 0x0,
+    'g_CallbackDispatchGeneration': 0x0,
     'g_CallbackRegistry': 0xa0578,     # 回调登记表：每项 20 字节，count_ 在 +0x1400
     # ---- 运行时读进来的文件内容（诊断"模组为什么算纯资源型"的关键）----
     'g_DefaultManifest': 0x1b4560,     # 上次读进来的 `manifest.json` 原文（512 KiB 缓冲）
@@ -153,6 +170,12 @@ SYM_ELF_NAMES = {
     'g_DefaultManifestState': '_ZN12_GLOBAL__N_1L22g_DefaultManifestStateE',
     'g_HookInstallFailureCode': '_ZZN5isaac7runtime22HookInstallFailureCodeEvE5value',
     'g_HookInstallFailureSlot': '_ZZN5isaac7runtime22HookInstallFailureSlotEvE5value',
+    'g_HookInstallInstalledCount': '_ZZN5isaac7runtime25HookInstallInstalledCountEvE5value',
+    'g_ModDataCache': '_ZN14ModPersistence6detail7g_cacheE',
+    # API 调用序列掩码（`api_sequence_probe.hpp` 的 `detail::ApiSequence()` 里的函数内静态）：
+    # "哪些 API 真被调用过"的直接证据 —— 比"某个功能看起来没生效"这种间接判断硬得多。
+    # 2026-09-19 加：GoodTrip 装上后界面不出现，需要先回答"它到底有没有走到 `Sprite:Render`"。
+    'g_ApiSequence': '_ZZN5isaac7runtime6detail11ApiSequenceEvE5state',
     'g_PendingGameStarted': '_ZN10LuaRuntime12_GLOBAL__N_1L20g_PendingGameStartedE',
     'g_ModRegistered': '_ZN10LuaRuntime12_GLOBAL__N_1L15g_ModRegisteredE',
     # 2026-09-16：回调派发次数的**真身**（数组里那两个槽是错的，见 `legacy` 的注释）。
@@ -166,7 +189,16 @@ SYM_ELF_NAMES = {
     'g_ModRegisteredCount': '_ZN10LuaRuntime12_GLOBAL__N_1L20g_ModRegisteredCountE',
     'g_LastLuaErrorLength': '_ZN10LuaRuntime12_GLOBAL__N_1L20g_LastLuaErrorLengthE',
     'g_LastLuaErrorText': '_ZN10LuaRuntime12_GLOBAL__N_1L18g_LastLuaErrorTextE',
+    # 批次 052（2026-09-19）：最近若干条 Lua 错误的**环形历史**。只有一格时
+    # A 模组的错会盖掉 B 模组的错（今天就因此兜了三轮），所以额外读这一块。
+    'g_LuaErrorHistory': '_ZN10LuaRuntime12_GLOBAL__N_1L17g_LuaErrorHistoryE',
+    'g_LuaErrorHistoryCount': '_ZN10LuaRuntime12_GLOBAL__N_1L22g_LuaErrorHistoryCountE',
     'g_PostUpdateCount': '_ZN10LuaRuntime12_GLOBAL__N_1L17g_PostUpdateCountE',
+    # 回调派发计数（2026-09-18）。这三个符号**故意**不在匿名命名空间里（见
+    # `callback_dispatcher.hpp` 的说明）：名字短、不随编译器版本变。
+    'g_CallbackDispatchCounts': '_ZN5isaac7runtime24g_CallbackDispatchCountsE',
+    'g_LastDispatchedCallbackId': '_ZN5isaac7runtime26g_LastDispatchedCallbackIdE',
+    'g_CallbackDispatchGeneration': '_ZN5isaac7runtime28g_CallbackDispatchGenerationE',
     'g_CallbackRegistry': '_ZN10LuaRuntime12_GLOBAL__N_1L18g_CallbackRegistryE',
     'g_DefaultManifest': '_ZN12_GLOBAL__N_1L17g_DefaultManifestE',
     'g_DefaultEntry': '_ZN12_GLOBAL__N_1L14g_DefaultEntryE',
@@ -206,12 +238,96 @@ SYM_ELF_NAMES = {
     'g_FontDrawBytes': '_ZN5isaac7runtime15g_FontDrawBytesE',
     'g_FontLoadCalls': '_ZN5isaac7runtime15g_FontLoadCallsE',
     'g_FontLoadResult': '_ZN5isaac7runtime16g_FontLoadResultE',
+    # ---- 数据行 API 的"调用 / 静默降级"计数器（批次 069，2026-09-19）----
+    # 存在的唯一目的：**不再靠探针回答"这条 API 到底有没有被调到"**。
+    # 数据行处理器（字段行 `FieldApiHandler` / 引擎方法行 `EngineMethodHandler`）拿不到接收者、
+    # 偏移或入口指纹时**静默降级**（不报错），于是"没生效"与"没被调用"在设备上分不开 ——
+    # 下面这九个量就是分开它们的那把尺子。名字是 `extern "C"` 的，不进名称改编。
+    'g_IsaacApiRowCalls': 'g_IsaacApiRowCalls',
+    'g_IsaacApiRowLastCallId': 'g_IsaacApiRowLastCallId',
+    'g_IsaacApiRowLastCallKind': 'g_IsaacApiRowLastCallKind',
+    'g_IsaacEngineRowCalls': 'g_IsaacEngineRowCalls',
+    'g_IsaacEngineRowRejectReceiver': 'g_IsaacEngineRowRejectReceiver',
+    'g_IsaacEngineRowRejectOffset': 'g_IsaacEngineRowRejectOffset',
+    'g_IsaacEngineRowRejectEntry': 'g_IsaacEngineRowRejectEntry',
+    'g_IsaacEngineRowLastRejectId': 'g_IsaacEngineRowLastRejectId',
+    'g_IsaacEngineRowLastRejectReason': 'g_IsaacEngineRowLastRejectReason',
+    # ---- `RoomDescriptor.Data` 读不出来时的现场（批次 071）----
+    # 真机上 `crd.Data` 返回 nil 让 GoodTrip 的 `MC_POST_NEW_ROOM` 回调每次崩
+    # （`control.lua:339`）。这几个量回答"是哪种房间、描述符对不对"：
+    # GridIndex = 0xFFFFFFFF 表示那个槽位**没填**（我们拿到的是引擎的空描述符）；
+    # GridIndex 正常而 Data 仍读不到 ⇒ 那个房间确实没有配置对象（贪婪模式一类）。
+    'g_IsaacRoomDescDataMisses': 'g_IsaacRoomDescDataMisses',
+    'g_IsaacRoomDescDataGridIndex': 'g_IsaacRoomDescDataGridIndex',
+    'g_IsaacRoomDescDataSafeGridIndex': 'g_IsaacRoomDescDataSafeGridIndex',
+    'g_IsaacRoomDescDataListIndex': 'g_IsaacRoomDescDataListIndex',
+    'g_IsaacRoomDescDataDescriptorLow': 'g_IsaacRoomDescDataDescriptorLow',
+    # ---- 房间描述符**解析现场**（批次 074）----
+    # 用户报"从部分房间回到两格房时小地图不出现"：GoodTrip 的地图绘制依赖
+    # `grid_room[crd.SafeGridIndex] ~= nil`（条件为假 ⇒ 不画、也**不报错**）。
+    # 多格房间里 SafeGridIndex 与 GridIndex 锚在不同格子 ⇒ 这几格用来分清
+    # "扫描没命中"、"被足迹校验挡掉"（校验太严）、还是"引擎映射表给的槽位无效"。
+    'g_IsaacRoomIdxCalls': 'g_IsaacRoomIdxCalls',
+    'g_IsaacRoomIdxEmpty': 'g_IsaacRoomIdxEmpty',
+    'g_IsaacRoomIdxRejectedFootprint': 'g_IsaacRoomIdxRejectedFootprint',
+    'g_IsaacRoomIdxEngineMapUsed': 'g_IsaacRoomIdxEngineMapUsed',
+    'g_IsaacRoomIdxLastRequest': 'g_IsaacRoomIdxLastRequest',
+    'g_IsaacRoomIdxLastResolvedGrid': 'g_IsaacRoomIdxLastResolvedGrid',
+    'g_IsaacRoomIdxLastResolvedSafe': 'g_IsaacRoomIdxLastResolvedSafe',
+    'g_IsaacRoomIdxLastResolvedList': 'g_IsaacRoomIdxLastResolvedList',
+    'g_IsaacRoomIdxLastRejectRequest': 'g_IsaacRoomIdxLastRejectRequest',
+    'g_IsaacRoomIdxLastRejectAnchor': 'g_IsaacRoomIdxLastRejectAnchor',
+    'g_IsaacRoomIdxLastRejectDeltaBias': 'g_IsaacRoomIdxLastRejectDeltaBias',
+    'g_IsaacRoomIdxMapSlotRejected': 'g_IsaacRoomIdxMapSlotRejected',
+    # 批次 076：把"映射表给的槽位"拆成四类（接受 / 槽号为负 / 锚点未分配 / 槽位超过元素个数）
+    'g_IsaacRoomIdxAccepted': 'g_IsaacRoomIdxAccepted',
+    'g_IsaacRoomIdxSlotNegative': 'g_IsaacRoomIdxSlotNegative',
+    'g_IsaacRoomIdxUnallocatedAnchor': 'g_IsaacRoomIdxUnallocatedAnchor',
+    'g_IsaacRoomIdxSlotBeyondCount': 'g_IsaacRoomIdxSlotBeyondCount',
+    'g_IsaacRoomIdxLastAcceptedRequest': 'g_IsaacRoomIdxLastAcceptedRequest',
+    'g_IsaacRoomIdxLastAcceptedSlot': 'g_IsaacRoomIdxLastAcceptedSlot',
+    'g_IsaacRoomIdxLastAcceptedAnchor': 'g_IsaacRoomIdxLastAcceptedAnchor',
+    'g_IsaacRoomIdxLastAcceptedSafe': 'g_IsaacRoomIdxLastAcceptedSafe',
+    # 批次 077：直接调引擎 `Level::GetRoomByIdx` 的次数/回落次数/最后一次入参
+    'g_IsaacRoomIdxNativeCalls': 'g_IsaacRoomIdxNativeCalls',
+    'g_IsaacRoomIdxNativeFallbacks': 'g_IsaacRoomIdxNativeFallbacks',
+    'g_IsaacRoomIdxNativeLastIndex': 'g_IsaacRoomIdxNativeLastIndex',
+    'g_IsaacRoomIdxNativeLastDimension': 'g_IsaacRoomIdxNativeLastDimension',
+    # ---- 常驻性能面（批次 084；file-local static，名字仍是裸名）----
+    'g_RuntimePerfCallbackCalls': 'g_RuntimePerfCallbackCalls',
+    'g_RuntimePerfCallbackTicks': 'g_RuntimePerfCallbackTicks',
+    'g_RuntimePerfCallbackMaxTicks': 'g_RuntimePerfCallbackMaxTicks',
+    'g_RuntimePerfSyscalls': 'g_RuntimePerfSyscalls',
+    'g_RuntimePerfSyscallTicks': 'g_RuntimePerfSyscallTicks',
+    # ---- 按 (事件 id, 属主模组) 分开的回调耗时桶（批次 086）----
+    'g_RuntimePerfCallbackBuckets': 'g_RuntimePerfCallbackBuckets',
+    'g_RuntimePerfBucketOverflow': 'g_RuntimePerfBucketOverflow',
+    # ---- 按 **API 接口** 分开的耗时桶（批次 087）----
+    'g_RuntimePerfApiBuckets': 'g_RuntimePerfApiBuckets',
+    'g_RuntimePerfApiBucketOverflow': 'g_RuntimePerfApiBucketOverflow',
+    'g_RuntimePerfApiTotalCalls': 'g_RuntimePerfApiTotalCalls',
+    'g_RuntimePerfApiTotalTicks': 'g_RuntimePerfApiTotalTicks',
+    # ---- Lua 采样剖析器（批次 089）----
+    'g_RuntimePerfProfileBuckets': 'g_RuntimePerfProfileBuckets',
+    'g_RuntimePerfProfileSamples': 'g_RuntimePerfProfileSamples',
+    'g_RuntimePerfProfileOverflow': 'g_RuntimePerfProfileOverflow',
+    # ---- 分配账（批次 091）----
+    'g_RuntimePerfTickCostTicks': 'g_RuntimePerfTickCostTicks',
+    'g_RuntimePerfEmptyCallTicks': 'g_RuntimePerfEmptyCallTicks',
+    'g_RuntimePerfEmptyCallCount': 'g_RuntimePerfEmptyCallCount',
+    'g_RuntimePerfAllocCalls': 'g_RuntimePerfAllocCalls',
+    'g_RuntimePerfAllocBytes': 'g_RuntimePerfAllocBytes',
+    'g_RuntimePerfAllocNewCalls': 'g_RuntimePerfAllocNewCalls',
+    'g_RuntimePerfFreeCalls': 'g_RuntimePerfFreeCalls',
 }
 #: 表里有、但**这次构建的 ELF 里已经找不到**的符号：不能沿用过期的偏移（那是"看起来有值、
 #: 其实是别人的变量"），只能在读数时报"读不到"。这里只记账，方便汇报时说明缺了什么。
 SYM_MISSING: dict[str, str] = {}
 #: 已经不再存在的全局量（2026-09-15：装好的挂点数改为从 `g_HookInstallResults` 现算，没有独立变量）。
-SYM_UNRESOLVABLE = ('g_HookInstallInstalledCount',)
+#: 曾经"这次构建里不存在"的全局量。2026-09-17 复查：`g_HookInstallInstalledCount` 其实是
+#: `HookInstallInstalledCount()` 里的**函数内静态**（`_ZZN…HookInstallInstalledCountEvE5value`），
+#: 现在在 SYM_ELF_NAMES 里指向了那个符号，所以从这个名单里拿掉。
+SYM_UNRESOLVABLE = ()
 _syms_synced = False
 
 HOOK_NAMES = ['ManagerUpdate', 'ManagerRender', 'PreGetCollectible',
@@ -503,6 +619,11 @@ def locate_by_scan(session: 'GdbSession', elf: Path, *, max_candidates: int = 48
     两处都只用"模块起始 + 已知偏移"，不依赖调试桩的模块表。
     """
     maps = parse_mappings(session.command('monitor get mappings'))
+    if len(maps) < 3:
+        # ★ 2026-09-19 实测：`attach` 刚返回时 `monitor get mappings` 可能只给一小部分段
+        # （97 段、且**不含我们的代码段**）⇒ 候选只剩 1 个、基址取不到，白烧一次挂载。
+        # 稍后同一次挂载再问一遍就能拿到完整的 148 段，所以这里重试一次。
+        maps = parse_mappings(session.command('monitor get mappings')) or maps
     if not maps:
         return None, None
     candidates = scan_candidates(maps, SYMS['identity'] + 0x100)[:max_candidates]
@@ -527,6 +648,37 @@ def locate_by_scan(session: 'GdbSession', elf: Path, *, max_candidates: int = 48
             # 我们的入口中继桩（`ldr x16,#8; br x16`）或原版 `Manager::Update` 序言。
             if word in (0x58000050, 0xFF4301D1):
                 game = start
+    # 候选被拒时**把"读到什么 / 期望什么"打出来**（2026-09-18 加）。
+    #
+    # 为什么值得打：此前这条路的失败信息只有一句"基址没取全"，看不出是"段起点不是模块基址"
+    # 还是"这段根本不是我们的模块"，于是每次都要再烧一次 attach 去猜。而 attach 在同一个
+    # 启动周期里是**会退化**的（第二次常常连映射表都读不到）⇒ 第一跳拿不到线索就等于这轮报废。
+    # 这里多打的两行不增加任何一次内存读取（值已经在 `values` 里）。
+    if module is None:
+        for i, start in enumerate(candidates):
+            got_words = (values.get(f'cand_{i}') or [])[:2]
+            if not got_words:
+                print(f'  · 候选 {i} {start:#x}：读不到（该地址不可读）')
+                continue
+            got_first = got_words[0] & 0xFFFFFFFF
+            want_first = int.from_bytes(identity_expect[:4], 'little')
+            print(f'  · 候选 {i} {start:#x}：identity 处读到 {got_first:#010x}，'
+                  f'期望 {want_first:#010x}'
+                  + ('  ← 相同（说明只是缺少后续字节）' if got_first == want_first else
+                     '  ← 不同 ⇒ 这个段的起点不是我们的模块基址'))
+    if game is None and candidates:
+        entry_words = (values.get('game_0') or [])[:1]
+        if entry_words:
+            print(f'  · 候选 0 的 Manager::Update 处读到 {(entry_words[0] & 0xFFFFFFFF):#010x}'
+                  f'（期望 0x58000050 中继桩 / 0xff4301d1 原版序言）')
+    if module is None:
+        # 认不出来时把可执行段**列出来**：本次就是靠这个列表手工认出 `0x60f5381000`
+        # （我们模块的代码段 499711 字节 ≈ code_end 0x790c0），然后用 `--base` 直接读，
+        # 不必再挂一次设备。
+        print('  ⚠ 没能按指纹认出模块。可执行段（可据此用 --base 手工指定）：')
+        for start, end, perm, kind in parse_mappings(session.command('monitor get mappings')):
+            if 'x' in perm:
+                print(f'      0x{start:x}-0x{end:x} {kind} 大小={end - start}')
     return module, game
 
 
@@ -619,12 +771,59 @@ def build_requests(base: int, game_base: int, plugin_base: int):
         ('self_journal_records', base + SYMS['g_selfJournalTotalRecords'], 1),
         ('self_journal_marker', base + SYMS['g_selfJournalLastMarker'], 1),
         ('lua_error_text', base + SYMS['g_LastLuaErrorText'], 32),
+        # 8 条 × 128 字节 = 1024 字节（按 8 字节字读 ⇒ 128 个字）；计数单独一个全局。
+        ('lua_error_history', base + SYMS['g_LuaErrorHistory'], 128),
+        ('lua_error_history_count', base + SYMS['g_LuaErrorHistoryCount'], 1),
+        ('mod_data_tail', base + SYMS['g_ModDataCache'] + 0x4000, 3),  # 模组数据容器尾部（见 SYMS 注释）
+        # 模组数据容器的**开头 1 KiB**：记录表（每条 24 字节头 + 值，见
+        # `ModPersistence::detail::RecordAt`）。读它就能把探针写进 `Mod:SaveData` 的文本
+        # 从内存里取回来 —— **不依赖屏幕、不依赖 Lua 错误槽**（2026-09-18：探索针的屏幕读数
+        # 只画了一帧就没了，正是靠这条通道才把结论拿到手）。
+        ('mod_data_head', base + SYMS['g_ModDataCache'], 512),
+        # API 调用序列（`ApiSequenceState` 的声明顺序：u64 mainMask、u64 secondaryMask、
+        # u32 drawCalls、u32 drawBytes、u32 itemConfigFound、u32 itemConfigMissing、
+        # u64 filterMask、u32 lastPrimary、u32 lastPrimaryCalls）—— 读前 5 个字（40 字节）够用。
+        ('api_sequence', base + SYMS['g_ApiSequence'], 5),
         ('manifest_head', base + SYMS['g_DefaultManifest'], 24),   # 清单原文前 192 字节
         ('entry_head', base + SYMS['g_DefaultEntry'], 8),          # 入口脚本前 64 字节
         # 回调登记表：**按字节**解（每项 20 字节，见 `decode_callback_entries`）。
         # 请求 90 个 8 字节字 = 720 字节 ⇒ 够看满 36 条登记（容量 256 条，EID 一家约 34 条）。
         ('callback_registry', base + SYMS['g_CallbackRegistry'], 90),
         ('callback_count', base + SYMS['g_CallbackRegistry'] + 0x1400, 1),
+        # 回调耗时桶（批次 086）：按 `PERF_BUCKET_COUNT × PERF_BUCKET_BYTES` 整块读，
+        # 旁边那个溢出计数是独立全局 ⇒ 各读各的。
+        ('perf_buckets',
+         base + SYMS['g_RuntimePerfCallbackBuckets'],
+         (PERF_BUCKET_COUNT * PERF_BUCKET_BYTES + 7) // 8),
+        ('perf_bucket_overflow', base + SYMS['g_RuntimePerfBucketOverflow'], 1),
+        # 按 API 接口分开的耗时桶（批次 087）：同一套 32 字节记录，个数不同。
+        ('perf_api_buckets',
+         base + SYMS['g_RuntimePerfApiBuckets'],
+         (PERF_API_BUCKET_COUNT * PERF_BUCKET_BYTES + 7) // 8),
+        ('perf_api_bucket_overflow', base + SYMS['g_RuntimePerfApiBucketOverflow'], 1),
+        ('perf_api_total_calls', base + SYMS['g_RuntimePerfApiTotalCalls'], 1),
+        ('perf_api_total_ticks', base + SYMS['g_RuntimePerfApiTotalTicks'], 1),
+        # Lua 采样剖析器（批次 089）：桶数组整块读，旁边两个标量各读各的。
+        ('perf_profile_buckets',
+         base + SYMS['g_RuntimePerfProfileBuckets'],
+         (PROFILE_BUCKET_COUNT * PROFILE_BUCKET_BYTES + 7) // 8),
+        ('perf_profile_samples', base + SYMS['g_RuntimePerfProfileSamples'], 1),
+        ('perf_profile_overflow', base + SYMS['g_RuntimePerfProfileOverflow'], 1),
+        # 分配账（批次 091）：四个独立标量各读各的。
+        ('perf_alloc_calls', base + SYMS['g_RuntimePerfAllocCalls'], 1),
+        ('perf_tick_cost', base + SYMS['g_RuntimePerfTickCostTicks'], 1),
+        ('perf_empty_call_ticks', base + SYMS['g_RuntimePerfEmptyCallTicks'], 1),
+        ('perf_empty_call_count', base + SYMS['g_RuntimePerfEmptyCallCount'], 1),
+        ('perf_alloc_bytes', base + SYMS['g_RuntimePerfAllocBytes'], 1),
+        ('perf_alloc_new_calls', base + SYMS['g_RuntimePerfAllocNewCalls'], 1),
+        ('perf_free_calls', base + SYMS['g_RuntimePerfFreeCalls'], 1),
+        # 回调派发计数（2026-09-18）：74 个 u32 是**一个数组**（连续），所以一次读完；
+        # 旁边那两个标量是**独立全局**（链接器可能重排）⇒ 各读各的，绝不连读。
+        ('callback_dispatch_counts',
+         base + SYMS['g_CallbackDispatchCounts'],
+         (CALLBACK_DISPATCH_COUNTER_COUNT * 4 + 7) // 8),
+        ('callback_dispatch_last', base + SYMS['g_LastDispatchedCallbackId'], 1),
+        ('callback_dispatch_generation', base + SYMS['g_CallbackDispatchGeneration'], 1),
         ('filetable', base + SYMS['g_diagnosticFileApi'], 4),
         ('hook_callbacks', base + SYMS['g_hookCallbacks'], 6),
         ('update_entry', game_base + SYMS['manager_update_entry'], 2),
@@ -654,18 +853,236 @@ def build_requests(base: int, game_base: int, plugin_base: int):
 #: `runtime/src/domain/callback/callback_descriptor.hpp` 为准。
 CALLBACK_ENTRY_BYTES = 20
 
-#: `ModCallbacks` 里我们关心的几个 id → 名字（PC 值，见 `callback_descriptor.hpp`）。
+#: `ModCallbacks` 里我们**已经接线**（代码里真有派发点）的 id → 名字。
+#: 名字必须与 `callback_descriptor.hpp` 里的常量逐字对应（去前缀后）；
+#: `runtime/tests/test_callback_dispatch_counters.py` 会核对这件事，抄错 id 会让读数把
+#: 名字标在别的种类上，把现场判断带偏（2026-09-15 的 `MC_INPUT_ACTION` 误报就是这一类）。
 CALLBACK_NAMES = {
+    0: 'MC_NPC_UPDATE',
     1: 'MC_POST_UPDATE',
     2: 'MC_POST_RENDER',
-    13: 'MC_INPUT_ACTION',
+    4: 'MC_POST_PEFFECT_UPDATE',
+    6: 'MC_FAMILIAR_UPDATE',
+    7: 'MC_FAMILIAR_INIT',
+    9: 'MC_POST_PLAYER_INIT',
     15: 'MC_POST_GAME_STARTED',
+    18: 'MC_POST_NEW_LEVEL',
+    19: 'MC_POST_NEW_ROOM',
+    25: 'MC_POST_FAMILIAR_RENDER',
+    27: 'MC_POST_NPC_INIT',
+    31: 'MC_POST_PLAYER_UPDATE',
+    32: 'MC_POST_PLAYER_RENDER',
+    34: 'MC_POST_PICKUP_INIT',
+    35: 'MC_POST_PICKUP_UPDATE',
+    36: 'MC_POST_PICKUP_RENDER',
+    39: 'MC_POST_TEAR_INIT',
+    40: 'MC_POST_TEAR_UPDATE',
+    41: 'MC_POST_TEAR_RENDER',
+    43: 'MC_POST_PROJECTILE_INIT',
+    44: 'MC_POST_PROJECTILE_UPDATE',
+    45: 'MC_POST_PROJECTILE_RENDER',
+    47: 'MC_POST_LASER_INIT',
+    48: 'MC_POST_LASER_UPDATE',
+    49: 'MC_POST_LASER_RENDER',
+    50: 'MC_POST_KNIFE_INIT',
+    51: 'MC_POST_KNIFE_UPDATE',
+    52: 'MC_POST_KNIFE_RENDER',
+    54: 'MC_POST_EFFECT_INIT',
+    55: 'MC_POST_EFFECT_UPDATE',
+    56: 'MC_POST_EFFECT_RENDER',
+    57: 'MC_POST_BOMB_INIT',
+    58: 'MC_POST_BOMB_UPDATE',
+    59: 'MC_POST_BOMB_RENDER',
     62: 'MC_PRE_GET_COLLECTIBLE',
 }
+
+#: 我们**故意还没接线**、但读数里要标出名字的 id（标名字是为了"这个数字是哪一种"一眼可读）。
+#: 与 `CALLBACK_NAMES` 分开是有意的：门禁要求这里每一个 id 在 `callback_descriptor.hpp` 里
+#: **没有**对应常量 —— 有常量就说明它已经接线了，该挪到上面那张表去。
+CALLBACK_NOT_WIRED = {
+    13: 'MC_INPUT_ACTION  ← 已登记但无派发点（见 `HasDispatchSite` 的注释）',
+    17: 'MC_PRE_GAME_EXIT  ← 判据未定，2026-09-18 明确不做（见 `callback_surface.json`）',
+}
+
+#: 派发计数表的长度（= PC `ModCallbacks` 的最大值 73 + 1）。与 `callback_dispatcher.hpp` 的
+#: `kCallbackDispatchCounterCount` 必须一致；`runtime/tests/test_callback_surface.py` 那一族
+#: 门禁盯着台账，这里的数字只用于"读多少个字"。
+CALLBACK_DISPATCH_COUNTER_COUNT = 74
+
+#: 回调耗时桶（批次 086）：每项 32 字节 —— `key`(u64)、`count`(u64)、`ticks`(u64)、`maxTicks`(u64)。
+#: 与 `runtime/src/interfaces/lua/runtime_perf.hpp` 的 `RuntimePerfCallbackBucket` 逐字段对应，
+#: 个数也必须一致（门禁 `runtime/tests/test_perf_callback_buckets.py` 核对两边）。
+#: `key` 的打包口径：低 32 位 = 事件 id；bit32..47 = `owner.index`；bit48..63 = `owner.generation`。
+PERF_BUCKET_COUNT = 64
+#: 每项：`key`(u64)、`count`(u64)、`ticks`(u64)、`maxTicks`(u64)、`bins[4]`(u32×4) = 48 字节
+#: （批次 092 给直方图加了 16 字节；与头文件的 `RuntimePerfCallbackBucket` 一致，门禁核对）。
+PERF_BUCKET_BYTES = 48
+
+#: 按 **API 接口** 分开的耗时桶（批次 087）：记录格式与上面的回调桶**逐字段相同**，
+#: 只是个数不同（`kRuntimePerfApiBucketCount`）。键的高位 `PERF_API_ENGINE_TAG` 置上表示
+#: "这一笔只算**引擎调用那一段**"，用来把"我们 handler 的开销 = 总 − 引擎调用"算出来。
+PERF_API_BUCKET_COUNT = 512
+
+#: **内部运算 / 元表处理器**的保留 id（批次 093）。它们不是 catalog 里的接口，
+#: 但是热路径（实体每次字段读/方法查找都过 `Entity.__index`）。id 段与
+#: `runtime_perf.hpp` 的 `kPerfInternalId*` 一一对应，门禁核对两边的**名字与序号**。
+INTERNAL_API_NAMES = {
+    0xFF000001: 'Entity.__index（字段读 / 方法查找）',
+    0xFF000002: 'EntityPlayer.__index',
+    0xFF000003: 'EntityPickup.__index',
+    0xFF000004: 'Vector.__index',
+    0xFF000005: 'Vector.__newindex',
+    0xFF000006: 'Vector.__add',
+    0xFF000007: 'Vector.__sub',
+    0xFF000008: 'Vector.__mul',
+    0xFF000009: 'Vector.__div',
+    0xFF00000A: 'Vector.__unm',
+    0xFF00000B: 'Vector.__eq',
+    0xFF00000C: 'Vector.__tostring',
+    0xFF00000D: 'Vector()（构造）',
+    0xFF00000E: 'Color.__index',
+    0xFF000011: 'EntityRef()（构造）',
+}
+PERF_API_ENGINE_TAG = 1 << 32
+
+#: Lua 采样剖析器（批次 089）：每项 80 字节 —— `hits`(u32)、`line`(i32)、`name`(char[24])、
+#: `source`(char[48])。与 `runtime/src/interfaces/lua/runtime_profiler.hpp` 的
+#: `RuntimePerfProfileBucket` 逐字段对应，个数也要一致（门禁核对）。
+PROFILE_BUCKET_COUNT = 192
+PROFILE_BUCKET_BYTES = 80
+
+#: 采样步长（每多少条 Lua 指令一次）。与 runtime_profiler.hpp 的
+#: kRuntimePerfProfileInstructionStep 一致 —— 打印里用它说明这个数字是什么意思。
+PERF_PROFILE_INSTRUCTION_STEP = 4000
+
+
+def profile_records(values: dict[str, list[int]]) -> list[tuple[int, int, str, str]]:
+    """把采样桶解成 `(hits, line, name, source)` 并按 hits **降序**（最热的在前）。
+
+    `hits == 0` 是空桶，跳过。
+    """
+    import struct
+
+    raw = words_to_bytes(values.get('perf_profile_buckets') or [])
+    records = []
+    for offset in range(0, min(len(raw), PROFILE_BUCKET_COUNT * PROFILE_BUCKET_BYTES),
+                        PROFILE_BUCKET_BYTES):
+        hits, line = struct.unpack_from('<Ii', raw, offset)
+        if not hits:
+            continue
+        name = raw[offset + 8:offset + 32].split(b'\0', 1)[0].decode('utf-8', 'replace')
+        source = raw[offset + 32:offset + 80].split(b'\0', 1)[0].decode('utf-8', 'replace')
+        records.append((hits, line, name, source))
+    records.sort(key=lambda record: -record[0])
+    return records
+
+
+def short_source(source: str) -> str:
+    """源文件名只做**显示**上的收尾：运行时侧已经按"保留结尾"存了 48 字节，
+    这里不再重切路径（重切会让两行看起来一样、实际不同 —— 第一次真机就撞过这个坑）。"""
+    return source[1:] if source.startswith('@') else source
+
+
+def bucket_records(values: dict[str, list[int]], key_name: str,
+                   count: int) -> list[tuple[int, int, int, int, tuple[int, ...]]]:
+    """把桶数组解成 `(key, count, ticks, maxTicks, bins)`，跳过空槽（`count == 0`）。
+
+    `bins` 是耗时分布四档：`< 250 µs / < 1 ms / < 5 ms / >= 5 ms`（批次 092）——
+    平均值会被少数极慢样本带偏，必须能看出"每帧都慢"还是"少数几帧特别慢"。
+    """
+    import struct
+
+    raw = words_to_bytes(values.get(key_name) or [])
+    records = []
+    for offset in range(0, min(len(raw), count * PERF_BUCKET_BYTES), PERF_BUCKET_BYTES):
+        key, samples, ticks, max_ticks, *bins = struct.unpack_from('<QQQQIIII', raw, offset)
+        if samples:
+            records.append((key, samples, ticks, max_ticks, tuple(bins)))
+    return records
+
+
+def perf_bucket_records(values: dict[str, list[int]]) -> list[tuple[int, int, int, int]]:
+    return bucket_records(values, 'perf_buckets', PERF_BUCKET_COUNT)
+
+
+def perf_api_records(values: dict[str, list[int]]) -> list[tuple[int, int, int, int]]:
+    return bucket_records(values, 'perf_api_buckets', PERF_API_BUCKET_COUNT)
+
+
+def rank_perf_api_buckets(
+        records: list[tuple[int, int, int, int]]) -> list[tuple[int, int, int, int]]:
+    """API 桶 → 按**合计耗时降序**的 `(ticks, count, id, 引擎调用 ticks)`。
+
+    ★ 这里曾经写错成升序取前 10 —— 也就是把"**最便宜**的 10 个接口"当成"最贵的"打出来。
+    读数看着很正常（名字、次数、平均都对），只是**结论完全反了**：真凶 `Font:DrawStringScaledUTF8`
+    被挤到第 8 名、而最贵的那几个根本没出现。**排序方向这种东西必须由门禁钉住，不能靠眼睛**。
+    """
+    totals: dict[int, list[int]] = {}
+    engine_part: dict[int, int] = {}
+    for key, count, ticks, _max_ticks, _bins in records:
+        identifier = key & 0xFFFFFFFF
+        if key & PERF_API_ENGINE_TAG:
+            engine_part[identifier] = ticks
+        else:
+            totals[identifier] = [count, ticks]
+    ranked = [(value[1], value[0], identifier, engine_part.get(identifier, 0))
+              for identifier, value in totals.items() if value[0]]
+    ranked.sort(key=lambda row: (-row[0], row[2]))
+    return ranked
+
+
+def perf_bucket_owner(key: int) -> str:
+    """`key` → 读数的归属写法（与回调登记表同一种 `#N 代M`）。"""
+    return f"#{key >> 32 & 0xFFFF} 代{key >> 48}"
 
 
 def callback_name(identifier: int) -> str:
     return CALLBACK_NAMES.get(identifier, '其它种类')
+
+
+#: `ApiDomain` 的取值（`runtime/src/interfaces/lua/api_descriptor.hpp` 的枚举顺序就是编码）。
+#: 与那张表**必须**逐项一致：id 是 `(域 << 24) | (ownerGroup << 16) | 序号`。
+CATALOG_DOMAINS = {
+    'Global': 0, 'Mod': 1, 'Game': 2, 'Level': 3, 'Room': 4, 'ItemPool': 5, 'Music': 6,
+    'Rng': 7, 'Persistence': 8, 'Input': 9, 'Diagnostic': 10, 'Font': 11, 'Vector': 12,
+    'Sprite': 13, 'Isaac': 14, 'Seed': 15, 'ModMenu': 16,
+}
+CATALOG_ENTRY = re.compile(
+    r"\{MakeId\(ApiDomain::(?P<domain>\w+),\s*(?P<group>\d+),\s*(?P<seq>0x[0-9A-Fa-f]+)\),"
+    r"[^}]*?\"(?P<owner>[^\"]*)\",\s*\"(?P<name>[^\"]*)\"", re.S)
+_CATALOG_NAMES: dict[int, str] | None = None
+
+
+def api_catalog_names() -> dict[int, str]:
+    """catalog id → `owner:name`（读数里只拿到数字 id，报文里得是人能认的名字）。
+
+    数据行的"最后一次被调用 / 最后一次被降级"记的都是 catalog id（`api_call_stats.hpp`），
+    而 id 的编码口径写在 `api_catalog.cpp` 的 `MakeId` 上。**在本地解析源码**而不是再抄一张表：
+    抄第二份迟早与源码不一致，而这份解析错了会当场表现在读数里（id 对不上就会显示成"未知"）。
+    """
+    global _CATALOG_NAMES
+    if _CATALOG_NAMES is not None:
+        return _CATALOG_NAMES
+    names: dict[int, str] = {}
+    path = ROOT / 'runtime/src/interfaces/lua/api_catalog.cpp'
+    if path.exists():
+        text = path.read_text(encoding='utf-8')
+        for match in CATALOG_ENTRY.finditer(text):
+            domain = CATALOG_DOMAINS.get(match.group('domain'))
+            if domain is None:
+                continue
+            identifier = (domain << 24) | (int(match.group('group')) << 16) \
+                | int(match.group('seq'), 16)
+            names[identifier] = f"{match.group('owner')}:{match.group('name')}"
+    _CATALOG_NAMES = names
+    return names
+
+
+def api_name(identifier: int) -> str:
+    """id → `owner:name`；查不到就**如实说查不到**（不要编一个像样的名字出来）。"""
+    if identifier == 0:
+        return '（空）'
+    return api_catalog_names().get(identifier, f'未知 id 0x{identifier:08X}')
 
 
 #: 卡上开关的**名字与位序**，必须与 `runtime/source/hook_manager.cpp` 的 `kCardSwitchNames`
@@ -760,8 +1177,18 @@ def run_one_shot(ip: str, elf: Path, pid: int = 0, base: int = 0, game_base: int
               + (f'；游戏模块基址 = 0x{game_base:x}' if game_base else '；游戏模块基址（缺）'))
         if not base or not game_base:
             print('基址没取全（`monitor get info` 与 mappings 扫描都没认出来）。')
-            print('经验：调试桩在多次 attach 后会不稳定，重启设备后第一次连接最完整；')
-            print('也可以直接用 --base/--game-base 指定。')
+            # ★ 2026-09-18 加的判据：**先确认"游戏到底在不在跑"**，别一上来就怀疑调试桩。
+            # 实测（同一天）：游戏没开时，调试桩附着到的是 hbl/ftpd 那个 Application，
+            # 它的进程里当然没有我们的模块 ⇒ 候选段在 identity 处读到的是一条 `ret`
+            # （`0xd65f03c0`）。那种情况下的正确处置是**把游戏开起来再读**，而不是重启设备。
+            print('最常见的原因（先排除这个）：**游戏没在运行** —— 调试桩附着到的是 hbl/ftpd 那个'
+                  ' Application，它的地址空间里没有我们的模块。')
+            print('  判据：上面"候选 N"那几行若显示"identity 处读到 0xd65f03c0（ret）"，'
+                  '基本就是这个原因。')
+            print('  处置：把游戏开到标题画面（或读盘进局）再重跑本工具。')
+            print('次常见：调试桩在同一个启动周期里退化（第二次 attach 常连映射表都读不到）'
+                  '⇒ 那就**重启设备**，第一次连接最完整。')
+            print('也可以直接用 --base/--game-base 指定（知道基址时）。')
             return 3
 
         requests, skipped = build_requests(base, game_base, plugin_base)
@@ -839,6 +1266,49 @@ def first(values: dict[str, list[int]], key: str, index: int = 0, default: int =
 
 def words_to_bytes(words: list[int]) -> bytes:
     return b''.join(v.to_bytes(8, 'little') for v in words)
+
+
+#: 模组数据容器的记录格式（`ModPersistence::detail::RecordAt`）：24 字节头
+#: 命名空间(u64) + 键(u64) + 类型(u8@16) + 值长度(u32@20)，随后是值本身。
+MOD_DATA_RECORD_HEADER = 24
+
+
+def decode_mod_data_records(raw: bytes) -> list[dict]:
+    """把模组数据容器的 payload 切成一条条记录（走不通就停，绝不猜）。"""
+    records = []
+    offset = 0
+    while offset + MOD_DATA_RECORD_HEADER <= len(raw):
+        header = raw[offset:offset + MOD_DATA_RECORD_HEADER]
+        length = int.from_bytes(header[20:24], 'little')
+        if length == 0 or offset + MOD_DATA_RECORD_HEADER + length > len(raw):
+            break
+        value = raw[offset + MOD_DATA_RECORD_HEADER:offset + MOD_DATA_RECORD_HEADER + length]
+        records.append({
+            'namespace': int.from_bytes(header[0:8], 'little'),
+            'key': int.from_bytes(header[8:16], 'little'),
+            'type': header[16],
+            'value': value,
+        })
+        offset += MOD_DATA_RECORD_HEADER + length
+    return records
+
+
+def printable_text(value: bytes) -> str | None:
+    """值是可打印文本才返回，否则 None（二进制不硬解码）。
+
+    **2026-09-18 修**：原版只认纯 ASCII，于是探针报告里只要出现一个中文字符（我们自己的
+    跳过原因就是中文），整条就被判成"二进制"、什么都不打 —— 真机上那次就白读了一趟。
+    现在按 UTF-8 解，解不出来或含控制字符才算二进制。
+    """
+    if not value:
+        return None
+    try:
+        text = value.decode('utf-8')
+    except UnicodeDecodeError:
+        return None
+    if text.isprintable() or all(ch in '\n\r\t' or ch.isprintable() for ch in text):
+        return text
+    return None
 
 
 def hook_name(slot: int) -> str:
@@ -974,11 +1444,311 @@ def report(values: dict[str, list[int]], base: int, game_base: int, plugin_base:
         # 只有 1 而清单里明明有 2 ⇒ 第二个 Mod 的脚本没跑到 `RegisterMod`（去看它的错误文本）。
         print(f'  g_ModRegisteredCount = {first(values, "g_ModRegisteredCount") & 0xFFFFFFFF}'
               '  ⇒ 登记成功的 Mod 个数（清单里几个 enabled 就该是几）')
+    if 'mod_data_tail' in values:
+        # 模组数据容器（存档分区）：这三条一起看 —— 存在与否、第几代、多大。
+        tail = values['mod_data_tail']
+        length = tail[0] & 0xFFFFFFFFFFFFFFFF
+        generation = tail[1] & 0xFFFFFFFFFFFFFFFF
+        flags = tail[2] & 0xFFFFFFFF
+        loaded = flags & 0xFF
+        exists = (flags >> 8) & 0xFF
+        print(f'  模组数据容器（存档分区 isaac-mod-data.bin）：'
+              f'{"已加载" if loaded else "未加载"}、'
+              f'{"存档里有" if exists else "存档里没有"}、'
+              f'generation={generation}、payload={length} 字节')
+        print('    ⇒ 第一次开机后应当"存档里有 + generation>=1"；'
+              '重启后再读一次 generation 应当继续增大（说明真的落盘了）')
+    # 模组数据的**记录表**（探针把报告写在 `Mod:SaveData` 里就从这儿读回来）。
+    # 除了固定读的那一段，`--read` 指定的区域里也一起找 —— 报告超过固定窗口时（2026-09-18
+    # 真机就发生了：payload 长到 1060 字节、探针那条记录被挤出 1 KiB 窗口），
+    # 手工多读一段就能把它捞回来，不必改代码重挂。
+    if 'api_sequence' in values:
+        raw = words_to_bytes(values['api_sequence'])
+        main_mask = int.from_bytes(raw[0:8], 'little')
+        secondary_mask = int.from_bytes(raw[8:16], 'little')
+        draw_calls = int.from_bytes(raw[16:20], 'little')
+        item_found = int.from_bytes(raw[24:28], 'little')
+        last_primary = int.from_bytes(raw[36:40], 'little')
+        known = {16: 'Isaac.GetPlayer', 17: 'Isaac.GetItemConfig', 18: 'Isaac.FindInRadius',
+                 19: 'Isaac.FindByType', 20: 'Isaac.CountEnemies', 21: 'Isaac.CountBosses',
+                 32: 'Font:DrawString', 33: 'Font:DrawStringScaled', 34: 'Font:DrawStringUTF8',
+                 35: 'Font:DrawStringScaledUTF8', 48: 'Sprite:Render', 49: 'Sprite:RenderLayer',
+                 50: 'Sprite:GetTexel'}
+        print('  === API 调用序列（"哪些 API 真被调用过"的直接证据）===')
+        fired = [f'bit{bit}={known.get(bit, "（见位表）")}' for bit in range(64)
+                 if main_mask & (1 << bit)]
+        print(f'    主掩码 = 0x{main_mask:016x}'
+              + (f'  ⇒ {"; ".join(fired)}' if fired else '  ⇒ 一个都没被调用过'))
+        print(f'    次掩码 = 0x{secondary_mask:016x}；画字调用 = {draw_calls} 次；'
+              f'ItemConfig 命中 = {item_found} 次；最后一次主掩码位 = '
+              + ('（还没调用过）' if last_primary == 0xFFFFFFFF else str(last_primary)))
+        for bit in (48, 49, 50):
+            hit = bool(main_mask & (1 << bit))
+            print(f'    Sprite bit{bit}（{known[bit]}）：'
+                  + ('**被调用过** ✓' if hit else '从未被调用'))
+        payload_sources = [key for key in values if key == 'mod_data_head' or key.startswith('extra_')]
+    if 'g_IsaacApiRowCalls' in values:
+        row_calls = first(values, 'g_IsaacApiRowCalls') & 0xFFFFFFFF
+        engine_calls = first(values, 'g_IsaacEngineRowCalls') & 0xFFFFFFFF
+        last_id = first(values, 'g_IsaacApiRowLastCallId') & 0xFFFFFFFF
+        last_kind = first(values, 'g_IsaacApiRowLastCallKind') & 0xFFFFFFFF
+        rej_receiver = first(values, 'g_IsaacEngineRowRejectReceiver') & 0xFFFFFFFF
+        rej_offset = first(values, 'g_IsaacEngineRowRejectOffset') & 0xFFFFFFFF
+        rej_entry = first(values, 'g_IsaacEngineRowRejectEntry') & 0xFFFFFFFF
+        rej_id = first(values, 'g_IsaacEngineRowLastRejectId') & 0xFFFFFFFF
+        rej_reason = first(values, 'g_IsaacEngineRowLastRejectReason') & 0xFFFFFFFF
+        kind_name = {1: '字段行', 2: '引擎方法行'}.get(last_kind, '（还没调用过）')
+        reason_name = {0: '（没发生过）', 1: '接收者解析失败', 2: '偏移拿不到',
+                       3: '入口 4 字节指纹不匹配'}.get(rej_reason, f'未知({rej_reason})')
+        print('  === 数据行 API 的调用 / 静默降级（批次 069：不用探针也能回答"调到了没"）===')
+        print(f'    数据行被调用 = {row_calls} 次（其中引擎方法行 {engine_calls} 次）')
+        print(f'    最后一次调用 = {api_name(last_id)}（{kind_name}）')
+        print(f'    引擎方法行被降级 = {rej_receiver + rej_offset + rej_entry} 次'
+              f'（接收者 {rej_receiver} / 偏移 {rej_offset} / 入口指纹 {rej_entry}）')
+        print(f'    最后一次降级 = {api_name(rej_id)}：{reason_name}')
+        if row_calls == 0:
+            print('    ⇒ ★ 一条数据行 API 都没被调用过 ⇒ 问题在"模组没走到那里"，'
+                  '不是"我们没实现好"。')
+        elif engine_calls and rej_receiver == engine_calls:
+            print('    ⇒ ★ 引擎方法行**每一次**都栽在"接收者拿不到"：我们这套 API 在真机上'
+                  '等于没生效（先查句柄与回调上下文，不要怀疑偏移表）。')
+        elif rej_entry:
+            print('    ⇒ ★ 有"入口指纹不匹配" ⇒ 至少有一条引擎方法的偏移/指纹是错的，'
+                  '按上面最后一条降级的名字去核对。')
+    if 'g_IsaacRoomIdxCalls' in values:
+        idx_calls = first(values, 'g_IsaacRoomIdxCalls') & 0xFFFFFFFF
+        if idx_calls:
+            idx_empty = first(values, 'g_IsaacRoomIdxEmpty') & 0xFFFFFFFF
+            rejected = first(values, 'g_IsaacRoomIdxRejectedFootprint') & 0xFFFFFFFF
+            via_map = first(values, 'g_IsaacRoomIdxEngineMapUsed') & 0xFFFFFFFF
+            requested = first(values, 'g_IsaacRoomIdxLastRequest') & 0xFFFFFFFF
+            grid = first(values, 'g_IsaacRoomIdxLastResolvedGrid') & 0xFFFFFFFF
+            safe = first(values, 'g_IsaacRoomIdxLastResolvedSafe') & 0xFFFFFFFF
+            listed = first(values, 'g_IsaacRoomIdxLastResolvedList') & 0xFFFFFFFF
+            print('  === 房间描述符解析现场（批次 074：小地图要靠它）===')
+            print(f'    解析 {idx_calls} 次：空句柄 {idx_empty} 次、'
+                  f'被足迹校验挡掉 {rejected} 次、靠引擎映射表命中 {via_map} 次')
+            print(f'    最后一次请求格子 = {requested}，解析结果 GridIndex={grid}、'
+                  f'SafeGridIndex={safe}、ListIndex={listed}')
+            slot_rejected = first(values, 'g_IsaacRoomIdxMapSlotRejected') & 0xFFFFFFFF
+            reject_request = first(values, 'g_IsaacRoomIdxLastRejectRequest') & 0xFFFFFFFF
+            reject_anchor = first(values, 'g_IsaacRoomIdxLastRejectAnchor') & 0xFFFFFFFF
+            delta_bias = first(values, 'g_IsaacRoomIdxLastRejectDeltaBias') & 0xFFFFFFFF
+            delta = (delta_bias - 64) if delta_bias != 0xFFFFFFFF else None
+            accepted = first(values, 'g_IsaacRoomIdxAccepted') & 0xFFFFFFFF
+            negative = first(values, 'g_IsaacRoomIdxSlotNegative') & 0xFFFFFFFF
+            unallocated = first(values, 'g_IsaacRoomIdxUnallocatedAnchor') & 0xFFFFFFFF
+            beyond = first(values, 'g_IsaacRoomIdxSlotBeyondCount') & 0xFFFFFFFF
+            acc_req = first(values, 'g_IsaacRoomIdxLastAcceptedRequest') & 0xFFFFFFFF
+            acc_slot = first(values, 'g_IsaacRoomIdxLastAcceptedSlot') & 0xFFFFFFFF
+            acc_anchor = first(values, 'g_IsaacRoomIdxLastAcceptedAnchor') & 0xFFFFFFFF
+            acc_safe = first(values, 'g_IsaacRoomIdxLastAcceptedSafe') & 0xFFFFFFFF
+            print(f'    映射表命中分类（批次 076）：接受 {accepted}、槽号为负 {negative}、'
+                  f'锚点未分配 {unallocated}、槽位>元素个数 {beyond}（**只记账、不再否决**）')
+            print(f'    最后一次接受：请求格子 {acc_req}、槽号 {acc_slot}、锚点 {acc_anchor}、'
+                  f'该房间 SafeGridIndex {acc_safe}')
+            print(f'    （旧口径）给了有效槽位但被前两道校验挡掉 = {slot_rejected} 次')
+            native_calls = first(values, 'g_IsaacRoomIdxNativeCalls') & 0xFFFFFFFF
+            native_fb = first(values, 'g_IsaacRoomIdxNativeFallbacks') & 0xFFFFFFFF
+            native_idx = first(values, 'g_IsaacRoomIdxNativeLastIndex') & 0xFFFFFFFF
+            native_dim = first(values, 'g_IsaacRoomIdxNativeLastDimension') & 0xFFFFFFFF
+            print(f'    （批次 077）直接问引擎 {native_calls} 次、回落 {native_fb} 次；'
+                  f'最后一次入参 index={native_idx}、dimension={native_dim}')
+            if native_calls == 0 and native_fb:
+                print('    ⇒ ★ 一次都没问成引擎 ⇒ 入口指纹不匹配或模块基址未发布，'
+                      '解析仍走手写那条链（要查偏移/指纹）。')
+            if rejected:
+                print(f'    最后一次被足迹校验挡掉：请求格子 {reject_request}、'
+                      f'那个房间的 +0x00 = {reject_anchor}、差值 = {delta}')
+                print('    ⇒ ★ 差值落在白名单（0/±1/±13/±14）之外 ⇒ 要么"多格房间的锚点不在这个'
+                      '集合里"，要么**映射表给的是另一个房间**（后者更危险，不能直接放宽）。')
+            if idx_empty and not rejected and not via_map:
+                print('    ⇒ ★ 空句柄全部来自"扫描没命中"且映射表也没给 ⇒ 引擎映射表那一格'
+                      '本身是无效的（过渡期/未分配）。')
+    if 'g_IsaacRoomDescDataMisses' in values:
+        misses = first(values, 'g_IsaacRoomDescDataMisses') & 0xFFFFFFFF
+        if misses:
+            grid = first(values, 'g_IsaacRoomDescDataGridIndex') & 0xFFFFFFFF
+            safe = first(values, 'g_IsaacRoomDescDataSafeGridIndex') & 0xFFFFFFFF
+            listed = first(values, 'g_IsaacRoomDescDataListIndex') & 0xFFFFFFFF
+            descriptor = first(values, 'g_IsaacRoomDescDataDescriptorLow') & 0xFFFFFFFF
+            print('  === RoomDescriptor.Data 读不到的现场（批次 071）===')
+            print(f'    发生了 {misses} 次；最后一次：GridIndex={grid}、SafeGridIndex={safe}、'
+                  f'ListIndex={listed}、描述符地址低位=0x{descriptor:08x}')
+            if grid == 0xFFFFFFFF:
+                print('    ⇒ ★ 这是**未分配槽位**（引擎自己的空描述符）⇒ 问题在"当前房间描述符'
+                      '没解析到"，不是"房间没有配置对象"。')
+            else:
+                print('    ⇒ 槽位是有效的、但 `+0x10` 读出 0 ⇒ 这类房间（贪婪模式一类）'
+                      '没有 RoomConfig 对象；我们已按字段全 0 返回（不再给 nil）。')
+    payload_records = {}
+    for key in payload_sources:
+        for record in decode_mod_data_records(words_to_bytes(values[key])):
+            payload_records[(record['namespace'], record['key'])] = record
+    if payload_records:
+        records = [payload_records[k] for k in sorted(payload_records)]
+        print(f'  模组数据记录 {len(records)} 条'
+              + (f'（来自 {len(payload_sources)} 段读数：'
+                 f'{"、".join(sorted(payload_sources))}）' if records else
+                 '（容器里没有记录，或首个记录头不完整）'))
+        for record in records:
+            text = printable_text(record['value'])
+            if text is None:
+                print(f'    命名空间 0x{record["namespace"]:016x}、键 0x{record["key"]:016x}、'
+                      f'类型 {record["type"]}、{len(record["value"])} 字节（二进制）')
+                continue
+            first_line = text.splitlines()[0] if text.splitlines() else ''
+            print(f'    命名空间 0x{record["namespace"]:016x}、键 0x{record["key"]:016x}、'
+                  f'类型 {record["type"]}、{len(record["value"])} 字节文本')
+            for line in text.splitlines()[:40]:
+                print(f'      | {line}')
+            if first_line.startswith('CALLPROBE') or 'CALLPROBE' in text:
+                print('      ⇒ ★ 这是**可调用性探针**的报告（见 `dist/callability-probe-*/main.lua`）')
+            if first_line.startswith('DIAGSAMPLE') or 'DIAGSAMPLE' in text:
+                # 批次 070：运行时自带的菜单模组定期把"第三方模组挂出来的全局"浅表扫一遍，
+                # 写进它自己的模组数据。看到这一段就说明**不用再往那个模组里装探针**了。
+                print('      ⇒ ★ 这是**诊断伴生采样**（批次 070，运行时自带、不占模组位）：'
+                      '上面几行是模组内部状态，`<missing>`/`<error>` 表示那条读不到而不是采样失败。')
+    if 'g_RuntimePerfCallbackCalls' in values:
+        def u64(key: str) -> int:
+            return int.from_bytes(words_to_bytes(values[key]), 'little')
+        cb_calls, cb_ticks, cb_max = (u64('g_RuntimePerfCallbackCalls'),
+                                      u64('g_RuntimePerfCallbackTicks'),
+                                      u64('g_RuntimePerfCallbackMaxTicks'))
+        syscalls, syscall_ticks = u64('g_RuntimePerfSyscalls'), u64('g_RuntimePerfSyscallTicks')
+        tick_cost = first(values, 'g_RuntimePerfTickCostTicks')
+        to_us = lambda ticks: ticks / 19.2  # 19.2 tick = 1 µs（Tegra X1 恒 19.2 MHz，代码里用常量、不读频率寄存器）
+        print('  === 常驻性能面（批次 084：这一帧到底花在哪）===')
+        empty_call = first(values, 'g_RuntimePerfEmptyCallTicks')
+        empty_count = first(values, 'g_RuntimePerfEmptyCallCount')
+        if empty_call and empty_count:
+            per_call = to_us(empty_call) / empty_count
+            print(f'    地板基准：一次纯 Lua→C 调用（处理器什么都不做）≈ {per_call:.3f} µs'
+                  f'（{empty_count} 次共 {to_us(empty_call) / 1000.0:.1f} ms）'
+                  f' —— 接口再优化也不可能低于这条线；它也等于"关掉测量包装能省下的每次开销"')
+        if tick_cost:
+            print(f'    量具自校准：读一次 cntpct_el0 ≈ {tick_cost} tick = {tick_cost / 19.2:.3f} µs'
+                  f'{"" if tick_cost < 100 else "  ⇒ ★ 读数本身不便宜，所有耗时都被它抬高，结论要打折"}')
+        if cb_calls:
+            print(f'    托管回调 {cb_calls} 次：合计 {to_us(cb_ticks) / 1000.0:.1f} ms、'
+                  f'平均 {to_us(cb_ticks) / cb_calls:.1f} µs、最慢一次 {to_us(cb_max):.0f} µs')
+        print(f'    引擎内存查询（svcQueryMemory）{syscalls} 次：合计 {to_us(syscall_ticks) / 1000.0:.1f} ms'
+              + (f'、平均 {to_us(syscall_ticks) / syscalls:.1f} µs' if syscalls else ''))
+        if cb_calls and cb_ticks:
+            share = 100.0 * syscall_ticks / cb_ticks
+            print(f'    其中"读引擎内存"占回调总耗时的 {share:.1f}%'
+                  + ('  ⇒ ★ 大头在我们自己的内存查询上' if share > 40 else ''))
+        # 批次 086：按 (事件 id, 属主模组) 分开，回答"贵的是哪一个回调"。
+        buckets = perf_bucket_records(values)
+        if buckets:
+            buckets.sort(key=lambda record: record[2], reverse=True)
+            print('    最贵的回调（按 (事件 id, 属主模组) 分开；批次 086）——')
+            for rank, (key, count, ticks, max_ticks, bins) in enumerate(buckets[:10], start=1):
+                print(f'      {rank:>2}. {callback_name(key & 0xFFFFFFFF)} [{perf_bucket_owner(key)}]'
+                      f'  {count} 次 / 合计 {to_us(ticks) / 1000.0:.1f} ms'
+                      f' / 平均 {to_us(ticks) / count:.1f} µs / 最慢 {to_us(max_ticks):.0f} µs')
+                if rank <= 3 and sum(bins):
+                    share = [100.0 * value / sum(bins) for value in bins]
+                    print(f'          分布：<250µs {share[0]:.0f}% / <1ms {share[1]:.0f}%'
+                          f' / <5ms {share[2]:.0f}% / >=5ms {share[3]:.0f}%')
+            unused = PERF_BUCKET_COUNT - len(buckets)
+            print(f'      （用了 {len(buckets)}/{PERF_BUCKET_COUNT} 个槽，空槽 {unused} 个）')
+            overflow = first(values, 'g_RuntimePerfBucketOverflow')
+            if overflow:
+                print(f'      ⚠ 表满溢出 {overflow} 次 ⇒ 有组合没被单独统计（把 '
+                      f'`kRuntimePerfBucketCount` 调大）')
+        # 批次 087：按 API 接口分开，回答"那 1.6 ms 花在哪个接口上"。
+        api_buckets = perf_api_records(values)
+        if api_buckets:
+            catalog_names = api_catalog_names()
+            print('    最贵的 API（按接口分开；批次 087）——')
+            for rank, (ticks, count, identifier, inside) in enumerate(
+                    rank_perf_api_buckets(api_buckets)[:10], start=1):
+                name = catalog_names.get(identifier) or INTERNAL_API_NAMES.get(
+                    identifier, f'未知 id 0x{identifier:08X}')
+                line = (f'      {rank:>2}. {name}  {count} 次 / 合计 {to_us(ticks) / 1000.0:.1f} ms'
+                        f' / 平均 {to_us(ticks) / count:.1f} µs')
+                if inside:
+                    share = 100.0 * inside / ticks if ticks else 0.0
+                    line += (f'（其中引擎调用 {to_us(inside) / 1000.0:.1f} ms = {share:.0f}%，'
+                             f'我们自己的开销 {to_us(ticks - inside) / 1000.0:.1f} ms）')
+                print(line)
+            print('      （"其中引擎调用"只有画字那条路径单独量过；其余接口的合计含引擎调用）')
+            total_calls = first(values, 'g_RuntimePerfApiTotalCalls')
+            total_ticks = first(values, 'g_RuntimePerfApiTotalTicks')
+            if total_calls:
+                print(f'    ★ 全部接口合计（含没进表的）：{total_calls} 次 / '
+                      f'{to_us(total_ticks) / 1000.0:.1f} ms / 平均 {to_us(total_ticks) / total_calls:.2f} µs'
+                      f' —— 读两次做差即得"每帧多少次、每帧多少 µs"，与回调耗时直接对账')
+            api_overflow = first(values, 'g_RuntimePerfApiBucketOverflow')
+            if api_overflow:
+                print(f'      ⚠ API 桶表满溢出 {api_overflow} 次 ⇒ 有接口没被单独统计（把 '
+                      f'`kRuntimePerfApiBucketCount` 调大）')
+        # 批次 089：Lua 采样剖析 —— 回答"模组自己那部分时间花在它哪个函数上"。
+        profile = profile_records(values)
+        if profile:
+            samples = first(values, 'g_RuntimePerfProfileSamples')
+            print(f'    Lua 采样剖析（批次 089；共 {samples} 次采样，每 '
+                  f'{PERF_PROFILE_INSTRUCTION_STEP} 条指令一次）——')
+            for rank, (hits, line, name, source) in enumerate(profile[:12], start=1):
+                share = 100.0 * hits / samples if samples else 0.0
+                print(f'      {rank:>2}. {share:5.1f}%  {name}  {short_source(source)}:{line}'
+                      f'   （{hits} 次）')
+            print(f'      （用了 {len(profile)}/{PROFILE_BUCKET_COUNT} 个桶；采样只落在 **Lua 函数**上，'
+                  f'C 侧接口的耗时会被算到调用它的那个 Lua 函数头上）')
+            alloc_calls = first(values, 'g_RuntimePerfAllocCalls')
+            if alloc_calls:
+                alloc_bytes = first(values, 'g_RuntimePerfAllocBytes')
+                new_calls = first(values, 'g_RuntimePerfAllocNewCalls')
+                free_calls = first(values, 'g_RuntimePerfFreeCalls')
+                print(f'    Lua 分配账（批次 091）：分配 {alloc_calls} 次 / {alloc_bytes / 1048576.0:.1f} MiB、'
+                      f'其中新建 {new_calls} 次、释放 {free_calls} 次'
+                      f'（平均每次 {alloc_bytes / alloc_calls:.0f} 字节）')
+                print('      （读两次做差就能得到"每帧分配多少次/多少字节"；Lua 在每次分配里同步做增量 GC，'
+                      '这段 C 侧时间采样器与接口计时都看不见）')
+            profile_overflow = first(values, 'g_RuntimePerfProfileOverflow')
+            if profile_overflow:
+                print(f'      ⚠ 采样桶表满溢出 {profile_overflow} 次 ⇒ 有条目没被单独统计（把 '
+                      f'`kRuntimePerfProfileBucketCount` 调大）')
     err_len = first(values, 'g_LastLuaErrorLength') & 0xFFFFFFFF
     if err_len:
         raw = b''.join(v.to_bytes(8, 'little') for v in (values.get('lua_error_text') or []))
         text = raw[:min(err_len, len(raw))].split(b'\0', 1)[0].decode('utf-8', 'replace')
         print(f'  最后的 Lua 错误（{err_len} 字节）：{text}')
+
+    # 批次 052：把"最近几条 Lua 错误"也打出来 —— 只有一个槽时多个模组的错会互相遮蔽。
+    history = values.get('lua_error_history') or []
+    if history:
+        blob = b''.join(v.to_bytes(8, 'little') for v in history)
+        total = len(blob) // 128
+        entries = []
+        for slot in range(total):
+            raw = blob[slot * 128:(slot + 1) * 128]
+            if not raw:
+                continue
+            # 批次 068 起的每条 = `text[120]` + `owner`(u32) + `callbackId`(u32)。
+            # 文本仍在开头、仍是 NUL 结尾 ⇒ 老读法（取到第一个 NUL 为止）继续成立。
+            text = raw.split(b'\0', 1)[0].decode('utf-8', errors='replace').strip()
+            if not text:
+                continue
+            owner = int.from_bytes(raw[120:124], 'little') if len(raw) >= 124 else 0
+            callback = int.from_bytes(raw[124:128], 'little') if len(raw) >= 128 else 0
+            entries.append((owner, callback, text))
+        count = first(values, 'lua_error_history_count')
+        if entries:
+            print(f'  最近 {len(entries)} 条 Lua 错误（环形历史，写入计数 = {count}，'
+                  f'**按"模组 + 文本"去重**）：')
+            for owner, callback, entry in entries:
+                # owner 打包：低 16 位 = `ModHandle.index`、高 16 位 = generation
+                # （与回调登记表的 `#N 代M` 同一解包方式）。
+                index = owner & 0xFFFF
+                generation = (owner >> 16) & 0xFFFF
+                who = f'#{index} 代{generation}' if owner else '（未知/加载期）'
+                which = ('（不是回调路径）' if callback == 0xFFFFFFFF
+                         else f'{callback} {callback_name(callback)}')
+                print(f'    · [{who} / {which}] {entry[:140]}')
+        else:
+            print('  环形历史里还没有记录。')
     else:
         print('  最后的 Lua 错误：无（长度 0）')
     print(f'  g_PostUpdateCount = {first(values, "g_PostUpdateCount") & 0xFFFFFFFF}')
@@ -1011,6 +1781,32 @@ def report(values: dict[str, list[int]], base: int, game_base: int, plugin_base:
         print(f'    ⇒ {len(entries)} 条登记的 owner 分布：{summary}'
               + ('  ← 多个 owner = 多个模组的回调确实并存' if len(owners) > 1 else
                  '  ← 只有一个 owner：多模组下说明只登记上了一家'))
+    # 回调派发计数（2026-09-18）：这张表回答"某种回调**到底被派发过几次**"。
+    # 与上面那张登记表合起来才分得清三种情况：① 根本没登记；② 登记了但一次没触发
+    # （= 事件没送到）；③ 触发了很多次但模组自己没干活。以前只能看出 ① 和 ② 的前半截。
+    generation = first(values, 'callback_dispatch_generation') & 0xFFFFFFFF
+    last_id = first(values, 'callback_dispatch_last') & 0xFFFFFFFF
+    dispatch_raw = words_to_bytes(values.get('callback_dispatch_counts') or [])
+    counts = [int.from_bytes(dispatch_raw[index * 4:index * 4 + 4], 'little')
+              for index in range(CALLBACK_DISPATCH_COUNTER_COUNT)]
+    print()
+    print(f'  === 回调派发次数（会话代数 {generation}：这张表每次新建 Lua 会话时归零）===')
+    if last_id == 0xFFFFFFFF:
+        print('    最后一次派发的回调 = 还没有派发过任何回调')
+    else:
+        print(f'    最后一次派发的回调 = {last_id}（{callback_name(last_id)}）')
+    fired = [(index, count) for index, count in enumerate(counts) if count]
+    if not fired:
+        print('    ⚠️ 74 种回调的计数**全是 0** ⇒ 引擎一次派发都没走到：'
+              '不是"模组没干活"，是事件根本没送到。')
+    else:
+        for index, count in fired:
+            print(f'    {index:3d} {callback_name(index):24s} {count}')
+        silent = [f'{index} {CALLBACK_NAMES[index]}'
+                  for index in sorted(CALLBACK_NAMES)
+                  if counts[index] == 0]
+        if silent:
+            print(f'    （**已接线**但这次一次都没触发：{"、".join(silent)}）')
     self_addr = first(values, 'g_runtimeSelfAddress')
     mark = '（= exl_main，入口跑过 ✓）' if self_addr == base + SYMS['exl_main'] else ''
     print(f'  g_runtimeSelfAddress = 0x{self_addr:012x} {mark}')
@@ -1146,9 +1942,15 @@ def report(values: dict[str, list[int]], base: int, game_base: int, plugin_base:
         drawn_bytes = first(values, 'g_FontDrawBytes') & 0xFFFFFFFF
         print(f'  字体：Load 被调用 {load_calls} 次、最后一次结果 = '
               + {0: '失败', 1: '成功'}.get(load_result, '未知'))
-        print(f'  画字：DrawString* 调用 {draws} 次、共 {drawn_bytes} 字节'
-              + ('  ⇒ **一个字都没画过**（菜单没打开，或脚本没跑到绘制）' if draws == 0
-                 else '  ⇒ 真的画过字（那就要看坐标/颜色/是不是被别的画面盖住）'))
+        print(f'  画字：四条变体（含缩放）合计调用 {draws} 次、共 {drawn_bytes} 字节')
+        # ★ 历史（2026-09-18 当天）：这两个计数**曾经只记未缩放的两个变体**（计数点写在
+        # `else` 分支里），而 EID / q4-items / 菜单 / 我们的 `RenderScaledText` 全走缩放变体
+        # ⇒ 读数恒为 0，还被当成过"屏幕上一个字都没画"的证据。批次 037 已把计数点移到
+        # 四条变体共用的路径上（门禁 `test_font_draw_instrumentation.py` 钉住这一点）。
+        # 所以现在这条 0 是**有信息量**的：真的没人走到绘制。
+        if draws == 0:
+            print('    ⇒ 四条变体都没被调用过（真的没走到绘制）。'
+                  '若屏幕上明显有字，就要怀疑这份读数对应的进程/会话不对。')
         queried = first(values, 'g_InputActionQueriedMask') & 0xFFFFFFFF
         triggered = first(values, 'g_InputActionTriggeredMask') & 0xFFFFFFFF
         triggered_other = first(values, 'g_InputActionTriggeredMaskOther') & 0xFFFFFFFF

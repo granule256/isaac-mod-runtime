@@ -51,7 +51,9 @@ class EmbeddedLuaRuntimeBoundaryTests(unittest.TestCase):
         ).read_text()
         runtime = (SOURCE / "lua_runtime.cpp").read_text()
 
-        self.assertIn("void SetGameBindings(uintptr_t ownerSlot, uintptr_t isPausedThunk);", header)
+    # ★ 2026-09-19（门禁文本匹配分流）：删掉一条**纯签名文本**断言 —— 同一仓库里改签名，
+    #   编译器会先报错，这条与编译器重复；相邻断言保留的是真正防倒退的事实。
+    #   依据：`docs/门禁文本匹配分流-20260919.md`（类别 ②）。
         self.assertIn('constexpr char kGameMetatable[] = "IsaacRuntime.Game";', handles)
         self.assertIn("struct GameHandle", handles)
         self.assertIn("lua_newuserdata(state, sizeof(GameHandle))", runtime)
@@ -64,7 +66,9 @@ class EmbeddedLuaRuntimeBoundaryTests(unittest.TestCase):
     def test_lua_runtime_can_initialize_from_a_memory_chunk(self):
         header = (SOURCE / "lua_runtime.hpp").read_text()
         runtime = (SOURCE / "lua_runtime.cpp").read_text()
-        self.assertIn("LuaInitResult InitializeFromBuffer(const char* script, std::size_t length, const char* chunkName);", header)
+    # ★ 2026-09-19（门禁文本匹配分流）：删掉一条**纯签名文本**断言 —— 同一仓库里改签名，
+    #   编译器会先报错，这条与编译器重复；相邻断言保留的是真正防倒退的事实。
+    #   依据：`docs/门禁文本匹配分流-20260919.md`（类别 ②）。
         self.assertIn("LuaInitResult InitializeFromBuffer", runtime)
         self.assertIn('luaL_loadbufferx(state, script, length, chunkName, "t")', runtime)
         self.assertIn("script == nullptr || length == 0 || chunkName == nullptr", runtime)
@@ -76,7 +80,9 @@ class EmbeddedLuaRuntimeBoundaryTests(unittest.TestCase):
         runtime = (SOURCE / "lua_runtime.cpp").read_text()
 
         self.assertIn("InitializeStage13Mod(const char* entry, std::size_t entryLength", header)
-        self.assertIn("u32 RequireFailureDetail();", header)
+    # ★ 2026-09-19（门禁文本匹配分流）：删掉一条**纯签名文本**断言 —— 同一仓库里改签名，
+    #   编译器会先报错，这条与编译器重复；相邻断言保留的是真正防倒退的事实。
+    #   依据：`docs/门禁文本匹配分流-20260919.md`（类别 ②）。
         for expected in (
             "lua_pushcfunction(state, Require)",
             '"require"',
@@ -99,14 +105,22 @@ class EmbeddedLuaRuntimeBoundaryTests(unittest.TestCase):
         )
         # `POST_UPDATE` 仍然只收到 Mod 对象**一个**实参：`DispatchPostUpdate` 用
         # `LuaCallbackInvoker invoker{0, false, true}`（无 manager、无第二个实参）构造调用者，
-        # 于是调用点的实参个数表达式落到 `hasSecondArgument ? 2 : 1` 的 1 那一支。
+        # 于是调用点的实参个数表达式落到 `hasThirdArgument ? 3 : (hasSecondArgument ? 2 : 1)`
+        # 的 1 那一支。
         #
         # 原断言写死了 `lua_pcallk(g_LuaState, 1, 0, 0, 0, nullptr)`。第二个实参是为
         # `MC_POST_GAME_STARTED` 加的（EID 的处理函数签名是 `(mod, isSave)`），
         # 调用点因而改成条件表达式，所以这里改为分别钉住"POST_UPDATE 那条调用者不带第二实参"
         # 与"调用点的实参个数表达式"两件事，而不是放宽断言。
+        #
+        # 第三个实参是 2026-09-18（批次 010）为渲染族 `MC_POST_*_RENDER` 加的：PC 的签名是
+        # `(mod, 实体, RenderOffset)`，少一个实参模组会拿到 `nil` 并当场报错。这一次同样
+        # **没有放宽断言**：表达式改变，但"实参个数由调用者的开关决定"这条不变量照旧，
+        # 且下面那条"POST_UPDATE 的调用者不带第二个实参"一个字没动（用户 2026-09-18 批准）。
         self.assertIn("LuaCallbackInvoker invoker{0, false, true};", runtime)
-        self.assertIn("lua_pcallk(g_LuaState, hasSecondArgument ? 2 : 1, 0, 0, 0, nullptr)", runtime)
+        self.assertIn(
+            "g_LuaState, hasThirdArgument ? 3 : (hasSecondArgument ? 2 : 1), 0, 0, 0, nullptr",
+            runtime)
 
     def test_lua_runtime_is_included_by_the_program_source_module(self):
         wrapper = SOURCE / "program" / "lua_runtime.cpp"
@@ -193,7 +207,9 @@ class EmbeddedLuaRuntimeBoundaryTests(unittest.TestCase):
         runtime = (SOURCE / "lua_runtime.cpp").read_text()
         entry = (SOURCE / "runtime_entry.cpp").read_text()
 
-        self.assertIn("u32 PreparationFailureDetail();", header)
+    # ★ 2026-09-19（门禁文本匹配分流）：删掉一条**纯签名文本**断言 —— 同一仓库里改签名，
+    #   编译器会先报错，这条与编译器重复；相邻断言保留的是真正防倒退的事实。
+    #   依据：`docs/门禁文本匹配分流-20260919.md`（类别 ②）。
         self.assertIn("g_PreparationStep", runtime)
         self.assertIn("g_PreparationStatus", runtime)
         self.assertIn("PreparationFailureDetail()", runtime)

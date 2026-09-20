@@ -37,6 +37,12 @@ def layered_lua_runtime_sources(source_root: Path) -> list[Path]:
         unit_root / "interfaces" / "lua" / "mod_api.cpp",
         unit_root / "interfaces" / "lua" / "game_api.cpp",
         unit_root / "interfaces" / "lua" / "isaac_api.cpp",
+        # 批次 065：`EntityRef`（GoodTrip 的诅咒房过路费要用：`EntityRef(player)` + `TakeDamage`）。
+        unit_root / "interfaces" / "lua" / "entity_ref_api.cpp",
+        # 批次 055：`EngineMethodHandler` 通过它调引擎方法（通用跳板）。真实现是
+        # `engine_call_trampoline.s`（设备侧汇编；宿主 harness 只编 `.cpp` 清单，所以这里带的是
+        # 那个"不调用、返回值清零"的宿主占位）。
+        unit_root / "interfaces" / "lua" / "engine_call_trampoline_host_stub.cpp",
         unit_root / "interfaces" / "lua" / "remaining_api.cpp",
         unit_root / "interfaces" / "lua" / "music_api.cpp",
         unit_root / "interfaces" / "lua" / "rng_api.cpp",
@@ -58,6 +64,128 @@ def layered_lua_runtime_sources(source_root: Path) -> list[Path]:
         source_root.parent / "tests" / "shared_lua_stubs.cpp",
     ]
 
+
+#: 宿主 harness 的"真实能力"假实现（**共享夹具**，2026-09-18 夜起）。
+#:
+#: 为什么放这里：运行时的接口会越来越多地依赖"宿主能力"——持久化端口（`ISaveFilePort`）、
+#: 字体绑定（`LuaFontBindings`）等等。以前每个 harness 各写一份，结果是**同一个坑反复踩**
+#: （2026-09-18 就为三条 API 手写了 80 行假实现，还因为少发布一个 `isLoaded` 多跑一轮）。
+#:
+#: 用法（harness 的 C++ 文本里放一行 `@HOST_CAPABILITIES@`，构建时替换）：
+#:
+#:     harness.write_text(HARNESS.replace("@HOST_CAPABILITIES@", HOST_CAPABILITY_FAKES) ...)
+#:
+#: 夹具提供：
+#:   * `HostSaveStore g_store` + `isaac::runtime::SetSessionSaveFilePort(&g_store)`：内存版存档分区；
+#:   * 最小字体绑定（构造/析构/加载/isLoaded/缩放绘制）—— **`isLoaded` 必须发布**，
+#:     否则 `Font:DrawString*` 走 `RequireLoadedFont` 时报"native binding is unavailable"；
+#:   * `g_scaledDrawCalls`：缩放绘制被调到的次数（"画了但看不见"与"没走到绘制"靠它区分）。
+#:
+#: 注意：它只发布**测试需要的那几项**；某个 harness 要用别的字体入口时，自己再补赋值即可。
+HOST_CAPABILITY_FAKES = r'''
+// --- 宿主侧的"真实能力"：持久化端口 + 字体绑定（2026-09-18 批次 026）------------------
+//
+// 这一批把四条安全桩改成真实现，其中三条**依赖宿主提供能力**：
+//   * `Isaac.SaveModData` / `LoadModData` 走持久化端口（`ISaveFilePort`）；
+//   * `Isaac.RenderScaledText` 走字体绘制路径（需要字体绑定）。
+// 在这之前它们是"什么都不做"的桩，所以本用例从来不需要这两样东西 —— 补上**最小**的假实现
+// 之后，这三条在这个 harness 里走的是**真实代码路径**（语义的细粒度验证在
+// `test_lua_mod_persistence` 的 `isaac_mod_data` 场景与 `test_lua_font_resources` 的绘制场景里）。
+class HostSaveStore final : public isaac::runtime::ISaveFilePort {
+public:
+    [[nodiscard]] isaac::runtime::Status Read(std::string_view, char* out, std::size_t capacity,
+                                              std::size_t* size) noexcept override {
+        if (size == nullptr) {
+            return isaac::runtime::Status{isaac::runtime::StatusCode::InvalidArgument};
+        }
+        *size = 0;
+        if (g_size == 0) {
+            return isaac::runtime::Status{isaac::runtime::StatusCode::NotFound};
+        }
+        if (g_size > capacity) {
+            return isaac::runtime::Status{isaac::runtime::StatusCode::CapacityExceeded};
+        }
+        std::memcpy(out, g_bytes.data(), g_size);
+        *size = g_size;
+        return isaac::runtime::Status::Ok();
+    }
+    [[nodiscard]] isaac::runtime::Status Write(std::string_view,
+                                               std::string_view data) noexcept override {
+        if (data.size() > g_bytes.size()) {
+            return isaac::runtime::Status{isaac::runtime::StatusCode::CapacityExceeded};
+        }
+        std::memcpy(g_bytes.data(), data.data(), data.size());
+        g_size = data.size();
+        return isaac::runtime::Status::Ok();
+    }
+    [[nodiscard]] isaac::runtime::Status Remove(std::string_view) noexcept override {
+        g_size = 0;
+        return isaac::runtime::Status::Ok();
+    }
+    [[nodiscard]] isaac::runtime::Status Exists(const char*, bool* out) noexcept override {
+        if (out != nullptr) {
+            *out = g_size != 0;
+        }
+        return isaac::runtime::Status::Ok();
+    }
+
+private:
+    static std::array<unsigned char, 64 * 1024> g_bytes;
+    static std::size_t g_size;
+};
+std::array<unsigned char, 64 * 1024> HostSaveStore::g_bytes{};
+std::size_t HostSaveStore::g_size = 0;
+HostSaveStore g_store{};
+
+std::uint32_t g_scaledDrawCalls = 0;
+
+struct HostFont {
+    std::uint32_t magic;
+    bool loaded;
+};
+constexpr std::uint32_t kHostFontMagic = 0x4B414745;  // 'KAGE'
+void HostFontCtor(void* font) {
+    auto* fake = static_cast<HostFont*>(font);
+    fake->magic = kHostFontMagic;
+    fake->loaded = false;
+}
+void HostFontDestructor(void* font) {
+    static_cast<HostFont*>(font)->magic = 0;
+}
+bool HostFontLoad(void* font, const char* path, const char*) {
+    auto* fake = static_cast<HostFont*>(font);
+    if (fake->magic != kHostFontMagic || path == nullptr || path[0] == '\0') {
+        return false;
+    }
+    fake->loaded = true;
+    return true;
+}
+bool HostFontIsLoaded(const void* font) {
+    return static_cast<const HostFont*>(font)->loaded;
+}
+void HostFontDrawScaled(void* font, const char*, float, float, float, float, const void* color,
+                        int, bool) {
+    if (font == nullptr || color == nullptr) {
+        std::exit(23);
+    }
+    g_scaledDrawCalls += 1;
+}
+
+void PublishHostCapabilities() {
+    isaac::runtime::SetSessionSaveFilePort(&g_store);
+    LuaRuntime::LuaFontBindings bindings{};
+    bindings.ctor = &HostFontCtor;
+    bindings.destructor_ = &HostFontDestructor;
+    bindings.load = &HostFontLoad;
+    // `DrawStringVariant` 先过 `RequireLoadedFont` ⇒ `isLoaded` 也必须发布，
+    // 否则报的是"native binding is unavailable"（本次实现时就被它绊了一下）。
+    bindings.isLoaded = &HostFontIsLoaded;
+    // 绘制只登记次数：`RenderScaledText` 走的是**缩放**变体（文本是纯 ASCII ⇒ 非 UTF8 那一支）。
+    bindings.drawStringScaled = &HostFontDrawScaled;
+    LuaRuntime::SetFontBindings(bindings);
+}
+
+'''
 
 # ---------------------------------------------------------------------------
 # 宿主 Lua harness 的共享脚手架（地基一期，2026-09-15）

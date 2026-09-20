@@ -46,6 +46,10 @@ enum class FieldReceipt : std::uint8_t {
     EntityPlayer = 1,    // 必须是精确的 `Entity_Player` vptr
     ItemConfigItem = 2,  // `ItemConfig_Item`
     Level = 3,           // `Game`/`Level`（引擎里 Level 内嵌在 Game 起始处，解析链同一条）
+    // `Room = 4`（2026-09-19，引擎方法数据行那一批要用）：**不从 Lua 栈上取**，
+    // 而是解析"当前房间"（`ReadCurrentGameRoom`）。给 `Room:PlayMusic()` 这类
+    // "没有参数、但需要 this = 当前房间"的方法用。语义上它仍是"接收者"，所以放在这套枚举里。
+    Room = 4,
 };
 
 //: 读什么、怎么读。

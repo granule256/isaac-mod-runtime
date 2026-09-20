@@ -1,0 +1,301 @@
+{
+  "schema": 1,
+  "note": [
+    "接口成熟度台账（2026-09-17 起）：`ApiMaturity::HardwareVerified` 的每一条都必须在这里有依据。",
+    "依据 = **文件 + 逐字引文**：门禁会去那个文件里找这句引文，找不到就判红（防止“记着记着变成口口相传”）。",
+    "口径：HardwareVerified = 真机上见过它**存在、被调到、行为自洽**；HostVerified = 只在宿主/单测上验过；",
+    "Experimental = 实现了但没有真机证据（默认）。升格要么补真机证据，要么保持原状 —— 不许“感觉能用”就升。",
+    "台账也允许**降格**：证据找不到就把成熟度降回去（本批就降了 `Level:IsAscent` 一条）。"
+  ],
+  "rows": {
+    "Font:Load": {
+      "maturity": "HardwareVerified",
+      "evidence": [
+        {
+          "file": "docs/问题与解决记录.md",
+          "quote": "Lua 层的 `Font()` / `Font:Load` / `Font:IsLoaded` / `Font:GetStringWidth` / `Font:Unload` **在生产构建里端到端可用**"
+        }
+      ]
+    },
+    "Font:IsLoaded": {
+      "maturity": "HardwareVerified",
+      "evidence": [
+        {
+          "file": "docs/问题与解决记录.md",
+          "quote": "Lua 层的 `Font()` / `Font:Load` / `Font:IsLoaded` / `Font:GetStringWidth` / `Font:Unload` **在生产构建里端到端可用**"
+        }
+      ]
+    },
+    "Font:GetStringWidth": {
+      "maturity": "HardwareVerified",
+      "evidence": [
+        {
+          "file": "docs/问题与解决记录.md",
+          "quote": "Lua 层的 `Font()` / `Font:Load` / `Font:IsLoaded` / `Font:GetStringWidth` / `Font:Unload` **在生产构建里端到端可用**"
+        }
+      ]
+    },
+    "Font:Unload": {
+      "maturity": "HardwareVerified",
+      "evidence": [
+        {
+          "file": "docs/问题与解决记录.md",
+          "quote": "Lua 层的 `Font()` / `Font:Load` / `Font:IsLoaded` / `Font:GetStringWidth` / `Font:Unload` **在生产构建里端到端可用**"
+        }
+      ]
+    },
+    "Font:DrawString": {
+      "maturity": "HardwareVerified",
+      "evidence": [
+        {
+          "file": "docs/问题与解决记录.md",
+          "quote": "渲染胶水的第一片（`KColor` 值类型 + `Font:DrawString`）**真机通过**"
+        }
+      ]
+    },
+    "Global:KColor": {
+      "maturity": "HardwareVerified",
+      "evidence": [
+        {
+          "file": "docs/问题与解决记录.md",
+          "quote": "渲染胶水的第一片（`KColor` 值类型 + `Font:DrawString`）**真机通过**"
+        }
+      ]
+    },
+    "Level:GetStage": {
+      "maturity": "HardwareVerified",
+      "evidence": [
+        {
+          "file": "docs/问题与解决记录.md",
+          "quote": "批次 11–13 的**真机验收** —— 9 条 API 两通道逐条对照通过"
+        }
+      ],
+      "note": "同一条验收里逐值 A/B 对照过（见该节表格）。"
+    },
+    "Level:GetStageType": {
+      "maturity": "HardwareVerified",
+      "evidence": [
+        {
+          "file": "docs/问题与解决记录.md",
+          "quote": "批次 11–13 的**真机验收** —— 9 条 API 两通道逐条对照通过"
+        }
+      ],
+      "note": "同一条验收里逐值 A/B 对照过（见该节表格）。"
+    },
+    "Level:IsAltStage": {
+      "maturity": "HardwareVerified",
+      "evidence": [
+        {
+          "file": "docs/问题与解决记录.md",
+          "quote": "批次 11–13 的**真机验收** —— 9 条 API 两通道逐条对照通过"
+        }
+      ],
+      "note": "同一条验收里逐值 A/B 对照过（见该节表格）。"
+    },
+    "Level:IsPreAscent": {
+      "maturity": "HardwareVerified",
+      "evidence": [
+        {
+          "file": "docs/问题与解决记录.md",
+          "quote": "批次 11–13 的**真机验收** —— 9 条 API 两通道逐条对照通过"
+        }
+      ],
+      "note": "同一条验收里逐值 A/B 对照过（见该节表格）。"
+    },
+    "GridEntity:GetVariant": {
+      "maturity": "HardwareVerified",
+      "evidence": [
+        {
+          "file": "docs/问题与解决记录.md",
+          "quote": "批次 11–13 的**真机验收** —— 9 条 API 两通道逐条对照通过"
+        }
+      ],
+      "note": "同一条验收里逐值 A/B 对照过（见该节表格）。"
+    },
+    "GridEntity:GetType": {
+      "maturity": "HardwareVerified",
+      "evidence": [
+        {
+          "file": "docs/问题与解决记录.md",
+          "quote": "批次 11–13 的**真机验收** —— 9 条 API 两通道逐条对照通过"
+        }
+      ],
+      "note": "同一条验收里逐值 A/B 对照过（见该节表格）。"
+    },
+    "GridEntity:GetRNG": {
+      "maturity": "HardwareVerified",
+      "evidence": [
+        {
+          "file": "docs/问题与解决记录.md",
+          "quote": "批次 11–13 的**真机验收** —— 9 条 API 两通道逐条对照通过"
+        }
+      ],
+      "note": "同一条验收里逐值 A/B 对照过（见该节表格）。"
+    },
+    "RNG:GetSeed": {
+      "maturity": "HardwareVerified",
+      "evidence": [
+        {
+          "file": "docs/问题与解决记录.md",
+          "quote": "批次 11–13 的**真机验收** —— 9 条 API 两通道逐条对照通过"
+        }
+      ],
+      "note": "同一条验收里逐值 A/B 对照过（见该节表格）。"
+    },
+    "RNG:SetSeed": {
+      "maturity": "HardwareVerified",
+      "evidence": [
+        {
+          "file": "docs/问题与解决记录.md",
+          "quote": "批次 11–13 的**真机验收** —— 9 条 API 两通道逐条对照通过"
+        }
+      ],
+      "note": "同一条验收里逐值 A/B 对照过（见该节表格）。"
+    },
+    "ItemPool:IsPillIdentified": {
+      "maturity": "HardwareVerified",
+      "evidence": [
+        {
+          "file": "docs/问题与解决记录.md",
+          "quote": "批次 11–13 的**真机验收** —— 9 条 API 两通道逐条对照通过"
+        }
+      ],
+      "note": "同一条验收里逐值 A/B 对照过（见该节表格）。"
+    },
+    "Room:GetFrameCount": {
+      "maturity": "HardwareVerified",
+      "evidence": [
+        {
+          "file": "docs/问题与解决记录.md",
+          "quote": "A 通道文本里不再出现 `Room:GetFrameCount` 那条每帧报错 ⇒ 那条用户可见修复在真机成立"
+        }
+      ]
+    },
+    "ItemConfig_Item:IsAvailable": {
+      "maturity": "HardwareVerified",
+      "evidence": [
+        {
+          "file": "docs/问题与解决记录.md",
+          "quote": "`ItemConfig_Item:IsAvailable()` 在真机上**存在、被真的调到、返回值自洽**"
+        }
+      ]
+    },
+    "EntityPlayer:HasCollectible": {
+      "maturity": "HardwareVerified",
+      "evidence": [
+        {
+          "file": "docs/改动日志-20260917.md",
+          "quote": "修 `EntityPlayer:HasCollectible` 的可选第二参数**（今天真机读数里发现的真缺口）"
+        }
+      ],
+      "note": "真机证据覆盖的是“存在 + 被调到”（读数里见到它报错）；修复后的语义还等 016 批的验收回执。"
+    },
+    "Global:RegisterMod": {
+      "maturity": "HardwareVerified",
+      "evidence": [
+        {
+          "file": "docs/问题与解决记录.md",
+          "quote": "MuteOnPause 正是通过 `Mod:AddCallback` 注册回调，因此这次验收证明"
+        }
+      ],
+      "note": "任何模组能在真机上注册都依赖它先可用。"
+    },
+    "Global:Game": {
+      "maturity": "HardwareVerified",
+      "evidence": [
+        {
+          "file": "docs/问题与解决记录.md",
+          "quote": "MuteOnPause 正是通过 `Mod:AddCallback` 注册回调，因此这次验收证明"
+        }
+      ],
+      "note": "模组能在真机上跑起来即依赖它；行为证据见 MuteOnPause 那次验收。"
+    },
+    "Global:ModCallbacks": {
+      "maturity": "HardwareVerified",
+      "evidence": [
+        {
+          "file": "docs/问题与解决记录.md",
+          "quote": "MuteOnPause 正是通过 `Mod:AddCallback` 注册回调，因此这次验收证明"
+        }
+      ],
+      "note": "回调 id 表；能注册回调即它可用。"
+    },
+    "Global:MusicManager": {
+      "maturity": "HardwareVerified",
+      "evidence": [
+        {
+          "file": "docs/问题与解决记录.md",
+          "quote": "MuteOnPause 的 `MusicManager:GetCurrentMusicID/Pause/Resu"
+        }
+      ]
+    },
+    "Mod:AddCallback": {
+      "maturity": "HardwareVerified",
+      "evidence": [
+        {
+          "file": "docs/问题与解决记录.md",
+          "quote": "MuteOnPause 正是通过 `Mod:AddCallback` 注册回调，因此这次验收证明"
+        }
+      ]
+    },
+    "Game:IsPaused": {
+      "maturity": "HardwareVerified",
+      "evidence": [
+        {
+          "file": "docs/问题与解决记录.md",
+          "quote": "MuteOnPause 的 `MusicManager:GetCurrentMusicID/Pause/Resu"
+        }
+      ]
+    },
+    "MusicManager:GetCurrentMusicID": {
+      "maturity": "HardwareVerified",
+      "evidence": [
+        {
+          "file": "docs/问题与解决记录.md",
+          "quote": "MuteOnPause 的 `MusicManager:GetCurrentMusicID/Pause/Resu"
+        }
+      ]
+    },
+    "MusicManager:Pause": {
+      "maturity": "HardwareVerified",
+      "evidence": [
+        {
+          "file": "docs/问题与解决记录.md",
+          "quote": "MuteOnPause 的 `MusicManager:GetCurrentMusicID/Pause/Resu"
+        }
+      ]
+    },
+    "MusicManager:Resume": {
+      "maturity": "HardwareVerified",
+      "evidence": [
+        {
+          "file": "docs/问题与解决记录.md",
+          "quote": "MuteOnPause 的 `MusicManager:GetCurrentMusicID/Pause/Resu"
+        }
+      ]
+    },
+    "Level:IsAscent": {
+      "maturity": "HostVerified",
+      "evidence": [
+        {
+          "file": "docs/问题与解决记录.md",
+          "quote": "`Isaac.ExecuteCommand`和`Level:IsAscent`仍未实现"
+        }
+      ],
+      "note": "★ 更正（2026-09-17）：本条原标 `HardwareVerified`，但本批逐条核对记录时**找不到支撑它的真机引文**，而多处记录反而写着“未授权 / 无可靠读取链” ⇒ 依台账口径降为 `HostVerified`，等补到真机证据再升格。"
+    },
+    "Isaac:RenderScaledText": {
+      "maturity": "HardwareVerified",
+      "evidence": [
+        {
+          "file": "docs/问题与解决记录.md",
+          "quote": "真机验收：Isaac.RenderScaledText 在卡上确实画得出来（两行 ASCII 对照，用户目视两行都在）"
+        },
+        {
+          "file": "docs/改动日志-20260918.md",
+          "quote": "用户目视确认两行 ASCII 都在"
+        }
+      ]
+    }
+  }
+}

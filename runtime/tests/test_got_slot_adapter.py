@@ -62,8 +62,11 @@ class GotSlotAdapterContractTests(unittest.TestCase):
             with self.subTest(token=token):
                 self.assertIn(token, installer)
         interceptor = installer
-        # 过滤条件：返回地址必须等于那**一处**调用点的下一条指令。
-        self.assertIn("__builtin_return_address(0)", interceptor)
+        # 过滤条件：调用方的返回地址必须等于那**一处**调用点的下一条指令。
+        # 2026-09-17 起转发桩是汇编的（保存全部寄存器），"返回地址"从 `x30` 取（`mov x0, x30`），
+        # 语义与旧的 `__builtin_return_address(0)` 完全一样 —— 见
+        # `runtime/tests/test_present_relay_registers.py` 与 007 存档的反汇编证据。
+        self.assertIn("mov x0, x30", interceptor)
         self.assertIn("g_PresentGotSlotDispatchReturn", interceptor)
         self.assertIn("IsaacModRuntime_DispatchPostRenderBeforePresent", interceptor)
 

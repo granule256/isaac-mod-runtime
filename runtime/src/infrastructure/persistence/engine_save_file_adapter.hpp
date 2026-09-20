@@ -29,9 +29,24 @@ public:
     [[nodiscard]] Status Remove(std::string_view name) noexcept override;
     [[nodiscard]] Status Exists(const char* absolutePath, bool* exists) noexcept override;
 
-    // 单次读写的上限：缓冲区是**一个 4 KiB 对齐的静态缓冲**，因为 `nn::fs::ReadFile` 对
+    // ★ 线程硬闸（2026-09-17，用户指令"所有持久化统一走存档分区"的配套纪律）。
+    //
+    // 为什么必须闸：游戏这套 nnSdk 的文件 API **只允许在游戏自己的线程上调用** ——
+    // 2026-09-16 的 442190 就是"在我们的 worker 线程上调 `nn::fs::OpenFile`"导致
+    // **每次开机必崩**（崩在 SDK 的线程本地堆里，两份崩溃报告在案）。
+    // 所以这个适配器**默认拒绝一切操作**（返回 `Unsupported`，即"能力不可用"，不是失败），
+    // 只有游戏线程上的代码显式打开它之后才工作。任何新的持久化消费者只要走这个端口，
+    // 就自动继承这道保护，不需要各自再记一遍"我是不是在游戏线程上"。
+    void AllowFromGameThread() noexcept { allowed_ = true; }
+    [[nodiscard]] bool Allowed() const noexcept { return allowed_; }
+
+    // 单次读写的上限：缓冲区是**一个页对齐的静态缓冲**，因为 `nn::fs::ReadFile` 对
     // 缓冲区对齐有要求（真机第三轮探针就是靠这一点把"读回 0 字节"排除掉的）。
-    static constexpr std::size_t kMaximumFileBytes = 0x1000;
+    //
+    // 2026-09-17：0x1000 → **0x4000**。理由：模组数据容器（`ModPersistence`）的单文件上限是
+    // 16 KiB，而它现在改走这个适配器 ⇒ 缓冲必须能装下整个容器，否则每次都会 `CapacityExceeded`。
+    // 门禁 `test_save_file_channel` 钉住"缓冲 ≥ 容器上限"这条关系。
+    static constexpr std::size_t kMaximumFileBytes = 0x4000;
 
 private:
     struct Calls;
@@ -46,7 +61,9 @@ private:
     std::array<char, 32> mountName_{};
     bool mountResolved_{false};
     bool mountValid_{false};
-    // 4 KiB 对齐：`nn::fs::ReadFile` 对缓冲区对齐有要求；放在静态存储里（不进游戏线程栈）。
+    // 见 `AllowFromGameThread()`：默认 closed，只有游戏线程上的代码能打开。
+    bool allowed_{false};
+    // 页对齐：`nn::fs::ReadFile` 对缓冲区对齐有要求；放在静态存储里（不进游戏线程栈）。
     alignas(0x1000) static char buffer_[kMaximumFileBytes];
 };
 

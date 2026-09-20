@@ -1,0 +1,93 @@
+{
+  "schema": 1,
+  "note": [
+    "跨模块指针所有权台账：凡'从引擎/系统拿到指针'的地方，在这里写清谁分配、怎么还、指针是不是分配起点、依据在哪。",
+    "门禁 runtime/tests/test_engine_pointer_ownership.py 会核对：代码里出现引擎释放函数（_ZdaPv / arrayDelete）的地方必须在此登记。",
+    "规矩出处：docs/开发规范.md 第 30 条。2026-09-17 的进游戏必崩就是漏了这一条（拿引擎返回值直接 delete[] ⇒ 释放偏移指针 ⇒ 踩坏堆）。"
+  ],
+  "entries": [
+    {
+      "id": "directory-entries-block",
+      "site_file": "runtime/src/infrastructure/content/engine_directory_adapter.cpp",
+      "site_symbol": "EngineDirectoryAdapter::ListSubdirectories",
+      "produced_by": "引擎 KAGE::Filesys::IContentManager::GetDirectoryEntries（0x4C23C4）内的 operator new[]",
+      "freed_by": "同一个列表里的引擎 operator delete[]（_ZdaPv，GOT 槽 0xA9DD30）",
+      "pointer_is_allocation_base": false,
+      "adjustment": "返回值 - kDirectoryEntryCountHeaderSize（= 8）才是分配起点",
+      "evidence": [
+        "反汇编 0x4C2480 `orr x8,x22,#0x8` + 0x4C2488 `bl _Znam` ⇒ 申请 size+8",
+        "0x4C2490 `str x21,[x20],#0x8` ⇒ 条目数写进块首 8 字节、指针推到 +8",
+        "0x4C2534 `mov x0,x20` ⇒ 返回的是'块首+8'",
+        "tools/nro_disasm.py 0x4C23C4 0x1C0；真机报告 01789575498 / 01789575791"
+      ],
+      "status": "fixed",
+      "fixed_in": "2026-09-17（subsdk9 442263 / 98e2d2c1…）"
+    },
+    {
+      "id": "font-object-storage",
+      "site_file": "runtime/src/interfaces/lua/font_api.cpp",
+      "site_symbol": "AllocateFontStorage / ReleaseFontStorage",
+      "produced_by": "我们自己的 std::malloc（Font 对象存储，构造由引擎的 Font 构造器填）",
+      "freed_by": "我们自己的 std::free（ReleaseFontStorage）",
+      "pointer_is_allocation_base": true,
+      "adjustment": "无（原始指针藏在对象前 8 字节，读回来释放）",
+      "evidence": [
+        "font_api.cpp 顶部注释：Stage148 审计证明 ~Font() 只释放内部缓冲、不删 this",
+        "对象前 8 字节存原始 malloc 指针（AllocateFontStorage/ReleaseFontStorage 成对）"
+      ],
+      "status": "ok"
+    },
+    {
+      "id": "font-internal-buffers",
+      "site_file": "runtime/src/interfaces/lua/font_api.cpp",
+      "site_symbol": "Font 句柄释放路径（Font:Unload / 句柄回收）",
+      "produced_by": "引擎 Font::Load 内部（字形记录数组、页贴图、字距块）",
+      "freed_by": "引擎的 ~Font()（我们只调用它，不自己 free 内部缓冲）",
+      "pointer_is_allocation_base": true,
+      "adjustment": "无（我们从不直接释放这些内部指针）",
+      "evidence": [
+        "analysis/stage148-* 审计：~Font() 只释放内部缓冲、不删 this、不注销全局"
+      ],
+      "status": "ok"
+    },
+    {
+      "id": "engine-delete-thunk-slot",
+      "site_file": "runtime/src/infrastructure/content/engine_directory_adapter.cpp",
+      "site_symbol": "ResolveCalls（取 _ZdaPv 的 GOT 槽）",
+      "produced_by": "NRO 的 R_AARCH64_JUMP_SLOT（槽 0xA9DD30）运行期由加载器填成 _ZdaPv 真实地址",
+      "freed_by": "不适用（我们只是取函数地址，不释放它）",
+      "pointer_is_allocation_base": true,
+      "adjustment": "无",
+      "evidence": [
+        "tools/nro_symbols.py 的 parse_dynamic_relocations：_ZdaPv slots=['0xa9dd30'] type=[1026]"
+      ],
+      "status": "ok"
+    },
+    {
+      "id": "sprite-object-storage",
+      "site_file": "runtime/src/interfaces/lua/sprite_api.cpp",
+      "site_symbol": "Sprite 句柄的对象存储释放路径",
+      "produced_by": "我们自己的 std::malloc（与 Font 同一种写法：对象前 8 字节存原始指针）",
+      "freed_by": "我们自己的 std::free",
+      "pointer_is_allocation_base": true,
+      "adjustment": "无",
+      "evidence": [
+        "sprite_api.cpp 的存储分配/释放成对出现；顶层注释与 Font 同源（Stage148/150 审计）"
+      ],
+      "status": "ok"
+    },
+    {
+      "id": "content-mount-path-probe-storage",
+      "site_file": "runtime/source/probe/content_mount_point_probe.cpp",
+      "site_symbol": "内容挂载点探针的对象存储释放",
+      "produced_by": "我们自己的 std::malloc（探针构建专用）",
+      "freed_by": "我们自己的 std::free",
+      "pointer_is_allocation_base": true,
+      "adjustment": "无",
+      "evidence": [
+        "探针源码里同一种'对象前 8 字节存原始指针'的写法；仅 PROBE_BREAK 构建编入"
+      ],
+      "status": "ok"
+    }
+  ]
+}

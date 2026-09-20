@@ -440,29 +440,29 @@ void HostFontSetMissingCharacter(void*, std::uint16_t) {}
 
 void PublishInertEngineBindings() {
     LuaRuntime::LuaSpriteBindings bindings{};
-    bindings.ctor = reinterpret_cast<uintptr_t>(&HostSpriteCtor);
+    bindings.ctor = &HostSpriteCtor;
     // `CreateSpriteHandle` 要求 ctor 与析构**都**在位，缺一个就报 "Sprite native binding is
     // unavailable" —— 只发布 ctor 会让人误以为惰性绑定没生效。
-    bindings.destructor_ = reinterpret_cast<uintptr_t>(&HostSpriteDestructor);
-    bindings.load = reinterpret_cast<uintptr_t>(&HostSpriteLoad);
-    bindings.loadGraphics = reinterpret_cast<uintptr_t>(&HostSpriteLoadGraphics);
-    bindings.replaceSpritesheet = reinterpret_cast<uintptr_t>(&HostSpriteReplaceSpritesheet);
-    bindings.play = reinterpret_cast<uintptr_t>(&HostSpritePlay);
-    bindings.libcxxStringAssign = reinterpret_cast<uintptr_t>(&HostLibcxxStringAssign);
+    bindings.destructor_ = &HostSpriteDestructor;
+    bindings.load = &HostSpriteLoad;
+    bindings.loadGraphics = &HostSpriteLoadGraphics;
+    bindings.replaceSpritesheet = &HostSpriteReplaceSpritesheet;
+    bindings.play = &HostSpritePlay;
+    bindings.libcxxStringAssign = &HostLibcxxStringAssign;
     LuaRuntime::SetSpriteBindings(bindings);
 
     LuaRuntime::LuaFontBindings font{};
-    font.ctor = reinterpret_cast<uintptr_t>(&HostFontCtor);
-    font.destructor_ = reinterpret_cast<uintptr_t>(&HostFontDestructor);
-    font.load = reinterpret_cast<uintptr_t>(&HostFontLoad);
-    font.unload = reinterpret_cast<uintptr_t>(&HostFontUnload);
-    font.isLoaded = reinterpret_cast<uintptr_t>(&HostFontIsLoaded);
-    font.getStringWidth = reinterpret_cast<uintptr_t>(&HostFontGetStringWidth);
-    font.getStringWidthUTF8 = reinterpret_cast<uintptr_t>(&HostFontGetStringWidth);
-    font.getLineHeight = reinterpret_cast<uintptr_t>(&HostFontGetLineHeight);
-    font.getBaselineHeight = reinterpret_cast<uintptr_t>(&HostFontGetBaselineHeight);
-    font.getCharacterWidth = reinterpret_cast<uintptr_t>(&HostFontGetCharacterWidth);
-    font.setMissingCharacter = reinterpret_cast<uintptr_t>(&HostFontSetMissingCharacter);
+    font.ctor = &HostFontCtor;
+    font.destructor_ = &HostFontDestructor;
+    font.load = &HostFontLoad;
+    font.unload = &HostFontUnload;
+    font.isLoaded = &HostFontIsLoaded;
+    font.getStringWidth = &HostFontGetStringWidth;
+    font.getStringWidthUTF8 = &HostFontGetStringWidth;
+    font.getLineHeight = &HostFontGetLineHeight;
+    font.getBaselineHeight = &HostFontGetBaselineHeight;
+    font.getCharacterWidth = &HostFontGetCharacterWidth;
+    font.setMissingCharacter = &HostFontSetMissingCharacter;
     LuaRuntime::SetFontBindings(font);
 }
 
@@ -618,10 +618,14 @@ int main(int argc, char** argv) {
               "\"";
     report += ",\"preparationFailureDetail\":" +
               std::to_string(LuaRuntime::PreparationFailureDetail());
-    report += ",\"spriteCtorThunk\":" + std::to_string(LuaRuntime::SpriteCtorThunk());
-    report += ",\"spriteLoadThunk\":" + std::to_string(LuaRuntime::SpriteLoadThunk());
-    report += ",\"fontCtorThunk\":" + std::to_string(LuaRuntime::FontCtorThunk());
-    report += ",\"fontLoadThunk\":" + std::to_string(LuaRuntime::FontLoadThunk());
+    report += (",\"spriteCtorThunk\":" +
+               std::to_string(reinterpret_cast<std::uintptr_t>(LuaRuntime::SpriteCtorThunk())));
+    report += (",\"spriteLoadThunk\":" +
+               std::to_string(reinterpret_cast<std::uintptr_t>(LuaRuntime::SpriteLoadThunk())));
+    report += (",\"fontCtorThunk\":" +
+               std::to_string(reinterpret_cast<std::uintptr_t>(LuaRuntime::FontCtorThunk())));
+    report += (",\"fontLoadThunk\":" +
+               std::to_string(reinterpret_cast<std::uintptr_t>(LuaRuntime::FontLoadThunk())));
     if (loaded.ok()) {
         report += ",\"scriptState\":\"" + std::string(StateName(loaded.value().scriptState)) + "\"";
         report += ",\"entryBytes\":" + std::to_string(loaded.value().entryBytes);

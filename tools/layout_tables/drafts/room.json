@@ -1,0 +1,80 @@
+{
+ "schema": "isaac-layout-table/1",
+ "build_id": "91C73FDD575061318D68886316AFEAC72388B2AB",
+ "struct": "room",
+ "note": [
+  "★ 这是**自动起草**的草稿（`tools/draft_layout_evidence.py` 生成），不参与 C++ 生成。",
+  "每行的证据是「镜像里访问该偏移的一条指令 + 它所在的函数」，可被 `tools/build_layout_table.py --verify` 重新反汇编复核。",
+  "语义（字段名/含义）尚未人工确认 ⇒ confidence 一律 candidate，不得进对外 API。"
+ ],
+ "rows": [
+  {
+   "name": "kRoomGridEntityTableOffset",
+   "kind": "int32",
+   "offset": 48,
+   "width": 8,
+   "confidence": "candidate",
+   "semantic": "（草稿）自动取证：语义未确认，仅登记「偏移 + 一处可复核的访问指令」",
+   "evidence": [
+    {
+     "kind": "access",
+     "function": "_ZN15IsaacRepentance4Room25restore_entity_from_stateEjRKNS_10GridEntity4DescE",
+     "address": "0x0045250c",
+     "offset": 48,
+     "width": 8,
+     "why": "镜像里访问该偏移的指令（str x，宽度 8）；共找到 4035 条同类访问，此为该常量名呼应度最高的函数之一"
+    },
+    {
+     "kind": "access",
+     "function": "_ZN15IsaacRepentance4Room15SpawnGridEntityEiNS_15eGridEntityTypeEjji",
+     "address": "0x004525a4",
+     "offset": 48,
+     "width": 8,
+     "why": "镜像里访问该偏移的指令（ldr x，宽度 8）；共找到 4035 条同类访问，此为该常量名呼应度最高的函数之一"
+    },
+    {
+     "kind": "access",
+     "function": "_ZN15IsaacRepentance4Room15SpawnGridEntityEiRKNS_10GridEntity4DescE",
+     "address": "0x0045273c",
+     "offset": 48,
+     "width": 8,
+     "why": "镜像里访问该偏移的指令（ldr x，宽度 8）；共找到 4035 条同类访问，此为该常量名呼应度最高的函数之一"
+    }
+   ]
+  },
+  {
+   "name": "kRoomEntityListOffset",
+   "kind": "int32",
+   "offset": 6480,
+   "width": 4,
+   "confidence": "candidate",
+   "semantic": "（草稿）自动取证：语义未确认，仅登记「偏移 + 一处可复核的访问指令」",
+   "evidence": [
+    {
+     "kind": "access",
+     "function": "_ZN15IsaacRepentance13Entity_Player16TriggerRoomClearEv",
+     "address": "0x002f538c",
+     "offset": 6480,
+     "width": 4,
+     "why": "镜像里访问该偏移的指令（ldr s，宽度 4）；共找到 98 条同类访问，此为该常量名呼应度最高的函数之一"
+    },
+    {
+     "kind": "access",
+     "function": "_ZN15IsaacRepentance4Room12spawn_entityEjRKNS_10RoomConfig5EntryEjPPNS_6EntityEb",
+     "address": "0x00453ba4",
+     "offset": 6480,
+     "width": 4,
+     "why": "镜像里访问该偏移的指令（ldr s，宽度 4）；共找到 98 条同类访问，此为该常量名呼应度最高的函数之一"
+    },
+    {
+     "kind": "access",
+     "function": "_ZN15IsaacRepentance12Entity_Knife17update_bone_swingEv",
+     "address": "0x000f1700",
+     "offset": 6480,
+     "width": 4,
+     "why": "镜像里访问该偏移的指令（ldr s，宽度 4）；共找到 98 条同类访问，此为该常量名呼应度最高的函数之一"
+    }
+   ]
+  }
+ ]
+}

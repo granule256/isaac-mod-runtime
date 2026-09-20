@@ -5,6 +5,7 @@
 #include <array>
 #include <atomic>
 #include <cstring>
+#include "interfaces/lua/lua_integer_argument.hpp"
 #include "interfaces/lua/owner_binding.hpp"
 
 #include <string_view>
@@ -123,7 +124,7 @@ int RuntimeModsSave(lua_State* state) {
 
 // `RuntimeMods.Report(code)` -> 无返回值：菜单脚本上报"走到哪一步"（见头文件说明）。
 int RuntimeModsReport(lua_State* state) {
-    if (lua_gettop(state) != 1 || !lua_isinteger(state, 1)) {
+    if (lua_gettop(state) != 1 || !isaac::runtime::IsIntegerArgument(state, 1)) {
         return luaL_error(state, "RuntimeMods.Report accepts one integer milestone code");
     }
     const auto code = static_cast<std::uint32_t>(lua_tointeger(state, 1));

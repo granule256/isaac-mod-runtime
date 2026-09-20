@@ -182,48 +182,106 @@ using RenderPositionHostFunction = void (*)(const float* input, float* output, b
 [[nodiscard]] std::uintptr_t InputIsActionPressedThunk() noexcept;
 [[nodiscard]] std::uintptr_t InputIsActionTriggeredThunk() noexcept;
 [[nodiscard]] std::uintptr_t InputGetActionValueThunk() noexcept;
-// Font bindings (`KAGE::Graphics::Font`). Zero means "not available", which the handlers turn
-// into a Lua error instead of calling an unverified address. The Font object itself is not
-// game-owned: the family unit owns its storage and only these entry points come from the game.
-[[nodiscard]] std::uintptr_t FontCtorThunk() noexcept;
-[[nodiscard]] std::uintptr_t FontDestructorThunk() noexcept;
-[[nodiscard]] std::uintptr_t FontLoadThunk() noexcept;
-[[nodiscard]] std::uintptr_t FontUnloadThunk() noexcept;
-[[nodiscard]] std::uintptr_t FontIsLoadedThunk() noexcept;
-[[nodiscard]] std::uintptr_t FontGetStringWidthThunk() noexcept;
-[[nodiscard]] std::uintptr_t FontGetStringWidthUTF8Thunk() noexcept;
-[[nodiscard]] std::uintptr_t FontGetLineHeightThunk() noexcept;
-[[nodiscard]] std::uintptr_t FontGetBaselineHeightThunk() noexcept;
-[[nodiscard]] std::uintptr_t FontGetCharacterWidthThunk() noexcept;
-[[nodiscard]] std::uintptr_t FontSetMissingCharacterThunk() noexcept;
-[[nodiscard]] std::uintptr_t FontDrawStringThunk() noexcept;
-[[nodiscard]] std::uintptr_t FontDrawStringScaledThunk() noexcept;
-[[nodiscard]] std::uintptr_t FontDrawStringUTF8Thunk() noexcept;
-[[nodiscard]] std::uintptr_t FontDrawStringScaledUTF8Thunk() noexcept;
+// --- 引擎入口的"声明类型"：唯一一份（2026-09-17）-----------------------------
+//
+// 这一段只干一件事：把这些游戏入口**声明成什么参数**写在一个地方。
+//
+// 为什么要有它：这些入口是"我们手写签名、直接跳进游戏模块"的地方，签名写错就是崩游戏。
+// 而在这之前，同一份签名在仓库里有**两份互不相干的副本**——绑定记录（`LuaFontBindings` /
+// `LuaSpriteBindings`）的字段类型是 `uintptr_t`（谁都看不出它期望什么参数），各个调用点
+// 又各自写一份 `using PlayFn = void (*)(void*, const char*, bool);`。两份一旦漂移，
+// 没有任何东西会发现，而漂移的后果是"按错的参数表跳进引擎"。
+// 现在：绑定记录字段用这里的类型、取址助手（`XxxThunk`）返回这里的类型、调用点拿到指针
+// 直接调用（`reinterpret_cast` 随之消失，参数由编译器核对）。偏移体检工具也从这里读出
+// "我们声明的参数表"，与引擎符号反解出来的签名逐条比。
+//
+// 命名：`<族><成员>Fn`（例如 `SpritePlayFn`）。参数表第一项是**显式 this**，所以与引擎
+// 符号（成员函数，`this` 不占参数位）相比会多一个参数，体检工具认得这条规则。
+// 返回类型只写"我们实际怎么用它"：体检工具比的是参数个数与有没有浮点。
+using FontCtorFn = void (*)(void*);
+using FontDestructorFn = void (*)(void*);
+using FontLoadFn = bool (*)(void*, const char*, const char*);
+using FontUnloadFn = void (*)(void*);
+using FontIsLoadedFn = bool (*)(const void*);
+using FontGetStringWidthFn = int (*)(const void*, const char*);
+using FontGetStringWidthUTF8Fn = int (*)(const void*, const char*);
+using FontGetLineHeightFn = std::uint16_t (*)(const void*);
+using FontGetBaselineHeightFn = std::uint16_t (*)(const void*);
+using FontGetCharacterWidthFn = int (*)(const void*, char);
+using FontSetMissingCharacterFn = void (*)(void*, std::uint16_t);
+using FontDrawStringFn = void (*)(void*, const char*, float, float, const void*, int, bool);
+using FontDrawStringScaledFn = void (*)(void*, const char*, float, float, float, float,
+                                        const void*, int, bool);
+using FontDrawStringUTF8Fn = void (*)(void*, const char*, float, float, const void*, int, bool);
+using FontDrawStringScaledUTF8Fn = void (*)(void*, const char*, float, float, float, float,
+                                            const void*, int, bool);
 
-// Sprite 绑定（`IsaacRepentance::ANM2`）。0 表示不可用，handler 会报错，而不是调用未校验的地址。
-[[nodiscard]] std::uintptr_t SpriteCtorThunk() noexcept;
-[[nodiscard]] std::uintptr_t SpriteDestructorThunk() noexcept;
-[[nodiscard]] std::uintptr_t SpritePlayThunk() noexcept;
-[[nodiscard]] std::uintptr_t SpriteSetAnimationThunk() noexcept;
-[[nodiscard]] std::uintptr_t SpriteSetFrameNamedThunk() noexcept;
-[[nodiscard]] std::uintptr_t SpriteSetFrameThunk() noexcept;
-[[nodiscard]] std::uintptr_t SpriteGetFrameThunk() noexcept;
-[[nodiscard]] std::uintptr_t SpriteSetLayerFrameThunk() noexcept;
-[[nodiscard]] std::uintptr_t SpriteGetLayerFrameThunk() noexcept;
-[[nodiscard]] std::uintptr_t SpriteGetTexelThunk() noexcept;
-[[nodiscard]] std::uintptr_t SpriteUpdateThunk() noexcept;
-[[nodiscard]] std::uintptr_t SpriteIsPlayingThunk() noexcept;
-[[nodiscard]] std::uintptr_t SpriteIsFinishedThunk() noexcept;
-[[nodiscard]] std::uintptr_t SpriteRenderThunk() noexcept;
-[[nodiscard]] std::uintptr_t SpriteRenderLayerThunk() noexcept;
-[[nodiscard]] std::uintptr_t SpritePlayRandomThunk() noexcept;
-[[nodiscard]] std::uintptr_t SpriteLoadThunk() noexcept;
-[[nodiscard]] std::uintptr_t SpriteLoadGraphicsThunk() noexcept;
-[[nodiscard]] std::uintptr_t SpriteReplaceSpritesheetThunk() noexcept;
-[[nodiscard]] std::uintptr_t LibcxxStringAssignThunk() noexcept;
+using SpriteCtorFn = void (*)(void*);
+using SpriteDestructorFn = void (*)(void*);
+using SpritePlayFn = void (*)(void*, const char*, bool);
+using SpriteSetAnimationFn = bool (*)(void*, const char*, bool);
+using SpriteSetFrameNamedFn = void (*)(void*, const char*, int);
+using SpriteSetFrameFn = void (*)(void*, int);
+using SpriteGetFrameFn = int (*)(const void*);
+using SpriteSetLayerFrameFn = void (*)(void*, int, int);
+using SpriteGetLayerFrameFn = int (*)(void*, int);
+// `GetTexel` 在真机上走内联汇编（两个 `Vector2` 按 HFA 走 s0..s3、16 字节返回值走 x8），
+// 汇编才是权威；这里的类型只供体检工具比参数个数。
+using SpriteGetTexelFn = void (*)(void*, const void*, const void*, float, int);
+using SpriteUpdateFn = void (*)(void*);
+using SpriteIsPlayingFn = bool (*)(const void*, const char*);
+using SpriteIsFinishedFn = bool (*)(const void*, const char*);
+using SpriteRenderFn = void (*)(void*, const void*, const void*, const void*);
+using SpriteRenderLayerFn = void (*)(void*, int, const void*, const void*, const void*);
+using SpritePlayRandomFn = void (*)(void*, unsigned int);
+using SpriteLoadFn = void (*)(void*, const void*, bool);
+using SpriteLoadGraphicsFn = void (*)(void*);
+using SpriteReplaceSpritesheetFn = void (*)(void*, int, const void*);
+using LibcxxStringAssignFn = void* (*)(void*, const char*);
+using GameOperatorDeleteFn = void (*)(void*);
+
+// Font bindings (`KAGE::Graphics::Font`). 空指针表示"不可用"，handler 于是报 Lua 错误，
+// 而不是调用未校验的地址。Font 对象本身不属于游戏：存储由本族的实现自己管，只有这些
+// 入口点来自游戏。
+[[nodiscard]] FontCtorFn FontCtorThunk() noexcept;
+[[nodiscard]] FontDestructorFn FontDestructorThunk() noexcept;
+[[nodiscard]] FontLoadFn FontLoadThunk() noexcept;
+[[nodiscard]] FontUnloadFn FontUnloadThunk() noexcept;
+[[nodiscard]] FontIsLoadedFn FontIsLoadedThunk() noexcept;
+[[nodiscard]] FontGetStringWidthFn FontGetStringWidthThunk() noexcept;
+[[nodiscard]] FontGetStringWidthUTF8Fn FontGetStringWidthUTF8Thunk() noexcept;
+[[nodiscard]] FontGetLineHeightFn FontGetLineHeightThunk() noexcept;
+[[nodiscard]] FontGetBaselineHeightFn FontGetBaselineHeightThunk() noexcept;
+[[nodiscard]] FontGetCharacterWidthFn FontGetCharacterWidthThunk() noexcept;
+[[nodiscard]] FontSetMissingCharacterFn FontSetMissingCharacterThunk() noexcept;
+[[nodiscard]] FontDrawStringFn FontDrawStringThunk() noexcept;
+[[nodiscard]] FontDrawStringScaledFn FontDrawStringScaledThunk() noexcept;
+[[nodiscard]] FontDrawStringUTF8Fn FontDrawStringUTF8Thunk() noexcept;
+[[nodiscard]] FontDrawStringScaledUTF8Fn FontDrawStringScaledUTF8Thunk() noexcept;
+
+// Sprite 绑定（`IsaacRepentance::ANM2`）。空指针表示不可用，handler 会报错，而不是调用未校验的地址。
+[[nodiscard]] SpriteCtorFn SpriteCtorThunk() noexcept;
+[[nodiscard]] SpriteDestructorFn SpriteDestructorThunk() noexcept;
+[[nodiscard]] SpritePlayFn SpritePlayThunk() noexcept;
+[[nodiscard]] SpriteSetAnimationFn SpriteSetAnimationThunk() noexcept;
+[[nodiscard]] SpriteSetFrameNamedFn SpriteSetFrameNamedThunk() noexcept;
+[[nodiscard]] SpriteSetFrameFn SpriteSetFrameThunk() noexcept;
+[[nodiscard]] SpriteGetFrameFn SpriteGetFrameThunk() noexcept;
+[[nodiscard]] SpriteSetLayerFrameFn SpriteSetLayerFrameThunk() noexcept;
+[[nodiscard]] SpriteGetLayerFrameFn SpriteGetLayerFrameThunk() noexcept;
+[[nodiscard]] SpriteGetTexelFn SpriteGetTexelThunk() noexcept;
+[[nodiscard]] SpriteUpdateFn SpriteUpdateThunk() noexcept;
+[[nodiscard]] SpriteIsPlayingFn SpriteIsPlayingThunk() noexcept;
+[[nodiscard]] SpriteIsFinishedFn SpriteIsFinishedThunk() noexcept;
+[[nodiscard]] SpriteRenderFn SpriteRenderThunk() noexcept;
+[[nodiscard]] SpriteRenderLayerFn SpriteRenderLayerThunk() noexcept;
+[[nodiscard]] SpritePlayRandomFn SpritePlayRandomThunk() noexcept;
+[[nodiscard]] SpriteLoadFn SpriteLoadThunk() noexcept;
+[[nodiscard]] SpriteLoadGraphicsFn SpriteLoadGraphicsThunk() noexcept;
+[[nodiscard]] SpriteReplaceSpritesheetFn SpriteReplaceSpritesheetThunk() noexcept;
+[[nodiscard]] LibcxxStringAssignFn LibcxxStringAssignThunk() noexcept;
 // 游戏自己的 `operator delete(void*)`：释放游戏分配器给长路径分配的缓冲（见 `kGameOperatorDeleteOffset`）。
-[[nodiscard]] std::uintptr_t GameOperatorDeleteThunk() noexcept;
+[[nodiscard]] GameOperatorDeleteFn GameOperatorDeleteThunk() noexcept;
 
 // The ItemPool method guard still lives in `lua_runtime.cpp` next to the rest
 // of the instruction checks; the family unit only needs the verdict.

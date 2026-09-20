@@ -98,7 +98,9 @@ class StartupGateProbeTests(unittest.TestCase):
         self.assertLess(entry.index("kStartupProbeStage6TitleOk"),
                         entry.index("svcCreateThread"))
         self.assertIn("ReportStartupProbeWorkerGate(", entry)
-        self.assertIn("void StartupProbeWorker(void*)", entry)
+    # ★ 2026-09-19（门禁文本匹配分流）：删掉一条**纯签名文本**断言 —— 同一仓库里改签名，
+    #   编译器会先报错，这条与编译器重复；相邻断言保留的是真正防倒退的事实。
+    #   依据：`docs/门禁文本匹配分流-20260919.md`（类别 ②）。
         self.assertIn("&StartupProbeWorker", entry)
         self.assertIn(
             "#if defined(EXL_STARTUP_PROBE_STAGE) && EXL_STARTUP_PROBE_STAGE == 6\n"
@@ -252,19 +254,26 @@ class StartupGateProbeTests(unittest.TestCase):
         )
         self.assertIn("#endif\n#endif\n    svcExitThread();", scan_exhaustion)
 
-    def test_startup_probe_package_includes_the_observer_plugin_and_build_manifest(self):
+    def test_startup_probe_package_includes_the_build_manifest(self):
+        """启动探针包 = 运行时 + 清单。
+
+        2026-09-17：原先 stage8 的包里还配对了一份 SaltyNX 插件（`stage145` 的 `isaac-runtime.elf`），
+        那条插件持久化线已退役 ⇒ 这里改成只钉"运行时 + 清单"两件，并明确**不许**再出现插件文件。
+        """
         makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
 
         for token in (
             "ifndef TEST_BUILD_ID",
             "TEST_BUILD_ID := $(shell date -u +%Y%m%d%H%M%S)",
             "EXL_TEST_BUILD_ID=$(TEST_BUILD_ID)",
-            "deploy-saltynx/stage145/SaltySD/plugins/$(PROGRAM_ID)/isaac-runtime.elf",
-            "$(OUT)/SaltySD/plugins/$(PROGRAM_ID)/isaac-runtime.elf",
             "test-build-manifest.json",
         ):
             with self.subTest(token=token):
                 self.assertIn(token, makefile)
+        self.assertNotIn(
+            "deploy-saltynx/stage145/SaltySD/plugins/$(PROGRAM_ID)/isaac-runtime.elf", makefile,
+            "启动探针包又在配对已退役的 Stage145 插件了",
+        )
 
     def test_test_package_manifest_records_build_stage_and_file_hashes(self):
         script = ROOT.parent / "tools" / "write_test_package_manifest.py"

@@ -26,6 +26,23 @@ int CreateFontHandle(lua_State* state);
 // userdata finds the handle already cleared and does nothing.
 int DestroyFontHandle(lua_State* state);
 
+// `Isaac.RenderScaledText(str, X, Y, ScaleX, ScaleY, R, G, B, A)`（PC 文档 `Isaac.md:545`）
+// 的绘制本体：用**运行时自己的默认字体**在屏幕上画一段带缩放与颜色的文字。
+//
+// 为什么实现在 `font_api.cpp`：字体句柄的生命周期、`Font:Load` 的路径归一化、四个绘制变体
+// 与绘制探针（调用次数 / 文本字节 / alpha / 缩放）全归这个 TU；`isaac_api.cpp` 只做参数校验
+// 与转调，不碰字体。绘制走的是**同一条** `Font:DrawString*` 路径（不另写一份引擎调用）。
+//
+// 契约（两条，调用方必须满足）：
+//   * **调用前栈必须是空的**（`Font()` 构造器要求空栈；调用方应先把要用的实参读进 C 变量，
+//     并把文本复制出来 —— 清栈后原来的 Lua 字符串可能被 GC，而这里会分配内存）；
+//   * 成功返回 true 且保持空栈；返回 false 表示**没有可用字体**（三条候选路径都没装上来），
+//     调用方据此报错，而不是画一个看不见的东西。
+[[nodiscard]] bool DrawScaledTextWithDefaultFont(lua_State* state, const char* text,
+                                                 std::size_t length, float x, float y, float scaleX,
+                                                 float scaleY, float red, float green, float blue,
+                                                 float alpha);
+
 // Registers the `Font` owner methods (Load / Unload / IsLoaded / GetStringWidth /
 // GetStringWidthUTF8 / GetLineHeight / GetBaselineHeight / GetCharacterWidth /
 // SetMissingCharacter) from the API catalog.

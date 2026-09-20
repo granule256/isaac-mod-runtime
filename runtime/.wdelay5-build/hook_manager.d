@@ -106,8 +106,10 @@ hook_manager.o: ../source/program/hook_manager.cpp \
  ../source/program/../default_callback_gate.hpp \
  ../source/program/../game_observer.hpp \
  ../source/program/../default_persistence_gate.hpp \
+ ../src/infrastructure/persistence/engine_save_file_adapter.hpp \
+ ../src/ports/save_file_port.hpp ../src/domain/runtime/status.hpp \
  ../source/program/../mod_persistence.hpp ../src/ports/file_port.hpp \
- ../src/domain/runtime/status.hpp ../source/program/../lua_runtime.hpp \
+ ../source/program/../lua_runtime.hpp \
  ../source/program/../game_file_reader.hpp \
  ../source/program/../lua_runtime_state.hpp \
  ../source/third_party/lua-5.3.3/src/lua.h \
@@ -129,9 +131,15 @@ hook_manager.o: ../source/program/hook_manager.cpp \
  ../src/application/mod/manifest_parser.hpp \
  ../src/domain/mod/mod_manifest.hpp \
  ../src/application/mod/mod_load_step.hpp ../src/ports/content_port.hpp \
+ ../src/application/mod/mod_discovery_service.hpp \
+ ../src/ports/mod_directory_port.hpp \
  ../src/infrastructure/content/engine_content_mount_adapter.hpp \
+ ../src/infrastructure/content/engine_directory_adapter.hpp \
  ../src/application/mod/mod_load_service.hpp \
  ../src/ports/lua_engine_port.hpp \
+ ../src/application/mod/mod_toggle_service.hpp \
+ ../src/domain/mod/mod_toggle_state.hpp \
+ ../src/interfaces/lua/mod_menu_api.hpp \
  ../src/application/runtime/hook_install_service.hpp \
  ../src/ports/hook_port.hpp ../src/domain/runtime/hook_catalog.hpp \
  ../src/ports/module_scanner_port.hpp \
@@ -267,9 +275,11 @@ hook_manager.o: ../source/program/hook_manager.cpp \
 ../source/program/../default_callback_gate.hpp:
 ../source/program/../game_observer.hpp:
 ../source/program/../default_persistence_gate.hpp:
+../src/infrastructure/persistence/engine_save_file_adapter.hpp:
+../src/ports/save_file_port.hpp:
+../src/domain/runtime/status.hpp:
 ../source/program/../mod_persistence.hpp:
 ../src/ports/file_port.hpp:
-../src/domain/runtime/status.hpp:
 ../source/program/../lua_runtime.hpp:
 ../source/program/../game_file_reader.hpp:
 ../source/program/../lua_runtime_state.hpp:
@@ -293,9 +303,15 @@ hook_manager.o: ../source/program/hook_manager.cpp \
 ../src/domain/mod/mod_manifest.hpp:
 ../src/application/mod/mod_load_step.hpp:
 ../src/ports/content_port.hpp:
+../src/application/mod/mod_discovery_service.hpp:
+../src/ports/mod_directory_port.hpp:
 ../src/infrastructure/content/engine_content_mount_adapter.hpp:
+../src/infrastructure/content/engine_directory_adapter.hpp:
 ../src/application/mod/mod_load_service.hpp:
 ../src/ports/lua_engine_port.hpp:
+../src/application/mod/mod_toggle_service.hpp:
+../src/domain/mod/mod_toggle_state.hpp:
+../src/interfaces/lua/mod_menu_api.hpp:
 ../src/application/runtime/hook_install_service.hpp:
 ../src/ports/hook_port.hpp:
 ../src/domain/runtime/hook_catalog.hpp:

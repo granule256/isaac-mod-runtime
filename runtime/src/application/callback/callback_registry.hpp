@@ -25,8 +25,20 @@ public:
 
     // Removes one (id, owner) registration. When `removed` is provided the
     // caller receives the entry so it can release its Lua references.
+    //
+    // ⚠️ 它摘的是**第一条**匹配 `(id, owner)` 的登记。同一 Mod 对同一 id 登记多个回调是常态
+    // （EID 一家就登记 5 个 `MC_POST_NEW_ROOM`）⇒ 要摘"指定的那一条"必须用下面的
+    // `RemoveAtIndex()`，否则会摘错人（`Mod:RemoveCallback` 就是那种调用方）。
     std::uint32_t Remove(CallbackId id, ModHandle owner,
                          CallbackDescriptor* removed = nullptr) noexcept;
+
+    // Removes the entry at `index`（后面的一条条前移，保持登记顺序）。
+    //
+    // 为什么需要它：`Remove(id, owner)` 只能按"第一个匹配"摘，而 PC 的
+    // `Mod:RemoveCallback(id, function)` 是按**函数身份**摘某一条 —— 同 id 上其余登记必须留下。
+    // 调用方用 `AtIndex(index)` 找到目标后把下标交进来，避免"找到了却摘错"。
+    // 越界时返回 0 且不写 `removed`。
+    std::uint32_t RemoveAtIndex(std::size_t index, CallbackDescriptor* removed = nullptr) noexcept;
 
     // Removes every callback owned by one Mod, for example on reload.
     std::uint32_t RemoveOwner(ModHandle owner) noexcept;

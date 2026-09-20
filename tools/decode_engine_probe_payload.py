@@ -29,7 +29,7 @@ TRIGGERS = {1: "两相跑满", 2: "时间兜底（暂停/提前结束）"}
 FIELDS = """\
 x2   triggerReason | phasesDone << 32
 x3   managedFrames（真的派发过受管 POST_RENDER 的帧数）
-x4   ticksPerMs（按 cntfrq_el0 标定）
+x4   ticksPerMs（19.2 MHz 常量算出；批次 085 起不读 cntfrq_el0）
 x5   ON.frames | OFF.frames << 32
 x6   ON attempts        x7   OFF attempts
 x8   ON syscalls        x9   OFF syscalls

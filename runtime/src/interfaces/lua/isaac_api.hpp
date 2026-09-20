@@ -186,15 +186,38 @@ struct PlayerLookupProbe {
 // 那一条。返回 `true` 表示可以安全地按 `Entity` 布局读它的字段。
 [[nodiscard]] bool IsLiveEntityPointer(std::uintptr_t candidate) noexcept;
 
+// 从栈上第 `index` 个实参取"活着的实体指针"；不是实体句柄、或底层指针已失效 ⇒ 返回 0。
+//
+// 为什么单开一个入口：PC 有若干签名里带**可空** `EntityPlayer` 的方法（例如
+// `ItemPool:GetPillEffect(PillColor, EntityPlayer = nil)`），而那些方法的实现住在别的 TU
+// （`remaining_api.cpp` 的 ItemPool 家族）。"什么算一个实体句柄"只应该有一份实现
+// （就是这里 `CheckEntityHandle` + `ValidatedEntity` 那一对），所以这里给一个**不抛错**的出口：
+// 拿不到就返回 0，由调用方决定是"传 nullptr 给引擎"还是报错。
+[[nodiscard]] std::uintptr_t EntityPointerArgument(lua_State* state, int index) noexcept;
+
+// 批次 065：读一个实体的 `Type`/`Variant`（`Entity + 0x38` / `+0x3C`，两张布局都是
+// `confirmed` 的）。`EntityRef` 的替身缓冲区要用这两个值填 `+0x08`/`+0x00` 两格，
+// 而"读引擎字段前先判可读"那套判据在 `isaac_api.cpp` 里才有一份，所以从这里导出。
+// 任一字段读不到 ⇒ 返回 false（调用方按"留空"处理，不猜）。
+[[nodiscard]] bool ReadEntityIdentity(std::uintptr_t entity, std::uint32_t* type,
+                                      std::uint32_t* variant) noexcept;
+
 #if !defined(__SWITCH__)
 // 宿主测试注入点。**设备构建（`-D__SWITCH__`）里不存在这个类型和这个函数。**
 //
 // 为什么需要它：`EntityPlayer:HasCollectible` 的设备实现是一条 `bl`
 // `base + kEntityPlayerHasCollectibleOffset`，而宿主构建既没有引擎映像、也不可能把一个 C++
 // 函数恰好放在那个地址上。注入点顶替的就是这一条 `bl`，让宿主测试仍然能验证真正容易写错的
-// 那三段：vptr 校验必须先于调用、传给引擎的第一个参数就是实体指针、id 与返回值原样往返。
+// 那几段：vptr 校验必须先于调用、传给引擎的第一个参数就是实体指针、**两个**实参（id 与
+// `ignoreModifiers`）与返回值原样往返。
+//
+// 2026-09-17：第二个参数补上 —— PC 的签名是 `HasCollectible(CollectibleType, bool ignoreModifiers)`，
+// 原生符号 `_ZNK15IsaacRepentance13Entity_Player14HasCollectibleENS_16eCollectibleTypeEb`
+// 也是 `(eCollectibleType, bool)`。EID 真的会传（`features/eid_api.lua:3004` 的
+// `player:HasCollectible(itemID, true)`），此前我们只接受一个参数并直接报错。
 using EntityPlayerHasCollectibleHostImplementation = bool (*)(void* entity,
-                                                             std::uint32_t collectibleId);
+                                                             std::uint32_t collectibleId,
+                                                             bool ignoreModifiers);
 void SetEntityPlayerHasCollectibleHostImplementation(
     EntityPlayerHasCollectibleHostImplementation function) noexcept;
 
@@ -220,5 +243,58 @@ void SetItemConfigIsAvailableHostImplementation(
 // Device-side gate for managed callbacks: menus and load transitions can leave a stale player
 // vector behind. Do not dispatch until both the current room and a validated player exist.
 [[nodiscard]] bool ShouldDispatchManagedCallbacks() noexcept;
+
+// --- 每帧事件（回调面地基）需要的"游戏侧视图" ----------------------------------
+//
+// `lua_runtime.cpp` 的每帧事件派发（`MC_POST_NEW_ROOM`/`MC_POST_NEW_LEVEL`/
+// `MC_POST_PICKUP_INIT`/`MC_POST_PICKUP_UPDATE`/`MC_POST_PLAYER_INIT`）要知道"房间里现在有哪些
+// 实体、其中哪些是掉落物、玩家是谁"。这三件事的实现（vptr 校验、实体容器指纹、实体句柄与元表）
+// 全归 `isaac_api.cpp` 所有，所以这里只开入口，不让派发侧再写第二份 —— 与 `IsLiveEntityPointer`
+// 被导出的理由完全相同。
+//
+// 为什么用"访问器 + 上下文指针"而不是返回数组：每帧要把房间实体过一遍，实体数上限 0x800，
+// 拷进临时数组只是白花内存带宽；`void* context` 让调用方自己带着状态（它只用来比较、不解引用）。
+using EntityVisitFn = void (*)(void* context, std::uintptr_t entity);
+
+// 遍历当前房间的**活动实体全集**（`EntityList+0x78`，与 `Isaac.GetRoomEntities` 同一张表），
+// 只把通过 vptr 校验的非空实体交给 `visit`。房间拿不到或容器指纹不符时**一个都不遍历**
+// （宁可这次不派发，也不把一整段垃圾当实体表）。
+void VisitRoomEntities(EntityVisitFn visit, void* context) noexcept;
+
+// 遍历玩家的 `std::vector<Entity_Player*>`（与 `Isaac.GetPlayer` 同一对偏移）。
+void VisitPlayerEntities(EntityVisitFn visit, void* context) noexcept;
+
+// 该实体是不是掉落物。判据与 `Entity:ToPickup()` 完全相同：`Type == ENTITY_PICKUP(5)`
+// **且** vptr 精确等于 `Entity_Pickup` 的 vtable —— 只比 `Type` 会把子类误判成掉落物。
+[[nodiscard]] bool IsPickupEntity(std::uintptr_t candidate) noexcept;
+
+// 把一个实体压栈成回调实参（与 `Isaac.GetRoomEntities()` 给出的句柄同一种视图：
+// 玩家实体给 `EntityPlayer` 元表，其余给 `Entity`）。模组把回调参数直接当实体用，
+// 视图不一致会让 `player:HasCollectible()` 这类调用在回调里失败。
+void PushEntityCallbackArgument(lua_State* state, std::uintptr_t entity) noexcept;
+
+// --- 实体族回调（2026-09-18）需要的"这个实体属于哪一类" ---------------------------
+//
+// `MC_*_UPDATE` / `MC_*_RENDER` / `MC_*_INIT` 这一族回调在 PC 上**按实体的 C++ 类**触发
+// （眼泪、弹射物、激光、刀、炸弹、效果、跟班、敌人、玩家、掉落物各有一套）。判据（vptr 区间
+// 校验、精确 vtable 比较、`EntityType` 取值）全部归 `isaac_api.cpp` 所有，所以这里只开**一个**
+// 入口 —— 派发侧不许自己再写一份类型判据（本项目已经因为"两份判据会漂"吃过亏）。
+enum class CallbackEntityClass : std::uint32_t {
+    None = 0,
+    Npc,
+    Familiar,
+    Tear,
+    Projectile,
+    Laser,
+    Knife,
+    Effect,
+    Bomb,
+    Player,
+    Pickup,
+};
+
+// 分类判据逐条写在实现处。判不出（指针不合法 / vptr 不在 `Entity` 家族区间 / 类型不属于上面
+// 任何一类，例如 `ENTITY_SLOT(6)`）一律返回 `None` —— 宁可这次不派发，也不猜。
+[[nodiscard]] CallbackEntityClass ClassifyCallbackEntity(std::uintptr_t candidate) noexcept;
 
 } // namespace isaac::runtime

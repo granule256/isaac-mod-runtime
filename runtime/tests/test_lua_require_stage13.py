@@ -202,14 +202,37 @@ int main(int argc, char** argv) {
         // 批次 3 起 `debug` 存在，但**只**有只读的 `debug.getinfo`（EID 的
         // `GetCurrentModPath` 用它取真实 mod 路径）。能改写运行时状态的那些入口
         // （`sethook`/`setlocal`/`setupvalue`/`setmetatable`/`getregistry`）必须一个都没有；
-        // `package`/`io`/`load`/`loadfile`/`dofile` 仍然为 nil。
+        // `package`/`io`/`loadfile`/`dofile` 仍然为 nil。
+        //
+        // ★ 2026-09-18（批次 034）**设计变更**：`load`/`loadstring` 从"必须为 nil"改成
+        // **必须存在且形状与 PC 一致** —— PC 是 LuaJIT 5.1，两个都有；卡上的可调用性探针
+        // 就因为我们把 `load` 置空而整批 skipped（`miss=0` 是空结论），一轮设备验证白跑。
+        // 现在同样在场景里**实测行为**：编译成功/失败形状、读取函数形式、`env` 形式。
+        // 理由与判据见 `docs/问题与解决记录.md` 续五十九。
         //
         // 2026-09-12 起 `os` **不再为 nil**（真机报告 `01789203211`：EID 的
         // `features/eid_tmtrainer.lua:199` 是 `if (debug and os.date("%m/%d") == "04/01")`，
         // 没有 `os` 就直接抛错、整包加载死在 200 行；PC 上两样都有）。策略因此变成
         // "给只读子集，但不给会写文件系统或结束进程的入口"。
         entry =
-            "if package~=nil or io~=nil or load~=nil or loadfile~=nil or dofile~=nil then error('unsafe global') end "
+            "if package~=nil or io~=nil or loadfile~=nil or dofile~=nil then error('unsafe global') end "
+            "if type(load)~='function' or type(loadstring)~='function' then error('load/loadstring must exist (PC has both)') end "
+            "if loadstring('return 6*7')()~=42 then error('loadstring does not compile') end "
+            "local bad,msg=loadstring('this is not lua'); if bad~=nil or type(msg)~='string' then error('loadstring failure shape') end "
+            "if load('return 1+1')()~=2 then error('load(string) does not compile') end "
+            "local fed=false; local reader=function() if fed then return nil end fed=true return 'return 5+5' end "
+            "local fromReader=load(reader); if fromReader==nil or fromReader()~=10 then error('load(function) form') end "
+            "local withEnv=load('return marker','chunk','t',{marker=123}); if withEnv==nil or withEnv()~=123 then error('load env form') end "
+            // `include(path)`：PC 提供给模组的全局（`Globals.md:189`）。判据三条 ——
+            // ① 存在且返回**被包含文件 chunk 的返回值**；② **不缓存**（每次都重新读盘：
+            //    GoodTrip 的 main.lua:30-33 明说"include re-reads the file on every luamod"）；
+            // ③ 文件不存在时**抛错**（GoodTrip 用 pcall 包着第一次调用，正是为了容忍这一点）。
+            "if type(include)~='function' then error('include must exist (PC provides it)') end "
+            "local incA=include('src.metadata') "
+            "local incB=include('src.metadata') "
+            "if type(incA)~='table' or incA.name~='Probe' then error('include return value') end "
+            "if incA==incB then error('include must not cache (it re-reads every call)') end "
+            "if pcall(include,'src.missing') then error('include must raise on a missing file') end "
             "if type(os)~='table' then error('os must exist') end "
             "if os.remove~=nil or os.rename~=nil or os.tmpname~=nil or os.exit~=nil then error('unsafe os member') end "
             "if debug==nil or type(debug.getinfo)~='function' then error('debug.getinfo must exist') end "
@@ -285,8 +308,12 @@ mod:AddCallback(ModCallbacks.MC_POST_UPDATE, function() end))lua";
     const auto result = LuaRuntime::InitializeStage13Mod(
         entry, std::strlen(entry), "@main.lua", "rom:/isaac_mods/mods/Probe", bindings);
     if (std::strcmp(g_Scenario, "success") == 0) {
+        // `metadataReads` = 3 的来历：`require('src.metadata')` **一次**（缓存命中后不再读盘），
+        // `include('src.metadata')` **两次**（`include` 不缓存、每次重新读盘 —— 这正是 PC 的语义，
+        // 也是 GoodTrip 依赖的那条性质：`luamod` 之后 `include` 拿到的是磁盘上的新代码）。
+        // 这个数字本身就是"include 不缓存"的证据，别把它当噪音改回去。
         if (result != LuaRuntime::LuaInitResult::Success || LuaRuntime::RequireFailureDetail() != 0 ||
-            g_ModReads != 1 || g_MetadataReads != 1) {
+            g_ModReads != 1 || g_MetadataReads != 3) {
             std::fprintf(stderr, "success: result=%u detail=%u modReads=%u metadataReads=%u\n",
                          static_cast<unsigned>(result), LuaRuntime::RequireFailureDetail(),
                          g_ModReads, g_MetadataReads);
@@ -539,10 +566,22 @@ mod:AddCallback(ModCallbacks.MC_POST_UPDATE, function() end))lua";
         self.assertIn('kStage13ModRootPrefix[] = "rom:/isaac_mods/mods/"', runtime)
         self.assertIn("std::atomic<u32> g_RequireFailureDetail", runtime)
         self.assertIn("g_RequireCacheRef", runtime)
-        self.assertIn("u64 RequireErrorTail();", header)
+    # ★ 2026-09-19（门禁文本匹配分流）：删掉一条**纯签名文本**断言 —— 同一仓库里改签名，
+    #   编译器会先报错，这条与编译器重复；相邻断言保留的是真正防倒退的事实。
+    #   依据：`docs/门禁文本匹配分流-20260919.md`（类别 ②）。
         self.assertIn("luaL_ref(state, LUA_REGISTRYINDEX)", runtime)
-        for name in ("load", "loadfile", "dofile"):
+        # `loadfile`/`dofile` 仍必须被置空；`load`/`loadstring` 必须**装成 C 函数**
+        # （2026-09-18 批次 034 的设计变更：PC 两个都有，见上面 `success` 场景里的行为断言）。
+        for name in ("loadfile", "dofile"):
             with self.subTest(removed_global=name):
+                self.assertIn(f'lua_setglobal(state, "{name}")', runtime)
+        # `include`：PC 提供的全局（`Globals.md:189`），2026-09-19 批次 042 补上 —— 缺它时
+        # GoodTrip 的 main.lua 第一句就 "call a nil value"（模组整个加载失败）。
+        self.assertIn('lua_pushcfunction(state, Include);', runtime)
+        self.assertIn('lua_setglobal(state, "include")', runtime)
+        for name, handler in (("load", "ModLoad"), ("loadstring", "ModLoadString")):
+            with self.subTest(installed_global=name):
+                self.assertIn(f'lua_pushcfunction(state, {handler});', runtime)
                 self.assertIn(f'lua_setglobal(state, "{name}")', runtime)
         for forbidden in ("luaopen_package", "luaopen_io", "luaopen_os", "luaopen_debug", "luaL_loadfile"):
             with self.subTest(forbidden=forbidden):

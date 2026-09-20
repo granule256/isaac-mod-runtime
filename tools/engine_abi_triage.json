@@ -1,0 +1,16 @@
+{
+ "schema": 1,
+ "note": [
+  "引擎调用 ABI 体检的人工分诊台账（2026-09-17 起）。",
+  "工具 tools/engine_offset_abi_report.py 会把『我们声明的参数个数 < 引擎签名要求的个数』标成 under；",
+  "每一处 under 都必须在这里写明为什么安全（依据：真机读数 / 反汇编地址 / 上游哨兵），否则门禁判红。",
+  "常见合理情形：引擎那个参数可以传 0（例如 Entity* 允许空指针），而我们的 PLT 桩会把对应寄存器清零。",
+  "浮点/整数不匹配（verdict=float-mismatch）不允许登记 —— 那类一律要改代码。"
+ ],
+ "rows": {
+  "kRebuildContentMountPointsOffset": {
+   "why": "**不是成员函数**：引擎侧签名 `IsaacRepentance::RebuildContentMountPoints()` 没有隐式 `this`，而我们的声明 `using RebuildContentMountPointsFn = void (*)();` 与它**逐字相同**（0 参数对 0 参数）。它也**不是调用点**：这个常量只用来当挂点/中继目标（我们替换它的入口字节），所以「我们的声明含 this、引擎签名不含 ⇒ 必须 +1」这条判据在这里不适用。",
+   "evidence": "`tools/engine_symbol_signatures.json` 里该条 `mangled = _ZN15IsaacRepentance25RebuildContentMountPointsEv`（参数段为空 ⇒ 无参数、也无 `this`）；消费者只有 `runtime/source/probe/content_mount_point_probe.cpp` 的挂点与中继两侧。ABI 体检工具在 2026-09-19 修正了「少给参数」判据（旧版本允许 our == engine，把 `Entity:TakeDamage` 那类真错放过去了），这一条是**新判据的假阳性**，不是缺陷。"
+  }
+ }
+}

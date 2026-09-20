@@ -200,10 +200,17 @@ void CorruptVtable() {
 std::uintptr_t g_CallEntity = 0;
 std::uint32_t g_CallId = 0;
 int g_CallCount = 0;
+//: 引擎侧看到的第二个参数（`ignoreModifiers`）—— 必须**原样往返**（2026-09-17 补的字段）。
+bool g_LastIgnoreModifiers = false;
+int g_IgnoreModifiersTrueCount = 0;
 
-bool HarnessHasCollectible(void* entity, std::uint32_t collectibleId) {
+bool HarnessHasCollectible(void* entity, std::uint32_t collectibleId, bool ignoreModifiers) {
     g_CallEntity = reinterpret_cast<std::uintptr_t>(entity);
     g_CallId = collectibleId;
+    g_LastIgnoreModifiers = ignoreModifiers;
+    if (ignoreModifiers) {
+        ++g_IgnoreModifiersTrueCount;
+    }
     ++g_CallCount;
     // 只对 1 号收藏品回答 true：返回值必须原样往返（恒真/恒假都算实现错了）。
     return collectibleId == 1;
@@ -228,7 +235,8 @@ int main(int argc, char** argv) {
     if (argc != 2) return 90;
     const std::string scenario = argv[1];
     if (scenario != "valid" && scenario != "empty" && scenario != "zero_element" &&
-        scenario != "bad_vptr" && scenario != "no_game" && scenario != "no_base") {
+        scenario != "bad_vptr" && scenario != "no_game" && scenario != "no_base" &&
+        scenario != "take_damage") {
         return 91;
     }
 
@@ -238,7 +246,7 @@ int main(int argc, char** argv) {
         LuaRuntime::SetEngineModuleBase(g_EngineBase);
     }
 
-    if (scenario == "valid") {
+    if (scenario == "valid" || scenario == "take_damage") {
         FillPlayer(true);
         PublishOwnerSlot(AddressOf(g_OwnerSlotBytes));
         WriteWord(g_OwnerSlotBytes, 0, AddressOf(g_GameBytes));
@@ -289,12 +297,23 @@ int main(int argc, char** argv) {
     }
 
     if (!ExpectNumber("SCENARIO_OK", 1.0)) return 1;
+    if (scenario == "take_damage") {
+        if (!ExpectNumber("TAKE_DAMAGE_OK", 1.0)) return 1;
+        std::printf("TAKE_DAMAGE_OK\n");
+        return 0;
+    }
     if (scenario == "valid") {
         if (!ExpectNumber("PHASE1_OK", 1.0)) return 1;
         if (!ExpectNumber("PHASE2_OK", 1.0)) return 1;
-        if (g_CallCount != 2) {
-            std::printf("ISAAC_FAIL: HasCollectible must reach the engine exactly twice, got %d\n",
+        // 现在有 5 次调用：2 次老用例 + 3 次带可选参数的新用例
+        if (g_CallCount != 5) {
+            std::printf("ISAAC_FAIL: HasCollectible must reach the engine exactly 5 times, got %d\n",
                         g_CallCount);
+            return 1;
+        }
+        if (g_IgnoreModifiersTrueCount != 1) {
+            std::printf("ISAAC_FAIL: ignoreModifiers=true must reach the engine exactly once, got %d\n",
+                        g_IgnoreModifiersTrueCount);
             return 1;
         }
         if (g_CallEntity != AddressOf(g_PlayerBytes)) {
@@ -564,6 +583,10 @@ local function verifyValid()
   -- 方法：引擎侧的返回值必须原样往返（注入实现对 id == 1 回答 true）。
   check(player:HasCollectible(1) == true, 'HasCollectible(1) must be true')
   check(player:HasCollectible(2) == false, 'HasCollectible(2) must be false')
+  -- PC 的第二个参数 `ignoreModifiers` 是可选的布尔（EID 会传 true，见 eid_api.lua:3004）
+  check(player:HasCollectible(1, true) == true, 'HasCollectible(1, true) must be true')
+  check(player:HasCollectible(2, false) == false, 'HasCollectible(2, false) must be false')
+  check(player:HasCollectible(2, nil) == false, 'HasCollectible(2, nil) 按缺省处理')
   local same = player:ToPlayer()
   check(same == player, 'EntityPlayer:ToPlayer must return the player itself')
   -- 批次 4 起 `GetData` 返回 Runtime 自管的稳定表（EID 真的往里面写，见
@@ -610,8 +633,42 @@ local function verifyInvalidatedHandle()
   PHASE2_OK = 1
 end
 
+-- 批次 071：`Entity:TakeDamage` 的**参数个数**判据（真机事故的回归守卫）。
+--
+-- 真机形态：GoodTrip `trip.lua:70` 写 `player:TakeDamage(n, flags, EntityRef(player), 0)`
+-- —— **冒号调用会把 `self` 压进栈**，所以栈上是 5 个值。批次 065 的判据写成"栈深度必须是 4"，
+-- 于是真机上**每一次调用都报错**（错误会把整条 MC_POST_RENDER 回调摘掉），
+-- 而当时没有任何用例调用过这条 API，所以一路带到了卡上。
+-- 这里把三种形态都钉住：PC 的 4 实参、省略 countdown 的 3 实参、以及**真少参数时必须报错**
+-- （否则"把判据改宽成永远通过"也会绿）。
+local function verifyTakeDamageArity(player)
+  local ref = EntityRef(player)
+  check(ref ~= nil, 'EntityRef(player) must not be nil')
+  local okFull, errFull = pcall(function()
+    return player:TakeDamage(1, 3, ref, 0)
+  end)
+  check(okFull, 'player:TakeDamage(damage, flags, ref, countdown) must not raise: '
+        .. tostring(errFull))
+  local okShort, errShort = pcall(function()
+    return player:TakeDamage(1, 3, ref)
+  end)
+  check(okShort, 'player:TakeDamage(damage, flags, ref) must not raise: ' .. tostring(errShort))
+  local okBad = pcall(function()
+    return player:TakeDamage(1, 3)
+  end)
+  check(not okBad, 'player:TakeDamage(damage, flags) must be rejected (missing the EntityRef)')
+  TAKE_DAMAGE_OK = 1
+end
+
 local function run()
   frame = frame + 1
+  if SCENARIO == 'take_damage' then
+    local player = Isaac.GetPlayer(0)
+    check(player ~= nil, 'the fake engine must expose one player')
+    verifyTakeDamageArity(player)
+    SCENARIO_OK = 1
+    return
+  end
   if SCENARIO == 'valid' then
     if frame == 1 then
       verifyValid()
@@ -714,7 +771,20 @@ class LuaEntityPlayerTests(unittest.TestCase):
         harness 另外核对注入的"引擎方法"收到的 `x0`（必须是 `Entity_Player` 地址）与 id。
         """
         result = self.run_scenario("valid")
-        self.assertIn("ENTITY_PLAYER_OK scenario=valid engine_calls=2", result.stdout)
+        self.assertIn("ENTITY_PLAYER_OK scenario=valid engine_calls=5", result.stdout)
+
+    def test_take_damage_accepts_the_pc_call_shape(self):
+        """★ 批次 071：`player:TakeDamage(damage, flags, EntityRef(player), countdown)` 必须被接受。
+
+        真机事故：批次 065 的判据写成"栈深度必须是 4"，而**冒号调用**（PC 模组一律这么写）
+        栈上是 5 个值 ⇒ GoodTrip `trip.lua:70` 的诅咒房过路费**每一次调用都报错**，
+        错误还把整条 `MC_POST_RENDER` 回调摘掉；当时没有任何用例调用过这条 API，
+        所以缺陷一路带到了卡上（用户复测时才暴露）。
+
+        同时钉住反方向：**真少参数时必须报错** —— 否则"把判据改宽成永远通过"也会绿。
+        """
+        result = self.run_scenario("take_damage")
+        self.assertIn("TAKE_DAMAGE_OK", result.stdout)
 
     def test_get_player_returns_nil_when_the_player_cannot_be_validated(self):
         """四种"拿不到玩家"的形态都必须返回 nil，而且**一次引擎调用都不许发生**。
@@ -741,7 +811,7 @@ class LuaEntityPlayerTests(unittest.TestCase):
         self.assertIn("PHASE1_OK", result.stdout)
         self.assertIn("PHASE2_OK", result.stdout)
         # harness 的核对（调用次数、x0、id）通过才会打印这一行。
-        self.assertIn("engine_calls=2", result.stdout)
+        self.assertIn("engine_calls=5", result.stdout)
 
 
 if __name__ == "__main__":

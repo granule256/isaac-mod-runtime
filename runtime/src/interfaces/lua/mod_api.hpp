@@ -50,4 +50,23 @@ void PushNamedCallbacks(lua_State* state, const char* name);
 // 回调里抛出的 Lua 错误原样向外抛（与数字路径一致）。
 int RunNamedCallbacks(lua_State* state, const char* name, int firstArgument);
 
+// `Isaac.SaveModData(modRef, data)` / `Isaac.LoadModData(modRef)`：PC 上它们与
+// `Mod:SaveData(data)` / `Mod:LoadData()` 是**同一件事**（读写同一份 "saveX.dat"，
+// 见 `analysis/isaacdocs-snapshot/docs/Isaac.md:505,590`），栈形状也一样
+// （Mod 对象在 1、数据在 2）⇒ `Isaac` 家族那两个处理器**直接转调**下面这两个实现
+// （它们住在 `mod_api.cpp` 的匿名命名空间里、只由本头文件导出），不写第二份持久化逻辑。
+//
+// 为什么要从 `Isaac` 这一层开出口：EID 开局时（`main.lua:1873`）判 `EID:HasData()` 之后会
+// `json.decode(Isaac.LoadModData(EID))` —— 旧的桩**一个值都不返回**（nil），而运行时的
+// `json.decode` 走的是 `luaL_checklstring`，拿到 nil 会直接抛 Lua 错误 ⇒ EID 的配置加载
+// 当场中断（不崩、屏幕上也没提示，只留一行错误）。
+//
+// ⚠️ 已知小瑕疵（刻意保留）：参数个数写错时，错误信息里的名字是 `Mod:SaveData` /
+// `Mod:LoadData`（这两个实现自己的名字），不是调用者写的 `Isaac.SaveModData`。
+// 要把它变成"按调用者报名字"就得把函数体搬到共用的核心函数里，而门禁
+// `test_lua_mod_persistence` 正是按**函数体**钉住"事件诊断包住持久化调用、且包在校验之后"
+// 这条不变量的（搬走要改门禁）。报错名字略有出入，比为此改动门禁与结构更划算。
+int ModSaveData(lua_State* state);
+int ModLoadData(lua_State* state);
+
 } // namespace isaac::runtime

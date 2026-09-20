@@ -1,0 +1,86 @@
+{
+  "schema": "isaac-lua-api-stub-ledger/1",
+  "why": "接口台账（`analysis/lua-api-inventory`）把 `implemented` 的口径定成『命中 api_catalog.cpp』，也就是『有目录行』被当成了『已实现』—— 2026-09-18 发现 `GetNumKeys`/`GetNumBombs`/`GetSoulCharge`/`GetBloodCharge` 四个恒返回 0 的假桩都被记成 implemented。本文件是那一维的补充：**有目录行、但处理器什么都不读**的那些。 2026-09-18 批次 026：`CountBosses` / `LoadModData` / `SaveModData` / `RenderScaledText` 四条已改成真实现并从本表**销账**（15 → 11）。",
+  "source": "runtime/src/interfaces/lua/*.cpp（绑定行 + 处理器函数体）",
+  "criteria": "处理器体（剥掉注释）含 PushZero/WarnStubOnce、且不含任何引擎读取标记 ⇒ 判桩；其余判真实现；找不到函数体判 unknown（不猜）",
+  "count": 11,
+  "rows": {
+    "Isaac:GetPersistentGameData": {
+      "owner": "Isaac",
+      "name": "GetPersistentGameData",
+      "handler": "IsaacGetPersistentGameData",
+      "binding_key": "0x0E01000E",
+      "note": "恒返回 0/nil。需要持久化存档数据的读通道，未取证。"
+    },
+    "Isaac:GetTrinketIdByName": {
+      "owner": "Isaac",
+      "name": "GetTrinketIdByName",
+      "handler": "IsaacGetTrinketIdByName",
+      "binding_key": "0x0E01000F",
+      "note": "恒返回 0/nil。需要『名字 → id』表（PC 是内建表），未取证。"
+    },
+    "EntityPlayer:GetPill": {
+      "owner": "EntityPlayer",
+      "name": "GetPill",
+      "handler": "EntityPlayerGetPill",
+      "binding_key": "0x0E010030",
+      "note": "恒返回 0 = 『那一格没有东西』。EID 用它判玩家有没有药丸 ⇒ 恒答没有会让描述缺一块。修法：读口袋槽字段（偏移未取证）。"
+    },
+    "EntityPlayer:GetCard": {
+      "owner": "EntityPlayer",
+      "name": "GetCard",
+      "handler": "EntityPlayerGetCard",
+      "binding_key": "0x0E010031",
+      "note": "同 GetPill：恒返回 0 = 『没有』。修法：读口袋槽字段（偏移未取证）。"
+    },
+    "EntityPlayer:GetHearts": {
+      "owner": "EntityPlayer",
+      "name": "GetHearts",
+      "handler": "EntityPlayerGetHearts",
+      "binding_key": "0x0E01003A",
+      "note": "恒返回 0。**单位未确认**（半心还是整心）⇒ 先取证红心字段与 PC 的单位口径再改；猜错就是造出一个新的假读数（比 0 更难发现）。同族的 GetMaxHearts 走的是数据行机制（真实现）。"
+    },
+    "EntityPlayer:GetPoopMana": {
+      "owner": "EntityPlayer",
+      "name": "GetPoopMana",
+      "handler": "EntityPlayerGetPoopMana",
+      "binding_key": "0x0E01003E",
+      "note": "恒返回 0。『便便魔力』是忏悔版机制，字段未取证。"
+    },
+    "EntityPlayer:GetPoopSpell": {
+      "owner": "EntityPlayer",
+      "name": "GetPoopSpell",
+      "handler": "EntityPlayerGetPoopSpell",
+      "binding_key": "0x0E01003F",
+      "note": "恒返回 0。同上，字段未取证。"
+    },
+    "EntityPlayer:GetZodiacEffect": {
+      "owner": "EntityPlayer",
+      "name": "GetZodiacEffect",
+      "handler": "EntityPlayerGetZodiacEffect",
+      "binding_key": "0x0E010040",
+      "note": "恒返回 0。对应收藏品的派生效果值（需要引擎方法或字段），未取证。"
+    },
+    "EntityPlayer:GetModelingClayEffect": {
+      "owner": "EntityPlayer",
+      "name": "GetModelingClayEffect",
+      "handler": "EntityPlayerGetModelingClayEffect",
+      "binding_key": "0x0E010041",
+      "note": "恒返回 0。同上，未取证。"
+    },
+    "EntityPlayer:GetGlyphOfBalanceDrop": {
+      "owner": "EntityPlayer",
+      "name": "GetGlyphOfBalanceDrop",
+      "handler": "EntityPlayerGetGlyphOfBalanceDrop",
+      "binding_key": "0x0E010042",
+      "note": "恒返回 0。同上，未取证。"
+    },
+    "EntityPlayer:GetPlayerFormCounter": {
+      "owner": "EntityPlayer",
+      "name": "GetPlayerFormCounter",
+      "handler": "EntityPlayerGetPlayerFormCounter",
+      "binding_key": "0x0E010045",
+      "note": "恒返回 0。玩家形态计数器，字段未取证。"
+    }
+  }
+}

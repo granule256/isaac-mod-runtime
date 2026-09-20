@@ -41,7 +41,9 @@ class RuntimeStateTests(unittest.TestCase):
         for field in ("titleChecked", "titleOk", "fatalFailure", "moduleFound",
                       "buildMismatch", "hookAttempted", "hookSucceeded"):
             self.assertIn(field, header)
-        self.assertIn("RuntimeState Step(RuntimeState state, const RuntimeContext& context)", implementation)
+    # ★ 2026-09-19（门禁文本匹配分流）：删掉一条**纯签名文本**断言 —— 同一仓库里改签名，
+    #   编译器会先报错，这条与编译器重复；相邻断言保留的是真正防倒退的事实。
+    #   依据：`docs/门禁文本匹配分流-20260919.md`（类别 ②）。
 
     def test_title_query_failure_is_published_before_worker_and_worker_exits_without_scan(self):
         source = (SOURCE / "runtime_entry.cpp").read_text()

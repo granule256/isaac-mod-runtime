@@ -312,8 +312,12 @@ class EidHostLoadTests(unittest.TestCase):
         self.assertEqual(report["liveCallbackCounts"], "5:1,10:1,15:2,18:1,19:1,23:3,38:1")
         self.assertEqual(report["registryCount"], 10)
         # 15（`MC_POST_GAME_STARTED`）在 2026-09-14 之后有派发点；它被登记两次 ⇒ 2 条。
-        self.assertEqual(report["dispatchableRegistrations"], 2)
-        self.assertEqual(report["unhookedRegistrations"], 8)
+        # 2026-09-18：**这两个数是"覆盖率账本"，会随派发点变多而移动**（上面那段注释已经记过一次
+        # 0/10 → 2/8）。本批接上了 `MC_POST_NEW_ROOM`(19) 与 `MC_POST_NEW_LEVEL`(18)，而 EID 在这一段
+        # 路径上恰好登记了它们各一次 ⇒ 2 → 4；剩下的 5/10/23/38 仍是 needs_hook（无派发点）。
+        # 种类掩码与 `registryCount` 一个字没变 —— 那才是"脚本死在字体块"的证据。
+        self.assertEqual(report["dispatchableRegistrations"], 4)
+        self.assertEqual(report["unhookedRegistrations"], 6)
         self.assertEqual(report["dispatchableRegistrations"] + report["unhookedRegistrations"],
                          report["registryCount"], "两个计数必须覆盖注册表里的全部登记")
         # 2026-09-12：`CallbackRegistry::Register` 改成**追加**之后，font-fail 这一跑的

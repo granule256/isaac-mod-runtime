@@ -22,6 +22,10 @@ namespace isaac::runtime {
 [[nodiscard]] std::size_t AttachRoomMethods(lua_State* state) noexcept;
 //: `GridEntity` 族（批次 12，2026-09-16）：`Room:GetGridEntity()` 的返回值。
 [[nodiscard]] std::size_t AttachGridEntityMethods(lua_State* state) noexcept;
+// `Room:GetDoor(slot)` 的返回值是 `GridEntity_Door`（同时是 `GridEntity`）：
+// 它的元表 `__index` 要先按门的字段答、答不上再落到 `GridEntity` 的方法表，所以实现要在
+// `lua_runtime.cpp` 建元表时可见。
+int GridEntityDoorIndex(lua_State* state);
 // 地基二期（2026-09-15）：`RoomDescriptor` 的字段访问与列表的 `Size`/`Get`。
 // 两者的 `__index` 都是函数（同时服务字段与方法），由 `lua_runtime.cpp` 注册元表时接线。
 int RoomDescriptorIndex(lua_State* state);
@@ -49,5 +53,23 @@ struct GameCursesProbe {
 };
 
 [[nodiscard]] GameCursesProbe GameCursesProbeSnapshot() noexcept;
+
+// --- `Level`/`Game` 句柄的 `__newindex`（批次 061，2026-09-19）-----------------------
+//
+// **为什么必须有**：PC 的 `Level`/`Game` 是引擎对象，模组可以直接给字段赋值；
+// 我们这边是 userdata，元表没有 `__newindex` 时**赋值直接抛 Lua 错误**。
+// 真机代价（2026-09-19）：GoodTrip 的传送路径 `scripts/trip.lua:123-124` 第一句就是
+// `floor.level.EnterDoor = -1` / `LeaveDoor = -1` ⇒ 整条传送在这一句断掉，
+// 真机原文 `trip.lua:123: attempt to index a IsaacRuntime.Level value (field 'level')`，
+// 而屏幕上表现为"按了方向键、光标能动，但怎么都不传送"（**看起来像功能缺失**）。
+//
+// **口径**：**接受并忽略**字段写入 —— 形状先对齐 PC（我们不许比 PC 严），语义留给以后：
+// `EnterDoor`/`LeaveDoor` 的偏移在布局表里**没有证据**，而"猜一个偏移写进引擎"比"不写"危险得多
+// （会踩坏引擎状态）。为了不把拼错的字段名完全吞掉，被忽略的写入会记一个计数与最后那个字段名，
+// 调试桩读得到（见 `g_IsaacIgnoredFieldWriteCount` / `g_IsaacLastIgnoredFieldName`）。
+//
+// **已知偏离**：`EnterDoor`/`LeaveDoor` 置 -1（PC 上表示"到站不走门的开合动画"）在我们这里不生效，
+// 所以传送到达时的门动画可能按引擎默认走。取证到偏移后应改成真写。
+[[nodiscard]] int IgnoredObjectFieldWrite(lua_State* state);
 
 } // namespace isaac::runtime

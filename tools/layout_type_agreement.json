@@ -1,0 +1,34 @@
+{
+ "schema": 1,
+ "note": [
+  "布局表核对的人工分诊台账（2026-09-17 起）。",
+  "背景：tools/layout_type_agreement.py 拿草稿证据（**按偏移全局搜出来的访存指令**）与我们实际读法比对。",
+  "★ 草稿证据天生是**按偏移、不看基类型**的：同一个偏移在别的结构体上被按 1 字节访问，不代表我们的字段就是 1 字节。",
+  "所以 `we-read-wider` 这类判红必须逐条人工看一次、把结论写在这里；`floatness-unclear` 也在这里留结论，省得下一个人再查一遍。"
+ ],
+ "rows": {
+  "kLevelStageTypeOffset": {
+   "verdict": "we-read-wider（已排除：草稿证据是假线索）",
+   "why": "草稿里那条「1 字节访问」是**别的结构体**在同一偏移上的访问（草稿按偏移全局搜、不看基类型）。游戏自己的 `Level::SetStage(eLevelStage, eStageType)` 把两个枚举**各按 4 字节**写进对象：`0x3e4278 stp w21, w20, [x19]`（w21 = 新 stage 存到 +0、w20 = 新 stageType 存到 +4），同一函数里还有多处 `ldr w8, [x19, #0x4]` 读它 ⇒ `Level+0x04` 就是 32 位字，我们按 u32 读是对的。",
+   "evidence": [
+    "tools/nro_disasm.py 0x3e420c 700 → 0x3e4278 `stp w21, w20, [x19]`；0x3e42b8 / 0x3e44b4 `ldr w8, [x19, #0x4]`",
+    "真机验收（2026-09-16 续五）：A 通道 Level:GetStageType()=1 与 B 通道 Level+0x04=1 逐值相等"
+   ]
+  },
+  "kEntityPositionOffset": {
+   "verdict": "floatness-unclear（已确认：我们按浮点读是对的）",
+   "why": "`Entity.Position` 是 `Vector2`（两个 float）。草稿证据里只有 `ldr w`，是因为**整字搬运**（拷贝/清零循环）也用 `ldr w`/`str w` 碰它，不能当成「这个字段是整数」的证据。PC 契约与我们的实现都按浮点读。",
+   "evidence": [
+    "草稿 entity.json 里该偏移的 `ldr w` 证据（搬运指令）",
+    "真机验收：批次 11–13 两通道对照"
+   ]
+  },
+  "kEntityPositionOffsetOffset": {
+   "verdict": "floatness-unclear（已确认：我们按浮点读是对的）",
+   "why": "同上：这是 `Vector2` 第二个分量（Position.Y 的偏移）按浮点读；草稿里 `ldr x`/`ldr w` 混现，是打包与搬运访问。",
+   "evidence": [
+    "同 kEntityPositionOffset"
+   ]
+  }
+ }
+}

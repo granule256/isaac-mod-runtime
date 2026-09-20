@@ -9,6 +9,7 @@ isaac_api.o: ../src/interfaces/lua/isaac_api.cpp \
  ../src/interfaces/lua/api_catalog.hpp ../src/domain/runtime/status.hpp \
  ../src/interfaces/lua/api_descriptor.hpp \
  ../src/domain/runtime/thread_affinity.hpp \
+ ../src/interfaces/lua/vector_api.hpp \
  ../src/interfaces/lua/sprite_api.hpp \
  ../src/application/callback/callback_dispatcher.hpp \
  ../src/application/callback/callback_invoker.hpp \
@@ -37,6 +38,7 @@ isaac_api.o: ../src/interfaces/lua/isaac_api.cpp \
 ../src/domain/runtime/status.hpp:
 ../src/interfaces/lua/api_descriptor.hpp:
 ../src/domain/runtime/thread_affinity.hpp:
+../src/interfaces/lua/vector_api.hpp:
 ../src/interfaces/lua/sprite_api.hpp:
 ../src/application/callback/callback_dispatcher.hpp:
 ../src/application/callback/callback_invoker.hpp:

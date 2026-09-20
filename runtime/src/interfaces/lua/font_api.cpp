@@ -1,8 +1,10 @@
 #include <string>
 #include <string_view>
+#include "interfaces/lua/runtime_perf.hpp"
 #include "interfaces/lua/api_sequence_probe.hpp"
 #include "interfaces/lua/font_api.hpp"
 
+#include "interfaces/lua/lua_integer_argument.hpp"
 #include "interfaces/lua/owner_binding.hpp"
 
 #include "lua_object_handles.hpp"
@@ -24,6 +26,10 @@ namespace isaac::runtime {
 // "Mod 到底有没有走到把文字交给引擎这一步" —— 这是"描述构建完成但没画"与
 // "描述根本没构建出来"的分界点（2026-09-12：屏幕上只出现 EID 的问号指示、
 // 没有描述文字，需要这条读数才能继续定位）。
+//
+// ⚠️ 2026-09-18 修正前它**只记未缩放的两个变体**（计数点写在 `else` 分支里），
+// 于是"画字 0 次"被误读成"屏幕上一个字都没画"（实际 EID/q4/菜单/我们的 RenderScaledText
+// 全都走缩放变体）。现在四条变体共用，口径与注释一致。
 std::atomic<std::uint32_t> g_FontDrawCalls{0};
 std::atomic<std::uint32_t> g_FontDrawBytes{0};
 // 字体链的四个读数（2026-09-12，真机报告 `01789214465` 之后的下一步）：
@@ -112,12 +118,11 @@ int ResolveFont(lua_State* state, const char* apiName, void** font) {
 // code point >= 255 can follow an uninitialised index into the glyph arrays. The Runtime therefore
 // refuses the call instead of returning a number the game never computed.
 int RequireLoadedFont(lua_State* state, void* font, const char* apiName) {
-    const std::uintptr_t isLoaded = LuaRuntime::FontIsLoadedThunk();
+    const LuaRuntime::FontIsLoadedFn isLoaded = LuaRuntime::FontIsLoadedThunk();
     if (isLoaded == 0) {
         return luaL_error(state, "%s native binding is unavailable", apiName);
     }
-    using IsLoadedFn = bool (*)(const void*);
-    if (!reinterpret_cast<IsLoadedFn>(isLoaded)(font)) {
+    if (!isLoaded(font)) {
         return luaL_error(state, "%s requires a loaded Font", apiName);
     }
     return 0;
@@ -290,20 +295,19 @@ int FontLoad(lua_State* state) {
         return luaL_error(state, "Font:Load accepts a path and an optional extension string");
     }
     const char* extension = argumentCount == 3 ? lua_tostring(state, 3) : nullptr;
-    const std::uintptr_t method = LuaRuntime::FontLoadThunk();
+    const LuaRuntime::FontLoadFn method = LuaRuntime::FontLoadThunk();
     if (method == 0) {
         return luaL_error(state, "Font:Load native binding is unavailable");
     }
     // The path is handed to the game verbatim: the game's own call sites use
     // content-mount-relative names such as `font/terminus.fnt` and redirect them through
     // `ModManager::TryRedirectPath` first, which this batch does not bind.
-    using LoadFn = bool (*)(void*, const char*, const char*);
     // 归一化后再交给引擎（见 `NormalizeModResourcePath`）：引擎只认内容挂载点相对名。
     std::string normalizedStorage;
     const std::string_view normalized =
         NormalizeModResourcePath(lua_tostring(state, 2), normalizedStorage);
     const char* handedToEngine = normalized.empty() ? lua_tostring(state, 2) : normalized.data();
-    const bool loaded = reinterpret_cast<LoadFn>(method)(font, handedToEngine, extension);
+    const bool loaded = method(font, handedToEngine, extension);
     // 探针读数（见 `RecordFontLoadForProbe`）：名字与引擎侧结果是"字体到底装没装上"的唯一判据。
     RecordFontLoadForProbe(handedToEngine != nullptr ? std::string_view{handedToEngine}
                                                      : std::string_view{},
@@ -322,12 +326,11 @@ int FontUnload(lua_State* state) {
     if (lua_gettop(state) != 1) {
         return luaL_error(state, "Font:Unload accepts no arguments");
     }
-    const std::uintptr_t method = LuaRuntime::FontUnloadThunk();
+    const LuaRuntime::FontUnloadFn method = LuaRuntime::FontUnloadThunk();
     if (method == 0) {
         return luaL_error(state, "Font:Unload native binding is unavailable");
     }
-    using UnloadFn = void (*)(void*);
-    reinterpret_cast<UnloadFn>(method)(font);
+    method(font);
     return 0;
 }
 
@@ -339,14 +342,13 @@ int FontIsLoaded(lua_State* state) {
     if (lua_gettop(state) != 1) {
         return luaL_error(state, "Font:IsLoaded accepts no arguments");
     }
-    const std::uintptr_t method = LuaRuntime::FontIsLoadedThunk();
+    const LuaRuntime::FontIsLoadedFn method = LuaRuntime::FontIsLoadedThunk();
     if (method == 0) {
         return luaL_error(state, "Font:IsLoaded native binding is unavailable");
     }
     // Reads `+0x00` only, so it is safe on an unloaded object -- which is exactly what makes it
     // usable as the gate for the measurement methods.
-    using IsLoadedFn = bool (*)(const void*);
-    const bool loaded = reinterpret_cast<IsLoadedFn>(method)(font);
+    const bool loaded = method(font);
     g_FontIsLoadedCalls.fetch_add(1, std::memory_order_relaxed);
     g_FontIsLoadedResult.store(loaded ? 1U : 0U, std::memory_order_relaxed);
     lua_pushboolean(state, loaded ? 1 : 0);
@@ -361,16 +363,15 @@ int FontGetStringWidth(lua_State* state) {
     if (lua_gettop(state) != 2 || !lua_isstring(state, 2)) {
         return luaL_error(state, "Font:GetStringWidth accepts a string");
     }
-    const std::uintptr_t method = LuaRuntime::FontGetStringWidthThunk();
+    const LuaRuntime::FontGetStringWidthFn method = LuaRuntime::FontGetStringWidthThunk();
     if (method == 0) {
         return luaL_error(state, "Font:GetStringWidth native binding is unavailable");
     }
     if (const int error = RequireLoadedFont(state, font, "Font:GetStringWidth"); error != 0) {
         return error;
     }
-    using GetStringWidthFn = int (*)(const void*, const char*);
     lua_pushinteger(state, static_cast<lua_Integer>(
-                               reinterpret_cast<GetStringWidthFn>(method)(font, lua_tostring(state, 2))));
+                               method(font, lua_tostring(state, 2))));
     return 1;
 }
 
@@ -382,7 +383,7 @@ int FontGetStringWidthUTF8(lua_State* state) {
     if (lua_gettop(state) != 2 || !lua_isstring(state, 2)) {
         return luaL_error(state, "Font:GetStringWidthUTF8 accepts a string");
     }
-    const std::uintptr_t method = LuaRuntime::FontGetStringWidthUTF8Thunk();
+    const LuaRuntime::FontGetStringWidthUTF8Fn method = LuaRuntime::FontGetStringWidthUTF8Thunk();
     if (method == 0) {
         return luaL_error(state, "Font:GetStringWidthUTF8 native binding is unavailable");
     }
@@ -392,10 +393,9 @@ int FontGetStringWidthUTF8(lua_State* state) {
     // The native function converts UTF-8 into a module-static 512-unit UTF-16 buffer before
     // measuring, so it is not reentrant and silently truncates longer strings; both properties
     // belong to the game and are not something this handler can repair.
-    using GetStringWidthUTF8Fn = int (*)(const void*, const char*);
     lua_pushinteger(
         state, static_cast<lua_Integer>(
-                   reinterpret_cast<GetStringWidthUTF8Fn>(method)(font, lua_tostring(state, 2))));
+                   method(font, lua_tostring(state, 2))));
     return 1;
 }
 
@@ -407,15 +407,14 @@ int FontGetLineHeight(lua_State* state) {
     if (lua_gettop(state) != 1) {
         return luaL_error(state, "Font:GetLineHeight accepts no arguments");
     }
-    const std::uintptr_t method = LuaRuntime::FontGetLineHeightThunk();
+    const LuaRuntime::FontGetLineHeightFn method = LuaRuntime::FontGetLineHeightThunk();
     if (method == 0) {
         return luaL_error(state, "Font:GetLineHeight native binding is unavailable");
     }
     if (const int error = RequireLoadedFont(state, font, "Font:GetLineHeight"); error != 0) {
         return error;
     }
-    using GetLineHeightFn = std::uint16_t (*)(const void*);
-    lua_pushinteger(state, static_cast<lua_Integer>(reinterpret_cast<GetLineHeightFn>(method)(font)));
+    lua_pushinteger(state, static_cast<lua_Integer>(method(font)));
     return 1;
 }
 
@@ -427,16 +426,15 @@ int FontGetBaselineHeight(lua_State* state) {
     if (lua_gettop(state) != 1) {
         return luaL_error(state, "Font:GetBaselineHeight accepts no arguments");
     }
-    const std::uintptr_t method = LuaRuntime::FontGetBaselineHeightThunk();
+    const LuaRuntime::FontGetBaselineHeightFn method = LuaRuntime::FontGetBaselineHeightThunk();
     if (method == 0) {
         return luaL_error(state, "Font:GetBaselineHeight native binding is unavailable");
     }
     if (const int error = RequireLoadedFont(state, font, "Font:GetBaselineHeight"); error != 0) {
         return error;
     }
-    using GetBaselineHeightFn = std::uint16_t (*)(const void*);
     lua_pushinteger(state,
-                    static_cast<lua_Integer>(reinterpret_cast<GetBaselineHeightFn>(method)(font)));
+                    static_cast<lua_Integer>(method(font)));
     return 1;
 }
 
@@ -445,7 +443,7 @@ int FontGetCharacterWidth(lua_State* state) {
     if (const int error = ResolveFont(state, "Font:GetCharacterWidth", &font); error != 0) {
         return error;
     }
-    if (lua_gettop(state) != 2 || !lua_isinteger(state, 2)) {
+    if (lua_gettop(state) != 2 || !isaac::runtime::IsIntegerArgument(state, 2)) {
         return luaL_error(state, "Font:GetCharacterWidth accepts a character integer");
     }
     const lua_Integer character = lua_tointegerx(state, 2, nullptr);
@@ -458,15 +456,14 @@ int FontGetCharacterWidth(lua_State* state) {
     if (character < 0 || character > 0x7F) {
         return luaL_error(state, "Font:GetCharacterWidth accepts an ASCII character (0-127)");
     }
-    const std::uintptr_t method = LuaRuntime::FontGetCharacterWidthThunk();
+    const LuaRuntime::FontGetCharacterWidthFn method = LuaRuntime::FontGetCharacterWidthThunk();
     if (method == 0) {
         return luaL_error(state, "Font:GetCharacterWidth native binding is unavailable");
     }
     if (const int error = RequireLoadedFont(state, font, "Font:GetCharacterWidth"); error != 0) {
         return error;
     }
-    using GetCharacterWidthFn = int (*)(const void*, char);
-    lua_pushinteger(state, static_cast<lua_Integer>(reinterpret_cast<GetCharacterWidthFn>(method)(
+    lua_pushinteger(state, static_cast<lua_Integer>(method(
                                font, static_cast<char>(character))));
     return 1;
 }
@@ -476,14 +473,14 @@ int FontSetMissingCharacter(lua_State* state) {
     if (const int error = ResolveFont(state, "Font:SetMissingCharacter", &font); error != 0) {
         return error;
     }
-    if (lua_gettop(state) != 2 || !lua_isinteger(state, 2)) {
+    if (lua_gettop(state) != 2 || !isaac::runtime::IsIntegerArgument(state, 2)) {
         return luaL_error(state, "Font:SetMissingCharacter accepts a character integer");
     }
     const lua_Integer character = lua_tointegerx(state, 2, nullptr);
     if (character < 0 || character > 0xFFFF) {
         return luaL_error(state, "Font:SetMissingCharacter accepts a uint16 character");
     }
-    const std::uintptr_t method = LuaRuntime::FontSetMissingCharacterThunk();
+    const LuaRuntime::FontSetMissingCharacterFn method = LuaRuntime::FontSetMissingCharacterThunk();
     if (method == 0) {
         return luaL_error(state, "Font:SetMissingCharacter native binding is unavailable");
     }
@@ -492,8 +489,7 @@ int FontSetMissingCharacter(lua_State* state) {
     // it dereferences no glyph record. The unsafe combination -- a missing character >= 255 set on
     // an object that was never loaded -- is contained by the `IsLoaded()` gate on every
     // measurement method above, which is the only path that would follow the index.
-    using SetMissingCharacterFn = void (*)(void*, std::uint16_t);
-    reinterpret_cast<SetMissingCharacterFn>(method)(font, static_cast<std::uint16_t>(character));
+    method(font, static_cast<std::uint16_t>(character));
     return 0;
 }
 
@@ -510,6 +506,11 @@ int FontSetMissingCharacter(lua_State* state) {
 
 
 int DrawStringVariant(lua_State* state, const char* apiName, bool scaled, bool unicode) {
+    // 批次 087/093：整个处理器由**挂载处的中央包装**计时；这里只保留 apiId，
+    // 用来给"**引擎调用那一段**"单独记一笔（键盘高位标记区分，见 `runtime_perf.hpp`）。
+    // catalog id：`DrawString`=0x0B01000A、`+1` 缩放、`+2` UTF-8（与本文件的绑定表一致，门禁核对）。
+    const std::uint32_t apiId =
+        0x0B01000AU + (scaled ? 1U : 0U) + (unicode ? 2U : 0U);
     void* font = nullptr;
     if (const int error = ResolveFont(state, apiName, &font); error != 0) {
         return error;
@@ -532,7 +533,7 @@ int DrawStringVariant(lua_State* state, const char* apiName, bool scaled, bool u
         luaL_checkudata(state, colorIndex, LuaRuntime::kColorMetatable));
     int boxWidth = 0;
     if (argumentCount >= colorIndex + 1) {
-        if (!lua_isinteger(state, colorIndex + 1)) {
+        if (!isaac::runtime::IsIntegerArgument(state, colorIndex + 1)) {
             return luaL_error(state, "%s boxWidth must be an integer", apiName);
         }
         boxWidth = static_cast<int>(lua_tointeger(state, colorIndex + 1));
@@ -544,11 +545,15 @@ int DrawStringVariant(lua_State* state, const char* apiName, bool scaled, bool u
         }
         center = lua_toboolean(state, colorIndex + 2) != 0;
     }
-    const std::uintptr_t method = scaled
-        ? (unicode ? LuaRuntime::FontDrawStringScaledUTF8Thunk()
-                   : LuaRuntime::FontDrawStringScaledThunk())
-        : (unicode ? LuaRuntime::FontDrawStringUTF8Thunk() : LuaRuntime::FontDrawStringThunk());
-    if (method == 0) {
+    // 四个变体（缩放与否 × UTF-8 与否）**签名不同**：缩放版多两个 float，所以不是同一个类型，
+    // 不能塞进一个变量里选。这里按分支各自取、各自调，类型来自 `lua_runtime_state.hpp` 里
+    // 那一份声明（参数个数与类型由编译器核对；此前是各自写一份 `using` 再 reinterpret_cast）。
+    const LuaRuntime::FontDrawStringScaledFn scaledMethod = unicode
+        ? LuaRuntime::FontDrawStringScaledUTF8Thunk()
+        : LuaRuntime::FontDrawStringScaledThunk();
+    const LuaRuntime::FontDrawStringFn plainMethod =
+        unicode ? LuaRuntime::FontDrawStringUTF8Thunk() : LuaRuntime::FontDrawStringThunk();
+    if (scaled ? scaledMethod == nullptr : plainMethod == nullptr) {
         return luaL_error(state, "%s native binding is unavailable", apiName);
     }
     // Drawing an object that never completed `Load` would read the uninitialised glyph tables,
@@ -559,40 +564,43 @@ int DrawStringVariant(lua_State* state, const char* apiName, bool scaled, bool u
     const char* text = lua_tostring(state, 2);
     const float x = static_cast<float>(lua_tonumber(state, 3));
     const float y = static_cast<float>(lua_tonumber(state, 4));
+    // ★ 2026-09-18 批次 037 修正：这几条读数以前写在**未缩放**那个分支里，于是
+    // `Font:DrawStringScaled*`（EID、q4-items、自带菜单、我们自己的 `Isaac.RenderScaledText`
+    // **全都走这条**）一次都不计数 ⇒ 读数里永远是"画字 0 次"，而它被当成过"屏幕上什么都没画"
+    // 的证据（当天差点把一个探针自身的毛病误判成运行时缺陷）。现在四条变体**共用**这几个计数点，
+    // 由 API 序列位区分用的是哪一个变体。
+    std::size_t textLength = 0;
+    static_cast<void>(lua_tolstring(state, 2, &textLength));
+    g_FontDrawCalls.fetch_add(1, std::memory_order_relaxed);
+    g_FontDrawBytes.fetch_add(static_cast<std::uint32_t>(textLength),
+                              std::memory_order_relaxed);
+    // API 序列：`DrawString`(32) / `DrawStringScaled`(33) / `DrawStringUTF8`(34) /
+    // `DrawStringScaledUTF8`(35) —— 四个变体分别记位，"用了哪一个"本身就是判据。
+    RecordApiSequence(32U + (scaled ? 1U : 0U) + (unicode ? 2U : 0U));
+    RecordApiSequenceDraw(textLength);
+    // 颜色 alpha 与缩放：alpha=0 或 scale=0 都会"画了但看不见"，必须能从报告上分辨。
+    g_FontDrawAlpha.store(static_cast<std::uint32_t>(color->alpha * 1000.0F) & 0xFFFFu,
+                          std::memory_order_relaxed);
+    if (scaled && lua_isnumber(state, 5)) {
+        g_FontDrawScaleX.store(
+            static_cast<std::uint32_t>(static_cast<float>(lua_tonumber(state, 5)) * 1000.0F) &
+                0xFFFFu,
+            std::memory_order_relaxed);
+    }
+    // 批次 087：单独量"引擎调用那一段"。有了它就能算
+    // `整个 handler 的耗时 − 引擎调用耗时 = 我们自己（解析 / 守卫 / 搬运）的开销`。
+    const std::uint64_t engineStart = isaac::runtime::RuntimePerfTick();
     if (scaled) {
         const float scaleX = static_cast<float>(lua_tonumber(state, 5));
         const float scaleY = static_cast<float>(lua_tonumber(state, 6));
-        using ScaledFn = void (*)(void*, const char*, float, float, float, float, const void*, int,
-                                  bool);
-        reinterpret_cast<ScaledFn>(method)(font, text, x, y, scaleX, scaleY, color, boxWidth,
-                                           center);
+        scaledMethod(font, text, x, y, scaleX, scaleY, color, boxWidth, center);
     } else {
-        using DrawFn = void (*)(void*, const char*, float, float, const void*, int, bool);
-    {
-        // 探针读数：调用次数与文本长度（`lua_tolstring` 已在上面校验过是字符串）。
-        std::size_t textLength = 0;
-        static_cast<void>(lua_tolstring(state, 2, &textLength));
-        g_FontDrawCalls.fetch_add(1, std::memory_order_relaxed);
-        g_FontDrawBytes.fetch_add(static_cast<std::uint32_t>(textLength),
-                                  std::memory_order_relaxed);
-        // API 序列：`DrawString`(32) / `DrawStringScaled`(33) / `DrawStringUTF8`(34) /
-        // `DrawStringScaledUTF8`(35) —— 四个变体分别记位，"用了哪一个"本身就是判据。
-        RecordApiSequence(32U + (scaled ? 1U : 0U) + (unicode ? 2U : 0U));
-        RecordApiSequenceDraw(textLength);
-        // 颜色 alpha 与缩放：alpha=0 或 scale=0 都会"画了但看不见"，必须能从报告上分辨。
-        g_FontDrawAlpha.store(
-            static_cast<std::uint32_t>(color->alpha * 1000.0F) & 0xFFFFu,
-            std::memory_order_relaxed);
-        if (scaled && lua_isnumber(state, 5)) {
-            g_FontDrawScaleX.store(
-                static_cast<std::uint32_t>(static_cast<float>(lua_tonumber(state, 5)) * 1000.0F) &
-                    0xFFFFu,
-                std::memory_order_relaxed);
-        }
+        plainMethod(font, text, x, y, color, boxWidth, center);
     }
-
-        reinterpret_cast<DrawFn>(method)(font, text, x, y, color, boxWidth, center);
-    }
+    // `IsaacRuntime_PerfNoteApiCall` 是**全局作用域**的 `extern "C"` 契约函数
+    // （声明在 `runtime_perf.hpp` 的 `extern "C"` 块里，不在 `isaac::runtime` 命名空间内）。
+    static_cast<void>(IsaacRuntime_PerfNoteApiCall(
+        isaac::runtime::RuntimePerfApiBucketKey(apiId, true), engineStart));
     return 0;
 }
 
@@ -614,12 +622,119 @@ int FontDrawStringScaledUTF8(lua_State* state) {
 
 } // namespace
 
+// --- `Isaac.RenderScaledText` 用的"运行时默认字体"（批次 026）------------------------
+//
+// PC 上 `Isaac.RenderScaledText(str, X, Y, ScaleX, ScaleY, R, G, B, A)`（`Isaac.md:545`）
+// 用**游戏默认字体**在屏幕上画一段文字。我们没有"游戏默认字体"的证据，所以这里加载一份
+// **运行时自己的**默认字体：候选路径与内置模组菜单是同一批（游戏自带的三个 `.fnt`），
+// 顺序也一致 —— 那批路径在本项目里已经用真机验证过能加载。
+//
+// ⚠️ 已知差异（与内置菜单同一件事）：游戏自带字体**没有中文字形**
+// （`tools/fnt_glyph_report.py` 实测 `font/droid.fnt` 191 个字形、码位上限 0xFF、中日韩 0 个）
+// ⇒ 用中文调用它只会画出空白。PC 的默认字体同样不是中文字体，所以这不是"我们比 PC 差"，
+// 但**必须写下来**，免得以后有人拿它调中文然后查"为什么不显示"。
+namespace {
+constexpr char kDefaultScreenFontRegistryKey[] = "IsaacRuntime.DefaultScreenFont";
+constexpr const char* kDefaultScreenFontPaths[] = {
+    "font/teammeatfont12.fnt",
+    "font/droid.fnt",
+    "font/terminus.fnt",
+};
+
+// 把运行时默认字体压到栈顶（命中缓存时直接压缓存那份）。**要求调用前栈是空的**
+// （`Font()` 构造器 `CreateFontHandle` 就是这么要求的），失败返回 false 并保持空栈。
+bool PushDefaultScreenFont(lua_State* state) {
+    if (state == nullptr || lua_gettop(state) != 0) {
+        return false;
+    }
+    lua_getfield(state, LUA_REGISTRYINDEX, kDefaultScreenFontRegistryKey);
+    if (lua_type(state, -1) == LUA_TUSERDATA) {
+        return true;  // 缓存命中：栈顶就是它
+    }
+    lua_pop(state, 1);
+    for (const char* path : kDefaultScreenFontPaths) {
+        if (CreateFontHandle(state) != 1) {  // 栈：font
+            lua_settop(state, 0);
+            return false;
+        }
+        lua_pushstring(state, path);         // 栈：font, path
+        // `FontLoad` 是 Lua 侧那个处理器（`Font:Load`）：它**不消费实参**，只把结果压栈
+        // ⇒ 返回后栈是 [font, path, bool]，三样都要自己收干净（这是本函数唯一容易写错的地方）。
+        if (FontLoad(state) != 1) {          // 栈：font, path, bool
+            lua_settop(state, 0);
+            return false;
+        }
+        const bool loaded = lua_toboolean(state, -1) != 0;
+        lua_pop(state, 2);                   // 栈：font
+        if (loaded) {
+            // 缓存进 registry（存的是同一个 userdata 的引用；`__gc` 仍然只跑一次）。
+            lua_pushvalue(state, -1);
+            lua_setfield(state, LUA_REGISTRYINDEX, kDefaultScreenFontRegistryKey);
+            return true;
+        }
+        lua_pop(state, 1);                   // 这个路径装不上，试下一个
+    }
+    return false;
+}
+} // namespace
+
+bool DrawScaledTextWithDefaultFont(lua_State* state, const char* text, std::size_t length,
+                                   float x, float y, float scaleX, float scaleY, float red,
+                                   float green, float blue, float alpha) {
+    if (state == nullptr || text == nullptr || lua_gettop(state) != 0) {
+        return false;
+    }
+    // ① 字体（此时栈空）。② 之后的顺序就是 `DrawStringVariant` 要求的那个栈布局：
+    //    [font, text, x, y, scaleX, scaleY, color]。
+    if (!PushDefaultScreenFont(state)) {
+        lua_settop(state, 0);
+        return false;
+    }
+    lua_pushlstring(state, text, length);
+    lua_pushnumber(state, static_cast<lua_Number>(x));
+    lua_pushnumber(state, static_cast<lua_Number>(y));
+    lua_pushnumber(state, static_cast<lua_Number>(scaleX));
+    lua_pushnumber(state, static_cast<lua_Number>(scaleY));
+    // ③ 颜色：**不能用 `CreateColorHandle`**（那是 Lua 侧 `KColor(...)` 的构造器，它按栈位
+    //    1..4 取参数，而这里第 1 位是字体）；直接造同一份 `ColorHandle` + 同一个元表，
+    //    值与 Lua 构造出来的完全等价。
+    auto* color =
+        static_cast<LuaRuntime::ColorHandle*>(lua_newuserdata(state, sizeof(LuaRuntime::ColorHandle)));
+    color->red = red;
+    color->green = green;
+    color->blue = blue;
+    color->alpha = alpha;
+    color->offsetRed = 0.0F;
+    color->offsetGreen = 0.0F;
+    color->offsetBlue = 0.0F;
+    luaL_getmetatable(state, LuaRuntime::kColorMetatable);
+    lua_setmetatable(state, -2);
+    // ④ 走**同一条**绘制路径：参数校验、四个变体的选择、绘制探针（调用次数/文本字节/
+    //    alpha/缩放）全都在里面，不另写一份。它按 `unicode` 决定用哪条引擎入口，而
+    //    `DrawStringVariant` 只认 bool 参数 —— 这里用"文本里有没有非 ASCII 字节"来选，
+    //    UTF-8 文本走 UTF8 变体（与 EID 自己 `font:DrawStringScaledUTF8` 的选择口径一致）。
+    bool unicode = false;
+    for (std::size_t index = 0; index < length; ++index) {
+        if (static_cast<unsigned char>(text[index]) >= 0x80) {
+            unicode = true;
+            break;
+        }
+    }
+    if (unicode) {
+        static_cast<void>(FontDrawStringScaledUTF8(state));
+    } else {
+        static_cast<void>(FontDrawStringScaled(state));
+    }
+    lua_settop(state, 0);
+    return true;
+}
+
 int CreateFontHandle(lua_State* state) {
     if (lua_gettop(state) != 0) {
         return luaL_error(state, "Font accepts no arguments");
     }
-    const std::uintptr_t ctor = LuaRuntime::FontCtorThunk();
-    const std::uintptr_t destructorMethod = LuaRuntime::FontDestructorThunk();
+    const LuaRuntime::FontCtorFn ctor = LuaRuntime::FontCtorThunk();
+    const LuaRuntime::FontDestructorFn destructorMethod = LuaRuntime::FontDestructorThunk();
     if (ctor == 0 || destructorMethod == 0) {
         return luaL_error(state, "Font native binding is unavailable");
     }
@@ -631,8 +746,7 @@ int CreateFontHandle(lua_State* state) {
     if (font == nullptr) {
         return luaL_error(state, "Font could not allocate its native object");
     }
-    using CtorFn = void (*)(void*);
-    reinterpret_cast<CtorFn>(ctor)(font);
+    ctor(font);
     handle->font = font;
     luaL_getmetatable(state, kFontMetatable);
     lua_setmetatable(state, -2);
@@ -646,14 +760,13 @@ int DestroyFontHandle(lua_State* state) {
         // this block would be a use-after-free.
         return 0;
     }
-    const std::uintptr_t destructorMethod = LuaRuntime::FontDestructorThunk();
+    const LuaRuntime::FontDestructorFn destructorMethod = LuaRuntime::FontDestructorThunk();
     if (destructorMethod != 0) {
         // `~Font()` is a tail-jump to `Unload()`: it releases the Font's internal buffers and does
         // not delete `this`, so the storage below is released here and nowhere else. The
         // destructor binding cannot be zero on this path -- `CreateFontHandle` refuses to hand out
         // a handle without it -- but a missing binding must not make `__gc` raise.
-        using DestructorFn = void (*)(void*);
-        reinterpret_cast<DestructorFn>(destructorMethod)(handle->font);
+        destructorMethod(handle->font);
     }
     ReleaseFontStorage(handle->font);
     handle->font = nullptr;

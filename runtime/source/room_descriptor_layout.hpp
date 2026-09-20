@@ -43,6 +43,15 @@ inline constexpr std::uintptr_t kRoomDescriptorDataTypeWidth = 4;
 inline constexpr std::uintptr_t kRoomDescriptorDataOffset = 0x10;
 inline constexpr std::uintptr_t kRoomDescriptorDataWidth = 8;
 
+// PC 的 `RoomDescriptor.DisplayFlags`：**小地图可见性位掩码**（位0 = Visible 可见、位1 = Room Shadow 房间阴影、位2 = Show Icon 显示图标；PC 文档 `RoomDescriptor.md:66`）。⚠️ 与相邻的 `Flags`(+0x50) 是**两个字段**：`Flags` 是玩法标志（位0 = Clear），这一格只管『画不画到小地图上』（confirmed）
+//   证据：0x003d923c —— ★ 取值锚点（函数名即语义：`Level::try_display_room` = 『尝试让房间显示』）：0x003d923c 读该格 → 0x003d9240 `mov w22, #0x5` → 0x003d9244 `orr w8, w8, w22` → 0x003d9248 写回 ⇒ 一次置起**位0与位2**，正是 PC 文档的 `Visible | Show Icon`
+//   证据：0x003d9318 —— ★ 第二个取值锚点：0x003d9318 读该格 → 0x003d931c `orr w8, w8, #0x3` ← 置起**位0与位1**（`Visible | Room Shadow`）→ 0x003d9320 写回同一格 ⇒ 位1 有独立含义，一个布尔字段容纳不下
+//   证据：0x003d95fc —— 第三处独立使用：0x003d95fc 读 → 0x003d9600 `mov w9, #0x5` → 0x003d9604 `orr` → 0x003d9608 写回 ⇒ 同一函数里 0x3 / 0x5 两种掩码都落在这 4 字节上
+//   证据：真机读数 dist/room-probe-C.json 的 slot9 +0x48 —— 真机：grid 72 这间房在地图上变得可见时该格 = 5（位0|位2）；同一行 `VisitedCount`=0、`Flags`=0x0 ⇒ 它与『清房/访问次数』互不影响，只跟可见性走
+//   证据：真机读数 dist/room-probe-A3.json 的 slot9 +0x48 —— 真机（更早的一次同一存档）：grid 72 那间房还没上地图 ⇒ 该格 = 0。与上一条构成 0→5 的转变
+inline constexpr std::uintptr_t kRoomDescriptorDisplayFlagsOffset = 0x48;
+inline constexpr std::uintptr_t kRoomDescriptorDisplayFlagsWidth = 4;
+
 // 该房间被访问的次数（PC 侧 RoomDescriptor.VisitedCount）（confirmed）
 //   证据：真机读数 dist/room-probe-C.json 的 slot8 +0x4c —— 第一次进入房间 71 ⇒ 0→1
 //   证据：真机读数 dist/room-probe-D.json 的 slot7 +0x4c —— 回到起始房间 ⇒ 1→2（计数递增，不是布尔）
@@ -83,11 +92,6 @@ inline constexpr std::uintptr_t kRoomDescriptorDataSecondConditionWidth = 4;
 inline constexpr std::uintptr_t kRoomDescriptorAllowedDoorsOffset = 0x20;
 inline constexpr std::uintptr_t kRoomDescriptorAllowedDoorsWidth = 8;
 
-// 显示/可见性标志候选（PC 侧 RoomDescriptor.DisplayFlags 或 Flags）；名字未定 ⇒ 不进 API（candidate）
-//   证据：真机读数 dist/room-probe-C.json 的 slot9 +0x48 —— 相邻房间在地图上变得可见时 0→5（位 0 与位 2 置起），而清房不改它
-inline constexpr std::uintptr_t kRoomDescriptorDisplayFlagsOffset = 0x48;
-inline constexpr std::uintptr_t kRoomDescriptorDisplayFlagsWidth = 4;
-
 // 标量前缀到此为止（0x74 起是容器区）；最后一个标量字段在 0x70（4 字节）（structural）
 //   证据：0x003e76f4 —— 拷贝构造用 8 字节 ldp/stp 成对搬标量前缀，最后一处是 4 字节的 0x70
 inline constexpr std::uintptr_t kRoomDescriptorScalarPrefixEndOffset = 0x74;
@@ -108,6 +112,6 @@ inline constexpr std::uintptr_t kRoomDescriptorContainerVectorBOffset = 0xC0;
 inline constexpr std::uintptr_t kRoomDescriptorContainerVectorBWidth = 16;
 
 // 对外 API 只允许读这些字段（`confidence == confirmed`）。
-// 当前可用：Data、Data.Type、GridIndex、SafeGridIndex、VisitedCount、Clear、Flags、Data.Shape
+// 当前可用：Data、Data.Type、GridIndex、SafeGridIndex、VisitedCount、Clear、DisplayFlags、Flags、Data.Shape
 
 } // namespace isaac::runtime::layout

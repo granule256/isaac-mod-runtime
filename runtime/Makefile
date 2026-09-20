@@ -19,7 +19,6 @@ SALTYNX_DIAGNOSTIC_BRIDGE ?= 0
 SKIP_DEFAULT_PC_MODS ?= 0
 PERSISTENCE_TRACE ?= 0
 PERSISTENCE_EVENT_DIAGNOSTIC ?= 0
-PERSISTENCE_REQUIRED ?= 0
 # 1 links the layered production Runtime (`runtime/src`) and routes the module
 # entry through RuntimeBootstrap. Probe and production now share the same Lua
 # API family translation units; the retired non-layered handler copies are gone.
@@ -41,9 +40,6 @@ $(error PERSISTENCE_TRACE must be 0 or 1)
 endif
 ifneq ($(filter 0 1,$(PERSISTENCE_EVENT_DIAGNOSTIC)),$(PERSISTENCE_EVENT_DIAGNOSTIC))
 $(error PERSISTENCE_EVENT_DIAGNOSTIC must be 0 or 1)
-endif
-ifneq ($(filter 0 1,$(PERSISTENCE_REQUIRED)),$(PERSISTENCE_REQUIRED))
-$(error PERSISTENCE_REQUIRED must be 0 or 1)
 endif
 ifneq ($(filter 0 1,$(LAYERED_RUNTIME)),$(LAYERED_RUNTIME))
 $(error LAYERED_RUNTIME must be 0 or 1)
@@ -114,12 +110,6 @@ SALTYNX_STAGE142_SFILES := saltynx_external_plugin_crt0.s
 SALTYNX_STAGE143_CPPFILES := runtime_entry.cpp saltynx_external_plugin_runtime_state_persist_probe.cpp
 SALTYNX_STAGE143_CFILES :=
 SALTYNX_STAGE143_SFILES := saltynx_external_plugin_crt0.s
-SALTYNX_STAGE144_CPPFILES := runtime_entry.cpp saltynx_external_plugin_persistence_bridge.cpp
-SALTYNX_STAGE144_CFILES :=
-SALTYNX_STAGE144_SFILES := saltynx_external_plugin_crt0.s
-SALTYNX_STAGE145_CPPFILES := runtime_entry.cpp saltynx_external_plugin_persistence_bridge_trace.cpp
-SALTYNX_STAGE145_CFILES :=
-SALTYNX_STAGE145_SFILES := saltynx_external_plugin_crt0.s
 # Task 6b: the minimal host plugin owns its own source root under `runtime/src`.
 # Only its entry unit, the symbol resolver, the Host API client and the plugin
 # itself are linked -- the Runtime's own layered sources must stay out of the
@@ -181,10 +171,6 @@ EXL_PERSISTENCE_EVENT_DIAGNOSTIC_CFLAGS :=
 ifeq ($(PERSISTENCE_EVENT_DIAGNOSTIC),1)
 EXL_PERSISTENCE_EVENT_DIAGNOSTIC_CFLAGS := -DEXL_PERSISTENCE_EVENT_DIAGNOSTIC
 endif
-EXL_PERSISTENCE_REQUIRED_CFLAGS :=
-ifeq ($(PERSISTENCE_REQUIRED),1)
-EXL_PERSISTENCE_REQUIRED_CFLAGS := -DEXL_PERSISTENCE_REQUIRED
-endif
 EXL_LAYERED_RUNTIME_CFLAGS :=
 ifeq ($(LAYERED_RUNTIME),1)
 EXL_LAYERED_RUNTIME_CFLAGS := -DEXL_LAYERED_RUNTIME=1
@@ -224,6 +210,33 @@ ifneq ($(filter 0 1,$(ONLY_REQUIRED_HOOK)),$(ONLY_REQUIRED_HOOK))
 $(error ONLY_REQUIRED_HOOK must be 0 or 1)
 endif
 EXL_ONLY_REQUIRED_HOOK_CFLAGS := -DEXL_ONLY_REQUIRED_HOOK=$(ONLY_REQUIRED_HOOK)
+# 单挂点摘除（2026-09-17）：`SKIP_HOOK_<名字>=1` 时**只摘掉那一个可选挂点**，
+# 其余照旧 —— 用来回答"模组全关时崩"到底由哪一个引起（一次摘一个、每版一次重启）。
+# 默认全 0（生产形状不变）。与 `ONLY_REQUIRED_HOOK` 是"全摘"与"单摘"的关系。
+#
+#   make ... SKIP_HOOK_PRESENT=1     # 不装 Present 的 GOT 槽拦截
+#   make ... SKIP_HOOK_RENDER=1      # 不装 ManagerRender 入口中继
+#   make ... SKIP_HOOK_PREGETCOLLECTIBLE=1 / SKIP_HOOK_REBUILDMOUNTS=1 / SKIP_HOOK_GAMESTART=1
+# 单变量对照开关（2026-09-17）：`LEGACY_DIRECTORY_BLOCK_FREE=1` 时退回"拿引擎返回值直接释放"的
+# 旧（错）行为 —— 只用来回答"问题 1 是这条修复治好的，还是 Present 汇编转发桩治好的"。
+# 默认 0 = 修复形状（正式交付永远是 0）。
+LEGACY_DIRECTORY_BLOCK_FREE ?= 0
+EXL_LEGACY_DIRECTORY_BLOCK_FREE_CFLAGS := -DEXL_LEGACY_DIRECTORY_BLOCK_FREE=$(LEGACY_DIRECTORY_BLOCK_FREE)
+# 单变量对照开关（2026-09-17）：`LEGACY_PRESENT_FORWARDER=1` 时把 `Present` 转发桩退回
+# "C 函数按 x0~x7 转发"的旧形态（检验那条 ABI 推断是否成立）。默认 0 = 汇编桩（正式形状）。
+LEGACY_PRESENT_FORWARDER ?= 0
+EXL_LEGACY_PRESENT_FORWARDER_CFLAGS := -DEXL_LEGACY_PRESENT_FORWARDER=$(LEGACY_PRESENT_FORWARDER)
+SKIP_HOOK_PRESENT ?= 0
+SKIP_HOOK_RENDER ?= 0
+SKIP_HOOK_PREGETCOLLECTIBLE ?= 0
+SKIP_HOOK_REBUILDMOUNTS ?= 0
+SKIP_HOOK_GAMESTART ?= 0
+EXL_SKIP_HOOK_CFLAGS := \
+  -DEXL_SKIP_HOOK_PRESENT=$(SKIP_HOOK_PRESENT) \
+  -DEXL_SKIP_HOOK_RENDER=$(SKIP_HOOK_RENDER) \
+  -DEXL_SKIP_HOOK_PREGETCOLLECTIBLE=$(SKIP_HOOK_PREGETCOLLECTIBLE) \
+  -DEXL_SKIP_HOOK_REBUILDMOUNTS=$(SKIP_HOOK_REBUILDMOUNTS) \
+  -DEXL_SKIP_HOOK_GAMESTART=$(SKIP_HOOK_GAMESTART)
 # 探针子开关（2026-09-13，用于二分定位探针包的启动故障）。`PROBE_BREAK=1` 时默认全开。
 #
 # `PROBE_BREAK_FILEIO=0` 关掉"启动路径上的文件 / IPC 写入探针"这一组：
@@ -350,7 +363,7 @@ runtime_module:
 	  LAYERED_RUNTIME=1 RUNTIME_EXTRA_SOURCE_ROOTS=src \
 	  DIAGNOSTIC_STAGE= STARTUP_PROBE_STAGE= STARTUP_PROBE_LAYOUT= \
 	  SALTYNX_PLUGIN=0 SALTYNX_DIAGNOSTIC_BRIDGE=0 \
-	  PERSISTENCE_TRACE=0 PERSISTENCE_EVENT_DIAGNOSTIC=0 PERSISTENCE_REQUIRED=0 \
+	  PERSISTENCE_TRACE=0 PERSISTENCE_EVENT_DIAGNOSTIC=0 \
 	  all
 
 host_plugin:
@@ -407,8 +420,17 @@ endif
 
 .PHONY: clean all FORCE
 
+# 批次 095：逐接口耗时的"中央计时包装"开关（默认 0 = 生产不包）。
+# 为什么要有这个开关：包装每次调用要多一次 `lua_call`，真机实测每帧 646 次接口调用 ⇒
+# 那层包装本身就是几十到一百多微秒/帧。需要逐接口读数时用 `PERF_API_WRAPPER=1` 出一份诊断包。
+PERF_API_WRAPPER ?= 0
+ifneq ($(filter 0 1,$(PERF_API_WRAPPER)),$(PERF_API_WRAPPER))
+$(error PERF_API_WRAPPER must be 0 or 1)
+endif
+EXL_PERF_API_WRAPPER_CFLAGS := -DPERF_API_WRAPPER=$(PERF_API_WRAPPER)
+
 # Built internal C flags variable.
-EXL_CFLAGS   := $(C_FLAGS) -DEXL_LOAD_KIND=$(LOAD_KIND) -DEXL_LOAD_KIND_ENUM=$(LOAD_KIND_ENUM) -DEXL_PROGRAM_ID=0x$(PROGRAM_ID) $(EXL_DIAGNOSTIC_CFLAGS) $(EXL_STARTUP_PROBE_CFLAGS) $(EXL_SALTYNX_DIAGNOSTIC_BRIDGE_CFLAGS) $(EXL_PERSISTENCE_TRACE_CFLAGS) $(EXL_PERSISTENCE_EVENT_DIAGNOSTIC_CFLAGS) $(EXL_PERSISTENCE_REQUIRED_CFLAGS) $(EXL_LAYERED_RUNTIME_CFLAGS) $(EXL_TEST_BUILD_ID_CFLAGS) $(EXL_PROBE_BREAK_CFLAGS) $(EXL_WORKER_STARTUP_DELAY_CFLAGS) $(EXL_ONLY_REQUIRED_HOOK_CFLAGS)
+EXL_CFLAGS   := $(C_FLAGS) -DEXL_LOAD_KIND=$(LOAD_KIND) -DEXL_LOAD_KIND_ENUM=$(LOAD_KIND_ENUM) -DEXL_PROGRAM_ID=0x$(PROGRAM_ID) $(EXL_DIAGNOSTIC_CFLAGS) $(EXL_STARTUP_PROBE_CFLAGS) $(EXL_SALTYNX_DIAGNOSTIC_BRIDGE_CFLAGS) $(EXL_PERSISTENCE_TRACE_CFLAGS) $(EXL_PERSISTENCE_EVENT_DIAGNOSTIC_CFLAGS) $(EXL_LAYERED_RUNTIME_CFLAGS) $(EXL_TEST_BUILD_ID_CFLAGS) $(EXL_PROBE_BREAK_CFLAGS) $(EXL_PERF_API_WRAPPER_CFLAGS) $(EXL_WORKER_STARTUP_DELAY_CFLAGS) $(EXL_ONLY_REQUIRED_HOOK_CFLAGS) $(EXL_SKIP_HOOK_CFLAGS) $(EXL_LEGACY_DIRECTORY_BLOCK_FREE_CFLAGS) $(EXL_LEGACY_PRESENT_FORWARDER_CFLAGS)
 EXL_CXXFLAGS := $(CXX_FLAGS) $(EXL_STAGE48_CXXFLAGS)
 
 # Export all of our variables to sub-makes and sub-processes.
@@ -617,12 +639,8 @@ startup-probe-deploy:
 	  echo "STARTUP_PROBE_STAGE must be one of 1, 2, 3, 4, 5, 6, 7, 8"; exit 2; \
 	fi
 	@env -u MAKELEVEL $(MAKE) clean STARTUP_PROBE_STAGE=$(STARTUP_PROBE_STAGE) STARTUP_PROBE_LAYOUT=$(STARTUP_PROBE_LAYOUT)
-	@env -u MAKELEVEL $(MAKE) SKIP_DEFAULT_PC_MODS=1 PERSISTENCE_TRACE=1 PERSISTENCE_REQUIRED=1 STARTUP_PROBE_STAGE=$(STARTUP_PROBE_STAGE) STARTUP_PROBE_LAYOUT=$(STARTUP_PROBE_LAYOUT) TEST_BUILD_ID=$(TEST_BUILD_ID)
+	@env -u MAKELEVEL $(MAKE) SKIP_DEFAULT_PC_MODS=1 PERSISTENCE_TRACE=1 STARTUP_PROBE_STAGE=$(STARTUP_PROBE_STAGE) STARTUP_PROBE_LAYOUT=$(STARTUP_PROBE_LAYOUT) TEST_BUILD_ID=$(TEST_BUILD_ID)
 	@set -e; if [ "$(STARTUP_PROBE_STAGE)" = "8" ]; then \
-	  env -u MAKELEVEL $(MAKE) clean STARTUP_PROBE_STAGE= STARTUP_PROBE_LAYOUT= DIAGNOSTIC_STAGE=145 SALTYNX_PLUGIN=1 TEST_BUILD_ID=$(TEST_BUILD_ID); \
-	  env -u MAKELEVEL $(MAKE) STARTUP_PROBE_STAGE= STARTUP_PROBE_LAYOUT= DIAGNOSTIC_STAGE=145 SALTYNX_PLUGIN=1 TEST_BUILD_ID=$(TEST_BUILD_ID); \
-	  mkdir -p "$(OUT)/SaltySD/plugins/$(PROGRAM_ID)"; \
-	  cp "deploy-saltynx/stage145/SaltySD/plugins/$(PROGRAM_ID)/isaac-runtime.elf" "$(OUT)/SaltySD/plugins/$(PROGRAM_ID)/isaac-runtime.elf"; \
 	  $(PYTHON) ../tools/write_test_package_manifest.py --root "$(OUT)" --build-id "$(TEST_BUILD_ID)" --stage "$(STARTUP_PROBE_STAGE)"; \
 	fi
 
@@ -698,76 +716,3 @@ stage143-combined-deploy:
 	@cp deploy-saltynx/stage143/SaltySD/plugins/$(PROGRAM_ID)/isaac-runtime.elf \
 	  "$(STAGE143_COMBINED_OUT)/SaltySD/plugins/$(PROGRAM_ID)/isaac-runtime.elf"
 
-# Production persistence needs both modules: subsdk9 hosts Lua and the external
-# plugin registers SaltyNX's file table before any Mod:SaveData call.
-MOD_PERSISTENCE_OUT := deploy-saltynx/mod-persistence
-.PHONY: mod-persistence-deploy
-mod-persistence-deploy:
-	@env -u MAKELEVEL $(MAKE) clean
-	@env -u MAKELEVEL $(MAKE) PERSISTENCE_REQUIRED=1
-	@env -u MAKELEVEL $(MAKE) clean DIAGNOSTIC_STAGE=144 SALTYNX_PLUGIN=1
-	@env -u MAKELEVEL $(MAKE) DIAGNOSTIC_STAGE=144 SALTYNX_PLUGIN=1
-	@rm -rf "$(MOD_PERSISTENCE_OUT)"
-	@mkdir -p "$(MOD_PERSISTENCE_OUT)"
-	@cp -R deploy/atmosphere "$(MOD_PERSISTENCE_OUT)/"
-	@mkdir -p "$(MOD_PERSISTENCE_OUT)/SaltySD/plugins/$(PROGRAM_ID)"
-	@cp deploy-saltynx/stage144/SaltySD/plugins/$(PROGRAM_ID)/isaac-runtime.elf \
-	  "$(MOD_PERSISTENCE_OUT)/SaltySD/plugins/$(PROGRAM_ID)/isaac-runtime.elf"
-
-MOD_PERSISTENCE_PROBE_OUT := deploy-saltynx/mod-persistence-probe
-.PHONY: mod-persistence-probe-deploy
-mod-persistence-probe-deploy:
-	@env -u MAKELEVEL $(MAKE) clean
-	@env -u MAKELEVEL $(MAKE) SKIP_DEFAULT_PC_MODS=1 PERSISTENCE_REQUIRED=1
-	@cd .. && $(PYTHON) -m tools.inspect_pc_mod \
-	  --mods-root runtime/diagnostic/mod-persistence-probe/pc-mods \
-	  --romfs-output runtime/deploy
-	@env -u MAKELEVEL $(MAKE) clean DIAGNOSTIC_STAGE=144 SALTYNX_PLUGIN=1
-	@env -u MAKELEVEL $(MAKE) DIAGNOSTIC_STAGE=144 SALTYNX_PLUGIN=1
-	@rm -rf "$(MOD_PERSISTENCE_PROBE_OUT)"
-	@mkdir -p "$(MOD_PERSISTENCE_PROBE_OUT)"
-	@cp -R deploy/atmosphere "$(MOD_PERSISTENCE_PROBE_OUT)/"
-	@mkdir -p "$(MOD_PERSISTENCE_PROBE_OUT)/SaltySD/plugins/$(PROGRAM_ID)"
-	@cp deploy-saltynx/stage144/SaltySD/plugins/$(PROGRAM_ID)/isaac-runtime.elf \
-	  "$(MOD_PERSISTENCE_PROBE_OUT)/SaltySD/plugins/$(PROGRAM_ID)/isaac-runtime.elf"
-
-MOD_PERSISTENCE_TRACE_OUT := deploy-saltynx/mod-persistence-probe-trace
-.PHONY: mod-persistence-probe-trace-deploy
-mod-persistence-probe-trace-deploy:
-	@env -u MAKELEVEL $(MAKE) clean
-	@env -u MAKELEVEL $(MAKE) SKIP_DEFAULT_PC_MODS=1 PERSISTENCE_TRACE=1 PERSISTENCE_REQUIRED=1
-	@cd .. && $(PYTHON) -m tools.inspect_pc_mod \
-	  --mods-root runtime/diagnostic/mod-persistence-probe/pc-mods \
-	  --romfs-output runtime/deploy
-	@env -u MAKELEVEL $(MAKE) clean DIAGNOSTIC_STAGE=145 SALTYNX_PLUGIN=1
-	@env -u MAKELEVEL $(MAKE) DIAGNOSTIC_STAGE=145 SALTYNX_PLUGIN=1
-	@rm -rf "$(MOD_PERSISTENCE_TRACE_OUT)"
-	@mkdir -p "$(MOD_PERSISTENCE_TRACE_OUT)"
-	@cp -R deploy/atmosphere "$(MOD_PERSISTENCE_TRACE_OUT)/"
-	@mkdir -p "$(MOD_PERSISTENCE_TRACE_OUT)/SaltySD/plugins/$(PROGRAM_ID)"
-	@cp deploy-saltynx/stage145/SaltySD/plugins/$(PROGRAM_ID)/isaac-runtime.elf \
-	  "$(MOD_PERSISTENCE_TRACE_OUT)/SaltySD/plugins/$(PROGRAM_ID)/isaac-runtime.elf"
-
-# Event-driven persistence diagnostics use one explicitly supplied Build ID for
-# the Runtime, real persistence probe and Stage145 registration plugin.
-# Recursive invocations are equivalent to TEST_BUILD_ID=${ISAAC_TEST_BUILD_ID}.
-MOD_PERSISTENCE_EVENT_OUT := deploy-saltynx/mod-persistence-event-diagnostic
-ISAAC_TEST_BUILD_ID ?= $(TEST_BUILD_ID)
-.PHONY: mod-persistence-event-diagnostic-deploy
-mod-persistence-event-diagnostic-deploy:
-	@env -u MAKELEVEL $(MAKE) clean
-	@env -u MAKELEVEL $(MAKE) SKIP_DEFAULT_PC_MODS=1 PERSISTENCE_EVENT_DIAGNOSTIC=1 PERSISTENCE_REQUIRED=1 TEST_BUILD_ID=$(ISAAC_TEST_BUILD_ID)
-	@cd .. && $(PYTHON) -m tools.inspect_pc_mod \
-	  --mods-root runtime/diagnostic/mod-persistence-probe/pc-mods \
-	  --romfs-output runtime/deploy
-	@env -u MAKELEVEL $(MAKE) clean DIAGNOSTIC_STAGE=145 SALTYNX_PLUGIN=1 PERSISTENCE_EVENT_DIAGNOSTIC=1 TEST_BUILD_ID=$(ISAAC_TEST_BUILD_ID)
-	@env -u MAKELEVEL $(MAKE) DIAGNOSTIC_STAGE=145 SALTYNX_PLUGIN=1 PERSISTENCE_EVENT_DIAGNOSTIC=1 TEST_BUILD_ID=$(ISAAC_TEST_BUILD_ID)
-	@rm -rf "$(MOD_PERSISTENCE_EVENT_OUT)"
-	@mkdir -p "$(MOD_PERSISTENCE_EVENT_OUT)"
-	@cp -R deploy/atmosphere "$(MOD_PERSISTENCE_EVENT_OUT)/"
-	@mkdir -p "$(MOD_PERSISTENCE_EVENT_OUT)/SaltySD/plugins/$(PROGRAM_ID)"
-	@cp deploy-saltynx/stage145/SaltySD/plugins/$(PROGRAM_ID)/isaac-runtime.elf \
-	  "$(MOD_PERSISTENCE_EVENT_OUT)/SaltySD/plugins/$(PROGRAM_ID)/isaac-runtime.elf"
-	@$(PYTHON) ../tools/write_test_package_manifest.py \
-	  --root "$(MOD_PERSISTENCE_EVENT_OUT)" --build-id "$(ISAAC_TEST_BUILD_ID)" \
-	  --stage 145 --mode stage145-persistence-event

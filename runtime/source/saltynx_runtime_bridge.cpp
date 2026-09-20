@@ -282,10 +282,10 @@ IsaacModRuntime_RegisterSaltyFileApi(std::uintptr_t open, std::uintptr_t read,
     g_salty_file_api[2] = write;
     g_salty_file_api[3] = close;
 #endif
-    ModPersistence::ConfigureFileApi(reinterpret_cast<SaltyFopen>(open),
-                                     reinterpret_cast<SaltyFread>(read),
-                                     reinterpret_cast<SaltyFwrite>(write),
-                                     reinterpret_cast<SaltyFclose>(close));
+    // 2026-09-17（用户指令）：**持久化不再走宿主插件的文件函数** —— 模组数据（`Mod:SaveData` /
+    // `Isaac.SaveModData`）统一走"游戏存档分区"那条端口（`SessionSaveFilePort()`），
+    // 由运行时自己在游戏线程上读写。插件这里注册的 4 个裸函数仍然留给**诊断**子系统
+    // （`PersistenceTrace` / `ManagerUpdateHookAudit`），它们不是持久化能力缝。
     PersistenceTrace::ConfigureFileApi(reinterpret_cast<SaltyFopen>(open),
                                        reinterpret_cast<SaltyFwrite>(write),
                                        reinterpret_cast<SaltyFclose>(close));

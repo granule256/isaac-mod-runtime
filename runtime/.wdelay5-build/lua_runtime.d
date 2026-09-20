@@ -26,6 +26,7 @@ lua_runtime.o: ../source/program/lua_runtime.cpp \
  ../source/program/../program/pc_lua_enum_data.hpp \
  ../source/program/../program/pc_lua_enum_data.cpp \
  ../source/program/../program/embedded_lua_test_script.hpp \
+ ../source/program/../program/embedded_mod_menu_script.hpp \
  ../src/interfaces/lua/engine_frame_probe.hpp \
  ../src/interfaces/lua/api_sequence_probe.hpp \
  ../src/interfaces/lua/engine_memory_guard.hpp \
@@ -39,8 +40,14 @@ lua_runtime.o: ../source/program/lua_runtime.cpp \
  ../src/interfaces/lua/api_descriptor.hpp \
  ../src/interfaces/lua/json_api.hpp ../src/interfaces/lua/color_api.hpp \
  ../src/interfaces/lua/font_api.hpp ../src/interfaces/lua/game_api.hpp \
- ../src/interfaces/lua/input_api.hpp ../src/interfaces/lua/isaac_api.hpp \
- ../src/interfaces/lua/mod_api.hpp ../src/interfaces/lua/music_api.hpp \
+ ../src/interfaces/lua/input_api.hpp \
+ ../src/interfaces/lua/mod_menu_api.hpp \
+ ../src/application/mod/manifest_service.hpp \
+ ../src/application/mod/manifest_parser.hpp \
+ ../src/domain/mod/mod_manifest.hpp \
+ ../src/application/mod/mod_load_step.hpp ../src/ports/content_port.hpp \
+ ../src/interfaces/lua/isaac_api.hpp ../src/interfaces/lua/mod_api.hpp \
+ ../src/interfaces/lua/music_api.hpp \
  ../src/interfaces/lua/remaining_api.hpp \
  ../src/interfaces/lua/rng_api.hpp ../src/interfaces/lua/vector_api.hpp \
  ../src/interfaces/lua/sprite_api.hpp \
@@ -81,6 +88,7 @@ lua_runtime.o: ../source/program/lua_runtime.cpp \
 ../source/program/../program/pc_lua_enum_data.hpp:
 ../source/program/../program/pc_lua_enum_data.cpp:
 ../source/program/../program/embedded_lua_test_script.hpp:
+../source/program/../program/embedded_mod_menu_script.hpp:
 ../src/interfaces/lua/engine_frame_probe.hpp:
 ../src/interfaces/lua/api_sequence_probe.hpp:
 ../src/interfaces/lua/engine_memory_guard.hpp:
@@ -97,6 +105,12 @@ lua_runtime.o: ../source/program/lua_runtime.cpp \
 ../src/interfaces/lua/font_api.hpp:
 ../src/interfaces/lua/game_api.hpp:
 ../src/interfaces/lua/input_api.hpp:
+../src/interfaces/lua/mod_menu_api.hpp:
+../src/application/mod/manifest_service.hpp:
+../src/application/mod/manifest_parser.hpp:
+../src/domain/mod/mod_manifest.hpp:
+../src/application/mod/mod_load_step.hpp:
+../src/ports/content_port.hpp:
 ../src/interfaces/lua/isaac_api.hpp:
 ../src/interfaces/lua/mod_api.hpp:
 ../src/interfaces/lua/music_api.hpp:

@@ -13,31 +13,22 @@ namespace isaac::runtime {
 // comparable against the implementation and safe to generate docs from.
 class ApiCatalog {
 public:
-    // 上界，不是"当前条数"：`Validate()` 在 `count_ > kCapacity` 时报
-    // `CapacityExceeded`。批次 3 加了 8 条（`Game.GetNumPlayers`/`GetFrameCount`、
-    // `EntityPlayer` 的 4 个、`ItemConfig_Item.IsCollectible`、全局 `Color` 与
-    // `debug.getinfo`），把原有的 127 条推到了 135 条，所以这里从 128 提到 160
-    // （留 ~25 条余量给后续批次）。`sizeof(kDefaultApis)` 仍由编译器核对，改大这里不会有
-    // 任何运行期代价。
-    //
-    // 批次 6（2026-09-12）再加 34 条，把 120 推到 154，超过原来的 160 之前的安全水位：
-    //   * `Game.GetSeeds`/`Game.GetVictoryLap`（2 条）与 `Seeds.IsCustomRun`/`GetStartSeed`
-    //     （2 条）—— EID 的 `features/eid_api.lua:2046` 直接 `game:GetSeeds():IsCustomRun()`；
-    //   * `EntityPlayer` 的 30 个成员 —— EID 逐帧调用（`eid_api.lua:2606` 的 `player:GetPill(0)`），
-    //     缺一个就是"调 nil"、整条回调被静默摘除。
-    // 160 → 192（留 ~38 条余量）。`Validate()` 在 `count_ > kCapacity` 时直接失败，所以这个
-    // 数字必须跟着条数一起改，否则整张 Catalog 会在真机上被判为无效（门禁测试会先拦下来）。
-    // 2026-09-12 再 +1（`Sprite.GetTexel`）后为 193，故 192 → 224。
-    //
-    // 2026-09-16：224 → 256。**这一次是提前抬，不是撞线后补救** ——
-    //   现状 214 条、只剩 10 个位置，而"接口面台账"（`tools/` 下的 `api_surface_ledger`）里
-    //   还排着 21 条 planned 的字段缺口 + 方法侧的 `IsAvailable` 一族，一批就要用掉十几个位置；
-    //   一旦 `count_ > kCapacity`，`Validate()` 直接把**整张目录**判为无效（真机上等于 API 全不挂）。
-    //   注意：**字段走 `__index` 分派，不占这张目录**（本次新加的 `Quality` 等就一个位置都没占）
-    //   —— 所以这次抬容量是给"方法批次"留的余量，不是给字段。
-    //   （这里刻意不写台账的完整文件名：`runtime/tests` 里有一条门禁把本文件当**纯文本**
-    //     查某个模块名，写全路径会撞上那个词 —— 那条判据偏粗，已在交接文档里记为待办。）
-    static constexpr std::size_t kCapacity = 256;
+    //: 目录条数的**结构性**上限（2026-09-19 批次 052 改）。
+    //:
+    //: ★ 这里原来是一个**手写的容量**：128 → 160 → 192 → 224 → 256，五次都是"快撞线才抬"。
+    //:   2026-09-19 实测：目录已 **248 条**，只剩 8 个位置 —— 而越限的后果是 `Validate()` 把
+    //:   **整张目录**判为无效（真机上等于所有 API 全不挂）。一个"每加几条 API 就得有人来改"的
+    //:   数字，正是"以后陆续实现 API 会被架构束缚"的典型，而且它**每次都在同一处栽跟头**。
+    //:
+    //: 真正限制条数的是 id 的编码（`MakeId(域, ownerGroup, 序号)`）：域与 ownerGroup 各 8 位，
+    //: 序号 **16 位** ⇒ 每个域最多 65535 条，而 `MakeId` 的 `std::uint16_t 序号` 形参由**编译器**
+    //: 保证字面量放得下。所以把上限钉在这个编码极限上 —— 它**再也追不上人**：
+    //: 要撞到它，得先撞到 16 位序号本身（那时编译器先报错）。
+    //:
+    //: 目录本身是"指向不可变表的**视图**"（`entries_` + `count_`），
+    //: 提高这个常量**不花内存、不花代码**（表的大小由 `kDefaultApis[]` 自己决定）。
+    static constexpr std::size_t kCapacity = 0xFFFF;
+
 
     // The catalog is a view over an immutable table; building one never
     // allocates.

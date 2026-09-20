@@ -14,12 +14,7 @@
 
 namespace {
 
-using ConstructFn = void (*)(void*);
-using OpenReadFn = bool (*)(void*, const char*);
-using GetLengthFn = int (*)(const void*);
-using ReadFn = int (*)(void*, void*, int, int);
-using CloseFn = void (*)(void*);
-using DestroyFn = void (*)(void*);
+// 这些入口的类型声明已收进 `game_file_reader.hpp`（唯一一份，2026-09-17）。
 
 bool IsMappedRxModuleCodeWindow(uintptr_t address, size_t length) {
     if (length == 0 || address > std::numeric_limits<uintptr_t>::max() - length) {
@@ -40,7 +35,7 @@ bool IsMappedRxModuleCodeWindow(uintptr_t address, size_t length) {
 
 template <std::size_t ExpectedSize>
 bool VerifyGameEntry(const TargetModule& module, uintptr_t offset,
-                     const std::array<u8, ExpectedSize>& expected, uintptr_t* address) {
+                     const std::array<u8, ExpectedSize>& expected, void* address) {
     if (address == nullptr || offset % 4 != 0 || offset > std::numeric_limits<uintptr_t>::max() - module.base) {
         return false;
     }
@@ -54,7 +49,7 @@ bool VerifyGameEntry(const TargetModule& module, uintptr_t offset,
         return false;
     }
 
-    *address = candidate;
+    std::memcpy(address, &candidate, sizeof(candidate));
     return true;
 }
 
@@ -97,13 +92,11 @@ bool VerifyWriteBindings(const TargetModule& module, WriteBindings* bindings) {
 }
 
 WriteDiagnosticResult WriteDiagnosticFile(const WriteBindings& bindings) {
-    using OpenWriteFn = bool (*)(void*, const char*);
-    using WriteFn = int (*)(void*, const void*, int, int);
-    const auto construct = reinterpret_cast<ConstructFn>(bindings.construct);
-    const auto openWrite = reinterpret_cast<OpenWriteFn>(bindings.openWrite);
-    const auto write = reinterpret_cast<WriteFn>(bindings.write);
-    const auto close = reinterpret_cast<CloseFn>(bindings.close);
-    const auto destroy = reinterpret_cast<DestroyFn>(bindings.destroy);
+    const auto construct = bindings.construct;
+    const auto openWrite = bindings.openWrite;
+    const auto write = bindings.write;
+    const auto close = bindings.close;
+    const auto destroy = bindings.destroy;
     constexpr char kStage118Path[] = "save:/isaac_mod_stage118.bin";
     constexpr char kStage118Payload[] = "ISAAC_STAGE118!!";
     static_assert(sizeof(kStage118Payload) - 1 == 16);
@@ -123,12 +116,12 @@ WriteDiagnosticResult WriteDiagnosticFile(const WriteBindings& bindings) {
 #endif
 
 ReadResult ReadSentinel(const Bindings& bindings) {
-    const auto construct = reinterpret_cast<ConstructFn>(bindings.construct);
-    const auto openRead = reinterpret_cast<OpenReadFn>(bindings.openRead);
-    const auto getLength = reinterpret_cast<GetLengthFn>(bindings.getLength);
-    const auto read = reinterpret_cast<ReadFn>(bindings.read);
-    const auto close = reinterpret_cast<CloseFn>(bindings.close);
-    const auto destroy = reinterpret_cast<DestroyFn>(bindings.destroy);
+    const auto construct = bindings.construct;
+    const auto openRead = bindings.openRead;
+    const auto getLength = bindings.getLength;
+    const auto read = bindings.read;
+    const auto close = bindings.close;
+    const auto destroy = bindings.destroy;
 
     alignas(16) std::array<u8, kGameFileObjectSize> fileStorage{};
     std::array<u8, kRomfsSentinelLength> buffer{};
@@ -164,12 +157,12 @@ ScriptReadResult ReadScript(const Bindings& bindings,
         return ScriptReadResult::ReadMismatch;
     }
 
-    const auto construct = reinterpret_cast<ConstructFn>(bindings.construct);
-    const auto openRead = reinterpret_cast<OpenReadFn>(bindings.openRead);
-    const auto getLength = reinterpret_cast<GetLengthFn>(bindings.getLength);
-    const auto read = reinterpret_cast<ReadFn>(bindings.read);
-    const auto close = reinterpret_cast<CloseFn>(bindings.close);
-    const auto destroy = reinterpret_cast<DestroyFn>(bindings.destroy);
+    const auto construct = bindings.construct;
+    const auto openRead = bindings.openRead;
+    const auto getLength = bindings.getLength;
+    const auto read = bindings.read;
+    const auto close = bindings.close;
+    const auto destroy = bindings.destroy;
 
     alignas(16) std::array<u8, kGameFileObjectSize> fileStorage{};
     construct(fileStorage.data());
@@ -201,12 +194,12 @@ TextReadResult ReadTextFile(const Bindings& bindings, const char* path,
         return TextReadResult::InvalidArgument;
     }
 
-    const auto construct = reinterpret_cast<ConstructFn>(bindings.construct);
-    const auto openRead = reinterpret_cast<OpenReadFn>(bindings.openRead);
-    const auto getLength = reinterpret_cast<GetLengthFn>(bindings.getLength);
-    const auto read = reinterpret_cast<ReadFn>(bindings.read);
-    const auto close = reinterpret_cast<CloseFn>(bindings.close);
-    const auto destroy = reinterpret_cast<DestroyFn>(bindings.destroy);
+    const auto construct = bindings.construct;
+    const auto openRead = bindings.openRead;
+    const auto getLength = bindings.getLength;
+    const auto read = bindings.read;
+    const auto close = bindings.close;
+    const auto destroy = bindings.destroy;
 
     alignas(16) std::array<u8, kGameFileObjectSize> fileStorage{};
     construct(fileStorage.data());

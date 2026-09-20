@@ -1,6 +1,7 @@
 #pragma once
 
 #include "interfaces/lua/api_catalog.hpp"
+#include "interfaces/lua/engine_method_api.hpp"
 #include "interfaces/lua/field_api.hpp"
 
 #include <cstddef>
@@ -32,10 +33,39 @@ struct LuaHandlerBinding {
 // 一行数据。行表与手写绑定表 `id` 重复时**以手写为准**（便于逐条迁移）。
 //
 // Returns the number of attached methods.
+//: `engineRows`/`engineRowCount`（2026-09-19 批次 051）：**引擎方法类** API 的数据行
+//: （`engine_method_api.hpp`）。与字段行同一套机制：共享处理器 `EngineMethodHandler` +
+//: 该行作为闭包上值。绑定顺序 = 手写绑定表 → 字段行 → 引擎方法行，
+//: 同 id 重复时**以靠前的为准**（便于逐条迁移：先把行加上，再把老处理器删掉）。
+//: 把 `handler`（可能带 `upvalueCount` 个上值）包成**中央计时版**并压栈（批次 093）。
+//:
+//: **为什么要有它**：087/088 只给"看得见的那几个"处理器插了桩，于是 092 的读数里
+//: EID 那条渲染回调仍有约 1.3 ms 无从归属。逐个处理器插桩要改两百处、还必然漏；
+//: 在**挂载点**统一包一层，就把全部接口（以及以后新加的）一次性覆盖。
+//:
+//: 包装的 upvalue：`1` = 被包的函数值（可以是带自己上值的闭包），`2` = 它的接口 id。
+//: 语义：`luaL_error` 照常向上传播（这一层不捕获、不清理）；错误消息的位置前缀不变
+//: （`luaL_where` 对 C 函数返回空串）。
+void PushTimedHandler(lua_State* state, lua_CFunction handler, std::size_t upvalueCount,
+                      std::uint32_t identifier) noexcept;
+
+//: 挂载处理器时用哪个（批次 095）。**生产构建默认不包** —— 包装每次调用要多一次 `lua_call`，
+//: 而真机实测每帧有 646 次接口调用 ⇒ 那层包装本身就是 0.1~0.2 µs × 646 ≈ 65~130 µs/帧。
+//: 需要"按接口分开的耗时"时，用 `PERF_API_WRAPPER=1` 构建一份诊断包。
+//: 门禁 `test_perf_callback_buckets.py` 钉住"默认必须是 0"。
+#ifndef PERF_API_WRAPPER
+#define PERF_API_WRAPPER 0
+#endif
+
+void PushHandler(lua_State* state, lua_CFunction handler, std::size_t upvalueCount,
+                 std::uint32_t identifier) noexcept;
+
 [[nodiscard]] std::size_t AttachOwnerMethods(lua_State* state, const char* owner,
                                              const LuaHandlerBinding* bindings,
                                              std::size_t count,
                                              const FieldApiRow* fieldRows = nullptr,
-                                             std::size_t rowCount = 0) noexcept;
+                                             std::size_t rowCount = 0,
+                                             const EngineMethodRow* engineRows = nullptr,
+                                             std::size_t engineRowCount = 0) noexcept;
 
 } // namespace isaac::runtime

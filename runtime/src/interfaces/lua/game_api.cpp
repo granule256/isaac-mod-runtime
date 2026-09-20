@@ -1,5 +1,8 @@
 #include "interfaces/lua/game_api.hpp"
 
+#include "interfaces/lua/lua_integer_argument.hpp"
+#include "interfaces/lua/engine_method_lookup.hpp"
+
 #include "interfaces/lua/api_sequence_probe.hpp"
 #include "interfaces/lua/engine_memory_guard.hpp"
 #include "interfaces/lua/isaac_api.hpp"
@@ -66,6 +69,9 @@ int GameGetSeeds(lua_State* state);
 int SeedsIsCustomRun(lua_State* state);
 int SeedsGetStartSeed(lua_State* state);
 int GameGetVictoryLap(lua_State* state);
+// 批次 050（2026-09-19）：`Game:ChangeRoom(int roomIndex, int dimension)` —— **直接调引擎方法**。
+// GoodTrip 的传送主路径（`scripts/trip.lua` 6 处）就是 `Game():ChangeRoom(目标格, -1)`；
+// 第二参 `-1` 在 PC 语义里是"按当前维度"。缺它 = method 不存在 ⇒ 整条回调被打断。
 
 constexpr LuaHandlerBinding kGameHandlers[] = {
     {0x02010001, &GameIsPaused},
@@ -307,9 +313,13 @@ int GameIsPaused(lua_State* state) {
     if (lua_gettop(state) != 1) {
         return luaL_error(state, "Game:IsPaused accepts no arguments");
     }
-    if (!InManagedCallbackScope()) {
-        return luaL_error(state, "Game:IsPaused is only available during a Runtime callback");
-    }
+    // ★ 2026-09-19（批次 043）：这里原本有一道 `InManagedCallbackScope()` 守卫，
+    // 不在托管回调里就直接抛错（"… is only available during a Runtime callback"）。
+    // **PC 没有这条限制**：模组在**加载期**读引擎状态是常见写法（GoodTrip 的
+    // `scripts/floor.lua:11-17` 就在加载期读 `Game():GetLevel()`/`GetRoom()`/`Level:GetStage()`），
+    // 而报错会让整个模组的功能**整块消失**（真机现象："模组像没装"）。
+    // 所以守卫已删除：允许读，读不到时由各自实现返回**如实回退值**。
+    // 证据与理由见 `docs/改动日志-20260919.md`（042·补二 / 043）。
 
     const std::uintptr_t ownerSlot = GameOwnerSlot();
     const std::uintptr_t isPausedThunk = GameIsPausedThunk();
@@ -336,9 +346,6 @@ int GameIsGreedMode(lua_State* state) {
     if (lua_gettop(state) != 1) {
         return luaL_error(state, "Game:IsGreedMode accepts no arguments");
     }
-    if (!InManagedCallbackScope()) {
-        return luaL_error(state, "Game:IsGreedMode is only available during a Runtime callback");
-    }
     const GameIsGreedModeObservation observation =
         ObserveGameIsGreedMode(GameOwnerSlot(), GameIsGreedModeThunk());
     if (observation == GameIsGreedModeObservation::GreedFalse) {
@@ -352,14 +359,15 @@ int GameIsGreedMode(lua_State* state) {
     return luaL_error(state, "Game:IsGreedMode could not read the native Game state");
 }
 
+// `Game:ChangeRoom(int roomIndex, int dimension)`（批次 050）。
+// 底座：`IsaacRepentance::Game::ChangeRoom(int, int)` @ `0x353FE0`（符号
+// `_ZN15IsaacRepentance4Game10ChangeRoomEii`），模块基址 + 偏移 + 入口 4 字节指纹
+// （判据见 `engine_method_lookup.hpp`）。
 int GameGetLevel(lua_State* state) {
     RecordApiSequence(2U);
     luaL_checkudata(state, 1, kGameMetatable);
     if (lua_gettop(state) != 1) {
         return luaL_error(state, "Game:GetLevel accepts no arguments");
-    }
-    if (!InManagedCallbackScope()) {
-        return luaL_error(state, "Game:GetLevel is only available during a Runtime callback");
     }
     auto* level = static_cast<LevelHandle*>(lua_newuserdata(state, sizeof(LevelHandle)));
     level->reserved = 0;
@@ -373,9 +381,6 @@ int GameGetItemPool(lua_State* state) {
     luaL_checkudata(state, 1, kGameMetatable);
     if (lua_gettop(state) != 1) {
         return luaL_error(state, "Game:GetItemPool accepts no arguments");
-    }
-    if (!InManagedCallbackScope()) {
-        return luaL_error(state, "Game:GetItemPool is only available during a Runtime callback");
     }
     void* itemPool = nullptr;
     if (ReadCurrentGameItemPool(GameOwnerSlot(), &itemPool) != GameItemPoolObservation::Success) {
@@ -393,9 +398,6 @@ int GameGetRoom(lua_State* state) {
     luaL_checkudata(state, 1, kGameMetatable);
     if (lua_gettop(state) != 1) {
         return luaL_error(state, "Game:GetRoom accepts no arguments");
-    }
-    if (!InManagedCallbackScope()) {
-        return luaL_error(state, "Game:GetRoom is only available during a Runtime callback");
     }
     void* room = nullptr;
     if (ReadCurrentGameRoom(GameOwnerSlot(), &room) != GameRoomObservation::Success) {
@@ -497,9 +499,25 @@ int GameIndex(lua_State* state) {
     return 1;
 }
 
+//: 批次 051：`Game` 的**引擎方法数据行**（机制见 `engine_method_api.hpp`）。
+constexpr EngineMethodRow kGameEngineRows[] = {
+    // 0x000A `Game:ChangeRoom(int, int)`：`x0 = this(Game/Level)`、`w1 = 房间格`、`w2 = 维度`（-1 = 当前）。
+    {0x0201000A, kGameChangeRoomOffset, kGameChangeRoomEntryWord, FieldReceipt::Level,
+     EngineCallShape::Void2, 2, 0xFF},
+    // 0x000B `Game:StartRoomTransition(int, Direction, RoomTransitionAnim, EntityPlayer, int)`
+    //   —— GoodTrip 传送的**默认路径**（`scripts/trip.lua:207`）。5 个参数、第 4 个是玩家指针，
+    //   所以这一行用的是批次 055 的"任意签名"形状（描述符见 `isaac_api.cpp` 的 `kEngineCallShapes`）。
+    //   PC 文档（`Game.md`）逐字为
+    //   `void StartRoomTransition(int RoomIndex, Direction, RoomTransitionAnim Animation = WALK,
+    //    EntityPlayer Player = nil, int Dimension = -1)`。
+    {0x0201000B, kGameStartRoomTransitionOffset, kGameStartRoomTransitionEntryWord,
+     FieldReceipt::Level, EngineCallShape::VoidIntIntIntHandleInt, 5, 0xFF},
+};
+
 std::size_t AttachGameMethods(lua_State* state) noexcept {
     return AttachOwnerMethods(state, kGameOwner, kGameHandlers,
-                              sizeof(kGameHandlers) / sizeof(kGameHandlers[0]));
+                              sizeof(kGameHandlers) / sizeof(kGameHandlers[0]), nullptr, 0,
+                              kGameEngineRows, sizeof(kGameEngineRows) / sizeof(kGameEngineRows[0]));
 }
 
 std::size_t AttachSeedsMethods(lua_State* state) noexcept {

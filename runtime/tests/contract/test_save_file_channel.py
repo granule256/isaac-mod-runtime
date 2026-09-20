@@ -109,6 +109,32 @@ class SaveFileChannelContractTests(unittest.TestCase):
         self.assertIn("inline constexpr char kModToggleStateFileName[]", self.state)
         self.assertIn("kModToggleStateFileName", self.service)
 
+    def test_adapter_buffer_covers_every_persistence_container(self):
+        """缓冲必须装得下**所有**走这条通道的容器，否则每写必 `CapacityExceeded`。
+
+        2026-09-17 用户指令把模组数据也挪到这条通道上，而模组数据容器上限是 16 KiB；
+        适配器的静态缓冲当时只有 4 KiB ⇒ 这条关系必须被钉住，改了任意一边都要一起看。
+        """
+        header = ADAPTER_HPP.read_text(encoding="utf-8")
+        buffer = int(re.search(r"kMaximumFileBytes = (0x[0-9A-Fa-f]+)", header).group(1), 16)
+        persistence = (ROOT / "runtime" / "source" / "mod_persistence.hpp").read_text(
+            encoding="utf-8")
+        container = int(
+            re.search(r"kMaximumFileSize = (\d+) \* (\d+)", persistence).group(1)) * int(
+            re.search(r"kMaximumFileSize = (\d+) \* (\d+)", persistence).group(2))
+        self.assertGreaterEqual(buffer, container,
+                                "适配器缓冲必须 ≥ 持久化容器上限（否则容器永远写不进去）")
+
+    def test_every_persistence_consumer_goes_through_the_session_port(self):
+        """消费者只能通过会话默认端口取能力：不许自己找文件、也不许自带实现。"""
+        persistence = (ROOT / "runtime" / "source" / "mod_persistence.hpp").read_text(
+            encoding="utf-8")
+        self.assertIn("SessionSaveFilePort()", persistence)
+        self.assertNotIn("ConfigureFile", persistence, "旧注入点必须退休")
+        # 运行时侧唯一注入点在模组加载路径上（只剩一处，见 test_file_api_seam 的同名门禁）。
+        wiring = HOOK_MANAGER.read_text(encoding="utf-8")
+        self.assertIn("SetSessionSaveFilePort(&g_SaveFileAdapter);", wiring)
+
     def test_filter_runs_before_mounts_and_scripts(self):
         """顺序纪律：先读状态并过滤，再注册挂载点、再加载脚本。"""
         load_index = self.hook_manager.index("g_ModToggleService.Load()")

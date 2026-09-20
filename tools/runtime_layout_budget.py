@@ -9,8 +9,11 @@
 因此 `runtime/misc/link.ld` 里只留“失控增长”闸门，默认值与 `link.ld` 的 ASSERT
 保持一致（`runtime/tests/test_architecture_layout.py` 会核对两边数值）：
 
-* 代码（Rx）结束 <= 512 KiB
-* 只读段结束 <= 1 MiB
+* 代码（Rx）结束 <= 1 MiB
+* 只读段结束 <= 2 MiB
+
+（2026-09-19 抬升：原值 512 KiB / 1 MiB 是同一类"失控增长"闸门，但当时的成本模型下
+只余 272 字节可用额度；抬升的依据与当时用量写在 `runtime/misc/link.ld` 的注释里。）
 
 本工具在每个构建后打印实际用量、余量与结构不变量，让增长可见；超限或结构不变量被
 破坏时以退出码 1 失败。只用 Python 标准库解析 ELF，不依赖交叉工具链，因此本地就能跑。
@@ -37,8 +40,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 # 与 runtime/misc/link.ld 的 ASSERT 对应；改动必须同时改两处（有测试核对）。
-DEFAULT_CODE_LIMIT = 0x80000
-DEFAULT_RO_END_LIMIT = 0x100000
+# 2026-09-19 抬升（512 KiB→1 MiB、1 MiB→2 MiB），依据见 `link.ld` 的注释与
+# `docs/问题与解决记录.md` 同日期那一节：这两条是自设的失控增长闸门，不是平台限制。
+DEFAULT_CODE_LIMIT = 0x100000
+DEFAULT_RO_END_LIMIT = 0x200000
 
 PT_LOAD = 1
 SHF_WRITE = 0x1

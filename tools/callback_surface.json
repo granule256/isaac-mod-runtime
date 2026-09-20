@@ -1,0 +1,972 @@
+{
+  "schema": "isaac-callback-surface/1",
+  "rows": {
+    "MC_NPC_UPDATE": {
+      "id": 0,
+      "name": "MC_NPC_UPDATE",
+      "args": "([EntityNPC](../EntityNPC.md))",
+      "returns": "void",
+      "status": "dispatched",
+      "where": "callback_descriptor.hpp: kCallbackNpcUpdate",
+      "note": "2026-09-18 批次 010 接线：每帧时机（`DispatchPostUpdate` 里的实体族扫描）+ 按 `EntityType` 分派（`ClassifyCallbackEntity`），逐实体派发。已知差异：最多比 PC 晚一帧；只在有人登记时才遍历实体表（⇒ 设备读数的计数代表『有人听的时候』）。"
+    },
+    "MC_POST_UPDATE": {
+      "id": 1,
+      "name": "MC_POST_UPDATE",
+      "args": "-",
+      "returns": "void",
+      "status": "dispatched",
+      "where": "callback_descriptor.hpp: kCallbackPostUpdate",
+      "note": ""
+    },
+    "MC_POST_RENDER": {
+      "id": 2,
+      "name": "MC_POST_RENDER",
+      "args": "-",
+      "returns": "void",
+      "status": "dispatched",
+      "where": "callback_descriptor.hpp: kCallbackPostRender",
+      "note": ""
+    },
+    "MC_USE_ITEM": {
+      "id": 3,
+      "name": "MC_USE_ITEM",
+      "args": "([CollectibleType](CollectibleType.md),<br>[RNG](../RNG.md),<br>[EntityPlayer](../EntityPlayer.md),<br>[UseFlags](UseFlag.md) [int],<br>[ActiveSlot](ActiveSlot.md),<br>CustomVarData [int])",
+      "returns": "boolean",
+      "status": "needs_hook",
+      "where": "",
+      "note": "需要「使用主动道具」的挂点（游戏自己的使用路径）（触发点待逐条定位）"
+    },
+    "MC_POST_PEFFECT_UPDATE": {
+      "id": 4,
+      "name": "MC_POST_PEFFECT_UPDATE",
+      "args": "([EntityPlayer](../EntityPlayer.md))",
+      "returns": "void",
+      "status": "dispatched",
+      "where": "callback_descriptor.hpp: kCallbackPostPeffectUpdate",
+      "note": "2026-09-18 批次 010 接线：每帧时机（`DispatchPostUpdate` 里的实体族扫描）+ 按 `EntityType` 分派（`ClassifyCallbackEntity`），逐实体派发。已知差异：最多比 PC 晚一帧；只在有人登记时才遍历实体表（⇒ 设备读数的计数代表『有人听的时候』）。"
+    },
+    "MC_USE_CARD": {
+      "id": 5,
+      "name": "MC_USE_CARD",
+      "args": "([Card](Card.md),<br>[EntityPlayer](../EntityPlayer.md),<br>[UseFlags](UseFlag.md) [int]",
+      "returns": "void",
+      "status": "needs_hook",
+      "where": "",
+      "note": "需要「使用卡片」的挂点（触发点待逐条定位）"
+    },
+    "MC_FAMILIAR_UPDATE": {
+      "id": 6,
+      "name": "MC_FAMILIAR_UPDATE",
+      "args": "([EntityFamiliar](../EntityFamiliar.md))",
+      "returns": "void",
+      "status": "dispatched",
+      "where": "callback_descriptor.hpp: kCallbackFamiliarUpdate",
+      "note": "2026-09-18 批次 010 接线：每帧时机（`DispatchPostUpdate` 里的实体族扫描）+ 按 `EntityType` 分派（`ClassifyCallbackEntity`），逐实体派发。已知差异：最多比 PC 晚一帧；只在有人登记时才遍历实体表（⇒ 设备读数的计数代表『有人听的时候』）。"
+    },
+    "MC_FAMILIAR_INIT": {
+      "id": 7,
+      "name": "MC_FAMILIAR_INIT",
+      "args": "([EntityFamiliar](../EntityFamiliar.md))",
+      "returns": "void",
+      "status": "dispatched",
+      "where": "callback_descriptor.hpp: kCallbackFamiliarInit",
+      "note": "2026-09-18 批次 010 接线：每帧时机 + 『见过』指针表（按实体类各一张，以房间为生命周期，换房清空）差分派发。已知差异：**每次进新房间**，房间里原本就摆着的该类实体会各收到一次 INIT（PC 上它们在房间生成时就初始化过 ⇒ 补发比漏发更接近 PC 观感）；表满时不再记、也不再报『新』（宁可漏发，也不每帧重复发）。"
+    },
+    "MC_EVALUATE_CACHE": {
+      "id": 8,
+      "name": "MC_EVALUATE_CACHE",
+      "args": "([EntityPlayer](../EntityPlayer.md),<br>[CacheFlag](CacheFlag.md))",
+      "returns": "void",
+      "status": "needs_hook",
+      "where": "",
+      "note": "需要「属性重算」的挂点（CacheFlag 计算处）（触发点待逐条定位）"
+    },
+    "MC_POST_PLAYER_INIT": {
+      "id": 9,
+      "name": "MC_POST_PLAYER_INIT",
+      "args": "([EntityPlayer](../EntityPlayer.md))",
+      "returns": "void",
+      "status": "dispatched",
+      "where": "callback_descriptor.hpp: kCallbackPostPlayerInit",
+      "note": "每帧扫玩家向量，『没见过的新玩家指针』派发一次，参数是 `EntityPlayer` 句柄；表只增不删（最多记 8 个），换房间**不**清（玩家跨房间存活）"
+    },
+    "MC_USE_PILL": {
+      "id": 10,
+      "name": "MC_USE_PILL",
+      "args": "([PillEffect](PillEffect.md),<br>[EntityPlayer](../EntityPlayer.md),<br>[UseFlags](UseFlag.md) [int])",
+      "returns": "void",
+      "status": "needs_hook",
+      "where": "",
+      "note": "需要「使用药丸」的挂点（触发点待逐条定位）"
+    },
+    "MC_ENTITY_TAKE_DMG": {
+      "id": 11,
+      "name": "MC_ENTITY_TAKE_DMG",
+      "args": "(Entity [[Entity](../Entity.md)],<br>Amount [float],<br>[DamageFlags](DamageFlag.md) [int],<br>Source [[EntityRef](../EntityRef.md)],<br>CountdownFrames [int])",
+      "returns": "boolean",
+      "status": "needs_hook",
+      "where": "",
+      "note": "需要「实体受伤」的挂点（Entity::TakeDamage）（触发点待逐条定位）"
+    },
+    "MC_POST_CURSE_EVAL": {
+      "id": 12,
+      "name": "MC_POST_CURSE_EVAL",
+      "args": "([Curses](LevelCurse.md) [int])",
+      "returns": "int",
+      "status": "needs_hook",
+      "where": "",
+      "note": "需要「诅咒判定」的挂点（触发点待逐条定位）"
+    },
+    "MC_INPUT_ACTION": {
+      "id": 13,
+      "name": "MC_INPUT_ACTION",
+      "args": "([Entity](../Entity.md),<br>[InputHook](InputHook.md),<br>[ButtonAction](ButtonAction.md))",
+      "returns": "boolean or float",
+      "status": "hookable",
+      "where": "",
+      "note": "已登记但**没有派发点**：常量 `kCallbackInputAction` 在，`HasDispatchSite` 名单里刻意不含它（历史上曾经挂过派发点，实测从不触发，见 `mod_api.cpp` 那段注释）。要做的话形状是『每帧轮询输入 + 与上一帧差分』，但输入查询这条通道目前本身还有问题（读数工具里『模组菜单按键』那段显示边沿查询一次都没命中）⇒ 先解决输入查询再接线。 ⚠️ 2026-09-18 更正：台账原先按『有常量』算作已派发，但它没有派发点（`HasDispatchSite` 名单里刻意不含它）⇒ 退回 hookable。判据已改为与设备侧同一真值源（`HasDispatchSite`）。"
+    },
+    "MC_LEVEL_GENERATOR": {
+      "id": 14,
+      "name": "MC_LEVEL_GENERATOR",
+      "args": "-",
+      "returns": "void",
+      "status": "needs_hook",
+      "where": "",
+      "note": "需要「关卡生成」的挂点（触发点待逐条定位）"
+    },
+    "MC_POST_GAME_STARTED": {
+      "id": 15,
+      "name": "MC_POST_GAME_STARTED",
+      "args": "(IsContinued [bool])",
+      "returns": "void",
+      "status": "dispatched",
+      "where": "callback_descriptor.hpp: kCallbackPostGameStarted",
+      "note": ""
+    },
+    "MC_POST_GAME_END": {
+      "id": 16,
+      "name": "MC_POST_GAME_END",
+      "args": "(IsGameOver [bool])",
+      "returns": "void",
+      "status": "hookable",
+      "where": "",
+      "note": "每帧比较游戏结束状态推断"
+    },
+    "MC_PRE_GAME_EXIT": {
+      "id": 17,
+      "name": "MC_PRE_GAME_EXIT",
+      "args": "(ShouldSave [bool])",
+      "returns": "void",
+      "status": "hookable",
+      "where": "",
+      "note": "本轮（2026-09-18）**不做**：PC 的语义是『退回主菜单 / 结束本局之前』，而 Switch 侧没有干净判据 —— 拿『本局结束』近似会让模组提前做收尾（EID 用它做状态清理）。判据待定，先留在 hookable"
+    },
+    "MC_POST_NEW_LEVEL": {
+      "id": 18,
+      "name": "MC_POST_NEW_LEVEL",
+      "args": "-",
+      "returns": "void",
+      "status": "dispatched",
+      "where": "callback_descriptor.hpp: kCallbackPostNewLevel",
+      "note": "每帧比对『关卡 + 关卡类型』（`Level+0x00`/`+0x04`，`Level::SetStage` 的落点）——变了就派发。换层时先发它、再发 NEW_ROOM（与 PC 观感一致）"
+    },
+    "MC_POST_NEW_ROOM": {
+      "id": 19,
+      "name": "MC_POST_NEW_ROOM",
+      "args": "-",
+      "returns": "void",
+      "status": "dispatched",
+      "where": "callback_descriptor.hpp: kCallbackPostNewRoom",
+      "note": "每帧比对『房间索引 + 维度』（`Level+0x21558`/`+0x21560`，就是引擎判『这是哪个房间』的那两个字）——变了就派发；读数失败时只作废身份、不判变化。实现见 `lua_runtime.cpp` 的 `DispatchFrameEvents`"
+    },
+    "MC_GET_CARD": {
+      "id": 20,
+      "name": "MC_GET_CARD",
+      "args": "([RNG](../RNG.md),<br>[Card](Card.md),<br>IncludePlayingCards [bool],<br>IncludeRunes [bool],<br>OnlyRunes [bool])",
+      "returns": "[Card](Card.md)",
+      "status": "needs_hook",
+      "where": "",
+      "note": "需要「抽卡」的挂点（触发点待逐条定位）"
+    },
+    "MC_GET_SHADER_PARAMS": {
+      "id": 21,
+      "name": "MC_GET_SHADER_PARAMS",
+      "args": "(ShaderName [string])",
+      "returns": "table",
+      "status": "needs_hook",
+      "where": "",
+      "note": "❌ 2026-09-18 由 hookable **改判 needs_hook**：原来记的是『现有 ManagerRender 时机里派发（参数表由我们构造）』，动手做时发现两件事都不成立 —— ① 它的实参是**引擎传进来的真实 shader 名字**，而全仓没有任何 Switch 侧 shader 名字的证据，硬编一个名字就是把假数据喂给模组；② 它的返回值是**要交回引擎的参数表**，我们没有引擎的 shader 参数应用点，交不回去。⇒ 需要新挂点：先定位引擎的 shader 参数应用点与名字来源。"
+    },
+    "MC_EXECUTE_CMD": {
+      "id": 22,
+      "name": "MC_EXECUTE_CMD",
+      "args": "(CMD [string],<br>Parameters [string])",
+      "returns": "string",
+      "status": "platform",
+      "where": "",
+      "note": "控制台命令：Switch 版把游戏控制台「拆线」了（IsDebuggingConsoleEnabled 是 return false 桩、Console 方法零引用，见续四十）"
+    },
+    "MC_PRE_USE_ITEM": {
+      "id": 23,
+      "name": "MC_PRE_USE_ITEM",
+      "args": "([CollectibleType](CollectibleType.md),<br>[RNG](../RNG.md),<br>[EntityPlayer](../EntityPlayer.md),<br>[UseFlags](UseFlag.md) [int],<br>[ActiveSlot](ActiveSlot.md),<br>CustomVarData [int])",
+      "returns": "boolean",
+      "status": "needs_hook",
+      "where": "",
+      "note": "同上、但更早（使用前）（触发点待逐条定位）"
+    },
+    "MC_PRE_ENTITY_SPAWN": {
+      "id": 24,
+      "name": "MC_PRE_ENTITY_SPAWN",
+      "args": "([EntityType](EntityType.md),<br>Variant [int],<br>SubType [int],<br>Position [Vector],<br>Velocity [Vector],<br>Spawner [[Entity](../Entity.md)],<br>Seed [int])",
+      "returns": "table",
+      "status": "needs_hook",
+      "where": "",
+      "note": "需要「实体生成」的挂点（可拦可改）（触发点待逐条定位）"
+    },
+    "MC_POST_FAMILIAR_RENDER": {
+      "id": 25,
+      "name": "MC_POST_FAMILIAR_RENDER",
+      "args": "([EntityFamiliar](../EntityFamiliar.md),<br>RenderOffset [Vector])",
+      "returns": "void",
+      "status": "dispatched",
+      "where": "callback_descriptor.hpp: kCallbackPostFamiliarRender",
+      "note": "2026-09-18 批次 010 接线：渲染时机（`Manager::Render` 那条每帧渲染回调同一个派发窗口）+ 按 `EntityType` 分派，逐实体派发，实参 = (mod, 实体, RenderOffset)。⚠️ 已知差异：`RenderOffset` 取『房间渲染滚动偏移 + 游戏屏幕调整量』两项之和（两个字段都已 confirmed），**尚未逐字核对** PC 是否就是这么算的；读不到偏移时整族不派发（宁可这一帧没有事件，也不给模组假数据）。"
+    },
+    "MC_PRE_FAMILIAR_COLLISION": {
+      "id": 26,
+      "name": "MC_PRE_FAMILIAR_COLLISION",
+      "args": "([EntityFamiliar](../EntityFamiliar.md),<br>Collider [[Entity](../Entity.md)],<br>Low [bool])",
+      "returns": "boolean",
+      "status": "needs_hook",
+      "where": "",
+      "note": "需要「跟班碰撞」的挂点（触发点待逐条定位）"
+    },
+    "MC_POST_NPC_INIT": {
+      "id": 27,
+      "name": "MC_POST_NPC_INIT",
+      "args": "([EntityNPC](../EntityNPC.md))",
+      "returns": "void",
+      "status": "dispatched",
+      "where": "callback_descriptor.hpp: kCallbackPostNpcInit",
+      "note": "2026-09-18 批次 010 接线：每帧时机 + 『见过』指针表（按实体类各一张，以房间为生命周期，换房清空）差分派发。已知差异：**每次进新房间**，房间里原本就摆着的该类实体会各收到一次 INIT（PC 上它们在房间生成时就初始化过 ⇒ 补发比漏发更接近 PC 观感）；表满时不再记、也不再报『新』（宁可漏发，也不每帧重复发）。"
+    },
+    "MC_POST_NPC_RENDER": {
+      "id": 28,
+      "name": "MC_POST_NPC_RENDER",
+      "args": "([EntityNPC](../EntityNPC.md),<br>RenderOffset [Vector])",
+      "returns": "void",
+      "status": "needs_hook",
+      "where": "",
+      "note": "渲染时机可做（同 A 类）——待复核（触发点待逐条定位）"
+    },
+    "MC_POST_NPC_DEATH": {
+      "id": 29,
+      "name": "MC_POST_NPC_DEATH",
+      "args": "([EntityNPC](../EntityNPC.md))",
+      "returns": "void",
+      "status": "hookable",
+      "where": "",
+      "note": "每帧对实体集合做差分推断（消失=移除/死亡）——⚠️ 无法区分「死亡」与「被移除」时为已知局限"
+    },
+    "MC_PRE_NPC_COLLISION": {
+      "id": 30,
+      "name": "MC_PRE_NPC_COLLISION",
+      "args": "([EntityNPC](../EntityNPC.md),<br>Collider [[Entity](../Entity.md)],<br>Low [bool])",
+      "returns": "boolean",
+      "status": "needs_hook",
+      "where": "",
+      "note": "需要挂在游戏的判定点（可改返回值）——触发点待逐条定位"
+    },
+    "MC_POST_PLAYER_UPDATE": {
+      "id": 31,
+      "name": "MC_POST_PLAYER_UPDATE",
+      "args": "([EntityPlayer](../EntityPlayer.md))",
+      "returns": "void",
+      "status": "dispatched",
+      "where": "callback_descriptor.hpp: kCallbackPostPlayerUpdate",
+      "note": "2026-09-18 批次 010 接线：每帧时机（`DispatchPostUpdate` 里的实体族扫描）+ 按 `EntityType` 分派（`ClassifyCallbackEntity`），逐实体派发。已知差异：最多比 PC 晚一帧；只在有人登记时才遍历实体表（⇒ 设备读数的计数代表『有人听的时候』）。"
+    },
+    "MC_POST_PLAYER_RENDER": {
+      "id": 32,
+      "name": "MC_POST_PLAYER_RENDER",
+      "args": "([EntityPlayer](../EntityPlayer.md),<br>RenderOffset [Vector])",
+      "returns": "void",
+      "status": "dispatched",
+      "where": "callback_descriptor.hpp: kCallbackPostPlayerRender",
+      "note": "2026-09-18 批次 010 接线：渲染时机（`Manager::Render` 那条每帧渲染回调同一个派发窗口）+ 按 `EntityType` 分派，逐实体派发，实参 = (mod, 实体, RenderOffset)。⚠️ 已知差异：`RenderOffset` 取『房间渲染滚动偏移 + 游戏屏幕调整量』两项之和（两个字段都已 confirmed），**尚未逐字核对** PC 是否就是这么算的；读不到偏移时整族不派发（宁可这一帧没有事件，也不给模组假数据）。"
+    },
+    "MC_PRE_PLAYER_COLLISION": {
+      "id": 33,
+      "name": "MC_PRE_PLAYER_COLLISION",
+      "args": "([EntityPlayer](../EntityPlayer.md),<br>Collider [[Entity](../Entity.md)],<br>Low [bool])",
+      "returns": "boolean",
+      "status": "needs_hook",
+      "where": "",
+      "note": "需要挂在游戏的判定点（可改返回值）——触发点待逐条定位"
+    },
+    "MC_POST_PICKUP_INIT": {
+      "id": 34,
+      "name": "MC_POST_PICKUP_INIT",
+      "args": "([EntityPickup](../EntityPickup.md))",
+      "returns": "void",
+      "status": "dispatched",
+      "where": "callback_descriptor.hpp: kCallbackPostPickupInit",
+      "note": "每帧扫房间活动实体表，『上一帧没见过的掉落物』派发一次，参数是该实体的 `Entity` 句柄。⚠️ 已知差异：进新房间时房间里原本摆着的掉落物会各收到一次（PC 上它们在房间生成时就被初始化，而那时模组通常已加载完）⇒ 补发优于漏发，但确实比 PC 多。见 `DispatchFrameEvents` 的注释"
+    },
+    "MC_POST_PICKUP_UPDATE": {
+      "id": 35,
+      "name": "MC_POST_PICKUP_UPDATE",
+      "args": "([EntityPickup](../EntityPickup.md))",
+      "returns": "void",
+      "status": "dispatched",
+      "where": "callback_descriptor.hpp: kCallbackPostPickupUpdate",
+      "note": "每帧扫房间活动实体表，逐个掉落物派发，参数是该实体的 `Entity` 句柄（与 `Isaac.GetRoomEntities()` 同一种视图）"
+    },
+    "MC_POST_PICKUP_RENDER": {
+      "id": 36,
+      "name": "MC_POST_PICKUP_RENDER",
+      "args": "([EntityPickup](../EntityPickup.md),<br>RenderOffset [Vector])",
+      "returns": "void",
+      "status": "dispatched",
+      "where": "callback_descriptor.hpp: kCallbackPostPickupRender",
+      "note": "2026-09-18 批次 010 接线：渲染时机（`Manager::Render` 那条每帧渲染回调同一个派发窗口）+ 按 `EntityType` 分派，逐实体派发，实参 = (mod, 实体, RenderOffset)。⚠️ 已知差异：`RenderOffset` 取『房间渲染滚动偏移 + 游戏屏幕调整量』两项之和（两个字段都已 confirmed），**尚未逐字核对** PC 是否就是这么算的；读不到偏移时整族不派发（宁可这一帧没有事件，也不给模组假数据）。"
+    },
+    "MC_POST_PICKUP_SELECTION": {
+      "id": 37,
+      "name": "MC_POST_PICKUP_SELECTION",
+      "args": "([EntityPickup](../EntityPickup.md),<br>Variant [int],<br>Subtype [int])",
+      "returns": "table",
+      "status": "hookable",
+      "where": "",
+      "note": "每帧对实体集合做差分推断（消失=移除/死亡）——⚠️ 无法区分「死亡」与「被移除」时为已知局限"
+    },
+    "MC_PRE_PICKUP_COLLISION": {
+      "id": 38,
+      "name": "MC_PRE_PICKUP_COLLISION",
+      "args": "([EntityPickup](../EntityPickup.md),<br>Collider [[Entity](../Entity.md)],<br>Low [bool])",
+      "returns": "boolean",
+      "status": "needs_hook",
+      "where": "",
+      "note": "需要挂在游戏的判定点（可改返回值）——触发点待逐条定位"
+    },
+    "MC_POST_TEAR_INIT": {
+      "id": 39,
+      "name": "MC_POST_TEAR_INIT",
+      "args": "([EntityTear](../EntityTear.md))",
+      "returns": "void",
+      "status": "dispatched",
+      "where": "callback_descriptor.hpp: kCallbackPostTearInit",
+      "note": "2026-09-18 批次 010 接线：每帧时机 + 『见过』指针表（按实体类各一张，以房间为生命周期，换房清空）差分派发。已知差异：**每次进新房间**，房间里原本就摆着的该类实体会各收到一次 INIT（PC 上它们在房间生成时就初始化过 ⇒ 补发比漏发更接近 PC 观感）；表满时不再记、也不再报『新』（宁可漏发，也不每帧重复发）。"
+    },
+    "MC_POST_TEAR_UPDATE": {
+      "id": 40,
+      "name": "MC_POST_TEAR_UPDATE",
+      "args": "([EntityTear](../EntityTear.md))",
+      "returns": "void",
+      "status": "dispatched",
+      "where": "callback_descriptor.hpp: kCallbackPostTearUpdate",
+      "note": "2026-09-18 批次 010 接线：每帧时机（`DispatchPostUpdate` 里的实体族扫描）+ 按 `EntityType` 分派（`ClassifyCallbackEntity`），逐实体派发。已知差异：最多比 PC 晚一帧；只在有人登记时才遍历实体表（⇒ 设备读数的计数代表『有人听的时候』）。"
+    },
+    "MC_POST_TEAR_RENDER": {
+      "id": 41,
+      "name": "MC_POST_TEAR_RENDER",
+      "args": "([EntityTear](../EntityTear.md),<br>RenderOffset [Vector])",
+      "returns": "void",
+      "status": "dispatched",
+      "where": "callback_descriptor.hpp: kCallbackPostTearRender",
+      "note": "2026-09-18 批次 010 接线：渲染时机（`Manager::Render` 那条每帧渲染回调同一个派发窗口）+ 按 `EntityType` 分派，逐实体派发，实参 = (mod, 实体, RenderOffset)。⚠️ 已知差异：`RenderOffset` 取『房间渲染滚动偏移 + 游戏屏幕调整量』两项之和（两个字段都已 confirmed），**尚未逐字核对** PC 是否就是这么算的；读不到偏移时整族不派发（宁可这一帧没有事件，也不给模组假数据）。"
+    },
+    "MC_PRE_TEAR_COLLISION": {
+      "id": 42,
+      "name": "MC_PRE_TEAR_COLLISION",
+      "args": "([EntityTear](../EntityTear.md),<br>Collider [[Entity](../Entity.md)],<br>Low [bool])",
+      "returns": "boolean",
+      "status": "needs_hook",
+      "where": "",
+      "note": "需要挂在游戏的判定点（可改返回值）——触发点待逐条定位"
+    },
+    "MC_POST_PROJECTILE_INIT": {
+      "id": 43,
+      "name": "MC_POST_PROJECTILE_INIT",
+      "args": "([EntityProjectile](../EntityProjectile.md))",
+      "returns": "void",
+      "status": "dispatched",
+      "where": "callback_descriptor.hpp: kCallbackPostProjectileInit",
+      "note": "2026-09-18 批次 010 接线：每帧时机 + 『见过』指针表（按实体类各一张，以房间为生命周期，换房清空）差分派发。已知差异：**每次进新房间**，房间里原本就摆着的该类实体会各收到一次 INIT（PC 上它们在房间生成时就初始化过 ⇒ 补发比漏发更接近 PC 观感）；表满时不再记、也不再报『新』（宁可漏发，也不每帧重复发）。"
+    },
+    "MC_POST_PROJECTILE_UPDATE": {
+      "id": 44,
+      "name": "MC_POST_PROJECTILE_UPDATE",
+      "args": "([EntityProjectile](../EntityProjectile.md))",
+      "returns": "void",
+      "status": "dispatched",
+      "where": "callback_descriptor.hpp: kCallbackPostProjectileUpdate",
+      "note": "2026-09-18 批次 010 接线：每帧时机（`DispatchPostUpdate` 里的实体族扫描）+ 按 `EntityType` 分派（`ClassifyCallbackEntity`），逐实体派发。已知差异：最多比 PC 晚一帧；只在有人登记时才遍历实体表（⇒ 设备读数的计数代表『有人听的时候』）。"
+    },
+    "MC_POST_PROJECTILE_RENDER": {
+      "id": 45,
+      "name": "MC_POST_PROJECTILE_RENDER",
+      "args": "([EntityProjectile](../EntityProjectile.md),<br>RenderOffset [Vector])",
+      "returns": "void",
+      "status": "dispatched",
+      "where": "callback_descriptor.hpp: kCallbackPostProjectileRender",
+      "note": "2026-09-18 批次 010 接线：渲染时机（`Manager::Render` 那条每帧渲染回调同一个派发窗口）+ 按 `EntityType` 分派，逐实体派发，实参 = (mod, 实体, RenderOffset)。⚠️ 已知差异：`RenderOffset` 取『房间渲染滚动偏移 + 游戏屏幕调整量』两项之和（两个字段都已 confirmed），**尚未逐字核对** PC 是否就是这么算的；读不到偏移时整族不派发（宁可这一帧没有事件，也不给模组假数据）。"
+    },
+    "MC_PRE_PROJECTILE_COLLISION": {
+      "id": 46,
+      "name": "MC_PRE_PROJECTILE_COLLISION",
+      "args": "([EntityProjectile](../EntityProjectile.md),<br>Collider [[Entity](../Entity.md)],<br>Low [bool])",
+      "returns": "boolean",
+      "status": "needs_hook",
+      "where": "",
+      "note": "需要挂在游戏的判定点（可改返回值）——触发点待逐条定位"
+    },
+    "MC_POST_LASER_INIT": {
+      "id": 47,
+      "name": "MC_POST_LASER_INIT",
+      "args": "([EntityLaser](../EntityLaser.md))",
+      "returns": "void",
+      "status": "dispatched",
+      "where": "callback_descriptor.hpp: kCallbackPostLaserInit",
+      "note": "2026-09-18 批次 010 接线：每帧时机 + 『见过』指针表（按实体类各一张，以房间为生命周期，换房清空）差分派发。已知差异：**每次进新房间**，房间里原本就摆着的该类实体会各收到一次 INIT（PC 上它们在房间生成时就初始化过 ⇒ 补发比漏发更接近 PC 观感）；表满时不再记、也不再报『新』（宁可漏发，也不每帧重复发）。"
+    },
+    "MC_POST_LASER_UPDATE": {
+      "id": 48,
+      "name": "MC_POST_LASER_UPDATE",
+      "args": "([EntityLaser](../EntityLaser.md))",
+      "returns": "void",
+      "status": "dispatched",
+      "where": "callback_descriptor.hpp: kCallbackPostLaserUpdate",
+      "note": "2026-09-18 批次 010 接线：每帧时机（`DispatchPostUpdate` 里的实体族扫描）+ 按 `EntityType` 分派（`ClassifyCallbackEntity`），逐实体派发。已知差异：最多比 PC 晚一帧；只在有人登记时才遍历实体表（⇒ 设备读数的计数代表『有人听的时候』）。"
+    },
+    "MC_POST_LASER_RENDER": {
+      "id": 49,
+      "name": "MC_POST_LASER_RENDER",
+      "args": "([EntityLaser](../EntityLaser.md),<br>RenderOffset [Vector])",
+      "returns": "void",
+      "status": "dispatched",
+      "where": "callback_descriptor.hpp: kCallbackPostLaserRender",
+      "note": "2026-09-18 批次 010 接线：渲染时机（`Manager::Render` 那条每帧渲染回调同一个派发窗口）+ 按 `EntityType` 分派，逐实体派发，实参 = (mod, 实体, RenderOffset)。⚠️ 已知差异：`RenderOffset` 取『房间渲染滚动偏移 + 游戏屏幕调整量』两项之和（两个字段都已 confirmed），**尚未逐字核对** PC 是否就是这么算的；读不到偏移时整族不派发（宁可这一帧没有事件，也不给模组假数据）。"
+    },
+    "MC_POST_KNIFE_INIT": {
+      "id": 50,
+      "name": "MC_POST_KNIFE_INIT",
+      "args": "([EntityKnife](../EntityKnife.md))",
+      "returns": "void",
+      "status": "dispatched",
+      "where": "callback_descriptor.hpp: kCallbackPostKnifeInit",
+      "note": "2026-09-18 批次 010 接线：每帧时机 + 『见过』指针表（按实体类各一张，以房间为生命周期，换房清空）差分派发。已知差异：**每次进新房间**，房间里原本就摆着的该类实体会各收到一次 INIT（PC 上它们在房间生成时就初始化过 ⇒ 补发比漏发更接近 PC 观感）；表满时不再记、也不再报『新』（宁可漏发，也不每帧重复发）。"
+    },
+    "MC_POST_KNIFE_UPDATE": {
+      "id": 51,
+      "name": "MC_POST_KNIFE_UPDATE",
+      "args": "([EntityKnife](../EntityKnife.md))",
+      "returns": "void",
+      "status": "dispatched",
+      "where": "callback_descriptor.hpp: kCallbackPostKnifeUpdate",
+      "note": "2026-09-18 批次 010 接线：每帧时机（`DispatchPostUpdate` 里的实体族扫描）+ 按 `EntityType` 分派（`ClassifyCallbackEntity`），逐实体派发。已知差异：最多比 PC 晚一帧；只在有人登记时才遍历实体表（⇒ 设备读数的计数代表『有人听的时候』）。"
+    },
+    "MC_POST_KNIFE_RENDER": {
+      "id": 52,
+      "name": "MC_POST_KNIFE_RENDER",
+      "args": "([EntityKnife](../EntityKnife.md),<br>RenderOffset [Vector])",
+      "returns": "void",
+      "status": "dispatched",
+      "where": "callback_descriptor.hpp: kCallbackPostKnifeRender",
+      "note": "2026-09-18 批次 010 接线：渲染时机（`Manager::Render` 那条每帧渲染回调同一个派发窗口）+ 按 `EntityType` 分派，逐实体派发，实参 = (mod, 实体, RenderOffset)。⚠️ 已知差异：`RenderOffset` 取『房间渲染滚动偏移 + 游戏屏幕调整量』两项之和（两个字段都已 confirmed），**尚未逐字核对** PC 是否就是这么算的；读不到偏移时整族不派发（宁可这一帧没有事件，也不给模组假数据）。"
+    },
+    "MC_PRE_KNIFE_COLLISION": {
+      "id": 53,
+      "name": "MC_PRE_KNIFE_COLLISION",
+      "args": "([EntityKnife](../EntityKnife.md),<br>Collider [[Entity](../Entity.md)],<br>Low [bool])",
+      "returns": "boolean",
+      "status": "needs_hook",
+      "where": "",
+      "note": "需要挂在游戏的判定点（可改返回值）——触发点待逐条定位"
+    },
+    "MC_POST_EFFECT_INIT": {
+      "id": 54,
+      "name": "MC_POST_EFFECT_INIT",
+      "args": "([EntityEffect](../EntityEffect.md))",
+      "returns": "void",
+      "status": "dispatched",
+      "where": "callback_descriptor.hpp: kCallbackPostEffectInit",
+      "note": "2026-09-18 批次 010 接线：每帧时机 + 『见过』指针表（按实体类各一张，以房间为生命周期，换房清空）差分派发。已知差异：**每次进新房间**，房间里原本就摆着的该类实体会各收到一次 INIT（PC 上它们在房间生成时就初始化过 ⇒ 补发比漏发更接近 PC 观感）；表满时不再记、也不再报『新』（宁可漏发，也不每帧重复发）。"
+    },
+    "MC_POST_EFFECT_UPDATE": {
+      "id": 55,
+      "name": "MC_POST_EFFECT_UPDATE",
+      "args": "([EntityEffect](../EntityEffect.md))",
+      "returns": "void",
+      "status": "dispatched",
+      "where": "callback_descriptor.hpp: kCallbackPostEffectUpdate",
+      "note": "2026-09-18 批次 010 接线：每帧时机（`DispatchPostUpdate` 里的实体族扫描）+ 按 `EntityType` 分派（`ClassifyCallbackEntity`），逐实体派发。已知差异：最多比 PC 晚一帧；只在有人登记时才遍历实体表（⇒ 设备读数的计数代表『有人听的时候』）。"
+    },
+    "MC_POST_EFFECT_RENDER": {
+      "id": 56,
+      "name": "MC_POST_EFFECT_RENDER",
+      "args": "([EntityEffect](../EntityEffect.md),<br>RenderOffset [Vector])",
+      "returns": "void",
+      "status": "dispatched",
+      "where": "callback_descriptor.hpp: kCallbackPostEffectRender",
+      "note": "2026-09-18 批次 010 接线：渲染时机（`Manager::Render` 那条每帧渲染回调同一个派发窗口）+ 按 `EntityType` 分派，逐实体派发，实参 = (mod, 实体, RenderOffset)。⚠️ 已知差异：`RenderOffset` 取『房间渲染滚动偏移 + 游戏屏幕调整量』两项之和（两个字段都已 confirmed），**尚未逐字核对** PC 是否就是这么算的；读不到偏移时整族不派发（宁可这一帧没有事件，也不给模组假数据）。"
+    },
+    "MC_POST_BOMB_INIT": {
+      "id": 57,
+      "name": "MC_POST_BOMB_INIT",
+      "args": "([EntityBomb](../EntityBomb.md))",
+      "returns": "void",
+      "status": "dispatched",
+      "where": "callback_descriptor.hpp: kCallbackPostBombInit",
+      "note": "2026-09-18 批次 010 接线：每帧时机 + 『见过』指针表（按实体类各一张，以房间为生命周期，换房清空）差分派发。已知差异：**每次进新房间**，房间里原本就摆着的该类实体会各收到一次 INIT（PC 上它们在房间生成时就初始化过 ⇒ 补发比漏发更接近 PC 观感）；表满时不再记、也不再报『新』（宁可漏发，也不每帧重复发）。"
+    },
+    "MC_POST_BOMB_UPDATE": {
+      "id": 58,
+      "name": "MC_POST_BOMB_UPDATE",
+      "args": "([EntityBomb](../EntityBomb.md))",
+      "returns": "void",
+      "status": "dispatched",
+      "where": "callback_descriptor.hpp: kCallbackPostBombUpdate",
+      "note": "2026-09-18 批次 010 接线：每帧时机（`DispatchPostUpdate` 里的实体族扫描）+ 按 `EntityType` 分派（`ClassifyCallbackEntity`），逐实体派发。已知差异：最多比 PC 晚一帧；只在有人登记时才遍历实体表（⇒ 设备读数的计数代表『有人听的时候』）。"
+    },
+    "MC_POST_BOMB_RENDER": {
+      "id": 59,
+      "name": "MC_POST_BOMB_RENDER",
+      "args": "([EntityBomb](../EntityBomb.md),<br>Offset [Vector])",
+      "returns": "void",
+      "status": "dispatched",
+      "where": "callback_descriptor.hpp: kCallbackPostBombRender",
+      "note": "2026-09-18 批次 010 接线：渲染时机（`Manager::Render` 那条每帧渲染回调同一个派发窗口）+ 按 `EntityType` 分派，逐实体派发，实参 = (mod, 实体, RenderOffset)。⚠️ 已知差异：`RenderOffset` 取『房间渲染滚动偏移 + 游戏屏幕调整量』两项之和（两个字段都已 confirmed），**尚未逐字核对** PC 是否就是这么算的；读不到偏移时整族不派发（宁可这一帧没有事件，也不给模组假数据）。"
+    },
+    "MC_PRE_BOMB_COLLISION": {
+      "id": 60,
+      "name": "MC_PRE_BOMB_COLLISION",
+      "args": "([EntityBomb](../EntityBomb.md),<br>Collider [[Entity](../Entity.md)],<br>Low [bool])",
+      "returns": "boolean",
+      "status": "needs_hook",
+      "where": "",
+      "note": "需要挂在游戏的判定点（可改返回值）——触发点待逐条定位"
+    },
+    "MC_POST_FIRE_TEAR": {
+      "id": 61,
+      "name": "MC_POST_FIRE_TEAR",
+      "args": "([EntityTear](../EntityTear.md))",
+      "returns": "void",
+      "status": "hookable",
+      "where": "",
+      "note": "每帧对实体集合做差分推断（消失=移除/死亡）——⚠️ 无法区分「死亡」与「被移除」时为已知局限"
+    },
+    "MC_PRE_GET_COLLECTIBLE": {
+      "id": 62,
+      "name": "MC_PRE_GET_COLLECTIBLE",
+      "args": "([ItemPoolType](ItemPoolType.md),<br>Decrease [bool],<br>Seed [int])",
+      "returns": "[CollectibleType](CollectibleType.md)",
+      "status": "dispatched",
+      "where": "callback_descriptor.hpp: kCallbackPreGetCollectible",
+      "note": ""
+    },
+    "MC_POST_GET_COLLECTIBLE": {
+      "id": 63,
+      "name": "MC_POST_GET_COLLECTIBLE",
+      "args": "(SelectedCollectible [[CollectibleType](CollectibleType.md)],<br>[ItemPoolType](ItemPoolType.md),<br>Decrease [bool],<br>Seed [int])",
+      "returns": "[CollectibleType](CollectibleType.md)",
+      "status": "needs_hook",
+      "where": "",
+      "note": "需要挂在游戏的判定点（可改返回值）——触发点待逐条定位"
+    },
+    "MC_GET_PILL_COLOR": {
+      "id": 64,
+      "name": "MC_GET_PILL_COLOR",
+      "args": "(Seed [int])",
+      "returns": "[PillColor](PillColor.md)",
+      "status": "needs_hook",
+      "where": "",
+      "note": "需要挂在游戏的判定点（可改返回值）——触发点待逐条定位"
+    },
+    "MC_GET_PILL_EFFECT": {
+      "id": 65,
+      "name": "MC_GET_PILL_EFFECT",
+      "args": "(SelectedPillEffect [[PillEffect](PillEffect.md)],<br>PillColor)",
+      "returns": "[[PillEffect](PillEffect.md)]",
+      "status": "needs_hook",
+      "where": "",
+      "note": "需要挂在游戏的判定点（可改返回值）——触发点待逐条定位"
+    },
+    "MC_GET_TRINKET": {
+      "id": 66,
+      "name": "MC_GET_TRINKET",
+      "args": "(SelectedTrinket [[TrinketType](TrinketType.md)],<br>[RNG](../RNG.md))",
+      "returns": "[[TrinketType](TrinketType.md)]",
+      "status": "needs_hook",
+      "where": "",
+      "note": "需要挂在游戏的判定点（可改返回值）——触发点待逐条定位"
+    },
+    "MC_POST_ENTITY_REMOVE": {
+      "id": 67,
+      "name": "MC_POST_ENTITY_REMOVE",
+      "args": "([Entity](../Entity.md))",
+      "returns": "void",
+      "status": "hookable",
+      "where": "",
+      "note": "每帧对实体集合做差分推断（消失=移除/死亡）——⚠️ 无法区分「死亡」与「被移除」时为已知局限"
+    },
+    "MC_POST_ENTITY_KILL": {
+      "id": 68,
+      "name": "MC_POST_ENTITY_KILL",
+      "args": "([Entity](../Entity.md))",
+      "returns": "void",
+      "status": "hookable",
+      "where": "",
+      "note": "每帧对实体集合做差分推断（消失=移除/死亡）——⚠️ 无法区分「死亡」与「被移除」时为已知局限"
+    },
+    "MC_PRE_NPC_UPDATE": {
+      "id": 69,
+      "name": "MC_PRE_NPC_UPDATE",
+      "args": "([EntityNPC](../EntityNPC.md))",
+      "returns": "boolean",
+      "status": "needs_hook",
+      "where": "",
+      "note": "需要挂在游戏的判定点（返回 boolean、能阻止该 NPC 本帧更新）——触发点待定位；⚠️ 分类规则按名称前缀扫描时曾把 PRE_* 误判为可派发，已修正"
+    },
+    "MC_PRE_SPAWN_CLEAN_AWARD": {
+      "id": 70,
+      "name": "MC_PRE_SPAWN_CLEAN_AWARD",
+      "args": "([RNG](../RNG.md),<br>SpawnPosition [Vector])",
+      "returns": "boolean",
+      "status": "needs_hook",
+      "where": "",
+      "note": "需要挂在游戏的判定点（可改返回值）——触发点待逐条定位"
+    },
+    "MC_PRE_ROOM_ENTITY_SPAWN": {
+      "id": 71,
+      "name": "MC_PRE_ROOM_ENTITY_SPAWN",
+      "args": "([EntityType](EntityType.md),<br>Variant [int],<br>SubType [int],<br>GridIndex [int],<br>Seed [int])",
+      "returns": "table",
+      "status": "needs_hook",
+      "where": "",
+      "note": "需要挂在游戏的判定点（可改返回值）——触发点待逐条定位"
+    },
+    "MC_PRE_ENTITY_DEVOLVE": {
+      "id": 72,
+      "name": "MC_PRE_ENTITY_DEVOLVE",
+      "args": "([Entity](../Entity.md))",
+      "returns": "boolean",
+      "status": "needs_hook",
+      "where": "",
+      "note": "需要挂在游戏的判定点（可改返回值）——触发点待逐条定位"
+    },
+    "MC_PRE_MOD_UNLOAD": {
+      "id": 73,
+      "name": "MC_PRE_MOD_UNLOAD",
+      "args": "table Mod",
+      "returns": "void",
+      "status": "needs_hook",
+      "where": "",
+      "note": "需要「模组卸载」时机（我们自己的模组管理里有）——待复核（触发点待逐条定位）"
+    }
+  },
+  "source_of_truth": "analysis/isaacdocs-snapshot/docs/enums/ModCallbacks.md",
+  "note": "环境面地基 · 回调：PC 74 条（真值源 analysis/isaacdocs-snapshot/docs/enums/ModCallbacks.md）。status 口径见 tools/callback_surface.py 头部：dispatched 已派发 / hookable 靠现有时机或状态推断即可派发 / needs_hook 必须新写挂点 / platform 平台限制 / unknown 还没查。本批把 69 条未派发的按「靠什么时机」分了类 —— 这是批量恢复的路线图：hookable 那批不必动游戏代码，needs_hook 那批要先逐条定位触发点。",
+  "pc_entries_snapshot": [
+    {
+      "id": 0,
+      "name": "MC_NPC_UPDATE"
+    },
+    {
+      "id": 1,
+      "name": "MC_POST_UPDATE"
+    },
+    {
+      "id": 2,
+      "name": "MC_POST_RENDER"
+    },
+    {
+      "id": 3,
+      "name": "MC_USE_ITEM"
+    },
+    {
+      "id": 4,
+      "name": "MC_POST_PEFFECT_UPDATE"
+    },
+    {
+      "id": 5,
+      "name": "MC_USE_CARD"
+    },
+    {
+      "id": 6,
+      "name": "MC_FAMILIAR_UPDATE"
+    },
+    {
+      "id": 7,
+      "name": "MC_FAMILIAR_INIT"
+    },
+    {
+      "id": 8,
+      "name": "MC_EVALUATE_CACHE"
+    },
+    {
+      "id": 9,
+      "name": "MC_POST_PLAYER_INIT"
+    },
+    {
+      "id": 10,
+      "name": "MC_USE_PILL"
+    },
+    {
+      "id": 11,
+      "name": "MC_ENTITY_TAKE_DMG"
+    },
+    {
+      "id": 12,
+      "name": "MC_POST_CURSE_EVAL"
+    },
+    {
+      "id": 13,
+      "name": "MC_INPUT_ACTION"
+    },
+    {
+      "id": 14,
+      "name": "MC_LEVEL_GENERATOR"
+    },
+    {
+      "id": 15,
+      "name": "MC_POST_GAME_STARTED"
+    },
+    {
+      "id": 16,
+      "name": "MC_POST_GAME_END"
+    },
+    {
+      "id": 17,
+      "name": "MC_PRE_GAME_EXIT"
+    },
+    {
+      "id": 18,
+      "name": "MC_POST_NEW_LEVEL"
+    },
+    {
+      "id": 19,
+      "name": "MC_POST_NEW_ROOM"
+    },
+    {
+      "id": 20,
+      "name": "MC_GET_CARD"
+    },
+    {
+      "id": 21,
+      "name": "MC_GET_SHADER_PARAMS"
+    },
+    {
+      "id": 22,
+      "name": "MC_EXECUTE_CMD"
+    },
+    {
+      "id": 23,
+      "name": "MC_PRE_USE_ITEM"
+    },
+    {
+      "id": 24,
+      "name": "MC_PRE_ENTITY_SPAWN"
+    },
+    {
+      "id": 25,
+      "name": "MC_POST_FAMILIAR_RENDER"
+    },
+    {
+      "id": 26,
+      "name": "MC_PRE_FAMILIAR_COLLISION"
+    },
+    {
+      "id": 27,
+      "name": "MC_POST_NPC_INIT"
+    },
+    {
+      "id": 28,
+      "name": "MC_POST_NPC_RENDER"
+    },
+    {
+      "id": 29,
+      "name": "MC_POST_NPC_DEATH"
+    },
+    {
+      "id": 30,
+      "name": "MC_PRE_NPC_COLLISION"
+    },
+    {
+      "id": 31,
+      "name": "MC_POST_PLAYER_UPDATE"
+    },
+    {
+      "id": 32,
+      "name": "MC_POST_PLAYER_RENDER"
+    },
+    {
+      "id": 33,
+      "name": "MC_PRE_PLAYER_COLLISION"
+    },
+    {
+      "id": 34,
+      "name": "MC_POST_PICKUP_INIT"
+    },
+    {
+      "id": 35,
+      "name": "MC_POST_PICKUP_UPDATE"
+    },
+    {
+      "id": 36,
+      "name": "MC_POST_PICKUP_RENDER"
+    },
+    {
+      "id": 37,
+      "name": "MC_POST_PICKUP_SELECTION"
+    },
+    {
+      "id": 38,
+      "name": "MC_PRE_PICKUP_COLLISION"
+    },
+    {
+      "id": 39,
+      "name": "MC_POST_TEAR_INIT"
+    },
+    {
+      "id": 40,
+      "name": "MC_POST_TEAR_UPDATE"
+    },
+    {
+      "id": 41,
+      "name": "MC_POST_TEAR_RENDER"
+    },
+    {
+      "id": 42,
+      "name": "MC_PRE_TEAR_COLLISION"
+    },
+    {
+      "id": 43,
+      "name": "MC_POST_PROJECTILE_INIT"
+    },
+    {
+      "id": 44,
+      "name": "MC_POST_PROJECTILE_UPDATE"
+    },
+    {
+      "id": 45,
+      "name": "MC_POST_PROJECTILE_RENDER"
+    },
+    {
+      "id": 46,
+      "name": "MC_PRE_PROJECTILE_COLLISION"
+    },
+    {
+      "id": 47,
+      "name": "MC_POST_LASER_INIT"
+    },
+    {
+      "id": 48,
+      "name": "MC_POST_LASER_UPDATE"
+    },
+    {
+      "id": 49,
+      "name": "MC_POST_LASER_RENDER"
+    },
+    {
+      "id": 50,
+      "name": "MC_POST_KNIFE_INIT"
+    },
+    {
+      "id": 51,
+      "name": "MC_POST_KNIFE_UPDATE"
+    },
+    {
+      "id": 52,
+      "name": "MC_POST_KNIFE_RENDER"
+    },
+    {
+      "id": 53,
+      "name": "MC_PRE_KNIFE_COLLISION"
+    },
+    {
+      "id": 54,
+      "name": "MC_POST_EFFECT_INIT"
+    },
+    {
+      "id": 55,
+      "name": "MC_POST_EFFECT_UPDATE"
+    },
+    {
+      "id": 56,
+      "name": "MC_POST_EFFECT_RENDER"
+    },
+    {
+      "id": 57,
+      "name": "MC_POST_BOMB_INIT"
+    },
+    {
+      "id": 58,
+      "name": "MC_POST_BOMB_UPDATE"
+    },
+    {
+      "id": 59,
+      "name": "MC_POST_BOMB_RENDER"
+    },
+    {
+      "id": 60,
+      "name": "MC_PRE_BOMB_COLLISION"
+    },
+    {
+      "id": 61,
+      "name": "MC_POST_FIRE_TEAR"
+    },
+    {
+      "id": 62,
+      "name": "MC_PRE_GET_COLLECTIBLE"
+    },
+    {
+      "id": 63,
+      "name": "MC_POST_GET_COLLECTIBLE"
+    },
+    {
+      "id": 64,
+      "name": "MC_GET_PILL_COLOR"
+    },
+    {
+      "id": 65,
+      "name": "MC_GET_PILL_EFFECT"
+    },
+    {
+      "id": 66,
+      "name": "MC_GET_TRINKET"
+    },
+    {
+      "id": 67,
+      "name": "MC_POST_ENTITY_REMOVE"
+    },
+    {
+      "id": 68,
+      "name": "MC_POST_ENTITY_KILL"
+    },
+    {
+      "id": 69,
+      "name": "MC_PRE_NPC_UPDATE"
+    },
+    {
+      "id": 70,
+      "name": "MC_PRE_SPAWN_CLEAN_AWARD"
+    },
+    {
+      "id": 71,
+      "name": "MC_PRE_ROOM_ENTITY_SPAWN"
+    },
+    {
+      "id": 72,
+      "name": "MC_PRE_ENTITY_DEVOLVE"
+    },
+    {
+      "id": 73,
+      "name": "MC_PRE_MOD_UNLOAD"
+    }
+  ],
+  "pc_entries_snapshot_note": "PC 侧回调名单的**快照**（id + 名称），由 tools/callback_surface.py 从文档快照解析后写入。为什么要存这份：真值源 `analysis/isaacdocs-snapshot/…/ModCallbacks.md` 位于 `.gitignore` 的 `analysis/` 里、**不进 git**，而 `test_game_file_reader_stage10` 会用 `git ls-files` 复制工作区跑门禁 ⇒ 门禁若直接读那份文档就会在副本里失败（2026-09-17 实测踩到）。所以门禁只读本快照。"
+}

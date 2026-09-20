@@ -130,7 +130,9 @@ Status EngineDirectoryAdapter::ListSubdirectories(std::string_view relativePath,
         return Status{StatusCode::NotFound};
     }
 
-    // 返回的指针是**第一个条目**（条目数经 `reported` 给出）。
+    // 返回的指针是**第一个条目**（条目数经 `reported` 给出），而**不是分配起点**：
+    // 分配起点在它前面 `kDirectoryEntryCountHeaderSize` 字节（块首 8 字节存条目数，见
+    // `runtime_constants.hpp` 的取证注释）。释放必须回到分配起点，否则就是释放一个偏移指针。
     std::size_t directories = 0;
     Status status{StatusCode::Ok};
     for (std::uint32_t index = 0; index < reported; ++index) {
@@ -156,7 +158,17 @@ Status EngineDirectoryAdapter::ListSubdirectories(std::string_view relativePath,
         target.name[length] = '\0';
         ++directories;
     }
+    // 必须传**分配起点**（返回值 - 8），不能用返回值直接释放 —— 那会踩坏游戏线程本地堆
+    // 的空闲链表，症状是几层调用之后在一次不相干的分配里 Data Abort（真机见续三十七）。
+    //
+    // ★ `EXL_LEGACY_DIRECTORY_BLOCK_FREE=1` 是**只用于单变量对照**的开关（2026-09-17 加）：
+    //   打开就退回"拿返回值直接释放"的**旧（错）行为**，用来回答"问题 1 到底是这条修复治好的，
+    //   还是 `Present` 汇编转发桩治好的"。**正式形状永远是 0**（默认），不要拿它做交付。
+#if defined(EXL_LEGACY_DIRECTORY_BLOCK_FREE) && EXL_LEGACY_DIRECTORY_BLOCK_FREE == 1
     calls.arrayDelete(block);
+#else
+    calls.arrayDelete(static_cast<std::uint8_t*>(block) - kDirectoryEntryCountHeaderSize);
+#endif
 
     if (!status.ok()) {
         *count = 0;
