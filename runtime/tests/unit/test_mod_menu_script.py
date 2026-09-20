@@ -11,9 +11,10 @@
 然后直接调用它登记的那两个回调，检查这些可观察行为：
 
 1. 一开始菜单是关着的，渲染回调什么都不画；
-2. 按一下 ACTION_MAP ⇒ 菜单打开，并且把 `RuntimeMods.List()` 的物品清单画出来；
+2. **同时按住 `+` 再按一下 `-`**（组合键，批次 080 起）⇒ 菜单打开，并且把 `RuntimeMods.List()`
+   的物品清单画出来；**只按 `-` 不该打开**（那是游戏地图键，GoodTrip 也挂在它上面）；
 3. 上下键改选中项、A 键切换 ⇒ 调 `RuntimeMods.SetEnabled(目录, 布尔)`，并且标记"有改动"；
-4. B 键（或再按一次 ACTION_MAP）关闭 ⇒ **调 `RuntimeMods.Save()`**（这是"改了要保存"的判据）；
+4. B 键（或再按一次组合键）关闭 ⇒ **调 `RuntimeMods.Save()`**（这是"改了要保存"的判据）；
 5. 字体加载失败时只画一行提示、不抛错（菜单不能把游戏搞崩）；
 6. 加载到中文可用的字体时用中文标签，否则退回英文标签。
 
@@ -74,9 +75,12 @@ function fontObject:Load(path)
     return false
   end
   if FONT_MODE == "cjk" then
-    return path == "font/droid.fnt"
+    -- 2026-09-17 起：菜单先找**真正含中文字形**的字体（游戏自带字体都没有，实测过），
+    -- 所以这里模拟"EID 的中文字体在位"这一情形。
+    return path == "rom:/isaac_mods/mods/external item descriptions_836319872/resources/font/eid_cn_default.fnt"
   end
-  return path == "font/terminus.fnt"
+  -- ascii 模式：只有游戏自带的 ASCII 字体可用（此时菜单应当退回英文文案）
+  return path == "font/teammeatfont12.fnt"
 end
 function fontObject:DrawStringScaledUTF8(text, x, y, sx, sy, color)
   table.insert(log.draws, text)
@@ -96,6 +100,7 @@ local pressed = {}
 ButtonAction = {
   ACTION_MAP = 13, ACTION_ITEM = 9, ACTION_BOMB = 8, ACTION_UP = 2, ACTION_DOWN = 3,
   ACTION_MENUUP = 22, ACTION_MENUDOWN = 23, ACTION_MENUCONFIRM = 14, ACTION_MENUBACK = 15,
+  ACTION_PAUSE = 12, ACTION_MENUTAB = 26,
 }
 Input = {}
 -- ★ 真机结论（2026-09-16）：`IsActionTriggered`（"刚按下"）在我们的派发时机里抓不到边沿，
@@ -156,6 +161,17 @@ local function tap(code)
   pressed[code] = false
   update()
 end
+
+-- 呼出/收起菜单：**组合键**（按住 `+` 的同时按一下 `-`）。
+-- ★ 批次 080 的规格变更：单键 `-` 会同时触发游戏地图与 GoodTrip 的叠加（用户实测反馈），
+-- 所以菜单改成组合键。下面第 2) 步**只按 `-`** 的负例断言就是防止它退回单键。
+local function tap_open_chord()
+  pressed[ButtonAction.ACTION_PAUSE] = true
+  update()
+  tap(ButtonAction.ACTION_MAP)
+  pressed[ButtonAction.ACTION_PAUSE] = false
+  update()
+end
 local function render()
   callbacks[MC.MC_POST_RENDER]()
 end
@@ -176,8 +192,14 @@ log.draws = {}
 render()
 assert(#log.draws == 0, "菜单关着时不该画任何东西")
 
--- 2) 按 MAP 打开：应当画出两个模组
+-- 2a) 负例：**只按 `-` 不该开菜单**（`-` 是游戏地图键，GoodTrip 也挂在它上面）
 tap(ButtonAction.ACTION_MAP)
+log.draws = {}
+render()
+assert(#log.draws == 0, "只按 - 时菜单不该打开（会抢地图键）")
+
+-- 2b) 组合键（按住 + 再按 -）打开：应当画出两个模组
+tap_open_chord()
 log.draws = {}
 render()
 if font_available then
@@ -200,16 +222,16 @@ render()
 assert(#log.draws == 0, "关闭之后不该再画")
 
 -- 5) 再开一次、按 A 关掉当前项（ModA）：应当 SetEnabled("ModA", false)
-tap(ButtonAction.ACTION_MAP)
+tap_open_chord()
 tap(ButtonAction.ACTION_MENUCONFIRM)
 assert(log.setEnabled[2] == "ModA=false", "第二次切换应当关掉 ModA，实际 " ..
        tostring(log.setEnabled[2]))
-tap(ButtonAction.ACTION_MAP)
-assert(log.saves == 2, "用 MAP 关闭也应当保存，实际 " .. log.saves)
+tap_open_chord()
+assert(log.saves == 2, "用组合键关闭也应当保存，实际 " .. log.saves)
 
 -- 6) 字体加载失败：菜单打开也不抛错，且不画东西
 if FONT_MODE == "none" then
-  tap(ButtonAction.ACTION_MAP)
+  tap_open_chord()
   log.draws = {}
   render()
   assert(#log.draws == 0, "字体加载失败时不画文字（也不该报错）")
@@ -217,7 +239,7 @@ end
 
 -- 7) 标签语言随字体走（先把菜单重新打开，否则没有绘制内容可查）
 if font_available then
-  tap(ButtonAction.ACTION_MAP)
+  tap_open_chord()
   log.draws = {}
   render()
 end

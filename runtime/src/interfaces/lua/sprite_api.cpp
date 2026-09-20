@@ -1,9 +1,11 @@
 #include "interfaces/lua/api_sequence_probe.hpp"
 #include "interfaces/lua/sprite_api.hpp"
+#include "interfaces/lua/runtime_perf.hpp"
 #include "interfaces/lua/engine_memory_guard.hpp"
 
 #include "interfaces/lua/isaac_api.hpp"
 #include "interfaces/lua/owner_binding.hpp"
+#include "interfaces/lua/lua_integer_argument.hpp"
 
 #include "lua_object_handles.hpp"
 #include "lua_runtime_state.hpp"
@@ -462,7 +464,7 @@ void ReleaseNativeString(unsigned char* object) noexcept {
     if (object == nullptr) {
         return;
     }
-    const std::uintptr_t deallocate = LuaRuntime::GameOperatorDeleteThunk();
+    const LuaRuntime::GameOperatorDeleteFn deallocate = LuaRuntime::GameOperatorDeleteThunk();
     if (deallocate == 0) {
         return;
     }
@@ -474,8 +476,7 @@ void ReleaseNativeString(unsigned char* object) noexcept {
     if (data == nullptr) {
         return;
     }
-    using DeleteFn = void (*)(void*);
-    reinterpret_cast<DeleteFn>(deallocate)(data);
+    deallocate(data);
     std::memset(object, 0, kLibcxxStringSize);  // 复位成"空短串"，避免留下悬垂指针
 }
 
@@ -508,7 +509,7 @@ void* BuildNativeString(const char* path, bool allowEmpty) {
     if (length + 1 > kStringPathCapacity) {
         return nullptr;
     }
-    const std::uintptr_t assign = LuaRuntime::LibcxxStringAssignThunk();
+    const LuaRuntime::LibcxxStringAssignFn assign = LuaRuntime::LibcxxStringAssignThunk();
     if (assign == 0) {
         return nullptr;
     }
@@ -522,8 +523,7 @@ void* BuildNativeString(const char* path, bool allowEmpty) {
             continue;
         }
         std::memset(entry.object, 0, sizeof(entry.object));
-        using AssignFn = void* (*)(void*, const char*);
-        reinterpret_cast<AssignFn>(assign)(entry.object, path);
+        assign(entry.object, path);
         std::memcpy(entry.path, path, length + 1);
         entry.used = true;
         return entry.object;
@@ -533,8 +533,7 @@ void* BuildNativeString(const char* path, bool allowEmpty) {
     g_nativeStringCursor = (g_nativeStringCursor + 1) % kStringCacheEntries;
     ReleaseNativeString(victim.object);
     std::memset(victim.object, 0, sizeof(victim.object));
-    using AssignFn = void* (*)(void*, const char*);
-    reinterpret_cast<AssignFn>(assign)(victim.object, path);
+    assign(victim.object, path);
     std::memcpy(victim.path, path, length + 1);
     victim.used = true;
     return victim.object;
@@ -625,7 +624,7 @@ int SpriteLoad(lua_State* state) {
         (argumentCount == 3 && lua_type(state, 3) != LUA_TBOOLEAN)) {
         return luaL_error(state, "Sprite:Load accepts a path and an optional loadGraphics flag");
     }
-    const std::uintptr_t method = LuaRuntime::SpriteLoadThunk();
+    const LuaRuntime::SpriteLoadFn method = LuaRuntime::SpriteLoadThunk();
     if (method == 0) {
         return luaL_error(state, "Sprite:Load native binding is unavailable");
     }
@@ -636,9 +635,8 @@ int SpriteLoad(lua_State* state) {
                           "Sprite:Load could not build a native path string (missing binding, "
                           "empty path or path too long)");
     }
-    using LoadFn = void (*)(void*, const void*, bool);
-    reinterpret_cast<LoadFn>(method)(sprite, nativeString,
-                                     argumentCount == 3 && lua_toboolean(state, 3) != 0);
+    method(sprite, nativeString,
+           argumentCount == 3 && lua_toboolean(state, 3) != 0);
     return 0;
 }
 
@@ -651,12 +649,11 @@ int SpriteLoadGraphics(lua_State* state) {
     if (lua_gettop(state) != 1) {
         return luaL_error(state, "Sprite:LoadGraphics accepts no arguments");
     }
-    const std::uintptr_t method = LuaRuntime::SpriteLoadGraphicsThunk();
+    const LuaRuntime::SpriteLoadGraphicsFn method = LuaRuntime::SpriteLoadGraphicsThunk();
     if (method == 0) {
         return luaL_error(state, "Sprite:LoadGraphics native binding is unavailable");
     }
-    using LoadGraphicsFn = void (*)(void*);
-    reinterpret_cast<LoadGraphicsFn>(method)(sprite);
+    method(sprite);
     return 0;
 }
 
@@ -667,10 +664,10 @@ int SpriteReplaceSpritesheet(lua_State* state) {
     if (const int error = ResolveSprite(state, "Sprite:ReplaceSpritesheet", &sprite); error != 0) {
         return error;
     }
-    if (lua_gettop(state) != 3 || !lua_isinteger(state, 2) || lua_type(state, 3) != LUA_TSTRING) {
+    if (lua_gettop(state) != 3 || !isaac::runtime::IsIntegerArgument(state, 2) || lua_type(state, 3) != LUA_TSTRING) {
         return luaL_error(state, "Sprite:ReplaceSpritesheet accepts a layer id and a file name");
     }
-    const std::uintptr_t method = LuaRuntime::SpriteReplaceSpritesheetThunk();
+    const LuaRuntime::SpriteReplaceSpritesheetFn method = LuaRuntime::SpriteReplaceSpritesheetThunk();
     if (method == 0) {
         return luaL_error(state, "Sprite:ReplaceSpritesheet native binding is unavailable");
     }
@@ -700,9 +697,8 @@ int SpriteReplaceSpritesheet(lua_State* state) {
         return luaL_error(state,
                           "Sprite:ReplaceSpritesheet native string binding is unavailable");
     }
-    using ReplaceFn = void (*)(void*, int, const void*);
-    reinterpret_cast<ReplaceFn>(method)(sprite, static_cast<int>(lua_tointeger(state, 2)),
-                                       nativeString);
+    method(sprite, static_cast<int>(lua_tointeger(state, 2)),
+           nativeString);
     return 0;
 }
 
@@ -716,13 +712,12 @@ int SpritePlay(lua_State* state) {
         (argumentCount == 3 && lua_type(state, 3) != LUA_TBOOLEAN)) {
         return luaL_error(state, "Sprite:Play accepts an animation name and an optional force flag");
     }
-    const std::uintptr_t method = LuaRuntime::SpritePlayThunk();
+    const LuaRuntime::SpritePlayFn method = LuaRuntime::SpritePlayThunk();
     if (method == 0) {
         return luaL_error(state, "Sprite:Play native binding is unavailable");
     }
-    using PlayFn = void (*)(void*, const char*, bool);
-    reinterpret_cast<PlayFn>(method)(sprite, lua_tostring(state, 2),
-                                    argumentCount == 3 && lua_toboolean(state, 3) != 0);
+    method(sprite, lua_tostring(state, 2),
+           argumentCount == 3 && lua_toboolean(state, 3) != 0);
     return 0;
 }
 
@@ -737,15 +732,14 @@ int SpriteSetAnimation(lua_State* state) {
         return luaL_error(state,
                           "Sprite:SetAnimation accepts an animation name and an optional reset flag");
     }
-    const std::uintptr_t method = LuaRuntime::SpriteSetAnimationThunk();
+    const LuaRuntime::SpriteSetAnimationFn method = LuaRuntime::SpriteSetAnimationThunk();
     if (method == 0) {
         return luaL_error(state, "Sprite:SetAnimation native binding is unavailable");
     }
-    using SetAnimationFn = bool (*)(void*, const char*, bool);
     // PC: `boolean SetAnimation(string AnimationName, boolean Reset = true)`.
     const bool reset = argumentCount == 3 ? lua_toboolean(state, 3) != 0 : true;
-    lua_pushboolean(state, reinterpret_cast<SetAnimationFn>(method)(sprite, lua_tostring(state, 2),
-                                                                    reset) ? 1 : 0);
+    lua_pushboolean(state, method(sprite, lua_tostring(state, 2),
+                                  reset) ? 1 : 0);
     return 1;
 }
 
@@ -757,28 +751,35 @@ int SpriteSetFrame(lua_State* state) {
         return error;
     }
     const int argumentCount = lua_gettop(state);
-    if (argumentCount == 2 && lua_isinteger(state, 2)) {
-        const std::uintptr_t method = LuaRuntime::SpriteSetFrameThunk();
+    lua_Integer frameNumber = 0;
+    // ★ 帧号用"整值数"判据而不是"只认整数子类型"那个判据：PC 的绑定走 `luaL_checkinteger`，
+    // 它接受 `3.0` 这类整值浮点，而 Lua 的 `/` **永远**产生浮点 ⇒ 用"只认整数子类型"会比 PC 严，
+    // 模组只要把帧号算过一次除法就会在我们这里报错（2026-09-18 真机：EID 渲染药丸描述时
+    // 被这条拒掉，屏幕上"什么信息都没有"）。判据与理由见 `lua_integer_argument.hpp`。
+    if (argumentCount == 2 && isaac::runtime::IntegerArgumentAt(state, 2, &frameNumber)) {
+        const LuaRuntime::SpriteSetFrameFn method = LuaRuntime::SpriteSetFrameThunk();
         if (method == 0) {
             return luaL_error(state, "Sprite:SetFrame native binding is unavailable");
         }
-        using SetFrameFn = void (*)(void*, int);
-        reinterpret_cast<SetFrameFn>(method)(sprite, static_cast<int>(lua_tointeger(state, 2)));
+        method(sprite, static_cast<int>(frameNumber));
         return 0;
     }
-    if (argumentCount == 3 && lua_type(state, 2) == LUA_TSTRING && lua_isinteger(state, 3)) {
-        const std::uintptr_t method = LuaRuntime::SpriteSetFrameNamedThunk();
+    if (argumentCount == 3 && lua_type(state, 2) == LUA_TSTRING &&
+        isaac::runtime::IntegerArgumentAt(state, 3, &frameNumber)) {
+        const LuaRuntime::SpriteSetFrameNamedFn method = LuaRuntime::SpriteSetFrameNamedThunk();
         if (method == 0) {
             return luaL_error(state, "Sprite:SetFrame native binding is unavailable");
         }
-        using SetFrameNamedFn = void (*)(void*, const char*, int);
-        reinterpret_cast<SetFrameNamedFn>(method)(
-            sprite, lua_tostring(state, 2), static_cast<int>(lua_tointeger(state, 3)));
+        method(sprite, lua_tostring(state, 2), static_cast<int>(frameNumber));
         return 0;
     }
+    // 报错里带上**实际拿到的类型**：下一次真机读数就能一眼看出模组到底传了什么
+    // （2026-09-18 就是靠"错误文本带类型"这条纪律省掉一轮猜测）。
     return luaL_error(state,
                       "Sprite:SetFrame accepts a frame number or an animation name and a frame "
-                      "number");
+                      "number (got %s, %s)",
+                      argumentCount >= 2 ? luaL_typename(state, 2) : "nothing",
+                      argumentCount >= 3 ? luaL_typename(state, 3) : "nothing");
 }
 
 int SpriteGetFrame(lua_State* state) {
@@ -789,12 +790,11 @@ int SpriteGetFrame(lua_State* state) {
     if (lua_gettop(state) != 1) {
         return luaL_error(state, "Sprite:GetFrame accepts no arguments");
     }
-    const std::uintptr_t method = LuaRuntime::SpriteGetFrameThunk();
+    const LuaRuntime::SpriteGetFrameFn method = LuaRuntime::SpriteGetFrameThunk();
     if (method == 0) {
         return luaL_error(state, "Sprite:GetFrame native binding is unavailable");
     }
-    using GetFrameFn = int (*)(const void*);
-    lua_pushinteger(state, reinterpret_cast<GetFrameFn>(method)(sprite));
+    lua_pushinteger(state, method(sprite));
     return 1;
 }
 
@@ -803,16 +803,15 @@ int SpriteSetLayerFrame(lua_State* state) {
     if (const int error = ResolveSprite(state, "Sprite:SetLayerFrame", &sprite); error != 0) {
         return error;
     }
-    if (lua_gettop(state) != 3 || !lua_isinteger(state, 2) || !lua_isinteger(state, 3)) {
+    if (lua_gettop(state) != 3 || !isaac::runtime::IsIntegerArgument(state, 2) || !isaac::runtime::IsIntegerArgument(state, 3)) {
         return luaL_error(state, "Sprite:SetLayerFrame accepts a layer id and a frame number");
     }
-    const std::uintptr_t method = LuaRuntime::SpriteSetLayerFrameThunk();
+    const LuaRuntime::SpriteSetLayerFrameFn method = LuaRuntime::SpriteSetLayerFrameThunk();
     if (method == 0) {
         return luaL_error(state, "Sprite:SetLayerFrame native binding is unavailable");
     }
-    using SetLayerFrameFn = void (*)(void*, int, int);
-    reinterpret_cast<SetLayerFrameFn>(method)(sprite, static_cast<int>(lua_tointeger(state, 2)),
-                                              static_cast<int>(lua_tointeger(state, 3)));
+    method(sprite, static_cast<int>(lua_tointeger(state, 2)),
+           static_cast<int>(lua_tointeger(state, 3)));
     return 0;
 }
 
@@ -821,16 +820,15 @@ int SpriteGetLayerFrame(lua_State* state) {
     if (const int error = ResolveSprite(state, "Sprite:GetLayerFrame", &sprite); error != 0) {
         return error;
     }
-    if (lua_gettop(state) != 2 || !lua_isinteger(state, 2)) {
+    if (lua_gettop(state) != 2 || !isaac::runtime::IsIntegerArgument(state, 2)) {
         return luaL_error(state, "Sprite:GetLayerFrame accepts a layer id");
     }
-    const std::uintptr_t method = LuaRuntime::SpriteGetLayerFrameThunk();
+    const LuaRuntime::SpriteGetLayerFrameFn method = LuaRuntime::SpriteGetLayerFrameThunk();
     if (method == 0) {
         return luaL_error(state, "Sprite:GetLayerFrame native binding is unavailable");
     }
-    using GetLayerFrameFn = int (*)(void*, int);
-    lua_pushinteger(state, reinterpret_cast<GetLayerFrameFn>(method)(
-                               sprite, static_cast<int>(lua_tointeger(state, 2))));
+    lua_pushinteger(state,
+                    method(sprite, static_cast<int>(lua_tointeger(state, 2))));
     return 1;
 }
 
@@ -842,12 +840,11 @@ int SpriteUpdate(lua_State* state) {
     if (lua_gettop(state) != 1) {
         return luaL_error(state, "Sprite:Update accepts no arguments");
     }
-    const std::uintptr_t method = LuaRuntime::SpriteUpdateThunk();
+    const LuaRuntime::SpriteUpdateFn method = LuaRuntime::SpriteUpdateThunk();
     if (method == 0) {
         return luaL_error(state, "Sprite:Update native binding is unavailable");
     }
-    using UpdateFn = void (*)(void*);
-    reinterpret_cast<UpdateFn>(method)(sprite);
+    method(sprite);
     return 0;
 }
 
@@ -870,13 +867,12 @@ int SpriteIsPlaying(lua_State* state) {
     if (argumentCount > 2 || (argumentCount == 2 && lua_type(state, 2) != LUA_TSTRING)) {
         return luaL_error(state, "Sprite:IsPlaying accepts an optional animation name");
     }
-    const std::uintptr_t method = LuaRuntime::SpriteIsPlayingThunk();
+    const LuaRuntime::SpriteIsPlayingFn method = LuaRuntime::SpriteIsPlayingThunk();
     if (method == 0) {
         return luaL_error(state, "Sprite:IsPlaying native binding is unavailable");
     }
     const char* name = argumentCount == 2 ? lua_tostring(state, 2) : kAnyAnimationName;
-    using IsPlayingFn = bool (*)(const void*, const char*);
-    lua_pushboolean(state, reinterpret_cast<IsPlayingFn>(method)(sprite, name) ? 1 : 0);
+    lua_pushboolean(state, method(sprite, name) ? 1 : 0);
     return 1;
 }
 
@@ -889,13 +885,12 @@ int SpriteIsFinished(lua_State* state) {
     if (argumentCount > 2 || (argumentCount == 2 && lua_type(state, 2) != LUA_TSTRING)) {
         return luaL_error(state, "Sprite:IsFinished accepts an optional animation name");
     }
-    const std::uintptr_t method = LuaRuntime::SpriteIsFinishedThunk();
+    const LuaRuntime::SpriteIsFinishedFn method = LuaRuntime::SpriteIsFinishedThunk();
     if (method == 0) {
         return luaL_error(state, "Sprite:IsFinished native binding is unavailable");
     }
     const char* name = argumentCount == 2 ? lua_tostring(state, 2) : kAnyAnimationName;
-    using IsFinishedFn = bool (*)(const void*, const char*);
-    lua_pushboolean(state, reinterpret_cast<IsFinishedFn>(method)(sprite, name) ? 1 : 0);
+    lua_pushboolean(state, method(sprite, name) ? 1 : 0);
     return 1;
 }
 
@@ -904,15 +899,14 @@ int SpritePlayRandom(lua_State* state) {
     if (const int error = ResolveSprite(state, "Sprite:PlayRandom", &sprite); error != 0) {
         return error;
     }
-    if (lua_gettop(state) != 2 || !lua_isinteger(state, 2)) {
+    if (lua_gettop(state) != 2 || !isaac::runtime::IsIntegerArgument(state, 2)) {
         return luaL_error(state, "Sprite:PlayRandom accepts a seed");
     }
-    const std::uintptr_t method = LuaRuntime::SpritePlayRandomThunk();
+    const LuaRuntime::SpritePlayRandomFn method = LuaRuntime::SpritePlayRandomThunk();
     if (method == 0) {
         return luaL_error(state, "Sprite:PlayRandom native binding is unavailable");
     }
-    using PlayRandomFn = void (*)(void*, unsigned int);
-    reinterpret_cast<PlayRandomFn>(method)(
+    method(
         sprite, static_cast<unsigned int>(lua_tointeger(state, 2)));
     return 0;
 }
@@ -935,15 +929,14 @@ int SpriteRender(lua_State* state) {
     VectorHandle* topLeft = nullptr;
     VectorHandle* bottomRight = nullptr;
     static_cast<void>(RequireClampVectors(state, 2, &topLeft, &bottomRight));
-    const std::uintptr_t method = LuaRuntime::SpriteRenderThunk();
+    const LuaRuntime::SpriteRenderFn method = LuaRuntime::SpriteRenderThunk();
     if (method == 0) {
         return luaL_error(state, "Sprite:Render native binding is unavailable");
     }
     // 绘制前先把 Mod 写的 Scale/Color/FlipX 交给应用入口（设备侧目前是空操作，
     // 见 `ApplyCachedSpriteProperties` 的注释）。
     ApplyCachedSpriteProperties(sprite, handle);
-    using RenderFn = void (*)(void*, const void*, const void*, const void*);
-    reinterpret_cast<RenderFn>(method)(sprite, position, topLeft, bottomRight);
+    method(sprite, position, topLeft, bottomRight);
     return 0;
 }
 
@@ -996,13 +989,13 @@ int SpriteGetTexel(lua_State* state) {
     }
     int layerId = 0;
     if (argumentCount >= 5) {
-        if (!lua_isinteger(state, 5)) {
+        if (!isaac::runtime::IsIntegerArgument(state, 5)) {
             return luaL_error(state, "Sprite:GetTexel expects an integer layer id");
         }
         layerId = static_cast<int>(lua_tointeger(state, 5));
     }
 
-    const std::uintptr_t method = LuaRuntime::SpriteGetTexelThunk();
+    const LuaRuntime::SpriteGetTexelFn method = LuaRuntime::SpriteGetTexelThunk();
     if (method == 0) {
         return PushTexelFallback(state, 1U);
     }
@@ -1069,7 +1062,7 @@ int SpriteRenderLayer(lua_State* state) {
     }
     auto* handle = static_cast<SpriteHandle*>(luaL_checkudata(state, 1, kSpriteMetatable));
     const int argumentCount = lua_gettop(state);
-    if (argumentCount < 3 || argumentCount > 5 || !lua_isinteger(state, 2)) {
+    if (argumentCount < 3 || argumentCount > 5 || !isaac::runtime::IsIntegerArgument(state, 2)) {
         return luaL_error(state,
                           "Sprite:RenderLayer accepts a layer id, a position and optional clamps");
     }
@@ -1078,14 +1071,13 @@ int SpriteRenderLayer(lua_State* state) {
     VectorHandle* topLeft = nullptr;
     VectorHandle* bottomRight = nullptr;
     static_cast<void>(RequireClampVectors(state, 3, &topLeft, &bottomRight));
-    const std::uintptr_t method = LuaRuntime::SpriteRenderLayerThunk();
+    const LuaRuntime::SpriteRenderLayerFn method = LuaRuntime::SpriteRenderLayerThunk();
     if (method == 0) {
         return luaL_error(state, "Sprite:RenderLayer native binding is unavailable");
     }
     // 与 `Sprite:Render` 同一步：绘制前把 Mod 写的三个属性交给应用入口。
     ApplyCachedSpriteProperties(sprite, handle);
-    using RenderLayerFn = void (*)(void*, int, const void*, const void*, const void*);
-    reinterpret_cast<RenderLayerFn>(method)(sprite, layerId, position, topLeft, bottomRight);
+    method(sprite, layerId, position, topLeft, bottomRight);
     return 0;
 }
 
@@ -1143,8 +1135,8 @@ int CreateSpriteHandle(lua_State* state) {
     if (lua_gettop(state) != 0) {
         return luaL_error(state, "Sprite accepts no arguments");
     }
-    const std::uintptr_t ctor = LuaRuntime::SpriteCtorThunk();
-    const std::uintptr_t destructorMethod = LuaRuntime::SpriteDestructorThunk();
+    const LuaRuntime::SpriteCtorFn ctor = LuaRuntime::SpriteCtorThunk();
+    const LuaRuntime::SpriteDestructorFn destructorMethod = LuaRuntime::SpriteDestructorThunk();
     if (ctor == 0 || destructorMethod == 0) {
         return luaL_error(state, "Sprite native binding is unavailable");
     }
@@ -1167,8 +1159,7 @@ int CreateSpriteHandle(lua_State* state) {
     if (sprite == nullptr) {
         return luaL_error(state, "Sprite could not allocate its native object");
     }
-    using CtorFn = void (*)(void*);
-    reinterpret_cast<CtorFn>(ctor)(sprite);
+    ctor(sprite);
     handle->sprite = sprite;
     // Lua 的 `Sprite()` 建出来的对象由**本模块**拥有：`__gc` 会析构并释放它。
     handle->owner = nullptr;
@@ -1310,11 +1301,10 @@ int DestroySpriteHandle(lua_State* state) {
     if (handle->sprite == nullptr) {
         return 0;  // 幂等：`__gc` 可能被显式 `collectgarbage()` 触发两次
     }
-    const std::uintptr_t destructorMethod = LuaRuntime::SpriteDestructorThunk();
+    const LuaRuntime::SpriteDestructorFn destructorMethod = LuaRuntime::SpriteDestructorThunk();
     if (destructorMethod != 0) {
         // `~ANM2()`（D1）只析构成员、**不释放内存** —— 内存由本模块分配，所以随后自己 free。
-        using DtorFn = void (*)(void*);
-        reinterpret_cast<DtorFn>(destructorMethod)(handle->sprite);
+        destructorMethod(handle->sprite);
     }
     ReleaseSpriteStorage(handle->sprite);
     handle->sprite = nullptr;

@@ -151,7 +151,8 @@ class ArchitectureLayoutTests(unittest.TestCase):
             "SALTYNX_DIAGNOSTIC_BRIDGE=0",
             "PERSISTENCE_TRACE=0",
             "PERSISTENCE_EVENT_DIAGNOSTIC=0",
-            "PERSISTENCE_REQUIRED=0",
+            # 2026-09-17：`PERSISTENCE_REQUIRED` 随"插件持久化"退役一起删掉了
+            # （持久化只走 `ISaveFilePort`，不再要求插件先注册文件 API）。
         ):
             with self.subTest(pinned=pinned):
                 self.assertIn(pinned, runtime_module_recipe)
@@ -181,14 +182,14 @@ class ArchitectureLayoutTests(unittest.TestCase):
 
     @unittest.skipUnless(docker_image_available(), "需要 devkitpro/devkita64 镜像")
     def test_host_plugin_builds_the_plugin_artifact(self):
-        plugin_build = RUNTIME / "build-saltynx-stage145"
-        dry_run = run_make("host_plugin HOST_PLUGIN_STAGE=145", [plugin_build])
+        plugin_build = RUNTIME / "build-saltynx-stage146"
+        dry_run = run_make("host_plugin HOST_PLUGIN_STAGE=146", [plugin_build])
         self.assertEqual(dry_run.returncode, 0, dry_run.stdout + dry_run.stderr)
-        self.assertIn("-C build-saltynx-stage145 -f ../misc/mk/common.mk", dry_run.stdout)
+        self.assertIn("-C build-saltynx-stage146 -f ../misc/mk/common.mk", dry_run.stdout)
         self.assertNotIn("subsdk9", dry_run.stdout)
 
         # 产物名由 Makefile 变量决定，用 -p 数据库确认实际路径。
-        result = run_make("host_plugin HOST_PLUGIN_STAGE=145", [plugin_build], flags="-p -n")
+        result = run_make("host_plugin HOST_PLUGIN_STAGE=146", [plugin_build], flags="-p -n")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         outputs = [
             line for line in result.stdout.splitlines()
@@ -198,7 +199,7 @@ class ArchitectureLayoutTests(unittest.TestCase):
         for line in outputs:
             with self.subTest(line=line):
                 self.assertTrue(line.endswith("isaac-runtime.elf"), line)
-                self.assertIn("deploy-saltynx/stage145", line)
+                self.assertIn("deploy-saltynx/stage146", line)
 
     @unittest.skipUnless(docker_image_available(), "需要 devkitpro/devkita64 镜像")
     def test_probe_requires_an_explicit_stage(self):
@@ -272,7 +273,8 @@ class ArchitectureLayoutTests(unittest.TestCase):
         # （link.ld 的 ASSERT 是硬闸门，该工具是同一套数值的报告与核对入口）。
         # 旧口径是“代码结束必须低于 0x54000、只读段结束必须低于 0x75000”，那两个数
         # 是某次真机验证过的历史地址，自 806adbd 起段地址已按体积推导，2026-09-12 换成
-        # 失控增长闸门（512 KiB / 1 MiB），不再用历史地址卡功能增长。
+        # 失控增长闸门（2026-09-12 起 512 KiB / 1 MiB，2026-09-19 抬到 1 MiB / 2 MiB：
+        # 原值只剩 272 字节可用额度；依据见 link.ld 的注释），不再用历史地址卡功能增长。
         budgets = [
             line.split()
             for line in result.stdout.splitlines()

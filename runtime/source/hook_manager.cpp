@@ -1284,16 +1284,50 @@ bool CardSwitchOn(const char* name) {
     return false;
 }
 
-// 挂点层面的"跳过判据"（`ONLY_REQUIRED_HOOK=1` 的二分构建用）。
+// 挂点层面的"跳过判据"：既是 `ONLY_REQUIRED_HOOK=1` 的二分构建，也能**一次只摘一个挂点**。
 //
 // 为什么是**编译期**而不是卡上开关：读卡要用游戏 nnSdk 的文件 API，而装挂点这一步跑在
 // **worker 线程**上（见 `g_CardSwitchProbeAllowed` 上面的事故记录）。所以挂点二分只能一条构建
 // 一个配置；卡上开关只留给"游戏主线程上读得到"的那两个（`no-menu` / `no-lua`）。
-#if defined(EXL_ONLY_REQUIRED_HOOK) && EXL_ONLY_REQUIRED_HOOK == 1
+//
+// 单摘一个（2026-09-17 加，定位"模组全关时崩"用；构建命令在后两行）：
+//   make ... EXL_SKIP_HOOK_PRESENT=1        # 不装 `Present` 的 GOT 槽拦截
+//   make ... EXL_SKIP_HOOK_RENDER=1         # 不装 `ManagerRender` 入口中继
+//   make ... EXL_SKIP_HOOK_PREGETCOLLECTIBLE=1 / EXL_SKIP_HOOK_REBUILDMOUNTS=1 / EXL_SKIP_HOOK_GAMESTART=1
+// 一次摘一个、每版一次重启：现象消失 ⇒ 该挂点就是元凶（与 031 的"只装必需挂点"对照结果联用）。
 bool SkipOptionalHooksPredicate(void*, isaac::runtime::HookId id) noexcept {
-    return !isaac::runtime::IsRequired(id);
-}
+#if defined(EXL_ONLY_REQUIRED_HOOK) && EXL_ONLY_REQUIRED_HOOK == 1
+    if (!isaac::runtime::IsRequired(id)) {
+        return true;
+    }
 #endif
+#if defined(EXL_SKIP_HOOK_PRESENT) && EXL_SKIP_HOOK_PRESENT == 1
+    if (id == isaac::runtime::HookId::ManagerPresent) {
+        return true;
+    }
+#endif
+#if defined(EXL_SKIP_HOOK_RENDER) && EXL_SKIP_HOOK_RENDER == 1
+    if (id == isaac::runtime::HookId::ManagerRender) {
+        return true;
+    }
+#endif
+#if defined(EXL_SKIP_HOOK_PREGETCOLLECTIBLE) && EXL_SKIP_HOOK_PREGETCOLLECTIBLE == 1
+    if (id == isaac::runtime::HookId::PreGetCollectible) {
+        return true;
+    }
+#endif
+#if defined(EXL_SKIP_HOOK_REBUILDMOUNTS) && EXL_SKIP_HOOK_REBUILDMOUNTS == 1
+    if (id == isaac::runtime::HookId::RebuildMountPoints) {
+        return true;
+    }
+#endif
+#if defined(EXL_SKIP_HOOK_GAMESTART) && EXL_SKIP_HOOK_GAMESTART == 1
+    if (id == isaac::runtime::HookId::GameStart) {
+        return true;
+    }
+#endif
+    return false;
+}
 
 u32 MapModLoadFailure(const isaac::runtime::ModLoadFailure& failure) {
     if (failure.step == isaac::runtime::ModLoadStep::None) return 0;
@@ -1324,6 +1358,14 @@ bool LoadDefaultManifestModThroughService(u32* failureDetail) {
     // 而那个回调是游戏自己的 `Manager::Update` 帧里进来的）。从这一行起才允许用游戏 nnSdk 的
     // 文件 API（卡上开关就要用它）—— 理由见 `g_CardSwitchProbeAllowed` 上面那段事故记录。
     g_CardSwitchProbeAllowed.store(1, std::memory_order_release);
+    // ★ 持久化的**默认实现**在这一行接上（2026-09-17 用户指令："所有持久化都走存档分区，
+    // 把存档分区持久化作为默认实现，解耦合，以后统一调用同样的接口"）：
+    //   * `AllowFromGameThread()` 打开适配器的线程硬闸 —— 只有游戏线程能打开它；
+    //   * `SetSessionSaveFilePort()` 把它挂成会话默认端口 —— 模组数据容器、模组开关状态，
+    //     以及以后任何持久化，一律通过 `SessionSaveFilePort()` 取，不自己找文件。
+    // 放在这里而不是更早：更早的位置还没证明自己在游戏线程上（442190 就是那么崩的）。
+    g_SaveFileAdapter.AllowFromGameThread();
+    isaac::runtime::SetSessionSaveFilePort(&g_SaveFileAdapter);
     // 卡上开关 `no-lua.on`：**这一轮一个 Lua 状态都不建**（自带菜单与真实模组都不加载，
     // 连清单/自动发现都不走）。用来把"运行时在，但 Lua 侧完全不存在"这一档单独隔离出来。
     // 注意它不改变挂点安装：挂点层面的二分用 `ONLY_REQUIRED_HOOK=1` 的构建。
@@ -2189,12 +2231,11 @@ DefaultManifestInstallResult TryInstallDefaultManifestMod(const TargetModule& mo
     isaac::runtime::RegisterEntryRelayCallbacks();
     isaac::runtime::HookRoutingAdapter hookAdapter{};
     isaac::runtime::HookInstallService hookService{hookAdapter};
-#if defined(EXL_ONLY_REQUIRED_HOOK) && EXL_ONLY_REQUIRED_HOOK == 1
-    // 二分构建（2026-09-16）：这一轮**只装必需挂点**（`ManagerUpdate`），五个可选挂点一个都不碰。
-    // 用来回答"主界面停 10 秒崩 / 退出对局崩"是不是可选挂点引起的。
+    // 跳过判据**无条件注册**：没有开任何 `EXL_SKIP_HOOK_*` / `EXL_ONLY_REQUIRED_HOOK` 时它恒返回
+    // false（行为与从前完全一致），开了才生效。这样"二分构建"不需要再改两处条件编译。
+    //
     // ⚠️ 判据必须是**编译期常量**：这一步跑在 worker 线程上，读卡会崩（见 `CardSwitchOn` 上面那段）。
     hookService.SetSkipPredicate(&SkipOptionalHooksPredicate, nullptr);
-#endif
     isaac::runtime::HookInstallReport hookReport{};
     const bool hooksInstalled =
         info.valid && hookService.InstallProductionHooks(info, &hookReport).ok();
@@ -3209,12 +3250,19 @@ bool VerifyBindingTable(const TargetModule& module,
     if (bindings == nullptr || module.base == 0 || module.buildId != kTargetBuildId) {
         return false;
     }
+    // 绑定记录的字段现在是**声明过的函数指针类型**（2026-09-17，见 `lua_runtime_state.hpp`），
+    // 所以安装期往字段里放地址必须按字节写：`reinterpret_cast<uintptr_t*>` 去写就成了类型双关，
+    // 而 `memcpy` 两边表示相同（本平台函数指针与 `uintptr_t` 都是 8 字节），也不违反别名规则。
+    // 顺带把"这张表逐字段覆盖整个记录"钉死：字段数 × 指针宽 = 记录大小，多一个字段就会在这里炸。
+    static_assert(sizeof(Bindings) == Count * sizeof(uintptr_t),
+                  "绑定记录必须恰好是 Count 个指针宽（守卫表逐字段覆盖它）");
     auto* const base = reinterpret_cast<u8*>(bindings);
     bool verified = true;
     for (const BindingGuardEntry& entry : entries) {
         const std::size_t length = entry.expected->size();
-        auto* output = reinterpret_cast<uintptr_t*>(base + entry.memberOffset);
-        *output = 0;
+        auto* const output = base + entry.memberOffset;
+        const uintptr_t empty = 0;
+        std::memcpy(output, &empty, sizeof(empty));
         if (entry.offset > UINTPTR_MAX - module.base || length > module.textSize ||
             entry.offset > module.textSize - length) {
             verified = false;
@@ -3232,7 +3280,7 @@ bool VerifyBindingTable(const TargetModule& module,
             verified = false;
             continue;
         }
-        *output = candidate;
+        std::memcpy(output, &candidate, sizeof(candidate));
     }
     return verified;
 }
@@ -4109,26 +4157,103 @@ RenderPresentRelayInstallResult TryInstallManagerPresentRelay(const TargetModule
 std::atomic<uintptr_t> g_PresentGotSlotDispatchReturn{0};
 std::atomic<uintptr_t> g_PresentGotSlotTarget{0};
 
+// ---- ★ 2026-09-17 重写：`Present` 的转发桩改成「保存全部寄存器」的汇编桩 ---------------
+//
+// **为什么要重写**：旧实现是一个 C 函数，靠"实参只在 `x0`~`x7`"这条**推断**接收参数再转发。
+// 但这条 GOT 槽被 **43 处调用共用**，而 C 函数转发意味着：
+//   * 浮点/向量实参（`v0`~`v7`）在我们代码一进来就已经被编译器破坏；
+//   * 间接结果寄存器 `x8` 同样不保证；
+//   * 最根本的是"实参在哪些寄存器"只能靠猜（旧注释里"说明这处调用不依赖 x5 以上与浮点寄存器"
+//     正是这样一条未证实的推断）。
+// 而 `docs/开发规范.md` 第 11 条对这类"调用回调后继续执行原函数"的转发有明确要求：
+// **必须逐项验证寄存器保存**。所以改成汇编桩 —— 进入时把 `x0~x8`、`q0~q7`、`x30(LR)` 全存到栈上，
+// 只调两个 C 辅助函数（派发判定、取目标地址），然后**一个不差地还原**，最后 `br` 尾跳到真 `Present`。
+// 这样"不碰任何参数寄存器"变成**构造保证**，不再依赖任何推断。
+//
+// 栈布局（0xe0 = 224 字节，16 字节对齐 ⇒ 调用 C 函数时 SP 仍满足 AAPCS 要求）：
+//   +0x00 x0,x1   +0x10 x2,x3   +0x20 x4,x5   +0x30 x6,x7   +0x40 x8
+//   +0x50 q0,q1   +0x70 q2,q3   +0x90 q4,q5   +0xb0 q6,q7   +0xd0 x30
+// 跳转目标只在 `x9` 里暂存（`x9`~`x15` 是调用者保存寄存器，调用点不能指望 `bl` 之后还留着）。
+// 目标为 0（理论上不该发生）时返回 0 —— 与旧实现在这一点上行为一致：**绝不跳空**。
+//
+// 它必须是非静态的全局符号：安装时要把这个函数地址写进 GOT 槽（见下方 `TryInstall…`）。
+// ★ `EXL_LEGACY_PRESENT_FORWARDER=1` 是**只用于单变量对照**的开关（2026-09-17 加）：
+//   打开就退回"用 C 函数按 x0~x7 接收参数再转发"的**旧形态**，用来回答"`Present` 转发桩的
+//   ABI 缺陷（浮点实参 v0~v7、间接结果 x8 会被破坏）到底是不是真问题"。
+//   **正式形状永远是 0**（默认 = 下面的汇编桩）。
+#if defined(EXL_LEGACY_PRESENT_FORWARDER) && EXL_LEGACY_PRESENT_FORWARDER == 1
 extern "C" __attribute__((noinline)) uintptr_t
 IsaacModRuntime_PresentGotSlotIntercept(uintptr_t a0, uintptr_t a1, uintptr_t a2, uintptr_t a3,
                                         uintptr_t a4, uintptr_t a5, uintptr_t a6, uintptr_t a7) {
-    // 先取返回地址：任何调用之前做，避免 `x30` 被自己用掉。
     const uintptr_t caller = reinterpret_cast<uintptr_t>(__builtin_return_address(0));
     if (caller == g_PresentGotSlotDispatchReturn.load(std::memory_order_acquire)) {
-        // `a0` 就是调用点上下文里的 `x0`：`Present` 的实参（`KAGE::Graphics::g_Manager`），
-        // 与 IPS 方案传给派发入口的那个参数同源。
         IsaacModRuntime_DispatchPostRenderBeforePresent(reinterpret_cast<void*>(a0));
     }
     const uintptr_t target = g_PresentGotSlotTarget.load(std::memory_order_acquire);
     if (target == 0) {
-        return 0;  // 安装成功才会改槽，这里只是保底：绝不跳空
+        return 0;
     }
-    using PresentFn = uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t,
-                                    uintptr_t, uintptr_t, uintptr_t, uintptr_t);
-    // 整数参数按 x0..x7 原样转发；IPS 方案同样只保存 x0..x4 + LR 就能工作，
-    // 说明这处调用不依赖 x5 以上与浮点寄存器。
+    using PresentFn = uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t, uintptr_t, uintptr_t,
+                                    uintptr_t, uintptr_t);
+    // 旧形态的原话："整数参数按 x0..x7 原样转发；IPS 方案同样只保存 x0..x4 + LR 就能工作，
+    // 说明这处调用不依赖 x5 以上与浮点寄存器。" —— 这条**推断**正是本对照要检验的对象。
     return reinterpret_cast<PresentFn>(target)(a0, a1, a2, a3, a4, a5, a6, a7);
 }
+#else
+extern "C" void IsaacModRuntime_PresentGotSlotIntercept(void);
+__asm__(
+    ".text\n"
+    ".align 4\n"
+    ".globl IsaacModRuntime_PresentGotSlotIntercept\n"
+    ".type IsaacModRuntime_PresentGotSlotIntercept, %function\n"
+    "IsaacModRuntime_PresentGotSlotIntercept:\n"
+    "  sub sp, sp, #0xe0\n"
+    "  stp x0, x1, [sp, #0x00]\n"
+    "  stp x2, x3, [sp, #0x10]\n"
+    "  stp x4, x5, [sp, #0x20]\n"
+    "  stp x6, x7, [sp, #0x30]\n"
+    "  str x8, [sp, #0x40]\n"
+    "  stp q0, q1, [sp, #0x50]\n"
+    "  stp q2, q3, [sp, #0x70]\n"
+    "  stp q4, q5, [sp, #0x90]\n"
+    "  stp q6, q7, [sp, #0xb0]\n"
+    "  str x30, [sp, #0xd0]\n"
+    "  mov x1, x0\n"
+    "  mov x0, x30\n"
+    "  bl IsaacModRuntime_PresentGotSlotDispatch\n"
+    "  bl IsaacModRuntime_PresentGotSlotTargetAddress\n"
+    "  mov x9, x0\n"
+    "  ldr x30, [sp, #0xd0]\n"
+    "  ldp q0, q1, [sp, #0x50]\n"
+    "  ldp q2, q3, [sp, #0x70]\n"
+    "  ldp q4, q5, [sp, #0x90]\n"
+    "  ldp q6, q7, [sp, #0xb0]\n"
+    "  ldr x8, [sp, #0x40]\n"
+    "  ldp x6, x7, [sp, #0x30]\n"
+    "  ldp x4, x5, [sp, #0x20]\n"
+    "  ldp x2, x3, [sp, #0x10]\n"
+    "  ldp x0, x1, [sp, #0x00]\n"
+    "  add sp, sp, #0xe0\n"
+    "  cbz x9, 1f\n"
+    "  br x9\n"
+    "1:\n"
+    "  mov x0, #0\n"
+    "  ret\n"
+    ".size IsaacModRuntime_PresentGotSlotIntercept, .-IsaacModRuntime_PresentGotSlotIntercept\n");
+
+// 派发判定：只有"调用方是那处被我们盯上的调用点"时才派发 `MC_POST_RENDER`。
+extern "C" void IsaacModRuntime_PresentGotSlotDispatch(uintptr_t caller, uintptr_t a0) {
+    if (caller == g_PresentGotSlotDispatchReturn.load(std::memory_order_acquire)) {
+        // `a0` 就是调用点上下文里的 `x0`：`Present` 的实参（`KAGE::Graphics::g_Manager`）。
+        IsaacModRuntime_DispatchPostRenderBeforePresent(reinterpret_cast<void*>(a0));
+    }
+}
+
+// 取真正的 `Present` 地址（绝不拿文件初值：那是懒绑定解析桩）。
+extern "C" uintptr_t IsaacModRuntime_PresentGotSlotTargetAddress(void) {
+    return g_PresentGotSlotTarget.load(std::memory_order_acquire);
+}
+#endif
 
 namespace {
 // 该地址所在页是否可写（可写就直接写，避开 `RwPages` 的 `EXL_ASSERT` 路径）。

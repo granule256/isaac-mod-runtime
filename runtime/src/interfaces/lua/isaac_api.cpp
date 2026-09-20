@@ -1,11 +1,23 @@
+#include "interfaces/lua/api_call_stats.hpp"
+#include "interfaces/lua/runtime_perf.hpp"
+#include "interfaces/lua/owner_binding.hpp"
 #include "interfaces/lua/api_sequence_probe.hpp"
+#include "interfaces/lua/engine_call_trampoline.hpp"
+#include "interfaces/lua/entity_ref_api.hpp"
+#include "interfaces/lua/engine_method_api.hpp"
+#include "interfaces/lua/engine_method_lookup.hpp"
+#include "game_observer.hpp"
 #include "interfaces/lua/isaac_api.hpp"
 #include "interfaces/lua/engine_memory_guard.hpp"
 #include "interfaces/lua/field_api.hpp"
 
 #include "interfaces/lua/mod_api.hpp"
+#include "interfaces/lua/lua_integer_argument.hpp"
 #include "interfaces/lua/owner_binding.hpp"
 #include "interfaces/lua/vector_api.hpp"
+// `Isaac.RenderScaledText` 的绘制本体在 `font_api.cpp`（字体句柄的生命周期、`Font:Load` 的
+// 路径归一化、四个绘制变体与绘制探针都归那个 TU）：这里只做参数校验 + 转调。
+#include "interfaces/lua/font_api.hpp"
 // `Entity:GetSprite()` 的实现体在 `sprite_api.cpp`（`Sprite` 句柄的布局与所有权都在那里，
 // 见 `lua_object_handles.hpp` 的 `SpriteHandle`）：这里只做实体校验 + 推入一个句柄。
 #include "interfaces/lua/sprite_api.hpp"
@@ -32,12 +44,21 @@
 #include <atomic>
 #include <cstring>
 #include <limits>
+#include <string>
 
 extern "C" {
 #include <lauxlib.h>
 }
 
 namespace isaac::runtime {
+
+// 批次 065：`Entity:TakeDamage` 的实现体住在文件后半段（它用到的几个校验助手在那之前才定义），
+// 而绑定表 `kEntityHandlers` 在文件前半段的匿名命名空间里 —— 所以这一份声明必须放在
+// **外部作用域**（放在匿名命名空间里会给它内部链接，定义对不上）。
+[[nodiscard]] int EntityTakeDamage(lua_State* state);
+//: 两个入口的取址助手（定义在文件后半段；`EntityTakeDamage` 要用）。
+[[nodiscard]] std::uintptr_t EntityTakeDamageMethod() noexcept;
+[[nodiscard]] std::uintptr_t EntityPlayerTakeDamageMethod() noexcept;
 
 // **把我们自己 API 的报错消息也留证**（2026-09-12 第十一轮）。
 //
@@ -164,6 +185,10 @@ int IsaacFindByType(lua_State* state);
 int IsaacFindInRadius(lua_State* state);
 int IsaacCountEnemies(lua_State* state);
 int IsaacCountBosses(lua_State* state);
+// `Isaac.GetRoomEntities()`（批次 041，为 GoodTrip 补）。
+int IsaacGetRoomEntities(lua_State* state);
+// `Isaac.ExecuteCommand()`（批次 041：Switch 上没有控制台 ⇒ 明确降级，见实现处注释）。
+int IsaacExecuteCommand(lua_State* state);
 int IsaacWorldToScreen(lua_State* state);
 int IsaacWorldToRenderPosition(lua_State* state);
 int IsaacGetPersistentGameData(lua_State* state);
@@ -178,6 +203,8 @@ int EntityIndex(lua_State* state);
 int EntityPlayerIndex(lua_State* state);
 int EntityPickupIndex(lua_State* state);
 int EntityPickupIsShopItem(lua_State* state);
+// `EntityPickup:CanReroll()`（批次 028，真实现：引擎方法 + 入口指纹）。
+int EntityPickupCanReroll(lua_State* state);
 int EntityToPlayer(lua_State* state);
 int EntityToPickup(lua_State* state);
 int EntityToFamiliar(lua_State* state);
@@ -187,6 +214,13 @@ int EntityPlayerHasCollectible(lua_State* state);
 // `EntityPlayer:AddCollectible`（2026-09-14 新增，真实现）。声明与实现同在本单元（Isaac 家族）——
 // 契约测试要求"家族方法体住在家族单元里、登记名与 catalog 的 id 一致"。
 int EntityPlayerAddCollectible(lua_State* state);
+// `EntityPlayer:AddCoins`（2026-09-18 新增，真实现）。同一族的第五条"直接调引擎方法"的接口，
+// 接法与 `AddCollectible` 逐字相同（模块基址 + 偏移 + 4 字节入口指纹）。
+// 为什么现在才做：**它是"给钱"的唯一通道** —— 写 `Coins` 字段那条路我们没开（字段写只认
+// `ControlsCooldown`），也没有 `Isaac.Spawn`，而 `GetNumCoins` 此前是"恒返回 0"的桩。
+// 批次 050（2026-09-19）：GoodTrip 真机上接着撞到的一批 `EntityPlayer` 引擎方法。
+// `SetShootingCooldown` 缺了会让"打开地图后按方向键"那条路**在画图之前**报错
+// （`scripts/control.lua:100` → 之后的 `draw_minimap_ui()` 不再执行）。
 int EntityPlayerGetData(lua_State* state);
 int EntityPlayerGetOtherTwin(lua_State* state);
 int EntityPlayerGetEffectiveMaxHearts(lua_State* state);
@@ -266,6 +300,10 @@ constexpr LuaHandlerBinding kIsaacHandlers[] = {
     {0x0E010011, &IsaacLoadModData},
     {0x0E010012, &IsaacSaveModData},
     {0x0E010013, &IsaacRenderScaledText},
+    // 批次 041（GoodTrip）：`GetRoomEntities` 是真实现；`ExecuteCommand` 是**平台降级**
+    //（Switch 没有控制台），两者的判据见各自实现处的注释。
+    {0x0E01002C, &IsaacGetRoomEntities},
+    {0x0E01002D, &IsaacExecuteCommand},
 };
 
 // `EntityPlayer` 的成员（owner 独立）：`GetPlayerType`/`HasCollectible` 与 PC 的同名方法一一对应。
@@ -274,6 +312,10 @@ constexpr LuaHandlerBinding kIsaacHandlers[] = {
 constexpr LuaHandlerBinding kEntityPlayerHandlers[] = {
     {0x0E010015, &EntityPlayerHasCollectible},
     {0x0E01004E, &EntityPlayerAddCollectible},
+    // 0x0056：`EntityPlayer:AddCoins`（2026-09-18）。id 取域内**下一个空号** ——
+    // 与 `AddCollectible` 取 0x004E、`GetCollectibleCount` 取 0x004F 是同一条规则
+    // （见 `api_catalog.cpp` 里那一行的注释；**别抄成 0x004F**，那个号已被占）。
+    // 批次 050：id 取域内**下一个空号**（0x0056 之后连着的四个，见 `api_catalog.cpp` 的说明）。
     {0x0E010017, &EntityPlayerGetData},
     {0x0E01001F, &EntityPlayerGetOtherTwin},
     {0x0E010020, &EntityPlayerGetEffectiveMaxHearts},
@@ -312,8 +354,10 @@ constexpr LuaHandlerBinding kEntityPlayerHandlers[] = {
 };
 
 // `Entity` 的成员（owner 独立）。批次 4 补上 `ToPickup`/`GetData`（id 0x0E010024/0x0E010025）；
-// 批次 5 补上 `GetSprite`（id 0x0E01002A）。
+// 批次 5 补上 `GetSprite`（id 0x0E01002A）；批次 065 补上 `TakeDamage`（id 0x0E01002F）。
 constexpr LuaHandlerBinding kEntityHandlers[] = {
+    // 批次 065：`Entity:TakeDamage`（GoodTrip 的诅咒房过路费要用；见实现处的口径说明）
+    {0x0E01002F, &EntityTakeDamage},
     {0x0E010014, &EntityToPlayer},
     {0x0E010024, &EntityToPickup},
     {0x0E010051, &EntityToFamiliar},
@@ -327,6 +371,13 @@ constexpr LuaHandlerBinding kEntityHandlers[] = {
 // `EntityPickup` 的成员（owner 独立）。批次 4 只有一条：`IsShopItem`。
 constexpr LuaHandlerBinding kEntityPickupHandlers[] = {
     {0x0E010029, &EntityPickupIsShopItem},
+    // 批次 028：`EntityPickup:CanReroll()`（域内取号：0x2B 是扫描出来的**第一个空号**，
+    // 0x2A 之后到 0x30 之间是空洞 —— 别按"上一个 +1"猜）。
+    // ⚠️ **必须登记在"这个 owner 自己的表"里**：实体方法按 owner 分表挂到各自的元表上
+    // （`AttachEntityPickupMethods` 只读这张表）。2026-09-18 实测教训：我第一版把它放进
+    // `EntityPlayer` 那张表 ⇒ 方法挂到了 `EntityPlayer` 元表上 ⇒ `pickup:CanReroll()` 是 nil
+    // （探针的 `R=` 打印 `ERR`），而"处理器存在、目录行存在、门禁也过"——**三样都绿还是调不到**。
+    {0x0E01002B, &EntityPickupCanReroll},
 };
 
 constexpr LuaHandlerBinding kItemConfigHandlers[] = {
@@ -376,14 +427,14 @@ constexpr std::size_t kRunCallbackMaximumDepth = 8;
 // `CountBosses` **留在名单里**：boss 判据（vtable 槽或实体字段）本轮没有任何证据，
 // 见 `IsaacCountBosses` 的注释——它照旧返回 0 并告警一次。
 enum class Stub : std::size_t {
-    CountBosses = 0,
-    WorldToScreen,
+    // 2026-09-18 批次 026：`CountBosses` / `LoadModData` / `SaveModData` / `RenderScaledText`
+    // 四条**已改成真实现**（判据见各自实现处与 `runtime_constants.hpp`），
+    // 因此从这份名单里删掉 —— 这里的枚举就是"还在桩里的那些"，
+    // 与 `tools/lua_api_stub_ledger.json` 双向一致（门禁 `test_lua_api_stub_ledger` 盯着）。
+    WorldToScreen = 0,
     WorldToRenderPosition,
     GetPersistentGameData,
     GetTrinketIdByName,
-    LoadModData,
-    SaveModData,
-    RenderScaledText,
     Count,
 };
 
@@ -441,6 +492,9 @@ void ResetSessionState() {
     }
     g_RunCallbackDepth = 0;
     ManagedFrameClock::Reset();
+    // 回调派发计数也是"每会话"口径：不清的话新一次加载会读到上一次的累加值，
+    // 而"有没有被派发过"这个判断就永远为真了（见 `callback_dispatcher.hpp` 的说明）。
+    ResetCallbackDispatchCounters();
     ResetEntityDataStore();
 }
 
@@ -542,7 +596,7 @@ int IsaacRunCallback(lua_State* state) {
         --g_RunCallbackDepth;
         return results;
     }
-    if (!lua_isinteger(state, 1)) {
+    if (!isaac::runtime::IsIntegerArgument(state, 1)) {
         return luaL_error(state, "Isaac.RunCallback expects a callback id");
     }
     const lua_Integer requested = lua_tointegerx(state, 1, nullptr);
@@ -912,7 +966,7 @@ EntityHandle* CheckEntityHandle(lua_State* state, int index) {
 // 读一个整型参数。**接受范围与 PC 的 `luaL_checkinteger` 一致**：整数、整值浮点（`57.0`）、
 // 可转换的数字串都收，`1.5`/`"nope"`/缺参数都不收 —— 与 `ReadItemId` 同一口径。
 //
-// 为什么不能用 `lua_isinteger`：Lua 5.3 里 `57.0` 是 **float**，`lua_isinteger` 返回 false，
+// 为什么不能用"只认整数子类型"那个判据：Lua 5.3 里 `57.0` 是 **float**，该判据返回 false，
 // 而 `lua_tointegerx` 会把它精确转成 57。Mod 写 `EntityPartition.ENEMY * 1.0` 或者把掩码
 // 从配置里读出来（JSON 数字都是 float）都会踩到这条：判错就会安静地返回空表。
 bool ReadIntegerArgument(lua_State* state, int index, lua_Integer* value) noexcept {
@@ -1201,15 +1255,28 @@ struct QuerySink {
     int emitted{0};
 };
 
+// 查询结果该给哪种视图：**玩家给 `EntityPlayer`、掉落物给 `EntityPickup`、其余给 `Entity`**。
+//
+// 为什么掉落物也要分视图（2026-09-18 实测）：PC 的 `Isaac.FindByType(5)` 返回的是
+// **真正的类对象**，所以模组在查询结果上调 `EntityPickup` 的方法（`CanReroll`、`IsShopItem`…）是正常的；
+// 而我们此前一律给基类 `Entity` ⇒ 那些方法在查询结果上**全是 nil**（探针的 `R=` 打出 `ERR` 就是这么来的）。
+// 视图回落已在 `IndexEntity` 里落实：`EntityPickup` 先查自己的字段，再回落到 `Entity` 的
+// ⇒ 换成它**不会**丢掉基类字段/方法（与 PC 的继承关系一致）。
+const char* EntityViewMetatableForPointer(std::uintptr_t entity) noexcept {
+    switch (ClassifyCallbackEntity(entity)) {
+        case CallbackEntityClass::Player: return kEntityPlayerMetatable;
+        case CallbackEntityClass::Pickup: return kEntityPickupMetatable;
+        default: return kEntityMetatable;
+    }
+}
+
 void PushQueryResult(QuerySink* sink, std::uintptr_t entity) {
     if (sink == nullptr || sink->state == nullptr ||
         sink->emitted >= static_cast<int>(kMaximumQueryResults) || !QueryRecordUnique(entity)) {
         return;
     }
-    // 玩家实体给 `EntityPlayer` 视图（PC 里 `FindByType(ENTITY_PLAYER)` 返回的就是它），
-    // 其余给 `Entity`。判据是**精确**的 `Entity_Player` vptr，不是区间。
-    PushEntityHandle(sink->state, entity,
-                     IsEntityPlayer(entity) ? kEntityPlayerMetatable : kEntityMetatable);
+    // 视图按实体类别选（见上面的 `EntityViewMetatableForPointer`）：PC 的查询返回的就是真类对象。
+    PushEntityHandle(sink->state, entity, EntityViewMetatableForPointer(entity));
     lua_rawseti(sink->state, sink->resultIndex, ++sink->emitted);
 }
 
@@ -1296,6 +1363,53 @@ std::uintptr_t g_EntityDataEpochRoom = 0;
 std::uintptr_t g_EntityDataEpochList = 0;
 bool g_EntityDataEpochValid = false;
 
+// --- 快路径缓存（批次 088，2026-09-19）-----------------------------------------
+//
+// **为什么加**：087 的真机读数里，EID 在物品旁边的那个渲染回调每帧 896 µs，而当时插桩到的
+// 全部 API 只占 17% —— 剩下的去向说不清。读 EID 源码找到了放大器：它的 `getEntityData()`
+// （`features/eid_api.lua:2217`）**一次要调 2~3 次** `entity:GetData()`，而它在**每个实体**上
+// 要调好几次 `getEntityData`（`EID_Hide` / `EID_Description` / `EID_FlipItemID` …），
+// 整个循环又是**每帧**逐实体跑的（`main.lua` 的 `OnRender`）⇒ 每帧几百次 `GetData()`。
+//
+// 而这一次调用原本要做：读生成帧、解析房间、**3 次指纹读**、容量/条数/首址 3 次读、整段数组
+// 可读性检查，最后**线性扫 128 个槽**。同一个实体连着问 6 次，这套动作就重复 6 遍。
+//
+// **改法（语义不变）**：
+//   ① 列表指纹只在**房间变化**时校验一次 —— 它是引擎构建的静态布局属性，同一房间内不会变；
+//      每次调用仍然**只读两个字段**（条数 + 首址）拿最新的 `listBegin` ⇒ epoch 口径与以前
+//      逐字一致（实体表重排 ⇒ `listBegin` 变 ⇒ epoch 变 ⇒ 旧表失效，这条语义完全保留）；
+//   ② 加一张按实体指针散列的 **8 槽直映缓存**：**指针 / 生成帧 / epoch 三个字段全等**才认，
+//      命中就跳过 128 槽线性扫。**绝不因为"指针相同"就返回** —— 地址复用必须被生成帧挡住。
+//
+// 漏检的代价只是"退回原来的慢路径"（线性扫仍在，仍然是权威路径），不会给出错答案。
+struct EntityDataRoomCache {
+    std::uintptr_t room{0};
+    bool fingerprintOk{false};
+};
+
+struct EntityDataSlotCache {
+    std::uintptr_t entity{0};
+    std::uint32_t spawnFrame{0};
+    std::uint64_t epoch{0};
+    std::uint16_t slotPlusOne{0};  // 0 = 空槽
+};
+
+constexpr std::size_t kEntityDataSlotCacheSize = 8;
+EntityDataRoomCache g_EntityDataRoomCache{};
+std::array<EntityDataSlotCache, kEntityDataSlotCacheSize> g_EntityDataSlotCache{};
+
+std::size_t EntityDataSlotCacheIndex(std::uintptr_t entity) noexcept {
+    return static_cast<std::size_t>((entity >> 4) & (kEntityDataSlotCacheSize - 1));
+}
+
+void RememberEntityDataSlot(std::size_t slotIndex, const EntityDataEntry& entry) noexcept {
+    EntityDataSlotCache& cached = g_EntityDataSlotCache[EntityDataSlotCacheIndex(entry.entity)];
+    cached.entity = entry.entity;
+    cached.spawnFrame = entry.spawnFrame;
+    cached.epoch = entry.epoch;
+    cached.slotPlusOne = static_cast<std::uint16_t>(slotIndex + 1);
+}
+
 std::uint64_t EntityDataEpochFor(std::uintptr_t room, std::uintptr_t listBegin) noexcept {
     if (!g_EntityDataEpochValid || room != g_EntityDataEpochRoom ||
         listBegin != g_EntityDataEpochList) {
@@ -1317,49 +1431,72 @@ int PushEntityDataTable(lua_State* state, std::uintptr_t entity) {
     std::uintptr_t listBegin = 0;
     if (room != 0) {
         const std::uintptr_t list = room + kRoomEntityListOffset;
-        EntityTableView view{};
-        if (EntityListFingerprintMatches(list) && ReadEntityTable(list, kLiveEntityTable, &view)) {
-            listBegin = view.begin;
+        if (room != g_EntityDataRoomCache.room) {
+            // 房间换了：校验一次指纹，并把直映缓存整张作废（旧房间的槽位索引不再可信）。
+            g_EntityDataRoomCache.room = room;
+            g_EntityDataRoomCache.fingerprintOk = EntityListFingerprintMatches(list);
+            g_EntityDataSlotCache.fill(EntityDataSlotCache{});
+        }
+        std::uint32_t liveCount = 0;
+        if (g_EntityDataRoomCache.fingerprintOk &&
+            ReadEngine(list + kEntityListLiveCountOffset, &liveCount) && liveCount != 0 &&
+            ReadEngine(list + kEntityListLiveBeginOffset, &listBegin) && listBegin != 0) {
+            // 拿到了当前活表首址 ⇒ epoch 跟着它走（与以前同口径）。
         } else {
-            // 容器不可信 → 房间身份也当成"未知"，退化成"按指针 + 生成帧"作键。
+            // 容器不可信 ⇒ 房间身份也当成"未知"（与批次 4 的原语义一致）。
             room = 0;
         }
     }
     const std::uint64_t epoch = EntityDataEpochFor(room, listBegin);
     ++g_EntityDataClock;
-    for (EntityDataEntry& entry : g_EntityDataEntries) {
+    // 快路径：同一个实体连着问好几次（EID 就是这么用的）—— 三字段全等才认。
+    const EntityDataSlotCache& cached = g_EntityDataSlotCache[EntityDataSlotCacheIndex(entity)];
+    if (cached.slotPlusOne != 0 && cached.entity == entity && cached.epoch == epoch &&
+        cached.spawnFrame == spawnFrame) {
+        EntityDataEntry& entry = g_EntityDataEntries[cached.slotPlusOne - 1];
+        if (entry.occupied) {
+            entry.lastUsed = g_EntityDataClock;
+            lua_rawgeti(state, LUA_REGISTRYINDEX, entry.reference);
+            return 1;
+        }
+    }
+    for (std::size_t index = 0; index < g_EntityDataEntries.size(); ++index) {
+        EntityDataEntry& entry = g_EntityDataEntries[index];
         if (!entry.occupied || entry.epoch != epoch || entry.entity != entity ||
             entry.spawnFrame != spawnFrame) {
             continue;
         }
         entry.lastUsed = g_EntityDataClock;
+        RememberEntityDataSlot(index, entry);
         lua_rawgeti(state, LUA_REGISTRYINDEX, entry.reference);
         return 1;
     }
     lua_newtable(state);
     const int reference = luaL_ref(state, LUA_REGISTRYINDEX);
-    EntityDataEntry* slot = nullptr;
-    for (EntityDataEntry& entry : g_EntityDataEntries) {
-        if (!entry.occupied) {
-            slot = &entry;
+    std::size_t slotIndex = g_EntityDataEntries.size();
+    for (std::size_t index = 0; index < g_EntityDataEntries.size(); ++index) {
+        if (!g_EntityDataEntries[index].occupied) {
+            slotIndex = index;
             break;
         }
     }
-    if (slot == nullptr) {
-        slot = &g_EntityDataEntries[0];
-        for (EntityDataEntry& entry : g_EntityDataEntries) {
-            if (entry.lastUsed < slot->lastUsed) {
-                slot = &entry;
+    if (slotIndex == g_EntityDataEntries.size()) {
+        slotIndex = 0;
+        for (std::size_t index = 0; index < g_EntityDataEntries.size(); ++index) {
+            if (g_EntityDataEntries[index].lastUsed < g_EntityDataEntries[slotIndex].lastUsed) {
+                slotIndex = index;
             }
         }
-        luaL_unref(state, LUA_REGISTRYINDEX, slot->reference);
+        luaL_unref(state, LUA_REGISTRYINDEX, g_EntityDataEntries[slotIndex].reference);
     }
-    slot->occupied = true;
-    slot->epoch = epoch;
-    slot->entity = entity;
-    slot->spawnFrame = spawnFrame;
-    slot->reference = reference;
-    slot->lastUsed = g_EntityDataClock;
+    EntityDataEntry& slot = g_EntityDataEntries[slotIndex];
+    slot.occupied = true;
+    slot.epoch = epoch;
+    slot.entity = entity;
+    slot.spawnFrame = spawnFrame;
+    slot.reference = reference;
+    slot.lastUsed = g_EntityDataClock;
+    RememberEntityDataSlot(slotIndex, slot);
     lua_rawgeti(state, LUA_REGISTRYINDEX, reference);
     return 1;
 }
@@ -1374,6 +1511,8 @@ void ResetEntityDataStore() noexcept {
     g_EntityDataEpochRoom = 0;
     g_EntityDataEpochList = 0;
     g_EntityDataEpochValid = false;
+    g_EntityDataRoomCache = EntityDataRoomCache{};
+    g_EntityDataSlotCache.fill(EntityDataSlotCache{});
 }
 
 // Entity 的整型字段（偏移来自 `Entity::Init` 的存值形态与真机探针）。
@@ -1908,6 +2047,42 @@ int EntityToPickup(lua_State* state) {
 // "attempt to call a nil value (method 'IsShopItem')"，整段描述渲染直接中断 —— 而这正是
 // 本批次要打通的那条链。`false` 的降级后果只是"不按商店规则隐藏描述"（一个配置项失效），
 // 比报错安全得多，也不影响任何其他判据。
+// `EntityPickup:CanReroll()`（PC 文档 `EntityPickup.md:25`：`boolean CanReroll()`）。
+//
+// 引擎方法 `Entity_Pickup::CanReroll() const` @ `0x26AFA8`（函数体很短：先看 `+0x1C3` 那个字节，
+// 再按 `Type` 与一个区间比较），入口指纹 `0x39470C09`。
+//
+// 为什么这条值得接：EID 在链式调用里用它（`xxx:CanReroll()`），而候选 owner 是
+// `EntityNPC`/`EntityPickup` 两个 —— 我们**只有** `EntityPickup` 视图（没有 `EntityNPC` 视图，
+// 见 `kEntityPickupCanRerollOffset` 的注释），所以先补这一半；另一半等 `EntityNPC` 视图。
+int EntityPickupCanReroll(lua_State* state) {
+    RecordFilterChain(4U);
+    auto* handle = CheckEntityHandle(state, 1);
+    if (lua_gettop(state) != 1) {
+        return luaL_error(state, "EntityPickup:CanReroll accepts no arguments");
+    }
+    const std::uintptr_t entity = ValidatedEntity(handle);
+    if (entity == 0) {
+        return luaL_error(state, "EntityPickup:CanReroll requires a live entity");
+    }
+    const std::uintptr_t base = EngineModuleBase();
+    if (base == 0 || base > UINTPTR_MAX - kEntityPickupCanRerollOffset ||
+        !IsEngineMemoryReadable(base + kEntityPickupCanRerollOffset, sizeof(std::uint32_t))) {
+        return luaL_error(state, "EntityPickup:CanReroll native binding is unavailable");
+    }
+    std::uint32_t entryWord = 0;
+    if (!ReadEngine(base + kEntityPickupCanRerollOffset, &entryWord) ||
+        entryWord != kEntityPickupCanRerollEntryWord) {
+        return luaL_error(state, "EntityPickup:CanReroll native binding does not match this build");
+    }
+    // 引擎签名：`bool (*)(const Entity_Pickup*)`（`this` 在 x0，布尔在 w0 返回）。
+    using CanRerollFn = bool (*)(const void*);
+    const bool canReroll = reinterpret_cast<CanRerollFn>(
+        base + kEntityPickupCanRerollOffset)(reinterpret_cast<const void*>(entity));
+    lua_pushboolean(state, canReroll ? 1 : 0);
+    return 1;
+}
+
 int EntityPickupIsShopItem(lua_State* state) {
     RecordFilterChain(4U);
     auto* handle = CheckEntityHandle(state, 1);
@@ -2085,31 +2260,59 @@ std::uintptr_t PillEffectIsAvailableMethod() noexcept {
     return method;
 }
 
-// `kind` → 该调哪个引擎函数（0 = `Item`（带 flags）、1 = `Card`、2 = `PillEffect`）。
-// （宿主实现指针必须定义在**使用它的 `CallItemConfigIsAvailable` 之前** —— 上面那次"定义放在
+// 宿主侧注入实现的 `kind` 口径（0 = `Item`（带 flags）、1 = `Card`、2 = `PillEffect`）。
+// （宿主实现指针必须定义在**使用它的 `Call*IsAvailable` 之前** —— 上面那次"定义放在
 //  文件末尾、使用在前面"的直接后果就是 `use of undeclared identifier`。）
 #if !defined(__SWITCH__)
 ItemConfigIsAvailableHostImplementation g_ItemConfigIsAvailableHostImplementation = nullptr;
 #endif
 
-// `kind` → 该调哪个引擎函数（0 = `Item`（带 flags）、1 = `Card`、2 = `PillEffect`）。
-bool CallItemConfigIsAvailable(std::uintptr_t method, std::uintptr_t entry, int kind) {
+// ⚠️ 2026-09-17：这三条原来挤在一个 `CallItemConfigIsAvailable(method, entry, kind)` 里，
+// 由**运行时的 `kind`** 在两条签名之间选（`if (kind == 0)` 走带 flags 的三参数、否则走无参）。
+// 后果是**静态检查核不到**：ABI 体检无法确定"哪个偏移常量配哪份签名"（`Item` 与
+// `Card`/`PillEffect` 的签名不同），这三条就一直是"没比过"。
+// 现在按**引擎函数各拆一条**：每个偏移常量只对应一个调用点、一个转型 ⇒ 能被机器核对
+// （见 `tools/engine_offset_abi_report.py` 的形态 E）。行为不变，语义也更直白：
+// 条目的类别决定调哪个函数，而不是用一个整数中转。
+bool CallItemIsAvailable(std::uintptr_t method, std::uintptr_t entry) {
 #if defined(__SWITCH__)
-    if (kind == 0) {
-        // `Item::IsAvailable(long flags, uint)`：x0 = 条目、x1 = flags（兼容层定义、已登记偏离）、
-        // x2 = 0（反汇编里读到的四个分支都没用到第三个参数）。
-        using ItemFn = bool (*)(void*, std::int64_t, std::uint32_t);
-        return reinterpret_cast<ItemFn>(method)(reinterpret_cast<void*>(entry),
-                                                kItemIsAvailableFlags, 0);
-    }
+    // `Item::IsAvailableEx(uint)`：x0 = 条目、x1 = flags（兼容层定义、已登记偏离）、
+    // x2 = 0（反汇编里读到的四个分支都没用到第三个参数）。
+    using ItemFn = bool (*)(void*, std::int64_t, std::uint32_t);
+    return reinterpret_cast<ItemFn>(method)(reinterpret_cast<void*>(entry),
+                                            kItemIsAvailableFlags, 0);
+#else
+    static_cast<void>(method);
+    const ItemConfigIsAvailableHostImplementation injected =
+        g_ItemConfigIsAvailableHostImplementation;
+    return injected != nullptr &&
+           injected(0, reinterpret_cast<void*>(entry), kItemIsAvailableFlags);
+#endif
+}
+
+// `Card::IsAvailable()`：无参（`x0` = 条目）。
+bool CallCardIsAvailable(std::uintptr_t method, std::uintptr_t entry) {
+#if defined(__SWITCH__)
     using NoArgFn = bool (*)(void*);
     return reinterpret_cast<NoArgFn>(method)(reinterpret_cast<void*>(entry));
 #else
     static_cast<void>(method);
     const ItemConfigIsAvailableHostImplementation injected =
         g_ItemConfigIsAvailableHostImplementation;
-    return injected != nullptr &&
-           injected(kind, reinterpret_cast<void*>(entry), kind == 0 ? kItemIsAvailableFlags : 0);
+    return injected != nullptr && injected(1, reinterpret_cast<void*>(entry), 0);
+#endif
+}
+
+// `PillEffect::IsAvailable()`：与 `Card` 同一支（无参，宿主 `kind` = 2）。
+bool CallPillEffectIsAvailable(std::uintptr_t method, std::uintptr_t entry) {
+#if defined(__SWITCH__)
+    using NoArgFn = bool (*)(void*);
+    return reinterpret_cast<NoArgFn>(method)(reinterpret_cast<void*>(entry));
+#else
+    static_cast<void>(method);
+    const ItemConfigIsAvailableHostImplementation injected =
+        g_ItemConfigIsAvailableHostImplementation;
+    return injected != nullptr && injected(2, reinterpret_cast<void*>(entry), 0);
 #endif
 }
 
@@ -2121,18 +2324,22 @@ CurrentLanguageCodeHostImplementation g_CurrentLanguageCodeHostImplementation = 
 #endif
 
 bool CallEntityPlayerHasCollectible(std::uintptr_t method, std::uintptr_t entity,
-                                    std::uint32_t collectibleId) {
+                                    std::uint32_t collectibleId, bool ignoreModifiers) {
 #if defined(__SWITCH__)
+    // 原生符号：`_ZNK15IsaacRepentance13Entity_Player14HasCollectibleENS_16eCollectibleTypeEb`
+    // ⇒ `(eCollectibleType, bool)`。第二个参数**原样透传**给引擎（PC 语义就是那个
+    // `ignoreModifiers`），不做我们自己的解释 —— 这样"传什么"与 PC 完全一致。
     using HasCollectibleFn = bool (*)(void*, std::uint32_t, std::uint32_t);
     return reinterpret_cast<HasCollectibleFn>(method)(reinterpret_cast<void*>(entity), collectibleId,
-                                                      0);
+                                                      ignoreModifiers ? 1U : 0U);
 #else
     // 宿主构建没有引擎映像，也无法把一个 C++ 函数放到 `base + 0x27D3F4`，所以那一条 `bl` 由
     // 测试注入的实现顶替（声明见 `isaac_api.hpp`）。宿主仍然能验证"vptr 校验先于调用""参数就是
     // `this` 与 id""返回值原样变成 Lua 布尔"；设备构建不存在这条通路。
     static_cast<void>(method);
     const EntityPlayerHasCollectibleHostImplementation injected = g_HasCollectibleHostImplementation;
-    return injected != nullptr && injected(reinterpret_cast<void*>(entity), collectibleId);
+    return injected != nullptr &&
+           injected(reinterpret_cast<void*>(entity), collectibleId, ignoreModifiers);
 #endif
 }
 
@@ -2141,7 +2348,7 @@ bool CallEntityPlayerHasCollectible(std::uintptr_t method, std::uintptr_t entity
 int EntityPlayerAddCollectible(lua_State* state) {
     auto* handle = CheckEntityHandle(state, 1);
     const int argumentCount = lua_gettop(state);
-    if (argumentCount < 2 || argumentCount > 6 || !lua_isinteger(state, 2)) {
+    if (argumentCount < 2 || argumentCount > 6 || !isaac::runtime::IsIntegerArgument(state, 2)) {
         return luaL_error(
             state,
             "EntityPlayer:AddCollectible accepts (type[, charge[, force[, slot[, varData]]]])");
@@ -2186,12 +2393,31 @@ int EntityPlayerAddCollectible(lua_State* state) {
     return 1;
 }
 
+// `EntityPlayer:AddCoins(int Amount)` —— PC 文档：`EntityPlayer.md` 的 `AddCoins ( int Amount )`，
+// 返回类型 void（所以成功后**不压任何返回值**，与 PC 的 `player:AddCoins(5)` 语义一致）。
+//
+// 为什么走引擎函数而不是直接写 `EntityPlayer + 0x16E0`（那个字段我们已取证）：
+// 引擎这一条会自己**夹到上限**（99，拥有某件收藏品时 999），并且**触发副作用**
+// （`consumable_count_changed(1)` + HUD 第二屏刷新）。直接写字段的话，一是要自己实现夹取
+// （漏了就写出一个显示不出来的金币数），二是 HUD 不会刷新 —— 那会让"模组改了钱但界面没变"
+// 变成一个假的缺陷报告。PC 侧 `AddCoins` 走的也是引擎同一个函数。
 int EntityPlayerHasCollectible(lua_State* state) {
     RecordApiSequenceSecondary(0U);
     auto* handle = CheckEntityHandle(state, 1);
-    if (lua_gettop(state) != 2 || !lua_isinteger(state, 2)) {
-        return luaL_error(state, "EntityPlayer:HasCollectible accepts one collectible id");
+    // PC 签名：`HasCollectible(CollectibleType, bool ignoreModifiers = false)`。
+    // 第二个参数是**可选**的（EID 会传 `true`，见 `features/eid_api.lua:3004`）；
+    // 只接受布尔或 nil（nil 等同缺省 false），给别的类型就报清楚 —— 不猜、不静默转换。
+    // ⚠️ 注意 `f(a, nil)` 在 Lua 里 top 也是 3（nil 会被真的传进来），所以 nil 必须显式放行。
+    const int argumentCount = lua_gettop(state);
+    const int thirdType = argumentCount == 3 ? lua_type(state, 3) : LUA_TNIL;
+    if ((argumentCount != 2 && argumentCount != 3) || !isaac::runtime::IsIntegerArgument(state, 2) ||
+        (argumentCount == 3 && thirdType != LUA_TBOOLEAN && thirdType != LUA_TNIL)) {
+        return luaL_error(state,
+                          "EntityPlayer:HasCollectible accepts a collectible id and an optional "
+                          "boolean (ignoreModifiers)");
     }
+    const bool ignoreModifiers =
+        argumentCount == 3 && thirdType == LUA_TBOOLEAN && lua_toboolean(state, 3) == 1;
     const lua_Integer requested = lua_tointegerx(state, 2, nullptr);
     if (requested < 0 ||
         static_cast<std::uint64_t>(requested) > std::numeric_limits<std::uint32_t>::max()) {
@@ -2204,7 +2430,7 @@ int EntityPlayerHasCollectible(lua_State* state) {
         return 1;
     }
     const bool collected = CallEntityPlayerHasCollectible(
-        method, entity, static_cast<std::uint32_t>(requested));
+        method, entity, static_cast<std::uint32_t>(requested), ignoreModifiers);
     lua_pushboolean(state, collected ? 1 : 0);
     return 1;
 }
@@ -2379,12 +2605,29 @@ bool EntityPlayerProbeNoArguments(lua_State* state, const char* name) {
     return true;
 }
 
-bool EntityPlayerProbeSlots(lua_State* state, const char* name, int maximum) {
+// 参数是**枚举 id**（不是槽位）的那一族：只钉"必须是一个整数"，**不钉取值范围**。
+//
+// 证据（2026-09-18 真机，可调用性探针撞出来的）：探针按 PC 文档调用
+// `player:GetCollectibleRNG(1)`（1 = 洋葱），我们把它当槽位卡在 `[0, 0]` ⇒ 抛 Lua 错误。
+// PC 文档快照里的签名是**枚举 id**（`analysis/isaacdocs-snapshot/docs/EntityPlayer.md`）：
+//   * `RNG GetCollectibleRNG(CollectibleType ID)`（:903）
+//   * `RNG GetTrinketRNG(TrinketType TrinketID)`（:1331）
+//   * `RNG GetCardRNG(Card ID)`（:888）
+//   * `RNG GetPillRNG(PillEffect ID)`（:1191）
+//   * `bool HasTrinket(TrinketType TrinketID)`、`bool HasPlayerForm(PlayerForm)`、
+//     `int GetPlayerFormCounter(PlayerForm)`
+// 这些 id 空间里有上千个值（饰品、形态），"看起来像槽位"的上限写法会让**合法调用**抛错；
+// 而回调里抛错会被派发器**静默摘掉整条回调**（现象：那个模组的某块功能整个不工作）。
+// 越界在 PC 上不是错误，而是"没有"（nil / 0 / false）。
+//
+// 与 `GetCard`/`GetPill` 的槽位口径（下面那条注释）是**两条不同的规则**，别混：
+// 那两条的参数在 PC 上确实是槽位（`GetCard(int SlotId)`），所以那里只钉整数、越界走"没有"；
+// 这一族连"上限"都不存在，写上限就是错。
+bool EntityPlayerProbeIdArgument(lua_State* state, const char* name) {
     static_cast<void>(CheckEntityHandle(state, 1));
-    lua_Integer slot = 0;
-    if (lua_gettop(state) != 2 || !ReadIntegerArgument(state, 2, &slot) || slot < 0 ||
-        slot >= maximum) {
-        luaL_error(state, "%s accepts one slot in [0, %d]", name, maximum - 1);
+    lua_Integer value = 0;
+    if (lua_gettop(state) != 2 || !ReadIntegerArgument(state, 2, &value)) {
+        luaL_error(state, "%s accepts one integer id", name);
         return false;
     }
     return true;
@@ -2447,7 +2690,7 @@ int EntityPlayerGetMainTwin(lua_State* state) {
 }
 
 int EntityPlayerGetCollectibleRNG(lua_State* state) {
-    if (!EntityPlayerProbeSlots(state, "EntityPlayer:GetCollectibleRNG", 1)) {
+    if (!EntityPlayerProbeIdArgument(state, "EntityPlayer:GetCollectibleRNG")) {
         return 0;
     }
     PushNil(state);
@@ -2455,7 +2698,7 @@ int EntityPlayerGetCollectibleRNG(lua_State* state) {
 }
 
 int EntityPlayerGetTrinketRNG(lua_State* state) {
-    if (!EntityPlayerProbeSlots(state, "EntityPlayer:GetTrinketRNG", 2)) {
+    if (!EntityPlayerProbeIdArgument(state, "EntityPlayer:GetTrinketRNG")) {
         return 0;
     }
     PushNil(state);
@@ -2463,7 +2706,7 @@ int EntityPlayerGetTrinketRNG(lua_State* state) {
 }
 
 int EntityPlayerGetCardRNG(lua_State* state) {
-    if (!EntityPlayerProbeSlots(state, "EntityPlayer:GetCardRNG", 1)) {
+    if (!EntityPlayerProbeIdArgument(state, "EntityPlayer:GetCardRNG")) {
         return 0;
     }
     PushNil(state);
@@ -2471,34 +2714,76 @@ int EntityPlayerGetCardRNG(lua_State* state) {
 }
 
 int EntityPlayerGetPillRNG(lua_State* state) {
-    if (!EntityPlayerProbeSlots(state, "EntityPlayer:GetPillRNG", 1)) {
+    if (!EntityPlayerProbeIdArgument(state, "EntityPlayer:GetPillRNG")) {
         return 0;
     }
     PushNil(state);
     return 1;
 }
 
-int EntityPlayerGetNumKeys(lua_State* state) {
-    if (!EntityPlayerProbeNoArguments(state, "EntityPlayer:GetNumKeys")) {
+// `EntityPlayer:GetNumKeys` / `GetNumBombs` / `GetSoulCharge` / `GetBloodCharge` 共用的实现
+// （2026-09-18）。四个的 PC 形状完全一样："无参数、返回 int"，只是读的字段不同。
+//
+// **为什么抽成一处**：在此之前这四个都是 `PushZero` 的**恒返回 0 假桩**，而假读数的危害
+// 与"套装恒 0/3"同类 —— 模组拿它们做算术会得到错误结论，且不报错。四份几乎一样的代码
+// 各自漂移正是这类问题的温床，所以这里只留一份。
+//
+// 降级口径与 `EntityPlayer:GetNumCoins` 一致：**压 0，不压 nil**
+// （PC 的返回类型是数字，模组普遍直接参与算术；nil 会把整条回调摘掉，降级不该比原状更糟）。
+//
+// ⚠️ 这四条目前是**手写读字段**。它们本该走 `field_api.hpp` 的"数据行"机制（0 字节代码），
+// 但那条路要求偏移进 `tools/layout_tables/*.json` 的布局表；本批先按 `GetNumCoins` 的既有形状落地，
+// 后续"整体迁"那一轮再把这几个偏移一起迁进布局表（届时四条会变成四行数据）。
+int PushEntityPlayerCounter(lua_State* state, const char* apiName, std::uintptr_t offset) {
+    if (!EntityPlayerProbeNoArguments(state, apiName)) {
         return 0;
     }
-    PushZero(state);
+    auto* handle = CheckEntityHandle(state, 1);
+    const std::uintptr_t entity = ValidatedEntityPlayer(handle);
+    std::uint32_t value = 0;
+    if (entity == 0 || !ReadEngine(entity + offset, &value)) {
+        value = 0;
+    }
+    lua_pushinteger(state, static_cast<lua_Integer>(value));
     return 1;
 }
 
+int EntityPlayerGetNumKeys(lua_State* state) {
+    // 字段 `+0x16D4` 的取证见 `runtime_constants.hpp` 的 `kEntityPlayerKeysOffset`
+    // （`AddKeys` 的取-加-夹-存四条指令）。
+    return PushEntityPlayerCounter(state, "EntityPlayer:GetNumKeys", kEntityPlayerKeysOffset);
+}
+
 int EntityPlayerGetNumBombs(lua_State* state) {
-    if (!EntityPlayerProbeNoArguments(state, "EntityPlayer:GetNumBombs")) {
-        return 0;
-    }
-    PushZero(state);
-    return 1;
+    // 字段 `+0x16DC`：2026-09-18 夜**更正**（原写 `+0x16E4`，抄的是 `AddBombs` 里
+    // `PlayerType == PLAYER_BLUEBABY_B` 那条特殊分支）。三条独立证据（引擎自己的消耗品路径）：
+    // `store_consumable_data` 把金币/钥匙/**炸弹**依次存为 `ConsumableData+0x00/+0x04/+0x08`；
+    // `sync_consumable_counts` 按位同步 bit0/bit1/**bit2**；`AddBombs` 常规路径夹到 99 并镜像给同伴。
+    // 完整证据写在 `runtime_constants.hpp` 的 `kEntityPlayerBombsOffset` 注释里。
+    return PushEntityPlayerCounter(state, "EntityPlayer:GetNumBombs", kEntityPlayerBombsOffset);
 }
 
 int EntityPlayerGetNumCoins(lua_State* state) {
     if (!EntityPlayerProbeNoArguments(state, "EntityPlayer:GetNumCoins")) {
         return 0;
     }
-    PushZero(state);
+    // 2026-09-18：从"恒返回 0 的桩"改成**真实现**。偏移 `Entity_Player + 0x16E0` 的取证见
+    // `runtime_constants.hpp` 的 `kEntityPlayerCoinsOffset`（`AddCoins` 的取-加-夹-存四条指令）。
+    //
+    // 为什么必须改：原来那个 0 不是"安全默认值"而是**假读数** —— 模组拿它判"钱够不够"会永远
+    // 得到"不够"，拿它判"要不要补钱"会每帧都补。`GetNumKeys`/`GetNumBombs`/`GetHearts` 等同族
+    // 成员目前仍是桩（各自的偏移还没有同等强度的证据），那几条等取证到位再改。
+    auto* handle = CheckEntityHandle(state, 1);
+    const std::uintptr_t entity = ValidatedEntityPlayer(handle);
+    std::uint32_t coins = 0;
+    if (entity == 0 || !ReadEngine(entity + kEntityPlayerCoinsOffset, &coins)) {
+        // 读不到时压 **0**（不是 nil）：PC 的返回类型是数字，模组普遍拿它直接做算术
+        // （`if player:GetNumCoins() < 5 then`），给 nil 会把那种写法变成
+        // "attempt to compare nil with number" 并摘掉整条回调 —— 降级不该比原状更糟。
+        // 这一档只在"句柄失效/内存不可读"时出现（真机在局内读得到），所以它不是假读数。
+        coins = 0;
+    }
+    lua_pushinteger(state, static_cast<lua_Integer>(coins));
     return 1;
 }
 
@@ -2512,19 +2797,13 @@ int EntityPlayerGetHearts(lua_State* state) {
 
 
 int EntityPlayerGetSoulCharge(lua_State* state) {
-    if (!EntityPlayerProbeNoArguments(state, "EntityPlayer:GetSoulCharge")) {
-        return 0;
-    }
-    PushZero(state);
-    return 1;
+    // 字段取证见 `runtime_constants.hpp` 的 `kEntityPlayerSoulChargeOffset`（`AddSoulCharge @ 0x27FD98` 的取-加-夹-存 + 尾调 `update_soul_charges(int)`。）。
+    return PushEntityPlayerCounter(state, "EntityPlayer:GetSoulCharge", kEntityPlayerSoulChargeOffset);
 }
 
 int EntityPlayerGetBloodCharge(lua_State* state) {
-    if (!EntityPlayerProbeNoArguments(state, "EntityPlayer:GetBloodCharge")) {
-        return 0;
-    }
-    PushZero(state);
-    return 1;
+    // 字段取证见 `runtime_constants.hpp` 的 `kEntityPlayerBloodChargeOffset`（`AddBloodCharge @ 0x27F5B0` 的取-加-夹-存 + 尾调 `update_blood_charges(int)`。）。
+    return PushEntityPlayerCounter(state, "EntityPlayer:GetBloodCharge", kEntityPlayerBloodChargeOffset);
 }
 
 int EntityPlayerGetPoopMana(lua_State* state) {
@@ -2648,7 +2927,7 @@ int EntityPlayerGetTrinketMultiplier(lua_State* state) {
 }
 
 int EntityPlayerGetPlayerFormCounter(lua_State* state) {
-    if (!EntityPlayerProbeSlots(state, "EntityPlayer:GetPlayerFormCounter", 64)) {
+    if (!EntityPlayerProbeIdArgument(state, "EntityPlayer:GetPlayerFormCounter")) {
         return 0;
     }
     PushZero(state);
@@ -2683,7 +2962,7 @@ int EntityPlayerGetName(lua_State* state) {
 }
 
 int EntityPlayerHasTrinket(lua_State* state) {
-    if (!EntityPlayerProbeSlots(state, "EntityPlayer:HasTrinket", 1024)) {
+    if (!EntityPlayerProbeIdArgument(state, "EntityPlayer:HasTrinket")) {
         return 0;
     }
     lua_pushboolean(state, 0);
@@ -2699,7 +2978,7 @@ int EntityPlayerHasGoldenBomb(lua_State* state) {
 }
 
 int EntityPlayerHasPlayerForm(lua_State* state) {
-    if (!EntityPlayerProbeSlots(state, "EntityPlayer:HasPlayerForm", 64)) {
+    if (!EntityPlayerProbeIdArgument(state, "EntityPlayer:HasPlayerForm")) {
         return 0;
     }
     lua_pushboolean(state, 0);
@@ -3250,6 +3529,11 @@ int ItemConfigItemIsCollectible(lua_State* state) {
 //   药丸条目                                   → `PillEffect::IsAvailable()`
 // ⚠️ `flags` 取值是**我们的兼容层定义**（引擎里三个函数没有任何调用点，参数学不到），
 // 依据见 `runtime_constants.hpp` 的 `kItemIsAvailableFlags` 注释，并在 `api_deviation.cpp` 登记。
+// ⚠️ 2026-09-17 按镜像符号表补正：这个偏移上的原生符号是
+// `ItemConfig::Item::IsAvailableEx(unsigned int)`（**一个** `uint` 参数），
+// 与 PC 文档写的 `IsAvailable(long flags, uint)` 不同 —— 我们按 PC 契约传的 `x1 = flags`
+// 与 `IsAvailableEx` 那一个参数位置一致，多传的 `x2` 引擎不读（反汇编四个分支都没用到）。
+// 体检工具据此判"多给参数"（无害提示），见 `tools/engine_abi_backlog.json` 同目录的台账口径。
 //
 // 降级口径：句柄失效 / 方法拿不到（偏移或入口指纹不对）⇒ 返回 **false**（"这件不可用"）。
 // 为什么不给 true：EID 拿 false 的行为是"跳过这件道具"，而给 true 会让未解锁的道具照样出现 ——
@@ -3264,20 +3548,21 @@ int ItemConfigItemIsAvailable(lua_State* state) {
         lua_pushboolean(state, 0);
         return 1;
     }
-    int kind = 0;
+    // 引擎侧对应**三个不同类的函数**（收藏品/饰品等 `Item` 条目带 flags、卡牌与药丸无参），
+    // 条目属于哪条向量由句柄里的 `beginOffset` 决定。三条路径**各取各的地址、各按各的签名调** ——
+    // 不再用一个 `kind` 整数在两条签名之间选（那个写法静态核不到 ABI，见 `CallItemIsAvailable` 上方注释）。
     if (handle->beginOffset == kItemConfigCardBeginOffset) {
-        kind = 1;
-    } else if (handle->beginOffset == kItemConfigPillEffectBeginOffset) {
-        kind = 2;
-    }
-    const std::uintptr_t method =
-        kind == 1 ? CardIsAvailableMethod()
-                  : (kind == 2 ? PillEffectIsAvailableMethod() : ItemIsAvailableMethod());
-    if (method == 0) {
-        lua_pushboolean(state, 0);
+        const std::uintptr_t method = CardIsAvailableMethod();
+        lua_pushboolean(state, method != 0 && CallCardIsAvailable(method, entry) ? 1 : 0);
         return 1;
     }
-    lua_pushboolean(state, CallItemConfigIsAvailable(method, entry, kind) ? 1 : 0);
+    if (handle->beginOffset == kItemConfigPillEffectBeginOffset) {
+        const std::uintptr_t method = PillEffectIsAvailableMethod();
+        lua_pushboolean(state, method != 0 && CallPillEffectIsAvailable(method, entry) ? 1 : 0);
+        return 1;
+    }
+    const std::uintptr_t method = ItemIsAvailableMethod();
+    lua_pushboolean(state, method != 0 && CallItemIsAvailable(method, entry) ? 1 : 0);
     return 1;
 }
 
@@ -3394,7 +3679,7 @@ int IsaacGetPlayer(lua_State* state) {
     RecordApiSequence(16U);
     std::int64_t index = 0;
     if (lua_gettop(state) >= 1) {
-        if (!lua_isinteger(state, 1)) {
+        if (!isaac::runtime::IsIntegerArgument(state, 1)) {
             lua_pushnil(state);
             return 1;
         }
@@ -3714,17 +3999,39 @@ int IsaacCountEnemies(lua_State* state) {
     return 1;
 }
 
-// `Isaac.CountBosses()`：**仍然是安全 stub（恒 0 + 每会话告警一次）**。
+// `Isaac.CountBosses()`（`Isaac.md:60`："Returns the number of bosses in the current room."）。
 //
-// 为什么这一条没做：boss 判据在引擎里是 `Entity_NPC` 上的一条虚函数/旗标，本轮拿到的
-// 证据里**没有**任何一条能判定"这张实体是不是 boss"（`EntityList::collide()` 的 ENEMY 是
-// 一整片 `Type` 区间，`Entity+0x1B8` 只有 bit3/bit46 有解释，vtable 槽位与重定位表逐槽
-// 还原的工作也没做过）。凭一个猜的判据返回数字，比返回 0 更糟：`Isaac.CountBosses() > 0`
-// 在 Mod 里是用来切"boss 房"逻辑的。
+// **判据（批次 026 取证，三条互证；完整出处写在 `runtime_constants.hpp` 那个常量的注释里）**：
+// `Entity_NPC::IsBoss()` @ `0x124B20` 的整个函数体就是 `ldrb w0, [x0, #0xcc9]; ret`
+// ⇒ PC 那条访问器读的就是 `Entity + 0xCC9` 这个字节；基类 `Entity::IsBoss()` @ `0x67580`
+// 恒返回 false ⇒ 该字段只对 NPC 有意义，所以这里**先要求"这是敌人"再读它**
+// （别的类上那个偏移是无关数据）。旁证：全镜像对 `[x?, #0xcc9]` 的字节访问共 15 处，
+// 其中一处写入把 NPC 配置里的字节拷进实体、一处读取在 NPC 寻路重置后按它分支。
+//
+// 遍历与降级口径与 `Isaac.CountEnemies()` 完全同形：只扫房间的**活表**（boss 是敌人，
+// 不进效果表、也不在玩家向量里），读不到就当"不是 boss"（宁可少数，也不猜）。
 int IsaacCountBosses(lua_State* state) {
     RecordApiSequence(21U);
-    WarnStubOnce(state, Stub::CountBosses, "Isaac.CountBosses");
-    PushZero(state);
+    std::int64_t count = 0;
+    const std::uintptr_t room = ResolveRoom();
+    if (room != 0 && EntityListFingerprintMatches(room + kRoomEntityListOffset)) {
+        ForEachEntityInTable(room + kRoomEntityListOffset, kLiveEntityTable,
+                             [&count](std::uintptr_t entity) {
+                                 EntitySnapshot snapshot{};
+                                 if (!CaptureEntity(entity, &snapshot) ||
+                                     !IsEnemyType(snapshot.type)) {
+                                     return;
+                                 }
+                                 std::uint8_t bossFlag = 0;
+                                 if (!ReadEngine(entity + kEntityBossFlagOffset, &bossFlag)) {
+                                     return;
+                                 }
+                                 if (bossFlag != 0) {
+                                     ++count;
+                                 }
+                             });
+    }
+    lua_pushinteger(state, static_cast<lua_Integer>(count));
     return 1;
 }
 
@@ -3746,6 +4053,55 @@ int IsaacGetTrinketIdByName(lua_State* state) {
     WarnStubOnce(state, Stub::GetTrinketIdByName, "Isaac.GetTrinketIdByName");
     PushZero(state);
     return 1;
+}
+
+// `Isaac.GetRoomEntities()`（`Isaac.md:382`："Returns an iterable table containing **all entities
+// in the room** at the time the function was called"）。
+//
+// **真实现**（2026-09-19 批次 041，为 GoodTrip 补）：它的语义与我们 `Isaac.FindByType`
+// 那三段扫描完全一致（活表 + 玩家向量 + 效果表，并去重）—— PC 侧这一条本身是 Lua glue
+// （`tools/build_lua_api_inventory.py` 把它归成 `lua_glue_type`），所以"照 PC 文档的语义实现"
+// 而不是"接一个引擎符号"才是对的。
+//
+// 为什么 GoodTrip 需要它（`scripts/trip.lua:38/100`）：传送时要把**跟班一起带走**，
+// 它遍历这个表挑出跟班与"主人是玩家"的实体。缺它 ⇒ 那一句直接索引 nil ⇒ 传送功能整块不工作。
+//
+// 降级口径与 `FindByType` 相同：拿不到房间/内存不可读 ⇒ 返回**空表**（不抛错）。
+int IsaacGetRoomEntities(lua_State* state) {
+    if (lua_gettop(state) != 0) {
+        return luaL_error(state, "Isaac.GetRoomEntities accepts no arguments");
+    }
+    lua_newtable(state);
+    const int resultIndex = lua_gettop(state);
+    ResetQueryDedup();
+    const std::uintptr_t room = ResolveRoom();
+    if (room == 0 || !EntityListFingerprintMatches(room + kRoomEntityListOffset)) {
+        return 1;
+    }
+    QuerySink sink{state, resultIndex, 0};
+    const std::uintptr_t list = room + kRoomEntityListOffset;
+    const auto consider = [&](std::uintptr_t entity) { PushQueryResult(&sink, entity); };
+    ForEachEntityInTable(list, kLiveEntityTable, consider);
+    ForEachPlayerEntity(ResolveGameAddress(), consider);
+    ForEachEntityInTable(list, kEffectEntityTable, consider);
+    return 1;
+}
+
+// `Isaac.ExecuteCommand(string command)`（PC：把一行命令交给游戏内置控制台，例如
+// `Isaac.ExecuteCommand("restart")`；`Isaac.md` 的 ExecuteCommand 一节）。
+//
+// ★ **平台限制**（2026-09-19 批次 041）：Switch 上没有控制台、也没有等价的命令通道
+//   ⇒ 这里**什么都不做**（不抛错、不假装成功）。PC 上它的返回类型是 void，所以"没有返回值"
+//   与 PC 一致；差别只在于**命令不会生效**。
+//   直接后果（要写清楚，别让人以为功能坏了）：GoodTrip 的 `TAB + R` 快速重开
+//   （`scripts/control.lua:61` 那句 `Isaac.ExecuteCommand("restart")`）在我们这儿**不会重开**；
+//   要重开请用游戏自带的方式。将来若要做，得先找到引擎自己的"重开一局"入口，
+//   那属于新的取证任务，不在本批。
+int IsaacExecuteCommand(lua_State* state) {
+    if (lua_gettop(state) != 1 || lua_type(state, 1) != LUA_TSTRING) {
+        return luaL_error(state, "Isaac.ExecuteCommand accepts one string command");
+    }
+    return 0;
 }
 
 // `Isaac.GetCallbacks(callbackId[, createIfMissing])`：PC 返回"登记在 callbackId 下的回调表"
@@ -3772,7 +4128,7 @@ int IsaacGetCallbacks(lua_State* state) {
         PushNamedCallbacks(state, lua_tostring(state, 1));
         return 1;
     }
-    if (!lua_isinteger(state, 1)) {
+    if (!isaac::runtime::IsIntegerArgument(state, 1)) {
         return luaL_error(state, "Isaac.GetCallbacks expects a callback id");
     }
     const lua_Integer requested = lua_tointegerx(state, 1, nullptr);
@@ -3802,22 +4158,63 @@ int IsaacGetCallbacks(lua_State* state) {
     return 1;
 }
 
-// `Isaac.LoadModData` / `Isaac.SaveModData` 在 PC 上是 `Isaac` 这一层上的持久化入口；
-// 我们的持久化走 `Mod:SaveData`/`Mod:LoadData`，还没打通到 `Isaac` 这一层，
-// 所以这里不报错、也不假装存下了数据。
+// `Isaac.LoadModData(modRef)` / `Isaac.SaveModData(modRef, data)`（PC 文档 `Isaac.md:505,590`）。
+//
+// 这一层与 `Mod:LoadData()` / `Mod:SaveData(data)` 是**同一件事**：PC 上两组名字读写同一份
+// "saveX.dat"，栈形状也一样（Mod 对象在 1、数据在 2）⇒ 直接转调 `mod_api.cpp` 里那两个
+// 实现（`mod_api.hpp` 导出），不写第二份持久化逻辑（两份 = 以后必漂）。
+//
+// **为什么这条值得单独说**：EID 在 `OnGameStart` 里先判 `EID:HasData()`，为真就
+// `json.decode(Isaac.LoadModData(EID))`（`main.lua:1873`）。旧的桩**一个值都不返回**（nil），
+// 而运行时的 `json.decode` 是 `luaL_checklstring` ⇒ 拿到 nil 直接抛 Lua 错误 ⇒
+// **EID 的配置加载当场中断**（不崩、屏幕上没提示，只留一行错误）：用户改过的 EID 设置
+// 每次开局都加载不上。
 int IsaacLoadModData(lua_State* state) {
-    WarnStubOnce(state, Stub::LoadModData, "Isaac.LoadModData");
-    return 0;
+    return isaac::runtime::ModLoadData(state);
 }
 
 int IsaacSaveModData(lua_State* state) {
-    WarnStubOnce(state, Stub::SaveModData, "Isaac.SaveModData");
-    return 0;
+    return isaac::runtime::ModSaveData(state);
 }
 
-// HUD 文本渲染未实现（需要先定位渲染入口与字体参数的 ABI），调用它只会告警一次。
+// `Isaac.RenderScaledText(str, X, Y, ScaleX, ScaleY, R, G, B, A)`（`Isaac.md:545`：
+// "Renders a scaled text on the Screen"，X/Y 是屏幕坐标，四个颜色分量在 [0,1]）。
+//
+// 旧实现是安全桩（只告警一次、什么都不画）：EID 的 HUD 调整预览与鼠标坐标调试用的就是它
+// （`main.lua:1022/1023/1029`）⇒ 打开那些界面时"一个字都没有"（静默失效）。
+//
+// 绘制本体在 `font_api.cpp`（字体句柄与绘制探针都归那个 TU）。这里只做参数校验与转调：
+// 校验完先把文本复制出来、把数值读进 C 变量，再清栈交给绘制侧（`Font()` 构造器要求空栈，
+// 而且清栈后原来的 Lua 字符串可能被回收 —— 绘制那一步会分配内存）。
 int IsaacRenderScaledText(lua_State* state) {
-    WarnStubOnce(state, Stub::RenderScaledText, "Isaac.RenderScaledText");
+    if (lua_gettop(state) != 9 || !lua_isstring(state, 1)) {
+        return luaL_error(state,
+                          "Isaac.RenderScaledText accepts text, x, y, scaleX, scaleY, "
+                          "red, green, blue, alpha");
+    }
+    for (int index = 2; index <= 9; ++index) {
+        if (!lua_isnumber(state, index)) {
+            return luaL_error(state,
+                              "Isaac.RenderScaledText accepts text, x, y, scaleX, scaleY, "
+                              "red, green, blue, alpha");
+        }
+    }
+    std::size_t length = 0;
+    const char* raw = lua_tolstring(state, 1, &length);
+    const std::string text{raw, length};
+    const float x = static_cast<float>(lua_tonumber(state, 2));
+    const float y = static_cast<float>(lua_tonumber(state, 3));
+    const float scaleX = static_cast<float>(lua_tonumber(state, 4));
+    const float scaleY = static_cast<float>(lua_tonumber(state, 5));
+    const float red = static_cast<float>(lua_tonumber(state, 6));
+    const float green = static_cast<float>(lua_tonumber(state, 7));
+    const float blue = static_cast<float>(lua_tonumber(state, 8));
+    const float alpha = static_cast<float>(lua_tonumber(state, 9));
+    lua_settop(state, 0);
+    if (!isaac::runtime::DrawScaledTextWithDefaultFont(state, text.data(), text.size(), x, y,
+                                                       scaleX, scaleY, red, green, blue, alpha)) {
+        return luaL_error(state, "Isaac.RenderScaledText has no usable screen font");
+    }
     return 0;
 }
 
@@ -3870,6 +4267,17 @@ std::uintptr_t ResolveFieldReceipt(lua_State* state, FieldReceipt receipt, int i
         case FieldReceipt::ItemConfigItem: {
             auto* handle = CheckItemConfigItemHandle(state, index);
             return ValidatedItem(handle);
+        }
+        case FieldReceipt::Room: {
+            // 批次 051：`Room` 接收者**不从栈上取** —— 解析"当前房间"。
+            // 只服务 `Room:PlayMusic()` 这类"无参数、this = 当前房间"的方法。
+            void* room = nullptr;
+            if (ReadCurrentGameRoom(LuaRuntime::GameOwnerSlot(), &room) !=
+                    GameRoomObservation::Success ||
+                room == nullptr) {
+                return 0;
+            }
+            return reinterpret_cast<std::uintptr_t>(room);
         }
         case FieldReceipt::Level: {
             // `Level` 内嵌在 `Game` 起始处，解析链与 `Room`/描述符那条**逐字相同**：
@@ -3973,15 +4381,249 @@ const FieldApiRow* FieldApiRows(std::size_t* count) noexcept {
     return kFieldApis;
 }
 
+namespace {
+
+//: 批次 055：**签名描述符表** —— `EngineCallShape` 的索引就是这张表的下标。
+//:
+//: 加一种签名组合 = 在这里加一行 16 字节数据（**0 字节代码**）：共享处理器按描述符里的
+//: 参数种类把值装进两个数组，交给通用跳板 `EngineCallTrampoline` 按 AAPCS64 调进去。
+//: 表的前四项与批次 051 的四个枚举值一一对应（`Void0`/`Void1`/`Void2`/`Int0`），
+//: 所以老的行不用改 —— **顺序不能动**（枚举值就是下标）。
+constexpr EngineCallShapeRow kEngineCallShapes[] = {
+    // 0 Void0：`void(this)`
+    {0, {EngineArgKind::Int, EngineArgKind::Int, EngineArgKind::Int, EngineArgKind::Int,
+         EngineArgKind::Int, EngineArgKind::Int, EngineArgKind::Int, EngineArgKind::Int},
+     EngineReturnKind::Void, FieldReceipt::Entity, {0, 0, 0, 0, 0}},
+    // 1 Void1：`void(this, i32)`
+    {1, {EngineArgKind::Int, EngineArgKind::Int, EngineArgKind::Int, EngineArgKind::Int,
+         EngineArgKind::Int, EngineArgKind::Int, EngineArgKind::Int, EngineArgKind::Int},
+     EngineReturnKind::Void, FieldReceipt::Entity, {0, 0, 0, 0, 0}},
+    // 2 Void2：`void(this, i32, i32)`
+    {2, {EngineArgKind::Int, EngineArgKind::Int, EngineArgKind::Int, EngineArgKind::Int,
+         EngineArgKind::Int, EngineArgKind::Int, EngineArgKind::Int, EngineArgKind::Int},
+     EngineReturnKind::Void, FieldReceipt::Entity, {0, 0, 0, 0, 0}},
+    // 3 Int0：`i32(this)`
+    {0, {EngineArgKind::Int, EngineArgKind::Int, EngineArgKind::Int, EngineArgKind::Int,
+         EngineArgKind::Int, EngineArgKind::Int, EngineArgKind::Int, EngineArgKind::Int},
+     EngineReturnKind::Int, FieldReceipt::Entity, {0, 0, 0, 0, 0}},
+    // 4 VoidFloat1：`void(this, float)`（浮点参数走 `d0`，与整数各自独立计数）
+    {1, {EngineArgKind::Float, EngineArgKind::Int, EngineArgKind::Int, EngineArgKind::Int,
+         EngineArgKind::Int, EngineArgKind::Int, EngineArgKind::Int, EngineArgKind::Int},
+     EngineReturnKind::Void, FieldReceipt::Entity, {0, 0, 0, 0, 0}},
+    // 5 VoidIntIntIntHandleInt：`void(this, i32, i32, i32, EntityPlayer*, i32)`
+    //   `Game:StartRoomTransition(room, direction, animation, player, dimension)`：
+    //   第 4 个参数是**玩家句柄**（PC 默认 nil ⇒ 空指针 ⇒ 引擎用默认值），所以这一格是 `Handle`。
+    {5, {EngineArgKind::Int, EngineArgKind::Int, EngineArgKind::Int, EngineArgKind::Handle,
+         EngineArgKind::Int, EngineArgKind::Int, EngineArgKind::Int, EngineArgKind::Int},
+     EngineReturnKind::Void, FieldReceipt::EntityPlayer, {0, 0, 0, 0, 0}},
+    // 6 Bool0：`bool(this)`（无参、返回布尔）——`Entity:IsFlying()`
+    {0, {EngineArgKind::Int, EngineArgKind::Int, EngineArgKind::Int, EngineArgKind::Int,
+         EngineArgKind::Int, EngineArgKind::Int, EngineArgKind::Int, EngineArgKind::Int},
+     EngineReturnKind::Bool, FieldReceipt::Entity, {0, 0, 0, 0, 0}},
+};
+
+//: `Handle` 类参数的解析：`nil` ⇒ 空指针（PC 的可选对象参数默认就是 nil，引擎侧就等于 `nullptr`）；
+//: 其余走与字段接收者同一套句柄校验（类型不对时报错，与 PC 上"传错对象"的行为一致）。
+std::uintptr_t ResolveArgumentHandle(lua_State* state, FieldReceipt receipt, int index) {
+    if (lua_isnoneornil(state, index)) {
+        return 0;
+    }
+    return ResolveFieldReceipt(state, receipt, index);
+}
+
+
+} // namespace
+
+const EngineCallShapeRow* EngineCallShapeRows(std::size_t* count) noexcept {
+    if (count != nullptr) {
+        *count = sizeof(kEngineCallShapes) / sizeof(kEngineCallShapes[0]);
+    }
+    return kEngineCallShapes;
+}
+
+// --- 批次 069：数据行的"调用 / 静默降级"计数器（诊断面，见 `api_call_stats.hpp`） ------
+//
+// 这几格存在的唯一目的：**不再靠探针回答"这条 API 到底有没有被调到"**。
+// 全部住 `bss`、加一条 API 也不多花一个字节；读数工具按符号直读。
+extern "C" {
+std::atomic<std::uint32_t> g_IsaacApiRowCalls{0};
+std::atomic<std::uint32_t> g_IsaacApiRowLastCallId{0};
+std::atomic<std::uint32_t> g_IsaacApiRowLastCallKind{0};
+std::atomic<std::uint32_t> g_IsaacEngineRowCalls{0};
+std::atomic<std::uint32_t> g_IsaacEngineRowRejectReceiver{0};
+std::atomic<std::uint32_t> g_IsaacEngineRowRejectOffset{0};
+std::atomic<std::uint32_t> g_IsaacEngineRowRejectEntry{0};
+std::atomic<std::uint32_t> g_IsaacEngineRowLastRejectId{0};
+std::atomic<std::uint32_t> g_IsaacEngineRowLastRejectReason{0};
+}
+
+// --- 批次 051：引擎方法类 API 的**共享处理器**（数据行机制，见 `engine_method_api.hpp`） ----
+// --- 批次 055：参数编组改成"按签名描述符 + 通用跳板"，于是新签名只花数据 ----
+//
+// 为什么要有它：一条"调引擎方法"的 API 原本要手写 ≈490 字节代码（入口守卫 224 + handler ~200），
+// 而代码段当时只有 512 KiB、保留线 32 KiB ⇒ 想一次补几条就会**构建失败**（2026-09-19 实测）。
+// 这里把"不变的流程"收成**一份**，每个 API 只剩一行 16 字节的数据：
+// 于是"以后陆续实现 API"只剩数据成本，不再有代码成本。
+//
+// 判据与手写版逐字相同：接收者先校验、方法用"基址 + 偏移 + 入口 4 字节指纹"解析、
+// 拿不到就按 PC 语义**静默降级**（void 什么都不做、整数压 0），**绝不报错**
+// （报错会把整条模组回调摘掉，比"这次没生效"严重得多）。
+int EngineMethodHandler(lua_State* state) {
+    const auto* row =
+        static_cast<const EngineMethodRow*>(lua_touserdata(state, lua_upvalueindex(1)));
+    if (row == nullptr) {
+        return luaL_error(state, "engine method row missing");
+    }
+    // 批次 093：同上，计时由挂载处的中央包装负责。
+    if (row->probeBit != 0xFF) {
+        RecordApiSequenceSecondary(row->probeBit);
+    }
+    // 批次 069：先记"被调到了"——以下任何一条 `luaL_error` 之后都不会再走到这里。
+    isaac::runtime::RecordEngineRowCall(row->id);
+    // 消息按 catalog 里的 `owner:name` 现拼（与手写处理器同口径，只在出错路径上拼）。
+    const LuaApiDescriptor* descriptor = ApiCatalog::Default().Find(row->id);
+    const char* owner = descriptor != nullptr ? descriptor->owner : "?";
+    const char* name = descriptor != nullptr ? descriptor->name : "?";
+    std::size_t shapeCount = 0;
+    const EngineCallShapeRow* shapes = EngineCallShapeRows(&shapeCount);
+    const std::size_t shapeIndex = static_cast<std::size_t>(row->shape);
+    if (shapes == nullptr || shapeIndex >= shapeCount) {
+        return luaL_error(state, "%s:%s has an unsupported call shape", owner, name);
+    }
+    const EngineCallShapeRow& shape = shapes[shapeIndex];
+    if (shape.argumentCount != row->argumentCount) {
+        // 数据行自相矛盾：按错误的 ABI 调进去会踩坏引擎状态，所以这里**报错**而不是硬调。
+        // 门禁（`test_engine_method_rows.py`）会在构建前就把这种情况拦下来。
+        return luaL_error(state, "%s:%s row and call shape disagree on the argument count", owner,
+                          name);
+    }
+    // 接收者：`Room` 不从栈上取（解析当前房间），其余都在第 1 个参数上。
+    int receiverArguments = row->receipt == FieldReceipt::Room ? 0 : 1;
+    if (row->receipt == FieldReceipt::Room &&
+        lua_gettop(state) == receiverArguments + static_cast<int>(shape.argumentCount) + 1) {
+        // ★ 批次 069 修正（宿主场景第一次真的按 PC 写法调用时暴露）：PC 模组一律写
+        // `Game():GetRoom():PlayMusic()` —— 冒号调用会把 `self` 也压进栈，而这里原先只接受
+        // `Room.PlayMusic()` 那种点号写法（栈上**没有** self）⇒ 真机上这条 API 一被调用就报
+        // "Room:PlayMusic expects 0 argument(s)"，整条模组回调被打断（比"没生效"更糟）。
+        // `Room` 的接收者本来就由"当前房间"解析、不读栈上那个 self，所以这里只是**容下**它。
+        receiverArguments = 1;
+    }
+    if (lua_gettop(state) != receiverArguments + static_cast<int>(shape.argumentCount)) {
+        return luaL_error(state, "%s:%s expects %d argument(s)", owner, name,
+                          static_cast<int>(shape.argumentCount));
+    }
+    // `integers[0]` 留给接收者（AAPCS64 的 `x0` = this），参数从 `integers[1]`/`floats[0]` 起排。
+    std::uint64_t integers[8] = {0, 0, 0, 0, 0, 0, 0, 0};
+    double floats[8] = {0, 0, 0, 0, 0, 0, 0, 0};
+    int integerCount = 1;
+    int floatCount = 0;
+    bool argumentsValid = true;
+    for (std::uint8_t index = 0; index < shape.argumentCount && argumentsValid; ++index) {
+        const int stackIndex = receiverArguments + static_cast<int>(index) + 1;
+        switch (shape.argumentKinds[index]) {
+            case EngineArgKind::Int: {
+                if (!isaac::runtime::IsIntegerArgument(state, stackIndex) || integerCount >= 8) {
+                    argumentsValid = false;
+                    break;
+                }
+                integers[integerCount++] = static_cast<std::uint64_t>(
+                    static_cast<std::int64_t>(lua_tointegerx(state, stackIndex, nullptr)));
+                break;
+            }
+            case EngineArgKind::Float: {
+                int isNumber = 0;
+                const lua_Number value = lua_tonumberx(state, stackIndex, &isNumber);
+                if (isNumber == 0 || floatCount >= 8) {
+                    argumentsValid = false;
+                    break;
+                }
+                floats[floatCount++] = static_cast<double>(value);
+                break;
+            }
+            case EngineArgKind::Bool: {
+                if (integerCount >= 8) {
+                    argumentsValid = false;
+                    break;
+                }
+                integers[integerCount++] = lua_toboolean(state, stackIndex) != 0 ? 1u : 0u;
+                break;
+            }
+            case EngineArgKind::Handle: {
+                if (integerCount >= 8) {
+                    argumentsValid = false;
+                    break;
+                }
+                integers[integerCount++] =
+                    static_cast<std::uint64_t>(ResolveArgumentHandle(state, shape.handleReceipt,
+                                                                     stackIndex));
+                break;
+            }
+        }
+    }
+    if (!argumentsValid) {
+        return luaL_error(state, "%s:%s expects %d argument(s)", owner, name,
+                          static_cast<int>(shape.argumentCount));
+    }
+    const std::uintptr_t receiver =
+        ResolveFieldReceipt(state, row->receipt, receiverArguments == 0 ? 0 : 1);
+    integers[0] = static_cast<std::uint64_t>(receiver);
+    // 批次 069：三种"静默降级"各自记账，这样"这条 API 调了却没生效"在设备上是**可区分的**
+    // —— 接收者拿不到（句柄失效/不在回调里）、偏移解析不到（模块基址不对）、
+    // 入口指纹不匹配（偏移写错，最值得怀疑的一类）。
+    std::uintptr_t engineMethod = 0;
+    bool callable = false;
+    if (receiver == 0) {
+        isaac::runtime::RecordEngineRowReject(
+            row->id, isaac::runtime::EngineRowRejectReason::Receiver);
+    } else {
+        engineMethod = isaac::runtime::EngineOffsetAddress<IsEngineMemoryReadable>(row->offset);
+        if (engineMethod == 0) {
+            isaac::runtime::RecordEngineRowReject(
+                row->id, isaac::runtime::EngineRowRejectReason::Offset);
+        } else if (!isaac::runtime::EngineEntryWordMatches(engineMethod, row->entryWord)) {
+            isaac::runtime::RecordEngineRowReject(
+                row->id, isaac::runtime::EngineRowRejectReason::EntryWord);
+        } else {
+            callable = true;
+        }
+    }
+    std::uint64_t integerResult = 0;
+    double floatResult = 0.0;
+    if (callable) {
+        ::EngineCallTrampoline(engineMethod, integers, floats, &integerResult,
+                                             &floatResult);
+    }
+    // PC 的返回是 int 时拿不到就压 0、是 boolean 就压 false、是 float 就压 0.0（**不压 nil**）：
+    // 模组普遍拿返回值做算术或比较，nil 会变成 "attempt to compare nil with number" 把回调打断。
+    switch (shape.returnKind) {
+        case EngineReturnKind::Void:
+            return 0;
+        case EngineReturnKind::Bool:
+            lua_pushboolean(state, integerResult != 0 ? 1 : 0);
+            return 1;
+        case EngineReturnKind::Float:
+            lua_pushnumber(state, static_cast<lua_Number>(floatResult));
+            return 1;
+        case EngineReturnKind::Int:
+        default:
+            lua_pushinteger(state, static_cast<lua_Integer>(integerResult));
+            return 1;
+    }
+}
+
 int FieldApiHandler(lua_State* state) {
     const auto* row =
         static_cast<const FieldApiRow*>(lua_touserdata(state, lua_upvalueindex(1)));
     if (row == nullptr) {
         return luaL_error(state, "field api row missing");
     }
+    // 批次 093：计时改由**挂载处的中央包装**统一负责（见 `owner_binding.cpp` 的
+    // `PushTimedHandler`）—— 在这里再记一笔就是重复计数。
     if (row->probeBit != 0xFF) {
         RecordApiSequenceSecondary(row->probeBit);
     }
+    // 批次 069：与引擎方法行同口径，先记"被调到了"（字段行没有入口指纹，所以不记被拒）。
+    isaac::runtime::RecordFieldRowCall(row->id);
     if (lua_gettop(state) != 1) {
         // 消息按 catalog 里的 `owner:name` 现拼，与手写处理器逐字一致
         // （例如 `"EntityPlayer:GetSoulHearts accepts no arguments"`）。只在出错路径上拼。
@@ -4122,19 +4764,189 @@ bool IsLiveEntityPointer(std::uintptr_t candidate) noexcept {
     return IsEntityPointer(candidate);
 }
 
+// 批次 065：`ReadEntityIdentity` 的导出实现（声明与理由见 `isaac_api.hpp`）。
+bool ReadEntityIdentity(std::uintptr_t entity, std::uint32_t* type,
+                        std::uint32_t* variant) noexcept {
+    if (entity == 0 || type == nullptr || variant == nullptr) {
+        return false;
+    }
+    return ReadEngine(entity + kEntityTypeOffset, type) &&
+           ReadEngine(entity + kEntityVariantOffset, variant);
+}
+
+
+// `Entity:TakeDamage(Damage, DamageFlags, Source, CountdownFrames)`（批次 065）。
+//
+// **为什么手写而不是数据行**：签名里同时有 `float`、一个 **`EntityRef` 句柄**（按引用交给引擎）
+// 与"按接收者种类选入口"这一步；数据行那套形状只覆盖"整数参数 + 标量返回"，硬塞会变成猜。
+//
+// **引擎侧**：`Entity::TakeDamage(float, EntityRef const&, int)` @ `0x5DCA4`，
+// 玩家另有 `Entity_Player::TakeDamage(...)` @ `0x2A34D0`。PC 里它是虚函数，我们按"接收者是不是
+// 玩家"二选一：玩家走玩家重载（血量/无敌帧/动画那一套都在这儿），其余走基类。
+// **已知偏离**：非玩家子类自己的重载不会被执行（NPC/拾取物等），它们行为与基类一致的部分不受影响。
+//
+// ★★ 2026-09-19 修正（批次 071 的真机崩溃把这一条钉死了）：**`flags` 一直是引擎的第二个参数**。
+//
+// 批次 064 当时按"引擎只有 `(float, EntityRef const&, int)`"实现，于是既**忽略 flags**、
+// 又按 3 个形参调用 —— 而真实签名（`tools/engine_symbol_signatures.json` 里本来就有，
+// 真机崩溃报告的 mangled name 也逐字一致）是：
+//
+//   Entity::TakeDamage(float, unsigned long, Entity::EntityRef const&, int)
+//   Entity_Player::TakeDamage(float, unsigned long, Entity::EntityRef const&, int)
+//
+// 后果分两步暴露，正好是一堂 ABI 课：
+//   ① 批次 065~070：参数个数判据写错（要求栈深度 4）⇒ 真机上**每次调用都报错**，
+//      引擎这一步根本没走到，所以"少一个参数"这件事被掩盖了；
+//   ② 批次 071 修好判据之后，调用真的进了引擎 ⇒ 引擎按 `x2 = &EntityRef` 解引用，
+//      而我们传进去的 `x2` 是 `countdown`（= 0）⇒ **空指针解引用，游戏直接 Data Abort**。
+//      `dist/crash-20260919/01789813541_010021c000b6a000.log`：`Address: 0`、
+//      PC = `Entity_Player::TakeDamage + 0x148`、X[24] = 该函数入口。
+//
+// 现在按真实签名调用：`(this, float damage, uint64 flags, const EntityRef* ref, int countdown)`。
+int EntityTakeDamage(lua_State* state) {
+    void* raw = luaL_testudata(state, 1, kEntityMetatable);
+    const char* metatable = kEntityMetatable;
+    if (raw == nullptr) {
+        raw = luaL_testudata(state, 1, kEntityPlayerMetatable);
+        metatable = kEntityPlayerMetatable;
+    }
+    if (raw == nullptr) {
+        return luaL_error(state, "Entity:TakeDamage expects an entity");
+    }
+    // ★ 批次 071 修正（真机 + 宿主双重暴露）：PC 的调用是
+    // `entity:TakeDamage(damage, flags, source, countdown)` —— **冒号调用会把 `self` 也压进栈**，
+    // 所以栈上是 **5** 个值。批次 065 这里写的是 `lua_gettop(state) != 4`，于是真机上
+    // **每一次调用都直接报错**（GoodTrip `trip.lua:70` 的诅咒房过路费走不到引擎那一步），
+    // 而且错误会把整条 `MC_POST_RENDER` 回调摘掉；更糟的是它在宿主上**没有任何用例覆盖**
+    // （065 那批一条测试都没调用过这条 API），所以一路带到了卡上。
+    // 现在的判据按"**参数个数**"而不是"栈深度"来写：`self` + 3 或 4 个实参（`countdown` 可省，
+    // 与 PC 默认值 0 等价）。错误文本里带上实际拿到的个数 —— 下一次真机读数一眼就能看出来。
+    const int stackTop = lua_gettop(state);
+    if ((stackTop != 4 && stackTop != 5) || !lua_isnumber(state, 2) ||
+        !IsIntegerArgument(state, 3) || (stackTop == 5 && !IsIntegerArgument(state, 5))) {
+        return luaL_error(
+            state,
+            "Entity:TakeDamage expects (damage, flags, source, countdown); got %d argument(s)",
+            stackTop - 1);
+    }
+    auto* handle = static_cast<EntityHandle*>(raw);
+    const std::uintptr_t entity =
+        metatable == kEntityPlayerMetatable ? ValidatedEntityPlayer(handle) : ValidatedEntity(handle);
+    if (entity == 0) {
+        // 句柄失效：什么都不做（PC 上对一个已消失的实体造成伤害同样是空操作）。
+        return 0;
+    }
+    // 引用：PC 的 `Source` 可以是 `EntityRef(...)`；`nil` 时给一个**全零的引用**
+    // （= "没有来源"），这与 PC 的语义一致，而且引擎对空源实体有判空分支。
+    static std::uint8_t emptyReference[kEntityRefStorageSize] = {};
+    const void* reference = EntityRefBufferAt(state, 4);
+    if (reference == nullptr) {
+        if (!lua_isnoneornil(state, 4)) {
+            return luaL_error(state, "Entity:TakeDamage expects an EntityRef as its third argument");
+        }
+        reference = emptyReference;
+    }
+    // `countdown`（PC 的 `CountdownFrames`）：省略时按 PC 的默认值 0 处理。
+    const std::int32_t countdown =
+        stackTop == 5 ? static_cast<std::int32_t>(lua_tointeger(state, 5)) : 0;
+    // `flags`（PC 的 `DamageFlags`）：`unsigned long` —— PC 传进来的那个位掩码**原样交给引擎**
+    // （`DAMAGE_CURSED_DOOR | DAMAGE_NO_PENALTIES` 这类语义由引擎自己解释，我们不再吞掉它）。
+    const std::uint64_t flags =
+        static_cast<std::uint64_t>(static_cast<std::int64_t>(lua_tointeger(state, 3)));
+    // 入口：玩家走 `Entity_Player::TakeDamage`，其余走基类 `Entity::TakeDamage`。
+    // 两条都先过"可读 + 入口 4 字节指纹"两道关；对不上就**静默降级**，绝不盲跳。
+    const bool player = metatable == kEntityPlayerMetatable;
+    if (player) {
+        const std::uintptr_t method = EntityPlayerTakeDamageMethod();
+        if (method == 0 || !EngineEntryWordMatches(method, kEntityPlayerTakeDamageEntryWord)) {
+            return 0;
+        }
+        using EntityPlayerTakeDamageFn = void (*)(std::uintptr_t, float, std::uint64_t,
+                                                  const void*, std::int32_t);
+        reinterpret_cast<EntityPlayerTakeDamageFn>(method)(
+            entity, static_cast<float>(lua_tonumber(state, 2)), flags, reference, countdown);
+        return 0;
+    }
+    const std::uintptr_t method = EntityTakeDamageMethod();
+    if (method == 0 || !EngineEntryWordMatches(method, kEntityTakeDamageEntryWord)) {
+        return 0;
+    }
+    using EntityTakeDamageFn = void (*)(std::uintptr_t, float, std::uint64_t, const void*,
+                                        std::int32_t);
+    reinterpret_cast<EntityTakeDamageFn>(method)(
+        entity, static_cast<float>(lua_tonumber(state, 2)), flags, reference, countdown);
+    return 0;
+}
+
+// `Entity::TakeDamage` / `Entity_Player::TakeDamage` 的取址助手：与 `HasCollectibleMethod`
+// 同一种接法（模块基址 + 偏移 + 可读性检查），并保持"常量出现在助手体内、结果经局部变量交给
+// 调用点"这个形状 —— ABI 体检（`tools/engine_offset_abi_report.py`）靠这条链把常量与我们声明的
+// 签名对上；写成别的形状它就读不出来（批次 065 实测过一次）。
+std::uintptr_t EntityTakeDamageMethod() noexcept {
+    const std::uintptr_t base = EngineModuleBase();
+    if (base == 0 || base > UINTPTR_MAX - kEntityTakeDamageOffset) {
+        return 0;
+    }
+    const std::uintptr_t method = base + kEntityTakeDamageOffset;
+    return IsEngineMemoryReadable(method, sizeof(std::uint32_t)) ? method : 0;
+}
+
+std::uintptr_t EntityPlayerTakeDamageMethod() noexcept {
+    const std::uintptr_t base = EngineModuleBase();
+    if (base == 0 || base > UINTPTR_MAX - kEntityPlayerTakeDamageOffset) {
+        return 0;
+    }
+    const std::uintptr_t method = base + kEntityPlayerTakeDamageOffset;
+    return IsEngineMemoryReadable(method, sizeof(std::uint32_t)) ? method : 0;
+}
+
+
 std::size_t AttachIsaacMethods(lua_State* state) noexcept {
     return AttachOwnerMethods(state, kIsaacOwner, kIsaacHandlers, RowCount(kIsaacHandlers));
 }
 
+//: 批次 063：`Entity` 族的**引擎方法数据行**（机制与成本说明见 `engine_method_api.hpp`）。
+//: `EntityPlayer` 会继承基类方法（`IndexEntity()` 的回落），所以挂在基类上就够了。
+constexpr EngineMethodRow kEntityEngineRows[] = {
+    // `Entity:IsFlying()`：GoodTrip 的诅咒房判定（`trip.lua:90`）要用它。
+    {0x0E01002E, kEntityIsFlyingOffset, kEntityIsFlyingEntryWord, FieldReceipt::Entity,
+     EngineCallShape::Bool0, 0, 0xFF},
+};
+static_assert(RowCount(kEntityEngineRows) == 1, "行数与 id 段（0x002E）要一起改");
+
 std::size_t AttachEntityMethods(lua_State* state) noexcept {
-    return AttachOwnerMethods(state, kEntityOwner, kEntityHandlers, RowCount(kEntityHandlers));
+    return AttachOwnerMethods(state, kEntityOwner, kEntityHandlers, RowCount(kEntityHandlers),
+                              nullptr, 0, kEntityEngineRows, RowCount(kEntityEngineRows));
 }
+
+//: 批次 051：`EntityPlayer` 的**引擎方法数据行**（机制与成本说明见 `engine_method_api.hpp`）。
+//: 每个 API 只占这里 **16 字节只读数据、0 字节代码** —— 这就是"以后陆续实现 API
+//: 不再撞代码段预算"的落点（老写法每条 ≈490 字节代码）。
+constexpr EngineMethodRow kEntityPlayerEngineRows[] = {
+    // 0x0056 `AddCoins(int)`（原手写实现已删，改走共享处理器）
+    {0x0E010056, kEntityPlayerAddCoinsOffset, kEntityPlayerAddCoinsEntryWord,
+     FieldReceipt::EntityPlayer, EngineCallShape::Void1, 1, 0xFF},
+    // 0x0057 `SetShootingCooldown(int)`（GoodTrip"开地图后按方向键"那条路要用）
+    {0x0E010057, kEntityPlayerSetShootingCooldownOffset, kEntityPlayerSetShootingCooldownEntryWord,
+     FieldReceipt::EntityPlayer, EngineCallShape::Void1, 1, 0xFF},
+    // 0x0058 / 0x0059 `AnimateHappy()` / `AnimateSad()`（GoodTrip 传送成功/失败时各一次）
+    {0x0E010058, kEntityPlayerAnimateHappyOffset, kEntityPlayerAnimateHappyEntryWord,
+     FieldReceipt::EntityPlayer, EngineCallShape::Void0, 0, 0xFF},
+    {0x0E010059, kEntityPlayerAnimateSadOffset, kEntityPlayerAnimateSadEntryWord,
+     FieldReceipt::EntityPlayer, EngineCallShape::Void0, 0, 0xFF},
+    // 0x005A `GetBlackHearts()`（PC 名字）→ 引擎符号 `GetNumBlackHearts()`（const）
+    {0x0E01005A, kEntityPlayerGetNumBlackHeartsOffset, kEntityPlayerGetNumBlackHeartsEntryWord,
+     FieldReceipt::EntityPlayer, EngineCallShape::Int0, 0, 0xFF},
+};
+static_assert(RowCount(kEntityPlayerEngineRows) == 5,
+              "行数与 id 段（0x0056~0x005A）要一起改");
 
 std::size_t AttachEntityPlayerMethods(lua_State* state) noexcept {
     std::size_t fieldApiCount = 0;
     return AttachOwnerMethods(state, kEntityPlayerOwner, kEntityPlayerHandlers,
                               RowCount(kEntityPlayerHandlers), FieldApiRows(&fieldApiCount),
-                              fieldApiCount);
+                              fieldApiCount, kEntityPlayerEngineRows,
+                              RowCount(kEntityPlayerEngineRows));
 }
 
 std::size_t AttachEntityPickupMethods(lua_State* state) noexcept {
@@ -4247,7 +5059,9 @@ void RegisterViewMetatables(lua_State* state) {
     lua_newtable(state);
     static_cast<void>(AttachEntityMethods(state));
     lua_setfield(state, -2, "__methods");
-    lua_pushcfunction(state, EntityIndex);
+    // 批次 093：`Entity.__index` 是热路径（每次字段读/方法查找都过它）⇒ 单独特判。
+    isaac::runtime::PushHandler(state, EntityIndex, 0,
+                                     isaac::runtime::kPerfInternalIdEntityIndex);
     lua_setfield(state, -2, "__index");
     lua_pop(state, 1);
 
@@ -4255,7 +5069,8 @@ void RegisterViewMetatables(lua_State* state) {
     lua_newtable(state);
     static_cast<void>(AttachEntityPlayerMethods(state));
     lua_setfield(state, -2, "__methods");
-    lua_pushcfunction(state, EntityPlayerIndex);
+    isaac::runtime::PushHandler(state, EntityPlayerIndex, 0,
+                                     isaac::runtime::kPerfInternalIdEntityPlayerIndex);
     lua_setfield(state, -2, "__index");
     // 写入口（2026-09-16）：见 `EntityNewIndex` 的注释（目前只放行 `ControlsCooldown`）。
     // 基类 `Entity` 的元表**故意没有** `__newindex` —— PC 里也没有可写的基类字段，
@@ -4270,7 +5085,8 @@ void RegisterViewMetatables(lua_State* state) {
     lua_newtable(state);
     static_cast<void>(AttachEntityPickupMethods(state));
     lua_setfield(state, -2, "__methods");
-    lua_pushcfunction(state, EntityPickupIndex);
+    isaac::runtime::PushHandler(state, EntityPickupIndex, 0,
+                                     isaac::runtime::kPerfInternalIdEntityPickupIndex);
     lua_setfield(state, -2, "__index");
     lua_pop(state, 1);
 
@@ -4305,7 +5121,9 @@ std::size_t RegisterIsaacApi(lua_State* state) noexcept {
     RegisterViewMetatables(state);
     // 全局 `GetPtrHash`：PC 的全局函数（`GlobalFunctions.md:143`），EID 在实体身份比较里用。
     // 它**不是**某个对象的方法，所以不进 `AttachOwnerMethods`（catalog 里 owner 是 `Global`）。
-    lua_pushcfunction(state, GlobalGetPtrHash);
+    // `Global:GetPtrHash` **有** catalog id（`MakeId(ApiDomain::Global, 1, 0x1F)`）
+    // ⇒ 直接用真 id，读数里就能自动显示成 `Global:GetPtrHash`。
+    isaac::runtime::PushHandler(state, GlobalGetPtrHash, 0, 0x0001001FU);
     lua_setglobal(state, "GetPtrHash");
     // 全局 `ItemConfig` 常量表（`ItemConfig.TAG_*`）。理由见 `PublishItemConfigConstants`。
     PublishItemConfigConstants(state);
@@ -4448,6 +5266,115 @@ PlayerLookupProbe PlayerLookupProbeSnapshot() noexcept {
     probe.getPlayerSuccess = g_GetPlayerSuccess.load(std::memory_order_relaxed);
     probe.getPlayerFailure = g_GetPlayerFailure.load(std::memory_order_relaxed);
     return probe;
+}
+
+// --- 每帧事件（回调面地基）需要的"游戏侧视图" ----------------------------------
+//
+// 这三个入口存在的唯一理由：`lua_runtime.cpp` 的每帧事件派发要知道"房间里现在有哪些实体、
+// 其中哪些是掉落物、玩家是谁"，而这三件事的实现（vptr 校验、实体容器指纹、实体句柄与元表）
+// 全归本 TU 所有。让派发侧自己再写一份，等于把"什么算一张活的 Entity"变成两份会漂移的实现
+// —— `IsLiveEntityPointer` 当初被导出的理由完全一样。
+
+void VisitRoomEntities(EntityVisitFn visit, void* context) noexcept {
+    if (visit == nullptr) {
+        return;
+    }
+    const std::uintptr_t room = ResolveRoom();
+    if (room == 0 || !EntityListFingerprintMatches(room + kRoomEntityListOffset)) {
+        return;
+    }
+    const std::uintptr_t list = room + kRoomEntityListOffset;
+    // 枚举用"房间内活动实体全集"（`EL+0x78`）—— 与 `Isaac.GetRoomEntities` 同一张表。
+    ForEachEntityInTable(list, kLiveEntityTable,
+                         [visit, context](std::uintptr_t entity) { visit(context, entity); });
+}
+
+void VisitPlayerEntities(EntityVisitFn visit, void* context) noexcept {
+    if (visit == nullptr) {
+        return;
+    }
+    const std::uintptr_t game = ResolveGameAddress();
+    if (game == 0) {
+        return;
+    }
+    ForEachPlayerEntity(game, [visit, context](std::uintptr_t entity) { visit(context, entity); });
+}
+
+std::uintptr_t EntityPointerArgument(lua_State* state, int index) noexcept {
+    if (state == nullptr || index <= 0) {
+        return 0;
+    }
+    // 三种视图都认（与 `CheckEntityHandle` 同一组元表），但**不抛错**：拿不到就是 0。
+    void* handle = luaL_testudata(state, index, kEntityPlayerMetatable);
+    if (handle == nullptr) {
+        handle = luaL_testudata(state, index, kEntityMetatable);
+    }
+    if (handle == nullptr) {
+        handle = luaL_testudata(state, index, kEntityPickupMetatable);
+    }
+    if (handle == nullptr) {
+        return 0;
+    }
+    return ValidatedEntity(static_cast<const EntityHandle*>(handle));
+}
+
+bool IsPickupEntity(std::uintptr_t candidate) noexcept {
+    // 判据只有一份（实体分类那条）：这里改成转调，免得同一件事在两个地方各写一遍、日后漂开。
+    return ClassifyCallbackEntity(candidate) == CallbackEntityClass::Pickup;
+}
+
+CallbackEntityClass ClassifyCallbackEntity(std::uintptr_t candidate) noexcept {
+    // 一次快照就够：`CaptureEntity` 先做**一次**可读性检查（覆盖 `[entity, entity+0x348)`）、
+    // 再校验 vptr 是否落在 `Entity` 家族的 vtable 区间里，然后把类型字段一起读出来。
+    // 用它而不是逐个 `ReadEngine`：每帧要把整个房间过一遍，逐字段检查会让一次扫描变成
+    // 上千次 `svcQueryMemory`（真机上是系统调用）。
+    EntitySnapshot snapshot{};
+    if (!CaptureEntity(candidate, &snapshot)) {
+        return CallbackEntityClass::None;
+    }
+    const std::uintptr_t base = EngineModuleBase();
+    // 玩家 / 掉落物 / 跟班：PC 上这三类是**具体的 C++ 类**，所以判据必须是"`Type` 对得上
+    // **且** vptr 精确等于那个类的 vtable"—— 与 `Entity:ToPlayer()` / `ToPickup()` /
+    // `ToFamiliar()` 逐字一致。只比 `Type` 会把"某个子类把 Type 写成 1/5/3"误判。
+    if (snapshot.type == kEntityTypePlayer && base != 0 &&
+        base <= UINTPTR_MAX - kEntityPlayerVtableOffset &&
+        snapshot.vtable == base + kEntityPlayerVtableOffset) {
+        return CallbackEntityClass::Player;
+    }
+    if (snapshot.type == kEntityTypePickup && base != 0 &&
+        base <= UINTPTR_MAX - kEntityPickupVtableOffset &&
+        snapshot.vtable == base + kEntityPickupVtableOffset) {
+        return CallbackEntityClass::Pickup;
+    }
+    if (snapshot.type == kEntityTypeFamiliar && base != 0 &&
+        base <= UINTPTR_MAX - kEntityFamiliarVtableOffset &&
+        snapshot.vtable == base + kEntityFamiliarVtableOffset) {
+        return CallbackEntityClass::Familiar;
+    }
+    // 剩下这几类**没有各自的 vtable 常量**（没取证过），判据只能取 `Type`：这几个值在 PC 的
+    // `EntityType` 枚举里各自只对应一个类（见 `runtime_constants.hpp` 里那几个常量的注释）。
+    if (snapshot.type == kEntityTypeTear) return CallbackEntityClass::Tear;
+    if (snapshot.type == kEntityTypeProjectile) return CallbackEntityClass::Projectile;
+    if (snapshot.type == kEntityTypeLaser) return CallbackEntityClass::Laser;
+    if (snapshot.type == kEntityTypeKnife) return CallbackEntityClass::Knife;
+    if (snapshot.type == kEntityTypeEffect) return CallbackEntityClass::Effect;
+    if (snapshot.type == kEntityTypeBomb) return CallbackEntityClass::Bomb;
+    // 敌人：引擎自己的判据（`IsEnemy = (u32)(Type - 10) < 0x3DE`）。
+    // 注意顺序：`1000`（效果）落在该区间之外，所以上面那条效果判断不会被抢走。
+    if (IsEnemyType(snapshot.type)) return CallbackEntityClass::Npc;
+    // 其余（例如 `ENTITY_SLOT(6)`、`variant == 0xEF` 的特殊跟班以外的未分类类型）一律不派发。
+    return CallbackEntityClass::None;
+}
+
+void PushEntityCallbackArgument(lua_State* state, std::uintptr_t entity) noexcept {
+    if (state == nullptr) {
+        return;
+    }
+    // 视图与查询结果同一种（`EntityViewMetatableForPointer`）：PC 的回调实参也是**真类对象**，
+    // 所以玩家给 `EntityPlayer`、掉落物给 `EntityPickup`、其余给 `Entity`。
+    // 视图不一致会让模组在回调里直接调不到类方法（`player:HasCollectible()`、
+    // `pickup:IsShopItem()` 这类），而现象只是"方法不存在"。
+    PushEntityHandle(state, entity, EntityViewMetatableForPointer(entity));
 }
 
 } // namespace isaac::runtime

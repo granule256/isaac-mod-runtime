@@ -293,21 +293,39 @@ COMPATIBILITY_DRIVER = textwrap.dedent(
 
     std::vector<unsigned char> g_written;
 
-    void* FakeOpen(const char* path, const char* mode) {
-        (void)path;
-        // "rb" reports a missing file so no read path runs; "wb" yields a handle.
-        return (mode != nullptr && mode[0] == 'w') ? reinterpret_cast<void*>(0x1) : nullptr;
-    }
+    // 内存里的"存档分区"：统一端口 `ISaveFilePort`（2026-09-17 用户指令后，
+    // 持久化只认这一个接口；旧的四裸函数入口 `ConfigureFileApi` 已退休）。
+    class FakeStore final : public isaac::runtime::ISaveFilePort {
+    public:
+        [[nodiscard]] isaac::runtime::Status Read(std::string_view, char*, std::size_t,
+                                                  std::size_t* size) noexcept override {
+            // 还没有数据：报 NotFound，让"第一次保存"这条路径照常走。
+            if (size != nullptr) {
+                *size = 0;
+            }
+            return isaac::runtime::Status{isaac::runtime::StatusCode::NotFound};
+        }
 
-    std::size_t FakeRead(void*, std::size_t, std::size_t, void*) { return 0; }
+        [[nodiscard]] isaac::runtime::Status Write(std::string_view,
+                                                   std::string_view data) noexcept override {
+            const unsigned char* bytes = reinterpret_cast<const unsigned char*>(data.data());
+            g_written.insert(g_written.end(), bytes, bytes + data.size());
+            return isaac::runtime::Status::Ok();
+        }
 
-    std::size_t FakeWrite(const void* source, std::size_t size, std::size_t count, void*) {
-        const unsigned char* bytes = static_cast<const unsigned char*>(source);
-        g_written.insert(g_written.end(), bytes, bytes + size * count);
-        return count;
-    }
+        [[nodiscard]] isaac::runtime::Status Remove(std::string_view) noexcept override {
+            return isaac::runtime::Status::Ok();
+        }
 
-    int FakeClose(void*) { return 0; }
+        [[nodiscard]] isaac::runtime::Status Exists(const char*, bool* out) noexcept override {
+            if (out != nullptr) {
+                *out = false;
+            }
+            return isaac::runtime::Status::Ok();
+        }
+    };
+
+    FakeStore g_store{};
 
     } // namespace
 
@@ -317,7 +335,7 @@ COMPATIBILITY_DRIVER = textwrap.dedent(
         using isaac::runtime::PersistenceRecordView;
 
         const char* value = "12345678";
-        ModPersistence::ConfigureFileApi(&FakeOpen, &FakeRead, &FakeWrite, &FakeClose);
+        isaac::runtime::SetSessionSaveFilePort(&g_store);
         const std::uint64_t namespaceId = ModPersistence::HashModNamespace("MuteOnPause", 11);
         if (ModPersistence::SaveModData(namespaceId, value, 8) != ModPersistence::Result::Success) {
             std::printf("LEGACY_ENCODER_FAILED\n");

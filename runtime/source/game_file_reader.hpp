@@ -8,21 +8,35 @@
 #include <cstdint>
 
 namespace GameFileReader {
+// 模组文件读取要调的引擎入口：**声明类型只写一份**（2026-09-17，同 `lua_runtime_state.hpp`
+// 那一批的做法）。为什么：这些入口是"我们手写签名、直接跳进游戏模块"的地方，签名写错就是崩游戏；
+// 而在此之前，字段类型是 `uintptr_t`（谁都看不出期望什么参数），调用点各自再写一份 `using …Fn`
+// 并 `reinterpret_cast`。现在字段本身就是那个函数指针类型，调用点直接调用，参数由编译器核对；
+// ABI 体检也能顺着"`VerifyGameEntry(module, kXxxOffset, …, &verified.construct)`"读出声明类型。
+using ConstructFn = void (*)(void*);
+using OpenReadFn = bool (*)(void*, const char*);
+using GetLengthFn = int (*)(const void*);
+using ReadFn = int (*)(void*, void*, int, int);
+using CloseFn = void (*)(void*);
+using DestroyFn = void (*)(void*);
+using OpenWriteFn = bool (*)(void*, const char*);
+using WriteFn = int (*)(void*, const void*, int, int);
+
 struct Bindings {
-    uintptr_t construct;
-    uintptr_t openRead;
-    uintptr_t getLength;
-    uintptr_t read;
-    uintptr_t close;
-    uintptr_t destroy;
+    ConstructFn construct{nullptr};
+    OpenReadFn openRead{nullptr};
+    GetLengthFn getLength{nullptr};
+    ReadFn read{nullptr};
+    CloseFn close{nullptr};
+    DestroyFn destroy{nullptr};
 };
 
 struct WriteBindings {
-    uintptr_t construct;
-    uintptr_t openWrite;
-    uintptr_t write;
-    uintptr_t close;
-    uintptr_t destroy;
+    ConstructFn construct{nullptr};
+    OpenWriteFn openWrite{nullptr};
+    WriteFn write{nullptr};
+    CloseFn close{nullptr};
+    DestroyFn destroy{nullptr};
 };
 
 enum class ReadResult : std::uint32_t {

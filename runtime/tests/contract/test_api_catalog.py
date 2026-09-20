@@ -483,7 +483,8 @@ class ApiCatalogContractTests(unittest.TestCase):
             # 批次 12（2026-09-16）：`GridEntity` 族（`Room:GetGridEntity()` 的返回值）的绑定表
             # 也住在 `remaining_api.cpp` —— 与 `Room` 同族、同一个 TU。
             "remaining_api.cpp": {"Level", "Room", "ItemPool", "GridEntity"},
-            "music_api.cpp": {"MusicManager"},
+            # 批次 045：`SFXManager()` 与 `MusicManager` 同属"声音"域（0x06）⇒ 同一文件两个 owner 是允许的。
+            "music_api.cpp": {"MusicManager", "SFXManager"},
             "rng_api.cpp": {"RNG"},
             "input_api.cpp": {"Input"},
             "font_api.cpp": {"Font"},
@@ -593,7 +594,46 @@ class ApiCatalogContractTests(unittest.TestCase):
         # 记进目录的理由与别人一样：Lua 侧可见的东西必须有单一出处，否则"谁能调什么"就查不清了。
         # 185 + 1 行（2026-09-16）：`RuntimeMods.Report` —— 菜单脚本用它上报"走到哪一步"，
         # 让真机上"按了没反应"能一次读数定位（脚本加载/字体/打开/回调/落盘）。
-        self.assertEqual(checked, 186, "家族绑定行数应与已登记 API 数一致")
+        # 186 + 1 行（2026-09-18）：`EntityPlayer.AddCoins(int)`（`0x0056`）—— PC 有、我们此前没有，
+        # 而"给钱"在本运行时**没有别的通道**（字段写只认 `ControlsCooldown`、没有 `Isaac.Spawn`、
+        # `GetNumCoins` 那时还是恒 0 的桩）。同批把 `GetNumCoins` 从桩改成真实现（读
+        # `Entity_Player+0x16E0`），**那条是已有行、不占新行**。用途见
+        # `docs/改动日志-20260918.md` 的"金币无限测试模组"。
+        # 187 + 1 行（2026-09-18 下午）：`Mod.RemoveCallback(int, function)`（`0x0002`）——
+        # 回调表由运行时自己维护，所以这条没有任何引擎底座可接（清单里归 `missing_hard`，
+        # 理由就是"Switch 侧没有 mod 清单与 Lua 运行时，必须由 Runtime 自己维护回调表"）。
+        # EID 在真机上真的会调它（4 处），缺它时那几处报 nil 调用。语义要点：按**函数身份**
+        # 摘掉该 id 上的这一条，同 id 其余登记必须留下（EID 一家就登记 5 个 `MC_POST_NEW_ROOM`）。
+        # 188 + 1 行（2026-09-18 下午）：`Room.IsMirrorWorld()`（`0x000B`）—— 判据是"当前房间的
+        # 维度 == 1"（读 `Level+0x21560`；维度枚举含义出自 PC 文档快照 `RoomDescriptor.md`：
+        # 1 = 次级维度 = Downpour/Dross 的镜子维度）。EID 在 `main.lua:839` 无条件调它。
+        # 193 + 4 行（2026-09-19 批次 041，为 GoodTrip 补）：`Isaac.GetRoomEntities`（真实现）、
+        # `Isaac.ExecuteCommand`（平台降级：Switch 无控制台）、`Input.GetMousePosition` /
+        # `Input.IsMouseBtnPressed`（平台降级：Switch 无鼠标）。判据写在各自实现处与
+        # `tools/api_catalog.cpp` 那四行的注释里。
+        # 197 + 3 行（2026-09-19 批次 045，为 GoodTrip 补）：`Mod:AddPriorityCallback`、
+        # `SFXManager:Play`、`SFXManager:IsPlaying`。`Global.CallbackPriority` 是**值型条目**
+        # （枚举表，没有 C 函数）⇒ 不进绑定行，与 `Options` 的字段同例。
+        # 200 + 1 行（批次 046）：`Room:GetDoor`（GoodTrip 运行期要它；先对齐形状、恒 nil）。
+        # 201 + 2 行（批次 050）：只接"开地图 + 传送必需"的两个引擎方法 ——
+        #   `EntityPlayer:SetShootingCooldown`（缺它"开地图后按方向键"在画图之前报错）、
+        #   `Game:ChangeRoom`。
+        # 203 + 6 行（批次 051）：050 因**代码段预算**被砍掉的六个全部接回来了 ——
+        #   `AnimateHappy`/`AnimateSad`/`GetBlackHearts`/`Room:PlayMusic`/`Level:AddCurse`/
+        #   `Level:RemoveCurses`。它们**不占代码**：走的是本批新做的"引擎方法数据行"机制
+        #   （共享处理器 + 每 API 16 字节只读数据，见 `interfaces/lua/engine_method_api.hpp`）。
+        # 209 + 1 行（批次 055）：`Game:StartRoomTransition` —— GoodTrip 传送的**默认路径**
+        #   （`trip.lua:207`）。它 5 个参数、含玩家实体指针，是"通用跳板 + 签名描述符"
+        #   （`engine_call_trampoline.*`）的第一个真实消费者：**仍不占代码**，只多一行数据行
+        #   与一行签名描述符。
+        # 210 + 1 行（批次 063）：`Entity:IsFlying()` —— GoodTrip 的诅咒房判定
+        #   （`trip.lua:90`）要用它；同样**不占代码**：一条数据行 + 一行签名描述符
+        #   （`EngineCallShape::Bool0`，返回种类里的 Bool 在批次 055 就位）。
+        # 211 + 1 行（批次 065）：`Entity:TakeDamage`（**手写**：float + `EntityRef` 句柄 +
+        #   按接收者选入口）。同一批还加了全局 `EntityRef(entity)` —— 那是**全局**构造器，
+        #   不进家族绑定表（与 `Vector`/`Color`/`Sprite` 同例），所以这里只 +1。
+        #   两件都是 GoodTrip 诅咒房过路费（`trip.lua:70`）的必需项。
+        self.assertEqual(checked, 212, "家族绑定行数应与已登记 API 数一致")
 
     def test_options_fields_are_registered_as_values(self):
         """`Options` 的两个字段是**值**而不是方法：Catalog 里有条目、绑定表里没有绑定行。

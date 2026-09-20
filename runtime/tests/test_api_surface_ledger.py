@@ -25,7 +25,8 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[2]
-TOOL = ROOT / "tools" / "eid_api_gap_report.py"
+#: 工具已泛化为"任意模组"（2026-09-19 改名）；旧名保留为转发壳，这里直接用新名。
+TOOL = ROOT / "tools" / "mod_api_gap_report.py"
 LEDGER = ROOT / "tools" / "api_surface_ledger.json"
 
 #: 台账里允许的处置。
@@ -36,14 +37,25 @@ DISPOSITIONS = ("planned", "blocked", "wontfix")
 #: 同日第二批 `AchievementID` / `Tags` / `MaxCharges` / `ChargeType` 实现后再删四条（33）；
 #: 同日第三批（**引擎写通道**）`Sprite.Color` / `Sprite.FlipX` 两个**写**属性落地、
 #: 连同 `Scale` 那条"模组自己的表"假阳性条目一起删三条（30 → 12）。剩余 12 条见台账。
-LEDGER_ROWS = 12
-LEDGER_PLANNED = 1
+# 12 → 11（批次 065）：删掉 `Entity`/`EntityRef` 那一条。它当初登记为"假阳性"（EID 的
+# `description.Entity` 是它自己的字段），但批次 065 之后我们**真的**实现了 `EntityRef.Entity`
+# （`entity_ref_api.cpp` 里 `strcmp(key, "Entity")`），门禁于是把它判成"已实现 ⇒ 台账过期" ——
+# 判得对，删掉；`Entity` 现在由实现本身覆盖。
+# 11 → 10（批次 078）：删掉 `VarData` 那一条。批次 078 把门的 `VarData`（`GridEntity + 0x1C`）
+# 做实了，`remaining_api.cpp` 里出现 `strcmp(key, "VarData")` ⇒ 工具的"载体"判据认为这个字段
+# 已实现、台账条目过期（判得对：台账只记"还没做完的"）。
+# ⚠️ **诚实记账**：这条"关闭"是**工具判据的关闭**，不是全部完成 —— 同一个字段名还挂在另一个
+# owner 上（`PlayerTypesActiveItemDesc.VarData`，EID 的 `eid_modifiers.lua:437` 在读），
+# 那个我们**没有**实现。工具是按"字段名 + 载体"判的，分不出 owner；这条差别记在
+# `docs/改动日志-20260919.md` 的 078 一节里，等真的实现后再把 owner 那半也销账。
+LEDGER_ROWS = 10
+LEDGER_PLANNED = 0   # 批次 078：`VarData`（唯一一条 planned）关闭，见上面的说明
 LEDGER_BLOCKED = 1
-LEDGER_WONTFIX = 10
+LEDGER_WONTFIX = 9
 
 
 def load_tool():
-    spec = importlib.util.spec_from_file_location("eid_api_gap_report", TOOL)
+    spec = importlib.util.spec_from_file_location("mod_api_gap_report", TOOL)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
@@ -118,8 +130,16 @@ def write_synthetic_repository(root, extra_lua=None):
     (cpp_dir / "synthetic.cpp").write_text(SYNTHETIC_RUNTIME_CPP, encoding="utf-8")
     (cpp_dir / "api_catalog.cpp").write_text(SYNTHETIC_RUNTIME_CATALOG, encoding="utf-8")
     (root / "tools" / "layout_tables").mkdir(parents=True)
+    # 布局表里放两行，用来钉住"只有 `confirmed` 的行才算已实现"（2026-09-19 批次 047 收紧）：
+    #   * `Data`（confirmed，省略 confidence 时按 confirmed 处理）⇒ 算已实现；
+    #   * `Tags`（**candidate**）⇒ **不算** —— 项目的规矩是 candidate 只登记、不进对外 API。
+    #     这一行是判别用例：口径一旦放宽回"认任何一行"，`Tags` 就会被算成已实现，
+    #     下面 `unregistered == {"Tags"}` 的断言立刻红。真事故：`RoomDescriptor.DisplayFlags`
+    #     是 candidate 时被记成"已实现"，于是这个真缺口从报告与台账里**双双消失**。
     (root / "tools" / "layout_tables" / "synthetic.json").write_text(
-        json.dumps({"rows": [{"name": "Data", "nested_in": "RoomDescriptor"}]}),
+        json.dumps({"rows": [{"name": "Data", "nested_in": "RoomDescriptor",
+                              "confidence": "confirmed"},
+                             {"name": "Tags", "confidence": "candidate"}]}),
         encoding="utf-8")
     mod = root / "mod"
     mod.mkdir()
@@ -207,8 +227,9 @@ class ApiSurfaceLedgerGateTests(unittest.TestCase):
         used = {row["name"] for row in report["used"]}
         self.assertEqual(used, {"Quality", "Tags", "Color", "Data"},
                          "字段读取提取漏了写法（`obj.F` 与 `obj[\"F\"]` 都要认）")
-        # 三个已实现的名字分别来自三种载体：`Color`←静态表、`Quality`←名字分派、`Data`←布局表；
-        # `Tags` 三种都没有 ⇒ 必须落进"未登记缺口"。
+        # 三个已实现的名字分别来自三种载体：`Color`←静态表、`Quality`←名字分派、`Data`←布局表
+        # （confirmed）；`Tags` 虽然也在布局表里，但标的是 **candidate**（只登记、不进 API）
+        # ⇒ 必须落进"未登记缺口"。
         implemented = {row["name"] for row in report["implemented"]}
         self.assertEqual(implemented, {"Quality", "Color", "Data"},
                          "载体提取漏了写法（静态表 / 名字分派 / 布局表 三者都要认）")
@@ -290,7 +311,7 @@ class ChainedCallEnumerationTests(unittest.TestCase):
     1. **形态**：`a:b():c(`、`a:b():c.d(`、`(expr):c(` 三种写法都要认出来；同时
        "接收者是标识符"（`player:GetPlayerType()`）**不算链式**，它归老那一路；
     2. **不放松到"所有 `:名字(`"**：被调用的名字必须出现在 PC 侧方法名集合里，
-       模组自己定义过的方法名要排除（判据见 `tools/eid_api_gap_report.py` 的"链式调用枚举"一段）；
+       模组自己定义过的方法名要排除（判据见 `tools/mod_api_gap_report.py` 的"链式调用枚举"一段）；
     3. **口径是"owner 未知"**：只报方法名 + 候选 owner，绝不写死成 `Room:GetFrameCount`。
     """
 

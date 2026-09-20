@@ -1,0 +1,80 @@
+{
+ "schema": "isaac-layout-table/1",
+ "build_id": "91C73FDD575061318D68886316AFEAC72388B2AB",
+ "struct": "color",
+ "note": [
+  "★ 这是**自动起草**的草稿（`tools/draft_layout_evidence.py` 生成），不参与 C++ 生成。",
+  "每行的证据是「镜像里访问该偏移的一条指令 + 它所在的函数」，可被 `tools/build_layout_table.py --verify` 重新反汇编复核。",
+  "语义（字段名/含义）尚未人工确认 ⇒ confidence 一律 candidate，不得进对外 API。"
+ ],
+ "rows": [
+  {
+   "name": "kColorModTintOffset",
+   "kind": "int32",
+   "offset": 0,
+   "width": 4,
+   "confidence": "candidate",
+   "semantic": "（草稿）自动取证：语义未确认，仅登记「偏移 + 一处可复核的访问指令」",
+   "evidence": [
+    {
+     "kind": "access",
+     "function": "_ZN15IsaacRepentance8ColorMod7SetTintEffff",
+     "address": "0x00037848",
+     "offset": 0,
+     "width": 4,
+     "why": "镜像里访问该偏移的指令（str s，宽度 4）；共找到 77227 条同类访问，此为该常量名呼应度最高的函数之一"
+    },
+    {
+     "kind": "access",
+     "function": "_ZN15IsaacRepentance8ColorMod7SetTintEiiii",
+     "address": "0x000378a8",
+     "offset": 0,
+     "width": 4,
+     "why": "镜像里访问该偏移的指令（str s，宽度 4）；共找到 77227 条同类访问，此为该常量名呼应度最高的函数之一"
+    },
+    {
+     "kind": "access",
+     "function": "_ZNK15IsaacRepentance8ColorMod9WriteTintEPf",
+     "address": "0x00037b88",
+     "offset": 0,
+     "width": 4,
+     "why": "镜像里访问该偏移的指令（ldr w，宽度 4）；共找到 77227 条同类访问，此为该常量名呼应度最高的函数之一"
+    }
+   ]
+  },
+  {
+   "name": "kColorModShiftOffset",
+   "kind": "int32",
+   "offset": 16,
+   "width": 8,
+   "confidence": "candidate",
+   "semantic": "（草稿）自动取证：语义未确认，仅登记「偏移 + 一处可复核的访问指令」",
+   "evidence": [
+    {
+     "kind": "access",
+     "function": "_ZNSt3__15stackIN15IsaacRepentance8ColorModENS_5dequeIS2_NS_9allocatorIS2_EEEEED2Ev",
+     "address": "0x000063cc",
+     "offset": 16,
+     "width": 8,
+     "why": "镜像里访问该偏移的指令（str x，宽度 8）；共找到 14081 条同类访问，此为该常量名呼应度最高的函数之一"
+    },
+    {
+     "kind": "access",
+     "function": "_ZN15IsaacRepentance4ANM217PushColorOverrideERKNS_8ColorModE",
+     "address": "0x000064a4",
+     "offset": 16,
+     "width": 8,
+     "why": "镜像里访问该偏移的指令（ldp x，宽度 8）；共找到 14081 条同类访问，此为该常量名呼应度最高的函数之一"
+    },
+    {
+     "kind": "access",
+     "function": "_ZN15IsaacRepentance4ANM217PushColorOverrideERKNS_8ColorModE",
+     "address": "0x000064a8",
+     "offset": 16,
+     "width": 8,
+     "why": "镜像里访问该偏移的指令（stp x，宽度 8）；共找到 14081 条同类访问，此为该常量名呼应度最高的函数之一"
+    }
+   ]
+  }
+ ]
+}

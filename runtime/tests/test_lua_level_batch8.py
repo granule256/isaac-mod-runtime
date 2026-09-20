@@ -122,8 +122,11 @@ void PublishFakeEngine() {
     WriteWord(g_GameBytes, kGameRoomPointerOffset, AddressOf(g_RoomBytes));
     WriteAt<std::uint32_t>(g_RoomBytes, kRoomTypeOffset, kRoomType);
     // 伪造一个网格实体并挂进网格实体表（批次 12：`Room + 0x30` 按网格下标索引）。
-    // `+0x10` = variant（写 1000，就是便便那一档的取值）、`+0x18` = 类型（写 7）。
-    g_GridEntityBytes.assign(kGridEntityTypeOffset + sizeof(std::uint32_t), 0);
+    // `+0x10` = variant（写 1000，就是便便那一档的取值）、`+0x08` = 类型（写 7）。
+    // ★ 2026-09-19（批次 078）：类型偏移从 `+0x18` **修正为 `+0x08`**（独立取证：
+    // `Room::CreateGridEntity` 直接 `str w20(类型实参),[x21,#0x8]`、`GridEntity::IsRock` 读 +0x08
+    // 后的位集正好是岩石族；而 `+0x18` 是 `GridEntity::Init(unsigned)` 收 `RandomU32()` 的**生成种子**）。
+    g_GridEntityBytes.assign(0x40, 0);
     WriteAt<std::uint32_t>(g_GridEntityBytes, kGridEntityVariantOffset, 1000u);
     WriteAt<std::uint32_t>(g_GridEntityBytes, kGridEntityTypeOffset, 7u);
     WriteWord(g_RoomBytes, kRoomGridEntityTableOffset + 5 * sizeof(std::uintptr_t),
@@ -200,7 +203,13 @@ int main(int argc, char** argv) {
 
     const char* script = nullptr;
     if (std::strcmp(scenario, "top_level") == 0) {
-        script = "Game():GetLevel():GetCurrentRoomIndex()";
+        // ★ 设计变更（2026-09-19 批次 043）：用 `pcall` 包住 ⇒ 这里考的是"作用域守卫还在不在"，
+        // 而不是"引擎读能不能成功"（宿主没有真引擎内存，读失败是另一回事）。
+        // 守卫在的时候，`pcall` 也会抓到那句 "… is only available during a Runtime callback"，
+        // 而脚本本身照样能跑完 —— 所以下面改用"错误文本里不许再出现那句话"来判。
+        script =
+            "local ok, err = pcall(function() return Game():GetLevel():GetCurrentRoomIndex() end)"
+            " print('TOPLEVEL ok='..tostring(ok)..' err='..tostring(err))";
     } else if (std::strcmp(scenario, "absolute_stage") == 0) {
         script =
             "local mod=RegisterMod('Probe',1);"
@@ -252,7 +261,7 @@ int main(int argc, char** argv) {
             " if grid==nil then error('GetGridEntity(5) must return a handle') end"
             " if grid:GetVariant()~=1000 then error('GridEntity:GetVariant must read +0x10, got '"
             " ..tostring(grid:GetVariant())) end"
-            " if grid:GetType()~=7 then error('GridEntity:GetType must read +0x18, got '"
+            " if grid:GetType()~=7 then error('GridEntity:GetType must read +0x08, got '"
             " ..tostring(grid:GetType())) end"
             " if room:GetGridEntity(6)~=nil then error('an empty grid slot must be nil') end"
             " print('GRID='..tostring(grid:GetVariant())..','..tostring(grid:GetType()))"
@@ -274,8 +283,12 @@ int main(int argc, char** argv) {
     LuaRuntime::SetGameBindings(AddressOf(g_OwnerSlotBytes), 0x2222);
     const auto result = LuaRuntime::InitializeFromBuffer(script, std::strlen(script), "@level8.lua");
     if (std::strcmp(scenario, "top_level") == 0) {
-        // 顶层调用：脚本本身必须失败（"only available during a Runtime callback"）。
-        return result == LuaRuntime::LuaInitResult::ScriptRunFailed ? 0 : 1;
+        // ★ 设计变更（2026-09-19 批次 043）：顶层（非托管回调）调用不再被**作用域守卫**拒绝。
+        // 判据交给 Python 层（那里能看到 stdout）：脚本必须打印出这次调用的结果，
+        // 且错误文本里不许再出现 "only available during a Runtime callback"。
+        // 这里只要求"脚本自己没炸"（返回值形状在这个场景下不具判据力）。
+        static_cast<void>(result);
+        return 0;
     }
     if (result != LuaRuntime::LuaInitResult::Success) return 2;
     LuaRuntime::DispatchPreGetCollectible(nullptr, 0, 0, 1, 0);
@@ -408,10 +421,20 @@ class LuaLevelBatch8Tests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertNotIn("4242", result.stdout)
 
-    def test_outside_a_managed_callback_the_apis_refuse_to_run(self):
-        """Mod 脚本顶层调用必须失败（与 `Level:GetStage`/`GetCurses` 同一口径）。"""
+    def test_top_level_calls_run_like_pc(self):
+        """★ 设计变更（2026-09-19 批次 043）：Mod 脚本**顶层**（非托管回调）调用这些 API
+        不再被拒绝 —— 与 PC 一致（模组在加载期读引擎状态是常见写法，见
+        `docs/改动日志-20260919.md` 042·补二/043）。
+
+        原断言是"顶层调用必须失败"（那道 `InManagedCallbackScope()` 守卫的产物）；
+        守卫删除后，这里反过来要求**跑通**。
+        """
         result = self.run_scenario("top_level")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        # 判据：这次顶层调用确实被执行了（脚本打印了它的结果），
+        # 而且**不再**是被作用域守卫拒绝的那句话。
+        self.assertIn("TOPLEVEL ok=true err=42", result.stdout)
+        self.assertNotIn("only available during a Runtime callback", result.stdout)
 
 
 if __name__ == "__main__":

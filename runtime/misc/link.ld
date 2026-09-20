@@ -42,11 +42,23 @@ SECTIONS
    * **历史地址**（代码 0x54000、只读段结束 0x75000）当成了上限断言。自 806adbd 起段
    * 地址已改为按体积推导，这两个常数不再是放置指令，只剩“涨过就链接失败”的闸门作用，
    * 会在功能没写满之前先把构建拦住（探针构建曾真实撞线，见 misc/mk/common.mk）。
-   * 因此这里换成两条**失控增长**闸门：单段 512 KiB / 只读段结束 1 MiB，比实测用量留出
+   * 因此这里换成两条**失控增长**闸门：单段 1 MiB / 只读段结束 2 MiB，比实测用量留出
    * 一倍以上余量；实际用量与余量由 `tools/runtime_layout_budget.py` 在每次构建后报告。
+   *
+   * 2026-09-19 抬升（理由与当时用量）：原值 512 KiB / 1 MiB 在"每加一条 API 都要手写
+   * ≈490 字节代码"的成本模型下只剩 272 字节可用额度，碰线就构建失败。抬升前核实过：
+   *   ① 这两条是**自设的失控增长闸门**、不是平台限制 —— 上游 Atmosphere 的加载器
+   *      （docs/components/modules/loader.md）只要求"把 exefs 里的各个 NSO 连续装进进程"，
+   *      没有体积上限；
+   *   ② exlaunch 的 `FindModules()` 只按 `CodeStatic+Rx -> CodeStatic+R -> CodeMutable+Rw`
+   *      权限三元组匹配（`runtime/exlaunch/source/lib/util/sys/mem_layout.cpp`），
+   *      唯一的容量限制是模块**个数**，没有体积上限；
+   *   ③ 内存不是瓶颈：模块三段映射 Rx 480 KiB / R 224 KiB / **Rw 35.5 MiB**
+   *      （其中 32 MiB 是我们自己的 `__fake_heap`），而游戏本体 `Repentance.nro` 是 11.2 MiB。
+   * 抬升时用量：代码结束 `0x77ef0`、只读段结束 `0xaf7fc`。
    */
-  ASSERT(__code_end__ <= 0x80000,
-         "RX 段超过 512 KiB：先确认是否为失控增长，再按预算规则调整上限")
+  ASSERT(__code_end__ <= 0x100000,
+         "RX 段超过 1 MiB：先确认是否为失控增长，再按预算规则调整上限")
   . = DEFINED(EXL_STARTUP_PROBE_COMPAT_LAYOUT) ? 0x55000 : ALIGN(0x1000);
 
   /* App name */
@@ -101,8 +113,8 @@ SECTIONS
 
   /* Read-write sections */
   ASSERT(. > __code_end__, "只读段必须非空：exlaunch 靠 Rx->R->Rw 三元组识别模块")
-  ASSERT(. <= 0x100000,
-         "只读段结束超过 1 MiB：先确认是否为失控增长，再按预算规则调整上限")
+  ASSERT(. <= 0x200000,
+         "只读段结束超过 2 MiB：先确认是否为失控增长，再按预算规则调整上限")
   . = DEFINED(EXL_STARTUP_PROBE_COMPAT_LAYOUT) ? 0x76000 : ALIGN(0x1000);
   ASSERT((. & 0xFFF) == 0,
          "读写段起点必须 4 KiB 对齐：SaltyNX 1.8.1 用 PT_DYNAMIC 计算插件映射跨度")

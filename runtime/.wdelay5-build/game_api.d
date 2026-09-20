@@ -9,7 +9,7 @@ game_api.o: ../src/interfaces/lua/game_api.cpp \
  ../src/interfaces/lua/api_catalog.hpp ../src/domain/runtime/status.hpp \
  ../src/interfaces/lua/api_descriptor.hpp \
  ../src/domain/runtime/thread_affinity.hpp \
- ../src/interfaces/lua/field_api.hpp \
+ ../src/interfaces/lua/field_api.hpp ../src/interfaces/lua/vector_api.hpp \
  ../src/application/callback/callback_dispatcher.hpp \
  ../src/application/callback/callback_invoker.hpp \
  ../src/domain/callback/callback_descriptor.hpp \
@@ -37,6 +37,7 @@ game_api.o: ../src/interfaces/lua/game_api.cpp \
 ../src/interfaces/lua/api_descriptor.hpp:
 ../src/domain/runtime/thread_affinity.hpp:
 ../src/interfaces/lua/field_api.hpp:
+../src/interfaces/lua/vector_api.hpp:
 ../src/application/callback/callback_dispatcher.hpp:
 ../src/application/callback/callback_invoker.hpp:
 ../src/domain/callback/callback_descriptor.hpp:

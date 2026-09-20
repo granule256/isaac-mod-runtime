@@ -257,21 +257,21 @@ void FakeFontDrawStringScaledUTF8(void* font, const char* text, float x, float y
 
 void PublishFakeBindings() {
     LuaRuntime::LuaFontBindings bindings{};
-    bindings.ctor = reinterpret_cast<uintptr_t>(&FakeCtor);
-    bindings.destructor_ = reinterpret_cast<uintptr_t>(&FakeDestructor);
-    bindings.load = reinterpret_cast<uintptr_t>(&FakeLoad);
-    bindings.unload = reinterpret_cast<uintptr_t>(&FakeUnload);
-    bindings.isLoaded = reinterpret_cast<uintptr_t>(&FakeIsLoaded);
-    bindings.getStringWidth = reinterpret_cast<uintptr_t>(&FakeGetStringWidth);
-    bindings.getStringWidthUTF8 = reinterpret_cast<uintptr_t>(&FakeGetStringWidthUTF8);
-    bindings.getLineHeight = reinterpret_cast<uintptr_t>(&FakeGetLineHeight);
-    bindings.getBaselineHeight = reinterpret_cast<uintptr_t>(&FakeGetBaselineHeight);
-    bindings.getCharacterWidth = reinterpret_cast<uintptr_t>(&FakeGetCharacterWidth);
-    bindings.setMissingCharacter = reinterpret_cast<uintptr_t>(&FakeSetMissingCharacter);
-    bindings.drawString = reinterpret_cast<uintptr_t>(&FakeFontDrawString);
-    bindings.drawStringScaled = reinterpret_cast<uintptr_t>(&FakeFontDrawStringScaled);
-    bindings.drawStringUTF8 = reinterpret_cast<uintptr_t>(&FakeFontDrawStringUTF8);
-    bindings.drawStringScaledUTF8 = reinterpret_cast<uintptr_t>(&FakeFontDrawStringScaledUTF8);
+    bindings.ctor = &FakeCtor;
+    bindings.destructor_ = &FakeDestructor;
+    bindings.load = &FakeLoad;
+    bindings.unload = &FakeUnload;
+    bindings.isLoaded = &FakeIsLoaded;
+    bindings.getStringWidth = &FakeGetStringWidth;
+    bindings.getStringWidthUTF8 = &FakeGetStringWidthUTF8;
+    bindings.getLineHeight = &FakeGetLineHeight;
+    bindings.getBaselineHeight = &FakeGetBaselineHeight;
+    bindings.getCharacterWidth = &FakeGetCharacterWidth;
+    bindings.setMissingCharacter = &FakeSetMissingCharacter;
+    bindings.drawString = &FakeFontDrawString;
+    bindings.drawStringScaled = &FakeFontDrawStringScaled;
+    bindings.drawStringUTF8 = &FakeFontDrawStringUTF8;
+    bindings.drawStringScaledUTF8 = &FakeFontDrawStringScaledUTF8;
     LuaRuntime::SetFontBindings(bindings);
 }
 
@@ -693,7 +693,17 @@ class LuaFontResourceTests(unittest.TestCase):
                         if depth == 0:
                             end_index = index
                             break
-                fields = re.findall(r"uintptr_t (\w+)\{", body[:end_index])
+                # 2026-09-17：字段类型从 `uintptr_t` 改成声明过的函数指针类型
+                # （`FontCtorFn ctor{nullptr}`），所以这里按"类型 + 字段名"取，
+                # 并要求类型确实是 `…Fn`（退回 `uintptr_t` 会被当场抓住）。
+                declared = re.findall(r"(\w+) (\w+)\{nullptr\}", body[:end_index])
+                fields = [name for declared_type, name in declared
+                          if re.fullmatch(r"\w+Fn", declared_type)]
+                self.assertEqual(
+                    sorted(fields), sorted(name for _t, name in declared),
+                    f"{struct_name} 里有字段不是声明过的引擎入口类型（退回 `uintptr_t` 了？）："
+                    f"{sorted(set(name for _t, name in declared) - set(fields))}",
+                )
                 self.assertGreaterEqual(len(fields), 12, f"{struct_name} 的字段没解析出来")
 
                 table_start = hooks.index(f"constexpr std::array<BindingGuardEntry, ")

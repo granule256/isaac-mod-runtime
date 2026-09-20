@@ -1,5 +1,6 @@
 #include "interfaces/lua/rng_api.hpp"
 
+#include "interfaces/lua/lua_integer_argument.hpp"
 #include "interfaces/lua/owner_binding.hpp"
 
 #include "lua_object_handles.hpp"
@@ -45,7 +46,7 @@ constexpr char kRngOwner[] = "RNG";
 
 int RngSetSeed(lua_State* state) {
     auto* rng = static_cast<RngHandle*>(luaL_checkudata(state, 1, kRngMetatable));
-    if (lua_gettop(state) != 3 || !lua_isinteger(state, 2) || !lua_isinteger(state, 3)) {
+    if (lua_gettop(state) != 3 || !isaac::runtime::IsIntegerArgument(state, 2) || !isaac::runtime::IsIntegerArgument(state, 3)) {
         return luaL_error(state, "RNG:SetSeed accepts seed and shift integers");
     }
     const lua_Integer seed = lua_tointegerx(state, 2, nullptr);

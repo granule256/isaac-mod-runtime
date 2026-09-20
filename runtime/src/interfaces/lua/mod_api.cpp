@@ -1,6 +1,7 @@
 #include "interfaces/lua/mod_api.hpp"
 
 #include "interfaces/lua/owner_binding.hpp"
+#include "interfaces/lua/lua_integer_argument.hpp"
 
 #include "application/callback/callback_registry.hpp"
 #include "domain/callback/callback_descriptor.hpp"
@@ -27,13 +28,18 @@ using LuaRuntime::ModHandle;
 using LuaRuntime::RecordCallbackOperation;
 
 int ModAddCallback(lua_State* state);
-int ModSaveData(lua_State* state);
-int ModLoadData(lua_State* state);
+int ModRemoveCallback(lua_State* state);
+int ModAddPriorityCallback(lua_State* state);
 int ModHasData(lua_State* state);
 int ModRemoveData(lua_State* state);
 
 constexpr LuaHandlerBinding kModHandlers[] = {
     {0x01010001, &ModAddCallback},
+    // 0x0002：`Mod:RemoveCallback`（2026-09-18）。Mod 域此前只有 AddCallback 一条，0x0002 空着
+    // （取号前扫过整个域，见 `api_catalog.cpp` 那一行的注释）。
+    {0x01010002, &ModRemoveCallback},
+    // 批次 045：`Mod:AddPriorityCallback`（GoodTrip 用；id 取域内下一个空号 0x0003）。
+    {0x01010003, &ModAddPriorityCallback},
     {0x08010001, &ModSaveData},
     {0x08010002, &ModLoadData},
     {0x08010003, &ModHasData},
@@ -76,8 +82,11 @@ const char* PersistenceErrorMessage(ModPersistence::Result result) {
 // 派发点、哪些只是登记，由 `IsaacModRuntime_GetHookDiagnostics` 报出去。
 //
 // ★ 这张名单**必须与代码里真实的派发调用逐项一致**（2026-09-15 更正）：
-//   * 走 `CallbackDispatcher` 的三条 —— `lua_runtime.cpp` 里的
-//     `Dispatch(kCallbackPostGameStarted / kCallbackPostUpdate / kCallbackPostRender, …)`；
+//   * 走 `CallbackDispatcher` 的 —— `lua_runtime.cpp` 里的
+//     `Dispatch(kCallbackPostGameStarted / kCallbackPostUpdate / kCallbackPostRender, …)`，
+//     以及 2026-09-18 接上的每帧事件五条（`kCallbackPostNewRoom` / `kCallbackPostNewLevel` /
+//     `kCallbackPostPickupInit` / `kCallbackPostPickupUpdate` / `kCallbackPostPlayerInit`，
+//     见 `DispatchFrameEvents`）；
 //   * 手工那一条 —— `DispatchPreGetCollectible()` 用
 //     `g_CallbackRegistry.At(kCallbackPreGetCollectible, 0)` 取登记。
 // 以前这里多写了 `kCallbackInputAction`（13）：全仓**没有任何地方**派发它，
@@ -87,7 +96,25 @@ const char* PersistenceErrorMessage(ModPersistence::Result result) {
 // 名单里多一项或漏一项都会红。
 bool HasDispatchSite(CallbackId id) {
     return id == kCallbackPostUpdate || id == kCallbackPostRender ||
-           id == kCallbackPreGetCollectible || id == kCallbackPostGameStarted;
+           id == kCallbackPreGetCollectible || id == kCallbackPostGameStarted ||
+           id == kCallbackPostNewRoom || id == kCallbackPostNewLevel ||
+           id == kCallbackPostPickupInit || id == kCallbackPostPickupUpdate ||
+           id == kCallbackPostPlayerInit ||
+           // --- 实体族（2026-09-18 批次 010）：更新/渲染/刚出现三种时机，按实体类型分派 ---
+           id == kCallbackNpcUpdate || id == kCallbackPostPeffectUpdate ||
+           id == kCallbackFamiliarUpdate || id == kCallbackFamiliarInit ||
+           id == kCallbackPostFamiliarRender || id == kCallbackPostNpcInit ||
+           id == kCallbackPostPlayerUpdate || id == kCallbackPostPlayerRender ||
+           id == kCallbackPostPickupRender || id == kCallbackPostTearInit ||
+           id == kCallbackPostTearUpdate || id == kCallbackPostTearRender ||
+           id == kCallbackPostProjectileInit || id == kCallbackPostProjectileUpdate ||
+           id == kCallbackPostProjectileRender || id == kCallbackPostLaserInit ||
+           id == kCallbackPostLaserUpdate || id == kCallbackPostLaserRender ||
+           id == kCallbackPostKnifeInit || id == kCallbackPostKnifeUpdate ||
+           id == kCallbackPostKnifeRender || id == kCallbackPostEffectInit ||
+           id == kCallbackPostEffectUpdate || id == kCallbackPostEffectRender ||
+           id == kCallbackPostBombInit || id == kCallbackPostBombUpdate ||
+           id == kCallbackPostBombRender;
 }
 
 bool ResolveCallbackId(lua_Integer callback, CallbackId* id) {
@@ -178,49 +205,86 @@ int ModAddCallback(lua_State* state) {
     return 0;
 }
 
-int ModSaveData(lua_State* state) {
-    ModHandle* mod = CheckModHandle(state, 2, "Mod:SaveData");
-    std::size_t length = 0;
-    const char* data = luaL_checklstring(state, 2, &length);
-    RecordCallbackOperation(CallbackOperation::SaveData);
-    PersistenceEventJournal::MarkAndFlush(
-        PersistenceEventJournal::Event::OperationEntered,
-        PersistenceEventJournal::Operation::SaveData);
-    const ModPersistence::Result result =
-        ModPersistence::SaveModData(mod->persistenceNamespace, data, length);
-    PersistenceEventJournal::MarkAndFlush(
-        PersistenceEventJournal::Event::OperationReturned,
-        PersistenceEventJournal::Operation::SaveData,
-        static_cast<std::uint32_t>(result));
-    if (result != ModPersistence::Result::Success) {
-        return luaL_error(state, "%s", PersistenceErrorMessage(result));
+// PC 的 `Mod:RemoveCallback(callbackId, callbackFn)`（`ModReference.md:58`，返回 void）。
+//
+// ★ **必须按"函数身份"摘，不能按 id 摘**。同一 Mod 对同一 id 可以登记多个回调
+// （见 `ModAddCallback` 的注释：EID 一家就登记 5 个 `MC_POST_NEW_ROOM`、10 个 `MC_PRE_USE_ITEM`），
+// 而它注销时用的是 `EID:RemoveCallback(ModCallbacks.MC_POST_NEW_ROOM, EID.BoCOnNewRoom)`
+// （`features/eid_repentogon.lua:168`，另有 `MC_POST_RENDER` / `MC_PRE_USE_ITEM` 两处）——
+// **只摘那一个函数**，同 id 上其余的必须留着。按 id 摘会把其余几条一起摘掉，
+// 症状正是本项目最难查的一类：不报错、不崩，那几块功能静默失效。
+//
+// 身份用 `lua_rawequal` 比：Lua 里同一个闭包的不同引用相等，而"代码完全相同的另一个闭包"
+// 不相等 —— 与 PC 一致（它比的是闭包对象本身）。所以调用方必须传**当初登记的那个函数值**
+// （EID 传的是 `EID.OnRender` 这类表里的同一份引用，成立）。
+int ModRemoveCallback(lua_State* state) {
+    luaL_checkudata(state, 1, kModMetatable);
+    if (lua_gettop(state) != 3) {
+        return luaL_error(state, "Mod:RemoveCallback accepts (callbackId, function)");
     }
+    // PC 的这条方法只接受数字 id（能传字符串 id 的那个变体是全局 `Isaac:RemoveCallback`，
+    // 见 `Isaac.md:529`，本项目尚未实现）⇒ 给字符串就说清楚，别静默什么都不摘。
+    if (lua_type(state, 2) != LUA_TNUMBER) {
+        return luaL_error(state,
+                          "Mod:RemoveCallback accepts a numeric callback id "
+                          "(the string-id variant is Isaac:RemoveCallback, not implemented)");
+    }
+    luaL_checktype(state, 3, LUA_TFUNCTION);
+    const lua_Integer callback = luaL_checkinteger(state, 2);
+    CallbackId id = 0;
+    if (!ResolveCallbackId(callback, &id)) {
+        return luaL_error(state, "unsupported callback id for this Runtime phase");
+    }
+    const auto* modHandle = static_cast<const ModHandle*>(
+        luaL_checkudata(state, 1, kModMetatable));
+    const isaac::runtime::ModHandle owner = LuaRuntime::UnpackModOwner(modHandle->ownerPacked);
+    CallbackRegistry& registry = LuaRuntime::ManagedCallbackRegistry();
+    // **从后往前**摘：摘掉一条会让它后面的登记整体前移，正着走会跳过紧随其后的那一条。
+    for (std::size_t index = registry.Count(); index-- > 0;) {
+        const CallbackDescriptor* candidate = registry.AtIndex(index);
+        if (candidate == nullptr || candidate->id != id || candidate->owner != owner) {
+            continue;
+        }
+        lua_rawgeti(state, LUA_REGISTRYINDEX, candidate->luaReference);
+        const bool sameFunction = lua_rawequal(state, -1, 3) != 0;
+        lua_pop(state, 1);
+        if (!sameFunction) {
+            continue;
+        }
+        CallbackDescriptor removed{};
+        if (registry.RemoveAtIndex(index, &removed) != 0) {
+            // 每个登记各持一份 Lua 引用（见 `ModAddCallback`：登记时各 `luaL_ref` 一次）
+            // ⇒ 摘掉一条就必须释放那两个引用，否则每摘一次漏两个（Lua registry 是有限资源，
+            // 而 PC 模组会在"开关功能"时反复 Add/Remove）。
+            luaL_unref(state, LUA_REGISTRYINDEX, removed.luaReference);
+            luaL_unref(state, LUA_REGISTRYINDEX, removed.modReference);
+        }
+    }
+    // 注意：**不动**普查计数（`RecordCallbackRegistration` 那几个数）。它们的口径是
+    // "这次会话里登记过多少次 / 哪些种类曾出现过"，是单调的"曾经"，不是"当前还有几条"——
+    // "当前"读的是注册表自己的 `Count()`（设备读数里"回调登记数"那一项）。
+    // 摘除时去减它，反而会让"曾经登记过"这个语义失真。
     return 0;
 }
 
-int ModLoadData(lua_State* state) {
-    ModHandle* mod = CheckModHandle(state, 1, "Mod:LoadData");
-    RecordCallbackOperation(CallbackOperation::LoadData);
-    PersistenceEventJournal::MarkAndFlush(
-        PersistenceEventJournal::Event::OperationEntered,
-        PersistenceEventJournal::Operation::LoadData);
-    const char* data = nullptr;
-    std::size_t length = 0;
-    const ModPersistence::Result result =
-        ModPersistence::LoadModData(mod->persistenceNamespace, &data, &length);
-    PersistenceEventJournal::MarkAndFlush(
-        PersistenceEventJournal::Event::OperationReturned,
-        PersistenceEventJournal::Operation::LoadData,
-        static_cast<std::uint32_t>(result));
-    if (result == ModPersistence::Result::Missing) {
-        lua_pushliteral(state, "");
-        return 1;
+// PC：`Mod:AddPriorityCallback(callbackId, CallbackPriority, fn)` —— 与 `AddCallback` 同路，
+// 差别只是"同一 id 内的执行顺序"（GoodTrip 的 `main.lua:84` 起就用它）。
+//
+// **本批口径（如实说明的偏差）**：登记行为与 `AddCallback` 完全一致，**优先级只校验、暂不排序**
+// ⇒ "回调都跑，只是顺序不一定与 PC 相同"（影响"窗口会不会被别的 HUD 盖住"这类视觉差异）。
+// 真排序要在 `CallbackRegistry` 加**并行优先级数组**；**不许往 `CallbackDescriptor` 加字段**
+// —— 那会改"20 字节/项"的布局，读数工具与离线解码都得跟着改。
+int ModAddPriorityCallback(lua_State* state) {
+    if (lua_gettop(state) != 4) {
+        return luaL_error(state,
+                          "Mod:AddPriorityCallback expects a callback id, a priority and a function");
     }
-    if (result != ModPersistence::Result::Success) {
-        return luaL_error(state, "%s", PersistenceErrorMessage(result));
+    if (!isaac::runtime::IsIntegerArgument(state, 2) ||
+        !isaac::runtime::IsIntegerArgument(state, 3)) {
+        return luaL_error(state, "Mod:AddPriorityCallback expects integer id and priority");
     }
-    lua_pushlstring(state, data, length);
-    return 1;
+    lua_remove(state, 3);  // 摘掉 priority ⇒ 栈变 (self, id, fn)，转调同一条登记路径
+    return ModAddCallback(state);
 }
 
 int ModHasData(lua_State* state) {
@@ -260,6 +324,54 @@ int ModRemoveData(lua_State* state) {
 }
 
 } // namespace
+
+// 这两个实现被 `mod_api.hpp` 导出（`Isaac.SaveModData`/`Isaac.LoadModData` 转调它们），
+// 所以必须留在**匿名命名空间之外**；名字因此写全限定（`using LuaRuntime::...` 只在
+// 上面那个匿名命名空间里生效）。
+int ModSaveData(lua_State* state) {
+    LuaRuntime::ModHandle* mod = CheckModHandle(state, 2, "Mod:SaveData");
+    std::size_t length = 0;
+    const char* data = luaL_checklstring(state, 2, &length);
+    LuaRuntime::RecordCallbackOperation(LuaRuntime::CallbackOperation::SaveData);
+    PersistenceEventJournal::MarkAndFlush(
+        PersistenceEventJournal::Event::OperationEntered,
+        PersistenceEventJournal::Operation::SaveData);
+    const ModPersistence::Result result =
+        ModPersistence::SaveModData(mod->persistenceNamespace, data, length);
+    PersistenceEventJournal::MarkAndFlush(
+        PersistenceEventJournal::Event::OperationReturned,
+        PersistenceEventJournal::Operation::SaveData,
+        static_cast<std::uint32_t>(result));
+    if (result != ModPersistence::Result::Success) {
+        return luaL_error(state, "%s", PersistenceErrorMessage(result));
+    }
+    return 0;
+}
+
+int ModLoadData(lua_State* state) {
+    LuaRuntime::ModHandle* mod = CheckModHandle(state, 1, "Mod:LoadData");
+    LuaRuntime::RecordCallbackOperation(LuaRuntime::CallbackOperation::LoadData);
+    PersistenceEventJournal::MarkAndFlush(
+        PersistenceEventJournal::Event::OperationEntered,
+        PersistenceEventJournal::Operation::LoadData);
+    const char* data = nullptr;
+    std::size_t length = 0;
+    const ModPersistence::Result result =
+        ModPersistence::LoadModData(mod->persistenceNamespace, &data, &length);
+    PersistenceEventJournal::MarkAndFlush(
+        PersistenceEventJournal::Event::OperationReturned,
+        PersistenceEventJournal::Operation::LoadData,
+        static_cast<std::uint32_t>(result));
+    if (result == ModPersistence::Result::Missing) {
+        lua_pushliteral(state, "");
+        return 1;
+    }
+    if (result != ModPersistence::Result::Success) {
+        return luaL_error(state, "%s", PersistenceErrorMessage(result));
+    }
+    lua_pushlstring(state, data, length);
+    return 1;
+}
 
 std::size_t AttachModMethods(lua_State* state) noexcept {
     return AttachOwnerMethods(state, kModOwner, kModHandlers,

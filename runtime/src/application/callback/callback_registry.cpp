@@ -42,16 +42,24 @@ std::uint32_t CallbackRegistry::Remove(CallbackId id, ModHandle owner,
         if (entry.id != id || entry.owner != owner) {
             continue;
         }
-        if (removed != nullptr) {
-            *removed = entry;
-        }
-        for (std::size_t move = index + 1; move < count_; ++move) {
-            entries_[move - 1] = entries_[move];
-        }
-        --count_;
-        return 1;
+        return RemoveAtIndex(index, removed);
     }
     return 0;
+}
+
+std::uint32_t CallbackRegistry::RemoveAtIndex(std::size_t index,
+                                              CallbackDescriptor* removed) noexcept {
+    if (index >= count_) {
+        return 0;
+    }
+    if (removed != nullptr) {
+        *removed = entries_[index];
+    }
+    for (std::size_t move = index + 1; move < count_; ++move) {
+        entries_[move - 1] = entries_[move];
+    }
+    --count_;
+    return 1;
 }
 
 std::uint32_t CallbackRegistry::RemoveOwner(ModHandle owner) noexcept {

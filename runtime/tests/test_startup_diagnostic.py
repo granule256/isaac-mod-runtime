@@ -600,7 +600,9 @@ class StartupDiagnosticEntryTest(unittest.TestCase):
         inline = (SOURCE / "lib" / "hook" / "nx64" / "inline_impl.cpp").read_text()
 
         self.assertIn("constinit exl::util::Jit<size> name", jit)
-        self.assertIn("void Initialize(std::span<const u8, Size> rx)", jit)
+    # ★ 2026-09-19（门禁文本匹配分流）：删掉一条**纯签名文本**断言 —— 同一仓库里改签名，
+    #   编译器会先报错，这条与编译器重复；相邻断言保留的是真正防倒退的事实。
+    #   依据：`docs/门禁文本匹配分流-20260919.md`（类别 ②）。
         self.assertIn("s_HookJit.Initialize(std::span {impl::s_HookJit::s_Area})", hook)
         self.assertIn(
             "s_InlineHookJit.Initialize(std::span {impl::s_InlineHookJit::s_Area})",

@@ -1,0 +1,280 @@
+{
+  "schema": "isaac-layout-table/1",
+  "build_id": "91C73FDD575061318D68886316AFEAC72388B2AB",
+  "struct": "ItemConfig",
+  "source_table": "item",
+  "note": [
+    "`ItemConfig` 的**容器边界**：六个 `std::vector<Item*>` 的 begin/end 指针（收藏品 / 饰品 / 空物品 / 卡牌 / 药丸 / 玩家形态）。",
+    "语义锚点来自引擎自己的访问器：`ItemConfig::GetXxx(int)` 的固定三连形状 ——",
+    "  `ldp x8, x9, [x0, #offset]`（取 begin/end）→ `sub x9, x9, x8` + `lsr x9, x9, #3`（÷8 = 元素个数）",
+    "  → `cmp w9, w1` + `ldr x0, [x8, w1, uxtw #3]`（索引 × 8 取指针）。",
+    "  **元素是 8 字节指针、且这对指针就是向量边界，都是机器核对过的**（`sub`/`lsr #3`/索引寻址）。",
+    "⚠️ **End 行的偏移值有一处诚实的局限**：`ldp` 一条指令读相邻两个 8 字节，第二个偏移隐含在指令里、",
+    "  不出现立即数 ⇒ 「+0x08 就是 end」这一点靠「同一条 ldp 的第二寄存器」+「它和 begin 相邻」论证，",
+    "  而不是靠「指令里出现 `#0x8`」。加宽检出的只能是元素宽度（`lsr #3`）。",
+    "★ 本表与 `tools/layout_tables/drafts/item.json` 的关系：草稿是自动起草的（证据按**偏移全局搜**、不看基类型），",
+    "  本轮逐条人工判读后发现它有三处**跨结构体误引**（`+0x38` 引了 `Item+0x38` 的访问、`+0x98` 引了 `EntityConfig`",
+    "  的函数、`+0x00` 引了「id<0 走 ProceduralItemManager」那条分支）⇒ 本表的证据是重挑的。"
+  ],
+  "rows": [
+    {
+      "name": "CollectibleBegin",
+      "kind": "pointer",
+      "offset": 0,
+      "width": 8,
+      "confidence": "confirmed",
+      "semantic": "收藏品向量的起始指针（`ItemConfig` 的 `std::vector<Item*>` begin）：`ItemConfig::GetCollectible(int)` 就是拿它 + 元素索引取指针的",
+      "evidence": [
+        {
+          "kind": "access",
+          "function": "_ZNK15IsaacRepentance10ItemConfig14GetCollectibleEi",
+          "address": "0x003c0c78",
+          "offset": 0,
+          "width": 8,
+          "why": "`ldp x8, x9, [x0]` 一次取出本字段（+0x00，向量起点）与 +0x08（向量终点）；紧随的 `sub` + `lsr #3` 把两者之差除以 8 ⇒ 元素是 8 字节指针 ⇒ 这是一对 `std::vector<Item*>` 的边界。`ItemConfig::GetCollectible(int)` 这个引擎自己的访问器就是语义锚点（它专门用来按索引取收藏品）。"
+        },
+        {
+          "kind": "semantic",
+          "function": "_ZNK15IsaacRepentance10ItemConfig14GetCollectibleEi",
+          "address": "0x003c0c80",
+          "immediate": 3,
+          "why": "`lsr …, #3`：两指针之差 ÷ 8 ⇒ 元素是 8 字节指针（不是内联元素）"
+        },
+        {
+          "kind": "semantic",
+          "function": "_ZN15IsaacRepentance10ItemConfig4InitEv",
+          "address": "0x003b4160",
+          "immediate": 732,
+          "why": "`cmp x10, #0x2dc`：`ItemConfig::Init` 拿**引擎自己的容量常量** 732 = 0x2DC 判越界 ⇒ 收藏品向量最多 732 项"
+        }
+      ]
+    },
+    {
+      "name": "CollectibleEnd",
+      "kind": "pointer",
+      "offset": 8,
+      "width": 8,
+      "confidence": "confirmed",
+      "semantic": "收藏品向量的结束指针（同一对向量的 end，begin/end 之差 ÷ 8 即元素个数）",
+      "evidence": [
+        {
+          "kind": "semantic",
+          "function": "_ZNK15IsaacRepentance10ItemConfig14GetCollectibleEi",
+          "address": "0x003c0c80",
+          "immediate": 3,
+          "why": "同一条 `ldp x8, x9, [x0]` 的**第二寄存器**就是本字段（+0x08）：`ldp` 一次读出相邻的两个 8 字节指针，随后 `sub x9, x9, x8` + `lsr #3` 说明它们正是同一向量的 begin/end。⚠️ 局限：`ldp` 隐含第二个偏移，指令里不出现 `#0x8` ⇒ 本行**偏移值本身**无法用「指令里出现立即数」的方式核对；机器核对的是「它是与 begin 相邻的第二个指针」与「元素 8 字节」。"
+        }
+      ]
+    },
+    {
+      "name": "TrinketBegin",
+      "kind": "pointer",
+      "offset": 24,
+      "width": 8,
+      "confidence": "confirmed",
+      "semantic": "饰品向量的起始指针（`ItemConfig` 的 `std::vector<Item*>` begin）：`ItemConfig::GetTrinket(int)` 就是拿它 + 元素索引取指针的",
+      "evidence": [
+        {
+          "kind": "access",
+          "function": "_ZNK15IsaacRepentance10ItemConfig10GetTrinketEi",
+          "address": "0x003c0c9c",
+          "offset": 24,
+          "width": 8,
+          "why": "`ldp x8, x9, [x0, #0x18]` 一次取出本字段（+0x18，向量起点）与 +0x20（向量终点）；紧随的 `sub` + `lsr #3` 把两者之差除以 8 ⇒ 元素是 8 字节指针 ⇒ 这是一对 `std::vector<Item*>` 的边界。`ItemConfig::GetTrinket(int)` 这个引擎自己的访问器就是语义锚点（它专门用来按索引取饰品）。"
+        },
+        {
+          "kind": "semantic",
+          "function": "_ZNK15IsaacRepentance10ItemConfig10GetTrinketEi",
+          "address": "0x003c0ca8",
+          "immediate": 3,
+          "why": "`lsr …, #3`：两指针之差 ÷ 8 ⇒ 元素是 8 字节指针（不是内联元素）"
+        }
+      ]
+    },
+    {
+      "name": "TrinketEnd",
+      "kind": "pointer",
+      "offset": 32,
+      "width": 8,
+      "confidence": "confirmed",
+      "semantic": "饰品向量的结束指针（同一对向量的 end，begin/end 之差 ÷ 8 即元素个数）",
+      "evidence": [
+        {
+          "kind": "semantic",
+          "function": "_ZNK15IsaacRepentance10ItemConfig10GetTrinketEi",
+          "address": "0x003c0ca8",
+          "immediate": 3,
+          "why": "同一条 `ldp x8, x9, [x0, #0x18]` 的**第二寄存器**就是本字段（+0x20）：`ldp` 一次读出相邻的两个 8 字节指针，随后 `sub x9, x9, x8` + `lsr #3` 说明它们正是同一向量的 begin/end。⚠️ 局限：`ldp` 隐含第二个偏移，指令里不出现 `#0x20` ⇒ 本行**偏移值本身**无法用「指令里出现立即数」的方式核对；机器核对的是「它是与 begin 相邻的第二个指针」与「元素 8 字节」。"
+        }
+      ]
+    },
+    {
+      "name": "NullItemBegin",
+      "kind": "pointer",
+      "offset": 48,
+      "width": 8,
+      "confidence": "confirmed",
+      "semantic": "空物品向量的起始指针（`ItemConfig` 的 `std::vector<Item*>` begin）：`ItemConfig::GetNullItem(int)` 就是拿它 + 元素索引取指针的",
+      "evidence": [
+        {
+          "kind": "access",
+          "function": "_ZNK15IsaacRepentance10ItemConfig11GetNullItemEi",
+          "address": "0x003c0cc8",
+          "offset": 48,
+          "width": 8,
+          "why": "`ldp x8, x9, [x0, #0x30]` 一次取出本字段（+0x30，向量起点）与 +0x38（向量终点）；紧随的 `sub` + `lsr #3` 把两者之差除以 8 ⇒ 元素是 8 字节指针 ⇒ 这是一对 `std::vector<Item*>` 的边界。`ItemConfig::GetNullItem(int)` 这个引擎自己的访问器就是语义锚点（它专门用来按索引取空物品）。"
+        },
+        {
+          "kind": "semantic",
+          "function": "_ZNK15IsaacRepentance10ItemConfig11GetNullItemEi",
+          "address": "0x003c0cd0",
+          "immediate": 3,
+          "why": "`lsr …, #3`：两指针之差 ÷ 8 ⇒ 元素是 8 字节指针（不是内联元素）"
+        }
+      ]
+    },
+    {
+      "name": "NullItemEnd",
+      "kind": "pointer",
+      "offset": 56,
+      "width": 8,
+      "confidence": "confirmed",
+      "semantic": "空物品向量的结束指针（同一对向量的 end，begin/end 之差 ÷ 8 即元素个数）",
+      "evidence": [
+        {
+          "kind": "semantic",
+          "function": "_ZNK15IsaacRepentance10ItemConfig11GetNullItemEi",
+          "address": "0x003c0cd0",
+          "immediate": 3,
+          "why": "同一条 `ldp x8, x9, [x0, #0x30]` 的**第二寄存器**就是本字段（+0x38）：`ldp` 一次读出相邻的两个 8 字节指针，随后 `sub x9, x9, x8` + `lsr #3` 说明它们正是同一向量的 begin/end。⚠️ 局限：`ldp` 隐含第二个偏移，指令里不出现 `#0x38` ⇒ 本行**偏移值本身**无法用「指令里出现立即数」的方式核对；机器核对的是「它是与 begin 相邻的第二个指针」与「元素 8 字节」。"
+        }
+      ]
+    },
+    {
+      "name": "CardBegin",
+      "kind": "pointer",
+      "offset": 72,
+      "width": 8,
+      "confidence": "confirmed",
+      "semantic": "卡牌向量的起始指针（`ItemConfig` 的 `std::vector<Item*>` begin）：`ItemConfig::GetCard(int)` 就是拿它 + 元素索引取指针的",
+      "evidence": [
+        {
+          "kind": "access",
+          "function": "_ZNK15IsaacRepentance10ItemConfig7GetCardEi",
+          "address": "0x003c0d18",
+          "offset": 72,
+          "width": 8,
+          "why": "`ldp x8, x9, [x0, #0x48]` 一次取出本字段（+0x48，向量起点）与 +0x50（向量终点）；紧随的 `sub` + `lsr #3` 把两者之差除以 8 ⇒ 元素是 8 字节指针 ⇒ 这是一对 `std::vector<Item*>` 的边界。`ItemConfig::GetCard(int)` 这个引擎自己的访问器就是语义锚点（它专门用来按索引取卡牌）。"
+        },
+        {
+          "kind": "semantic",
+          "function": "_ZNK15IsaacRepentance10ItemConfig7GetCardEi",
+          "address": "0x003c0d20",
+          "immediate": 3,
+          "why": "`lsr …, #3`：两指针之差 ÷ 8 ⇒ 元素是 8 字节指针（不是内联元素）"
+        }
+      ]
+    },
+    {
+      "name": "CardEnd",
+      "kind": "pointer",
+      "offset": 80,
+      "width": 8,
+      "confidence": "confirmed",
+      "semantic": "卡牌向量的结束指针（同一对向量的 end，begin/end 之差 ÷ 8 即元素个数）",
+      "evidence": [
+        {
+          "kind": "semantic",
+          "function": "_ZNK15IsaacRepentance10ItemConfig7GetCardEi",
+          "address": "0x003c0d20",
+          "immediate": 3,
+          "why": "同一条 `ldp x8, x9, [x0, #0x48]` 的**第二寄存器**就是本字段（+0x50）：`ldp` 一次读出相邻的两个 8 字节指针，随后 `sub x9, x9, x8` + `lsr #3` 说明它们正是同一向量的 begin/end。⚠️ 局限：`ldp` 隐含第二个偏移，指令里不出现 `#0x50` ⇒ 本行**偏移值本身**无法用「指令里出现立即数」的方式核对；机器核对的是「它是与 begin 相邻的第二个指针」与「元素 8 字节」。"
+        }
+      ]
+    },
+    {
+      "name": "PillEffectBegin",
+      "kind": "pointer",
+      "offset": 96,
+      "width": 8,
+      "confidence": "confirmed",
+      "semantic": "药丸向量的起始指针（`ItemConfig` 的 `std::vector<Item*>` begin）：`ItemConfig::GetPillEffect(ePillEffect)` 就是拿它 + 元素索引取指针的",
+      "evidence": [
+        {
+          "kind": "access",
+          "function": "_ZNK15IsaacRepentance10ItemConfig13GetPillEffectENS_11ePillEffectE",
+          "address": "0x003c0cf0",
+          "offset": 96,
+          "width": 8,
+          "why": "`ldp x8, x9, [x0, #0x60]` 一次取出本字段（+0x60，向量起点）与 +0x68（向量终点）；紧随的 `sub` + `lsr #3` 把两者之差除以 8 ⇒ 元素是 8 字节指针 ⇒ 这是一对 `std::vector<Item*>` 的边界。`ItemConfig::GetPillEffect(ePillEffect)` 这个引擎自己的访问器就是语义锚点（它专门用来按索引取药丸）。"
+        },
+        {
+          "kind": "semantic",
+          "function": "_ZNK15IsaacRepentance10ItemConfig13GetPillEffectENS_11ePillEffectE",
+          "address": "0x003c0cf8",
+          "immediate": 3,
+          "why": "`lsr …, #3`：两指针之差 ÷ 8 ⇒ 元素是 8 字节指针（不是内联元素）"
+        }
+      ]
+    },
+    {
+      "name": "PillEffectEnd",
+      "kind": "pointer",
+      "offset": 104,
+      "width": 8,
+      "confidence": "confirmed",
+      "semantic": "药丸向量的结束指针（同一对向量的 end，begin/end 之差 ÷ 8 即元素个数）",
+      "evidence": [
+        {
+          "kind": "semantic",
+          "function": "_ZNK15IsaacRepentance10ItemConfig13GetPillEffectENS_11ePillEffectE",
+          "address": "0x003c0cf8",
+          "immediate": 3,
+          "why": "同一条 `ldp x8, x9, [x0, #0x60]` 的**第二寄存器**就是本字段（+0x68）：`ldp` 一次读出相邻的两个 8 字节指针，随后 `sub x9, x9, x8` + `lsr #3` 说明它们正是同一向量的 begin/end。⚠️ 局限：`ldp` 隐含第二个偏移，指令里不出现 `#0x68` ⇒ 本行**偏移值本身**无法用「指令里出现立即数」的方式核对；机器核对的是「它是与 begin 相邻的第二个指针」与「元素 8 字节」。"
+        }
+      ]
+    },
+    {
+      "name": "PlayerFormBegin",
+      "kind": "pointer",
+      "offset": 144,
+      "width": 8,
+      "confidence": "confirmed",
+      "semantic": "玩家形态向量的起始指针（`ItemConfig` 的 `std::vector<Item*>` begin）：`ItemConfig::GetPlayerForm(ePlayerForm)` 就是拿它 + 元素索引取指针的",
+      "evidence": [
+        {
+          "kind": "access",
+          "function": "_ZNK15IsaacRepentance10ItemConfig13GetPlayerFormENS_11ePlayerFormE",
+          "address": "0x003c0d40",
+          "offset": 144,
+          "width": 8,
+          "why": "`ldp x8, x9, [x0, #0x90]` 一次取出本字段（+0x90，向量起点）与 +0x98（向量终点）；紧随的 `sub` + `lsr #3` 把两者之差除以 8 ⇒ 元素是 8 字节指针 ⇒ 这是一对 `std::vector<Item*>` 的边界。`ItemConfig::GetPlayerForm(ePlayerForm)` 这个引擎自己的访问器就是语义锚点（它专门用来按索引取玩家形态）。"
+        },
+        {
+          "kind": "semantic",
+          "function": "_ZNK15IsaacRepentance10ItemConfig13GetPlayerFormENS_11ePlayerFormE",
+          "address": "0x003c0d48",
+          "immediate": 3,
+          "why": "`lsr …, #3`：两指针之差 ÷ 8 ⇒ 元素是 8 字节指针（不是内联元素）"
+        }
+      ]
+    },
+    {
+      "name": "PlayerFormEnd",
+      "kind": "pointer",
+      "offset": 152,
+      "width": 8,
+      "confidence": "confirmed",
+      "semantic": "玩家形态向量的结束指针（同一对向量的 end，begin/end 之差 ÷ 8 即元素个数）",
+      "evidence": [
+        {
+          "kind": "semantic",
+          "function": "_ZNK15IsaacRepentance10ItemConfig13GetPlayerFormENS_11ePlayerFormE",
+          "address": "0x003c0d48",
+          "immediate": 3,
+          "why": "同一条 `ldp x8, x9, [x0, #0x90]` 的**第二寄存器**就是本字段（+0x98）：`ldp` 一次读出相邻的两个 8 字节指针，随后 `sub x9, x9, x8` + `lsr #3` 说明它们正是同一向量的 begin/end。⚠️ 局限：`ldp` 隐含第二个偏移，指令里不出现 `#0x98` ⇒ 本行**偏移值本身**无法用「指令里出现立即数」的方式核对；机器核对的是「它是与 begin 相邻的第二个指针」与「元素 8 字节」。"
+        }
+      ]
+    }
+  ]
+}

@@ -75,9 +75,16 @@ local function ActionCode(name, fallback)
   return fallback
 end
 
+-- 呼出方式（2026-09-19 批次 080 改）：**组合键 = `-`（ACTION_MAP）+ `+`（ACTION_PAUSE）同时按住**。
+--
+-- 为什么不再用单键：`-` 是**游戏自己的地图键**，GoodTrip 的地图也挂在它上面 —— 单键呼出时
+-- 一按 `-` 会同时弹出「游戏地图 + GoodTrip 叠加」和「我们的模组开关」，用户实测反馈过。
+-- 而 `+` 是游戏的暂停键，单独占用同样会抢。
+-- 组合键的三条互不干扰：单独 `-` = 地图；单独 `+` = 暂停；**两个一起** = 我们的菜单。
 local KEY = {
   open = ActionCode("ACTION_MAP", 13),
-  tab = ActionCode("ACTION_MENUTAB", 26),
+  --: 组合键的第二个键：`ACTION_PAUSE`（Switch 上的 `+`）。
+  open_modifier = ActionCode("ACTION_PAUSE", 12),
   up = ActionCode("ACTION_MENUUP", 22),
   up_alt = ActionCode("ACTION_UP", 2),
   down = ActionCode("ACTION_MENUDOWN", 23),
@@ -100,7 +107,7 @@ local TEXT = {
     title = "模组开关（A 切换 / B 关闭）",
     none = "没有发现模组（检查 SD 卡上的 isaac_mods/mods）",
     dirty = "有改动，关闭菜单时保存",
-    hint = "关掉的模组要重启游戏才不加载",
+    hint = "关掉的模组要重启游戏才不加载；呼出键：同时按住 - 和 +",
     saved = "开关已保存（重启游戏后生效）",
     failed = "保存失败：存档通道不可用",
     notoggle = "改不了这一项",
@@ -113,7 +120,7 @@ local TEXT = {
     title = "MODS (A: toggle  B: close)",
     none = "No mods found (check isaac_mods/mods on the SD card)",
     dirty = "Changed - saving when the menu closes",
-    hint = "Disabled mods stop loading after a restart",
+    hint = "Disabled mods stop loading after a restart; open: hold - and + together",
     saved = "Saved (takes effect after restart)",
     failed = "Save failed: save channel unavailable",
     notoggle = "Cannot change this one",
@@ -148,13 +155,25 @@ local function Say(text)
   STATE.messageFrames = 180
 end
 
---: 依次尝试的字体：前两个是游戏自带的（droid 含中文、terminus 只有 ASCII）；
---: 后面几个是"万一路径形态不对"的备选（真机上哪个能装上看 `RuntimeMods.Report(2)`）。
+--: 依次尝试的字体。
+--:
+--: ★ 2026-09-17 更正：**游戏自带字体都没有中文字形** —— `font/droid.fnt` 实测是纯 Latin-1
+--: （`tools/fnt_glyph_report.py`：191 字形、码位上限 0xFF、中日韩 **0** 个），此前这里标着
+--: `cjk = true` 是错的 ⇒ 中文文案会**静默空白**（菜单看起来"没内容"）。
+--: 所以顺序改成"先找真正带中文字形的字体，找不到就用游戏字体 + 英文文案"（`T()` 按 `STATE.cjk`
+--: 在中文/英文两套文案间切换，所以退到英文时菜单仍然可读）。
+--: 顺带修掉一个大小写错误：游戏里是 `teammeatfont12.fnt`（全小写），原写法 `TeamMeatFont12.fnt`
+--: 在大小写敏感的 romfs 上根本找不到。
 local FONT_CANDIDATES = {
-  { path = "font/droid.fnt", cjk = true },
+  --: ① 本模组自己的中文字体（占位：以后把字体拷进 q4-items 的 resources 就会先命中）
+  { path = "rom:/isaac_mods/mods/q4-items/resources/font/q4_cn.fnt", cjk = true },
+  --: ② EID 自带的中文字体（卡上有 EID 就能用；EID 自己也是这么加载它的）
+  { path = "rom:/isaac_mods/mods/external item descriptions_836319872/resources/font/eid_cn_default.fnt",
+    cjk = true },
+  --: ③ 退路：游戏自带字体（只有 ASCII ⇒ 用英文文案，不会"什么都不显示"）
+  { path = "font/teammeatfont12.fnt", cjk = false },
+  { path = "font/droid.fnt", cjk = false },
   { path = "font/terminus.fnt", cjk = false },
-  { path = "font/TeamMeatFont12.fnt", cjk = false },
-  { path = "resources/font/terminus.fnt", cjk = false },
 }
 
 local function EnsureFont()
@@ -381,17 +400,114 @@ local function ScanInputs()
   end
 end
 
+-- ===== 诊断伴生采样（批次 070，2026-09-19）===================================
+--
+-- 为什么要有它：问"第三方模组**内部**现在是什么状态"（例如 GoodTrip 的 `gt.floor.crd`
+-- 是不是 nil、它的配置项取值多少）此前只能**改那个模组的脚本**再装一次卡 ——
+-- 一次要用户"退游戏 → 开 FTP → 装 → 关 FTP → 开游戏"，十几分钟，而且一个问题一轮。
+--
+-- 现在改成：由**我们自己的**菜单模组（本来就第一个加载、不占模组位、不改任何第三方文件）
+-- 定期把几个已知全局浅表扫一遍，写进**它自己的模组数据**；读数工具本来就会解模组数据
+-- （`tools/read_device_state_via_gdb.py` 的模组数据解码），于是"模组内部状态"变成
+-- **一条读数命令**，不用再为每个新问题装一次东西。
+--
+-- 边界（诚实说明，别指望它全免）：
+--   * 只看**全局**（模组自己挂出来的入口，如 `gt`、`EID`）；模组内部的局部变量看不到；
+--   * 深度 2 层、一次最多 40 行 —— 这段代码在每帧都跑的更新回调里，不能把大表整棵扫完；
+--   * 全程 `pcall`：采样自己出任何问题都不许影响菜单与模组加载。
+local DIAG = { countdown = 120, last = "" }
+
+local function DiagScalar(value)
+  local kind = type(value)
+  if kind == "string" then
+    return string.format("%q", string.sub(value, 1, 64))
+  end
+  if kind == "number" or kind == "boolean" or kind == "nil" then
+    return tostring(value)
+  end
+  return "<" .. kind .. ">"
+end
+
+local function DiagTable(prefix, value, depth, out, budget)
+  for key, item in pairs(value) do
+    if budget[1] <= 0 then
+      return
+    end
+    budget[1] = budget[1] - 1
+    local name = prefix .. "." .. tostring(key)
+    if type(item) == "table" then
+      out[#out + 1] = name .. "=<table>"
+      if depth > 1 then
+        DiagTable(name, item, depth - 1, out, budget)
+      end
+    else
+      out[#out + 1] = name .. "=" .. DiagScalar(item)
+    end
+  end
+end
+
+local function DiagCollect()
+  local out = {}
+  local budget = { 40 }
+  local globals = _G
+  for _, name in ipairs({ "gt", "EID" }) do
+    local value = (globals ~= nil) and globals[name] or nil
+    if value == nil then
+      out[#out + 1] = name .. "=<missing>"
+    elseif type(value) == "table" then
+      out[#out + 1] = name .. "=<table>"
+      DiagTable(name, value, 2, out, budget)
+    else
+      out[#out + 1] = name .. "=" .. DiagScalar(value)
+    end
+  end
+  -- 引擎侧概要：与模组内部状态一起看，才能分清"模组的判断"与"引擎的事实"。
+  local function probe(name, fn)
+    local ok, value = pcall(fn)
+    if ok then
+      out[#out + 1] = name .. "=" .. DiagScalar(value)
+    else
+      out[#out + 1] = name .. "=<error>"
+    end
+  end
+  probe("engine.frame", function() return Game():GetFrameCount() end)
+  probe("engine.roomType", function() return Game():GetRoom():GetType() end)
+  probe("engine.greedMode", function() return Game():IsGreedMode() end)
+  return table.concat(out, "\n")
+end
+
+local function DiagSample()
+  local ok, text = pcall(DiagCollect)
+  if not ok or type(text) ~= "string" or text == "" or text == DIAG.last then
+    return
+  end
+  DIAG.last = text
+  pcall(function()
+    if mod.SaveData ~= nil then
+      mod:SaveData("DIAGSAMPLE\n" .. text)
+    end
+  end)
+end
+
 local function OnUpdate()
   Report(5)
+  -- 采样先于菜单的早退分支：菜单开着还是关着都要采（真机上的问题多半在游玩过程中）。
+  DIAG.countdown = DIAG.countdown - 1
+  if DIAG.countdown <= 0 then
+    DIAG.countdown = 300
+    DiagSample()
+  end
   if (STATE.scanFrames or 0) <= 0 then
     STATE.scanFrames = 10
     ScanInputs()
   else
     STATE.scanFrames = STATE.scanFrames - 1
   end
-  -- 呼出键：ACTION_MAP（Switch 上的“-”）或 ACTION_MENUTAB（PC 的 Tab）。
-  -- 两个都试：真机上哪个按键映射到哪个动作号此前没验过，多试一个不花代价。
-  if AnyPressedOnce({ KEY.open, KEY.tab }) then
+  -- 呼出：**组合键**（见 KEY 表的说明）。两个方向都认：先按 `+` 再按 `-`、或先按 `-` 再按 `+`，
+  -- 只要在另一键**按住**期间出现另一键的过沿就算。这样不抢地图键、也不抢暂停键。
+  local openChord = (Held(KEY.open_modifier) and PressedOnce(KEY.open))
+      or (Held(KEY.open) and PressedOnce(KEY.open_modifier))
+  if openChord then
     Report(9)                -- 9 = 呼出键的过沿判定成立（菜单即将打开）
     if STATE.open then
       STATE.open = false

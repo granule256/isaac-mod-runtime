@@ -315,26 +315,26 @@ int Report(int code) {
 
 int main() {
     LuaRuntime::LuaSpriteBindings bindings{};
-    bindings.ctor = reinterpret_cast<uintptr_t>(&FakeCtor);
-    bindings.destructor_ = reinterpret_cast<uintptr_t>(&FakeDtor);
-    bindings.play = reinterpret_cast<uintptr_t>(&FakePlay);
-    bindings.setAnimation = reinterpret_cast<uintptr_t>(&FakeSetAnimation);
-    bindings.setFrameNamed = reinterpret_cast<uintptr_t>(&FakeSetFrameNamed);
-    bindings.setFrame = reinterpret_cast<uintptr_t>(&FakeSetFrame);
-    bindings.getFrame = reinterpret_cast<uintptr_t>(&FakeGetFrame);
-    bindings.setLayerFrame = reinterpret_cast<uintptr_t>(&FakeSetLayerFrame);
-    bindings.getLayerFrame = reinterpret_cast<uintptr_t>(&FakeGetLayerFrame);
-    bindings.update = reinterpret_cast<uintptr_t>(&FakeUpdate);
-    bindings.isPlaying = reinterpret_cast<uintptr_t>(&FakeIsPlaying);
-    bindings.isFinished = reinterpret_cast<uintptr_t>(&FakeIsFinished);
-    bindings.render = reinterpret_cast<uintptr_t>(&FakeRender);
-    bindings.renderLayer = reinterpret_cast<uintptr_t>(&FakeRenderLayer);
-    bindings.playRandom = reinterpret_cast<uintptr_t>(&FakePlayRandom);
-    bindings.load = reinterpret_cast<uintptr_t>(&FakeLoad);
-    bindings.loadGraphics = reinterpret_cast<uintptr_t>(&FakeLoadGraphics);
-    bindings.replaceSpritesheet = reinterpret_cast<uintptr_t>(&FakeReplaceSpritesheet);
-    bindings.libcxxStringAssign = reinterpret_cast<uintptr_t>(&FakeAssign);
-    bindings.gameOperatorDelete = reinterpret_cast<uintptr_t>(&FakeOperatorDelete);
+    bindings.ctor = &FakeCtor;
+    bindings.destructor_ = &FakeDtor;
+    bindings.play = &FakePlay;
+    bindings.setAnimation = &FakeSetAnimation;
+    bindings.setFrameNamed = &FakeSetFrameNamed;
+    bindings.setFrame = &FakeSetFrame;
+    bindings.getFrame = &FakeGetFrame;
+    bindings.setLayerFrame = &FakeSetLayerFrame;
+    bindings.getLayerFrame = &FakeGetLayerFrame;
+    bindings.update = &FakeUpdate;
+    bindings.isPlaying = &FakeIsPlaying;
+    bindings.isFinished = &FakeIsFinished;
+    bindings.render = &FakeRender;
+    bindings.renderLayer = &FakeRenderLayer;
+    bindings.playRandom = &FakePlayRandom;
+    bindings.load = &FakeLoad;
+    bindings.loadGraphics = &FakeLoadGraphics;
+    bindings.replaceSpritesheet = &FakeReplaceSpritesheet;
+    bindings.libcxxStringAssign = &FakeAssign;
+    bindings.gameOperatorDelete = &FakeOperatorDelete;
     LuaRuntime::SetSpriteBindings(bindings);
 
     const auto result = LuaRuntime::InitializeFromBuffer(kScript, std::strlen(kScript), "@sprite.lua");
@@ -346,8 +346,10 @@ int main() {
     if (g_ctorCalls != 1) return Report(11);
     if (std::strcmp(g_play.name, "Idle") != 0 || g_play.flag != 1 || g_play.calls != 1) return Report(12);
     if (std::strcmp(g_setAnimation.name, "Walk") != 0 || g_setAnimation.flag != 0) return Report(13);
-    if (std::strcmp(g_setFrameNamed.name, "Walk") != 0 || g_setFrameNamed.number != 6) return Report(14);
-    if (g_setFrame.number != 5 || g_setFrame.calls != 1) return Report(15);
+    // 记的是**最后一次**调用的实参 ⇒ 这两条现在覆盖"整值浮点也被接受"那一次
+    // （`9.0`/`10.0` 分别走两个重载，`calls == 2` 证明整数形式那一次也真的调到了原生入口）。
+    if (std::strcmp(g_setFrameNamed.name, "Walk") != 0 || g_setFrameNamed.number != 10) return Report(14);
+    if (g_setFrame.number != 9 || g_setFrame.calls != 2) return Report(15);
     if (g_setLayerFrame.flag != 2 || g_setLayerFrame.number != 9) return Report(16);
     if (g_updateCalls != 2) return Report(17);
     // 省掉动画名的两次调用必须走"空串"路径（引擎语义：只看当前动画）
@@ -420,6 +422,11 @@ mod:AddCallback(ModCallbacks.MC_POST_UPDATE, function()
   if not sprite:SetAnimation('Walk', false) then error('SetAnimation must return the native bool') end
   sprite:SetFrame(5)
   sprite:SetFrame('Walk', 6)
+  -- 整值浮点：Lua 的 `/` **永远**产生浮点，模组很容易把算过的帧号传进来；
+  -- PC 的绑定走 `luaL_checkinteger`（接受 3.0），我们此前用 `lua_isinteger` 会拒 ——
+  -- 2026-09-18 真机就是这条把 EID 的药丸描述整条拒掉（屏幕上"什么信息都没有"）。
+  sprite:SetFrame(9.0)
+  sprite:SetFrame('Walk', 10.0)
   if sprite:GetFrame() ~= 7 then error('GetFrame must return the native value') end
   sprite:SetLayerFrame(2, 9)
   if sprite:GetLayerFrame(4) ~= 104 then error('GetLayerFrame must return the native value') end

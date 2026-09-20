@@ -2,6 +2,7 @@
 
 #include <array>
 #include <cstdint>
+#include "runtime_constants.hpp"
 
 // Lua userdata handles and metatable names for the object API families.
 //
@@ -16,12 +17,16 @@ inline constexpr char kLevelMetatable[] = "IsaacRuntime.Level";
 inline constexpr char kItemPoolMetatable[] = "IsaacRuntime.ItemPool";
 inline constexpr char kRoomMetatable[] = "IsaacRuntime.Room";
 inline constexpr char kGridEntityMetatable[] = "IsaacRuntime.GridEntity";
+//: `Room:GetDoor(slot)` 的返回值（同时是 `GridEntity`，见 `DoorHandle` 的说明）。
+inline constexpr char kGridEntityDoorMetatable[] = "IsaacRuntime.GridEntityDoor";
 // 地基二期新增（`Level` 的三个房间描述符 API 的返回值）。
 inline constexpr char kRoomDescriptorMetatable[] = "IsaacRuntime.RoomDescriptor";
 inline constexpr char kRoomDescriptorListMetatable[] = "IsaacRuntime.RoomDescriptorList";
 inline constexpr char kSeedsMetatable[] = "IsaacRuntime.Seeds";
 inline constexpr char kMusicMetatable[] = "IsaacRuntime.Music";
 inline constexpr char kRngMetatable[] = "IsaacRuntime.RNG";
+// 批次 065：`EntityRef`（PC 的值类型；引擎按引用读它，所以我们自己持有那块缓冲区）。
+inline constexpr char kEntityRefMetatable[] = "IsaacRuntime.EntityRef";
 inline constexpr char kFontMetatable[] = "IsaacRuntime.Font";
 inline constexpr char kColorMetatable[] = "IsaacRuntime.KColor";
 // PC's `Vector` is `KAGE::Math::Vector2`: 8 bytes `{float X, float Y}`, no vtable (audited in
@@ -108,6 +113,18 @@ struct GridEntityHandle {
     void* entity;
 };
 
+// `GridEntity_Door`（批次 078，2026-09-19）：`Room:GetDoor(slot)` 的返回值。
+//
+// 为什么不复用 `GridEntityHandle`：门除了"引擎对象地址"还要记住**自己的槽位** ——
+// `door.Position` 要靠它去问引擎（`Room::GetDoorSlotPosition(eDoorSlot)`）。
+// 门在 PC 那边**同时是 `GridEntity`**（`door:GetType()`、`door.Desc`、`door.VarData` 都要能用），
+// 所以它的元表 `__index` 会先按"门的字段"答，答不上再落到 `GridEntity` 的方法表。
+struct DoorHandle {
+    void* entity;
+    std::int32_t slot;
+    std::int32_t reserved;
+};
+
 struct ColorHandle {
     float red;
     float green;
@@ -125,6 +142,13 @@ struct FontHandle {
 struct VectorHandle {
     float x;
     float y;
+};
+
+// 批次 065：`EntityRef = Entity::EntityRef` 的**裸缓冲区**（布局与证据见 `entity_ref_api.hpp`）。
+// 没有独立字段：Lua 侧读 `Type`/`Variant`/`Entity` 时直接按引擎偏移从这块内存里读，
+// 免得"句柄字段"与"交给引擎的字节"两份状态漂移（那正是最难查的一类 bug）。
+struct EntityRefHandle {
+    std::uint8_t storage[kEntityRefStorageSize];
 };
 
 // 与 `Font` 同类：`sprite` 指向本模块自己分配、也必须由本模块释放的 `ANM2`（`kSpriteObjectSize`

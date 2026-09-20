@@ -128,7 +128,8 @@ constexpr std::uint32_t kPickupPrice = 15;
 constexpr std::uint32_t kPickupOptionsIndex = 3;
 constexpr std::uint32_t kInitSeed = 0x11223344;
 
-constexpr std::size_t kEntityBlockSize = 0x648;    // 覆盖扫描区间(0x348)与 Pickup 字段(0x56C)
+// 覆盖扫描区间(0x348)、Pickup 字段(0x56C) 与 boss 标记字节(`kEntityBossFlagOffset` = 0xCC9)。
+constexpr std::size_t kEntityBlockSize = 0xD00;
 
 // --- 伪造的引擎内存 --------------------------------------------------------
 
@@ -286,6 +287,14 @@ void FillEntities() {
 
     FillEntity(kEnemyA, 20, 5, 0, 100.0F, 280.0F, 10.0F, 1, kEnemySpawnFrame,
                GenericEntityVtable(), 0);
+    // `Isaac.CountBosses()`（2026-09-18 批次 026 起是真实现）：判据是 `Entity + 0xCC9` 那个
+    // boss 标记字节（`Entity_NPC::IsBoss()` 的全部函数体就是读它），**且**要求"这是敌人"
+    // （基类 `Entity::IsBoss()` 恒 false ⇒ 那个偏移在别的类上是无关数据）。
+    // 所以这里刻意造两种：
+    //   * `kEnemyA`（Type 20，敌人）置标记 ⇒ 应当被数到；
+    //   * `kCharmed`（Type 3 && Variant 0xEF）**也**置标记，但它不是敌人 ⇒ 不许被数到。
+    WriteAt<std::uint8_t>(g_Entities[kEnemyA], kEntityBossFlagOffset, 1);
+    WriteAt<std::uint8_t>(g_Entities[kCharmed], kEntityBossFlagOffset, 1);
     FillEntity(kPickup, kEntityTypePickup, 100, 1, 85.0F, 285.0F, 8.0F, 2, 900,
                g_EngineBase + kEntityPickupVtableOffset, 0);
     std::vector<unsigned char>& pickup = g_Entities[kPickup];
@@ -385,10 +394,12 @@ void PublishGame() {
 std::uintptr_t g_CallEntity = 0;
 std::uint32_t g_CallId = 0;
 int g_CallCount = 0;
+bool g_LastIgnoreModifiers = false;
 
-bool HarnessHasCollectible(void* entity, std::uint32_t collectibleId) {
+bool HarnessHasCollectible(void* entity, std::uint32_t collectibleId, bool ignoreModifiers) {
     g_CallEntity = reinterpret_cast<std::uintptr_t>(entity);
     g_CallId = collectibleId;
+    g_LastIgnoreModifiers = ignoreModifiers;
     ++g_CallCount;
     return collectibleId == 1;
 }
@@ -712,8 +723,13 @@ local function verifyCounts()
   --     给定的 CountEnemies 判据只有那条类型区间比较（两条已知偏差都写在 `isaac_api.cpp`）。
   --   * 坏 vptr 的 Type 20 实体不计数（vptr 闸门先否决）。
   check(Isaac.CountEnemies() == 3, 'CountEnemies must count 3, got ' .. tostring(Isaac.CountEnemies()))
-  -- `CountBosses` 仍是安全 stub：本轮没有任何 boss 判据的证据。
-  check(Isaac.CountBosses() == 0, 'CountBosses must stay 0 (no evidence for a boss test)')
+  -- `CountBosses`：batch 026 起是真实现。判据 = `Entity + 0xCC9` 那个 boss 标记字节，
+  -- 且**先要求"这是敌人"**（基类 `Entity::IsBoss()` 恒 false，别的类上那个偏移是无关数据）。
+  -- 造的两个实体见 harness：`kEnemyA`（Type 20）置了标记 ⇒ 计入；
+  -- `kCharmed`（Type 3 && Variant 0xEF）**也**置了标记，但它不是敌人 ⇒ 不计入。
+  check(Isaac.CountBosses() == 1,
+        'CountBosses must count 1 (only the enemy-typed flagged entity), got '
+        .. tostring(Isaac.CountBosses()))
 end
 
 -- ===== 实体字段 / FrameCount / GetPtrHash / GetData / ToPickup =====
@@ -1008,6 +1024,7 @@ local function run()
     checkArray(Isaac.FindInRadius(Vector(80, 280), 100, ALL_PARTITIONS), 0, 'fingerprint radius')
     checkArray(Isaac.FindByType(20, -1, -1), 0, 'fingerprint type')
     check(Isaac.CountEnemies() == 0, 'fingerprint enemies')
+  check(Isaac.CountBosses() == 0, 'fingerprint bosses')
     check(Isaac.GetPlayer(0) ~= nil, 'GetPlayer does not need the EntityList')
     local player = Isaac.GetPlayer(0)
     check(type(player:GetData()) == 'table', 'GetData must degrade to a table, not nil')
@@ -1029,6 +1046,7 @@ local function run()
     checkArray(Isaac.FindByType(20, -1, -1, false, false), 0, 'overflow live type')
     checkSet(Isaac.FindByType(1000, 7, -1), { 'effect' }, 'overflow effect type')
     check(Isaac.CountEnemies() == 0, 'overflow enemies')
+  check(Isaac.CountBosses() == 0, 'overflow bosses')
     if frame == 1 then PHASE1_OK = 1 end
     if frame == 2 then PHASE2_OK = 1 end
     SCENARIO_OK = 1

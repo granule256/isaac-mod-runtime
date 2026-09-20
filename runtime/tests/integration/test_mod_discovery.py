@@ -229,5 +229,50 @@ class ModDiscoveryTests(unittest.TestCase):
         self.assertNotIn("FAILED_CHECK", result.stdout)
 
 
+class EngineDirectoryBlockOwnershipTests(unittest.TestCase):
+    """源码级契约：引擎返回的指针**不是**分配起点，释放必须回到块首。
+
+    为什么要有这条：`GetDirectoryEntries` 返回的是"条目数组首地址"，块首 8 字节存条目数
+    （反汇编见 `runtime_constants.hpp` 的 `kDirectoryEntryCountHeaderSize`）。用返回值直接
+    `delete[]` 等于释放一个偏移指针，会踩坏游戏线程本地堆的空闲链表，症状是**几层调用之后**
+    在一次不相干的分配里 Data Abort —— 崩溃现场离真凶很远，靠读崩溃报告根本推不出来
+    （2026-09-17 的真实事故，见 `docs/问题与解决记录.md` 续三十七）。
+    """
+
+    def test_release_returns_to_the_allocation_base(self):
+        adapter = (SRC / "infrastructure" / "content" / "engine_directory_adapter.cpp").read_text(
+            encoding="utf-8"
+        )
+        constants = (ROOT / "runtime" / "source" / "runtime_constants.hpp").read_text(
+            encoding="utf-8"
+        )
+
+        # ★ 只查**正式路径**：`EXL_LEGACY_DIRECTORY_BLOCK_FREE` 是 2026-09-17 为"单变量对照"加的
+        # 开关（打开就退回旧行为，用来判定"问题 1 是哪条修复治好的"）。它包在 `#if/#else` 里、
+        # 默认 0 不参与编译；正式形状（`#else` 之后）必须仍然释放到块首。
+        marker = "#if defined(EXL_LEGACY_DIRECTORY_BLOCK_FREE)"
+        if marker in adapter:
+            legacy_part, rest = adapter.split(marker, 1)
+            production = legacy_part + rest.split("#else", 1)[1]
+            # 对照代码必须**老老实实待在开关里**：
+            self.assertNotIn(
+                "arrayDelete(block)", legacy_part,
+                "对照形态跑到了开关之外 —— 那会变成真的交付形状",
+            )
+            self.assertIn("arrayDelete(block)", rest.split("#else", 1)[0],
+                          "对照区块里应当就是旧的（错的）释放形态")
+        else:
+            production = adapter
+
+        self.assertIn("kDirectoryEntryCountHeaderSize = 0x08", constants)
+        self.assertIn("kDirectoryEntryCountHeaderSize", production)
+        self.assertIn(
+            "arrayDelete(static_cast<std::uint8_t*>(block) - kDirectoryEntryCountHeaderSize)",
+            production,
+        )
+        # 反向判据：旧写法（释放返回值本身）绝不能出现在正式路径里。
+        self.assertNotIn("arrayDelete(block)", production)
+
+
 if __name__ == "__main__":
     unittest.main()

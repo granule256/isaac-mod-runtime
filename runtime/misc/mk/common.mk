@@ -209,9 +209,6 @@ CPPFILES := $(filter-out saltynx_external_plugin_file_api_probe.cpp,$(CPPFILES))
 CPPFILES := $(filter-out saltynx_external_plugin_runtime_io_probe.cpp,$(CPPFILES))
 CPPFILES := $(filter-out saltynx_external_plugin_runtime_state_probe.cpp,$(CPPFILES))
 CPPFILES := $(filter-out saltynx_external_plugin_runtime_state_persist_probe.cpp,$(CPPFILES))
-CPPFILES := $(filter-out saltynx_external_plugin_persistence_bridge.cpp,$(CPPFILES))
-CPPFILES := $(filter-out saltynx_external_plugin_persistence_entry.cpp,$(CPPFILES))
-CPPFILES := $(filter-out saltynx_external_plugin_persistence_bridge_trace.cpp,$(CPPFILES))
 CPPFILES += saltynx_runtime_bridge.cpp
 CPPFILES += test_run_observer.cpp
 ifeq ($(PERSISTENCE_TRACE),1)

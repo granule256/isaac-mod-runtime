@@ -66,7 +66,9 @@ class InstructionGuardTests(unittest.TestCase):
         helper_start = entry_source.index("#if defined(EXL_DIAGNOSTIC_STAGE) && EXL_DIAGNOSTIC_STAGE == 6", entry_source.index("constexpr u64 kStage6FailureMagic"))
         failure_helper = entry_source[helper_start:entry_source.index("#endif", helper_start)]
         self.assertIn("#if defined(EXL_DIAGNOSTIC_STAGE) && EXL_DIAGNOSTIC_STAGE == 6", failure_helper)
-        self.assertIn("[[noreturn]] void ReportStage6Failure(std::uint32_t status);", header_source)
+    # ★ 2026-09-19（门禁文本匹配分流）：删掉一条**纯签名文本**断言 —— 同一仓库里改签名，
+    #   编译器会先报错，这条与编译器重复；相邻断言保留的是真正防倒退的事实。
+    #   依据：`docs/门禁文本匹配分流-20260919.md`（类别 ②）。
 
     def test_stage6_success_requires_observed_game_owner_chain(self):
         source = (ROOT / "source/hook_manager.cpp").read_text()
@@ -165,7 +167,9 @@ class InstructionGuardTests(unittest.TestCase):
         self.assertIn("__ATOMIC_RELEASE", installer)
         self.assertIn("slotPages.Flush()", installer)
         self.assertLess(installer.index("PublishOriginal"), installer.index("__atomic_store_n"))
-        self.assertIn("bool PublishOriginal(uintptr_t original)", trampoline)
+    # ★ 2026-09-19（门禁文本匹配分流）：删掉一条**纯签名文本**断言 —— 同一仓库里改签名，
+    #   编译器会先报错，这条与编译器重复；相邻断言保留的是真正防倒退的事实。
+    #   依据：`docs/门禁文本匹配分流-20260919.md`（类别 ②）。
 
     def test_try_hook_interfaces_preserve_prepare_and_commit_failure_causes(self):
         impl_header = (ROOT / "source/lib/hook/nx64/impl.hpp").read_text()
@@ -195,7 +199,9 @@ class InstructionGuardTests(unittest.TestCase):
         impl = (ROOT / "source/lib/hook/nx64/hook_impl.cpp").read_text()
         base = (ROOT / "source/lib/hook/base.hpp").read_text()
         trampoline = (ROOT / "source/lib/hook/trampoline.hpp").read_text()
-        self.assertIn("bool TryHook(", impl)
+    # ★ 2026-09-19（门禁文本匹配分流）：删掉一条**纯签名文本**断言 —— 同一仓库里改签名，
+    #   编译器会先报错，这条与编译器重复；相邻断言保留的是真正防倒退的事实。
+    #   依据：`docs/门禁文本匹配分流-20260919.md`（类别 ②）。
         self.assertIn("arch::TryHook", base)
         self.assertIn("HookAttemptResult TryInstallAtPtr", trampoline)
 

@@ -23,10 +23,18 @@ constexpr uintptr_t kGameItemPoolOffset = 0x242C0;
 constexpr uintptr_t kLevelCurrentRoomOffset = 0x21550;
 constexpr uintptr_t kLevelCurrentRoomIndexOffset = 0x21558;
 constexpr uintptr_t kLevelCurrentRoomDimensionOffset = 0x21560;
+// `Level + 0x00` = `eLevelStage`、`Level + 0x04` = `eStageType`（`Level::SetStage` 的落点，
+// 证据见 `runtime_constants.hpp`）。`Level` 与 `Game` 同一地址，所以还是同一个 base。
+constexpr uintptr_t kLevelStageOffset = 0x00;
+constexpr uintptr_t kLevelStageTypeOffset = 0x04;
 constexpr uintptr_t kRoomTypeOffset = 0x10;
 constexpr uintptr_t kRoomDescriptorOffset = 0x8;
 constexpr uintptr_t kDescriptorCandidateWord0cOffset = 0xc;
 constexpr uintptr_t kDescriptorCandidateWord50Offset = 0x50;
+// 渲染偏移的两个分量（语义与取证见 `game_observer.hpp` 的 `GameRenderOffset` 注释，
+// 以及 `room_layout.hpp` / `game_layout.hpp` 的 confirmed 行）。
+constexpr uintptr_t kRoomRenderScrollOffsetOffset = 0x1938;
+constexpr uintptr_t kGameToScreenAdjustOffset = 0x24F9B0;
 
 bool IsReadableNonExecutableMapping(uintptr_t address, size_t length) {
     if (length == 0 || address > UINTPTR_MAX - length) return false;
@@ -161,8 +169,35 @@ GameLevelStageObservation ReadCurrentGameLevelStage(uintptr_t ownerSlot, std::ui
     return GameLevelStageObservation::Success;
 }
 
-GameItemPoolObservation ReadCurrentGameItemPool(uintptr_t ownerSlot, void** itemPool) {
-    if (itemPool == nullptr || ownerSlot == 0 ||
+// 当前房间的维度（`Level + 0x21560`）。与 `ReadCurrentGameLevelStage` 逐句同形：
+// `Level` 与 `Game` 同一地址，所以是同一条"槽 → owner → Game*"链，只是读的字段不同。
+// 判据与证据见 `runtime_constants.hpp` 的 `kMirrorWorldDimension`。
+GameLevelStageObservation ReadCurrentGameRoomDimension(uintptr_t ownerSlot,
+                                                       std::uint32_t* dimension) {
+    if (dimension == nullptr || ownerSlot == 0 ||
+        (ownerSlot & (alignof(uintptr_t) - 1)) != 0 ||
+        !IsReadableNonExecutableMapping(ownerSlot, sizeof(uintptr_t))) {
+        return GameLevelStageObservation::OwnerUnreadable;
+    }
+    const uintptr_t owner = *reinterpret_cast<const uintptr_t*>(ownerSlot);
+    if (owner == 0) return GameLevelStageObservation::OwnerNull;
+    if ((owner & (alignof(uintptr_t) - 1)) != 0 ||
+        !IsReadableNonExecutableMapping(owner, sizeof(uintptr_t))) {
+        return GameLevelStageObservation::OwnerUnreadable;
+    }
+    const uintptr_t game = *reinterpret_cast<const uintptr_t*>(owner);
+    if (game == 0) return GameLevelStageObservation::GameNull;
+    if ((game & (alignof(std::uint32_t) - 1)) != 0 ||
+        game > UINTPTR_MAX - kLevelCurrentRoomDimensionOffset ||
+        !IsReadableNonExecutableMapping(game + kLevelCurrentRoomDimensionOffset,
+                                        sizeof(std::uint32_t))) {
+        return GameLevelStageObservation::GameUnreadable;
+    }
+    *dimension = *reinterpret_cast<const std::uint32_t*>(game + kLevelCurrentRoomDimensionOffset);
+    return GameLevelStageObservation::Success;
+}
+
+GameItemPoolObservation ReadCurrentGameItemPool(uintptr_t ownerSlot, void** itemPool) {    if (itemPool == nullptr || ownerSlot == 0 ||
         (ownerSlot & (alignof(uintptr_t) - 1)) != 0 ||
         !IsReadableNonExecutableMapping(ownerSlot, sizeof(uintptr_t))) {
         return GameItemPoolObservation::OwnerUnreadable;
@@ -262,8 +297,7 @@ GameRoomObservation ReadGameRoomTypeFromGame(const IsaacRepentance::Game* game, 
     return GameRoomObservation::Success;
 }
 
-GameRoomObservation ReadGameCurrentRoomKeyFromGame(const IsaacRepentance::Game* game, GameRoomKey* key) {
-    if (game == nullptr || key == nullptr) return GameRoomObservation::GameNull;
+GameRoomObservation ReadGameCurrentRoomKeyFromGame(const IsaacRepentance::Game* game, GameRoomKey* key) {    if (game == nullptr || key == nullptr) return GameRoomObservation::GameNull;
     const uintptr_t gameAddress = reinterpret_cast<uintptr_t>(game);
     if ((gameAddress & (alignof(std::uint32_t) - 1)) != 0 ||
         gameAddress > UINTPTR_MAX - kLevelCurrentRoomDimensionOffset ||
@@ -273,6 +307,74 @@ GameRoomObservation ReadGameCurrentRoomKeyFromGame(const IsaacRepentance::Game* 
     }
     key->roomIndex = *reinterpret_cast<const std::uint32_t*>(gameAddress + kLevelCurrentRoomIndexOffset);
     key->dimension = *reinterpret_cast<const std::uint32_t*>(gameAddress + kLevelCurrentRoomDimensionOffset);
+    return GameRoomObservation::Success;
+}
+
+GameRoomObservation ReadGameLocationKey(uintptr_t ownerSlot, GameLocationKey* key) {
+    if (key == nullptr) return GameRoomObservation::RoomUnreadable;
+    if (ownerSlot == 0 || (ownerSlot & (alignof(uintptr_t) - 1)) != 0 ||
+        !IsReadableNonExecutableMapping(ownerSlot, sizeof(uintptr_t))) {
+        return GameRoomObservation::OwnerUnreadable;
+    }
+    const uintptr_t owner = *reinterpret_cast<const uintptr_t*>(ownerSlot);
+    if (owner == 0) return GameRoomObservation::OwnerNull;
+    if ((owner & (alignof(uintptr_t) - 1)) != 0 ||
+        !IsReadableNonExecutableMapping(owner, sizeof(uintptr_t))) {
+        return GameRoomObservation::OwnerUnreadable;
+    }
+    const uintptr_t game = *reinterpret_cast<const uintptr_t*>(owner);
+    if (game == 0) return GameRoomObservation::GameNull;
+    // 四个字一次可读性检查就够（它们是同一段里的连续/近邻字段，逐字检查会把每帧的
+    // `svcQueryMemory` 调用数翻四倍，而这是每帧都要走一遍的路径）。
+    if ((game & (alignof(std::uint32_t) - 1)) != 0 ||
+        game > UINTPTR_MAX - kLevelCurrentRoomDimensionOffset ||
+        !IsReadableNonExecutableMapping(game + kLevelStageOffset, sizeof(std::uint32_t)) ||
+        !IsReadableNonExecutableMapping(game + kLevelStageTypeOffset, sizeof(std::uint32_t)) ||
+        !IsReadableNonExecutableMapping(game + kLevelCurrentRoomIndexOffset, sizeof(std::uint32_t)) ||
+        !IsReadableNonExecutableMapping(game + kLevelCurrentRoomDimensionOffset, sizeof(std::uint32_t))) {
+        return GameRoomObservation::GameUnreadable;
+    }
+    key->stage = *reinterpret_cast<const std::uint32_t*>(game + kLevelStageOffset);
+    key->stageType = *reinterpret_cast<const std::uint32_t*>(game + kLevelStageTypeOffset);
+    key->roomIndex = *reinterpret_cast<const std::uint32_t*>(game + kLevelCurrentRoomIndexOffset);
+    key->roomDimension = *reinterpret_cast<const std::uint32_t*>(game + kLevelCurrentRoomDimensionOffset);
+    return GameRoomObservation::Success;
+}
+
+GameRoomObservation ReadGameRenderOffset(uintptr_t ownerSlot, GameRenderOffset* offset) {
+    if (offset == nullptr) return GameRoomObservation::GameUnreadable;
+    // 与 `ReadGameLocationKey` 同一条链（槽 → owner → `Game*`）：不另造一份取址方式，
+    // 否则两处对"Game 是谁"的理解会漂。
+    if (ownerSlot == 0 || (ownerSlot & (alignof(uintptr_t) - 1)) != 0 ||
+        !IsReadableNonExecutableMapping(ownerSlot, sizeof(uintptr_t))) {
+        return GameRoomObservation::OwnerUnreadable;
+    }
+    const uintptr_t owner = *reinterpret_cast<const uintptr_t*>(ownerSlot);
+    if (owner == 0) return GameRoomObservation::OwnerNull;
+    if ((owner & (alignof(uintptr_t) - 1)) != 0 ||
+        !IsReadableNonExecutableMapping(owner, sizeof(uintptr_t))) {
+        return GameRoomObservation::OwnerUnreadable;
+    }
+    const uintptr_t game = *reinterpret_cast<const uintptr_t*>(owner);
+    if (game == 0) return GameRoomObservation::GameNull;
+    if ((game & (alignof(uintptr_t) - 1)) != 0 ||
+        game > UINTPTR_MAX - kLevelCurrentRoomOffset ||
+        !IsReadableNonExecutableMapping(game + kLevelCurrentRoomOffset, sizeof(uintptr_t)) ||
+        !IsReadableNonExecutableMapping(game + kGameToScreenAdjustOffset, 2 * sizeof(float))) {
+        return GameRoomObservation::GameUnreadable;
+    }
+    const uintptr_t room = *reinterpret_cast<const uintptr_t*>(game + kLevelCurrentRoomOffset);
+    if (room == 0) return GameRoomObservation::RoomNull;
+    // 两次可读性检查（房间那 8 字节 + 游戏那 8 字节）一次做完，后面 4 个 float 直接取。
+    if ((room & (alignof(uintptr_t) - 1)) != 0 ||
+        room > UINTPTR_MAX - kRoomRenderScrollOffsetOffset ||
+        !IsReadableNonExecutableMapping(room + kRoomRenderScrollOffsetOffset, 2 * sizeof(float))) {
+        return GameRoomObservation::RoomUnreadable;
+    }
+    const auto* roomScroll = reinterpret_cast<const float*>(room + kRoomRenderScrollOffsetOffset);
+    const auto* gameAdjust = reinterpret_cast<const float*>(game + kGameToScreenAdjustOffset);
+    offset->x = roomScroll[0] + gameAdjust[0];
+    offset->y = roomScroll[1] + gameAdjust[1];
     return GameRoomObservation::Success;
 }
 

@@ -4,10 +4,14 @@
 #include <cstddef>
 #include <cstdint>
 
+#include "interfaces/lua/runtime_perf.hpp"
+
+
 // `<atomic>` 现在是无条件引入的：缓存自旋锁与派发/开关标志在生产构建里也要用（见下），
 // 不再只服务于 `PROBE_BREAK=1` 的计数器。
 
 namespace isaac::runtime {
+
 
 // ============================================================================
 // 引擎内存可读性：每次访问一次系统调用 → 派发作用域内的区间缓存
@@ -46,9 +50,12 @@ namespace isaac::runtime {
 // 互换），把 libnx 头拉进同时包含 `<switch.h>` 的编译单元会直接编译失败。所以这里只做
 // "缓存 + 计数"，平台细节留在各自 TU 里（本模块只读 `addr`/`size`/`perm` 三个字段，两种
 // 布局下逐字相同）。
+// 批次 095：条目改成**原子**（8 字节 relaxed/acquire 读写），配合下面的版本号实现
+// "读侧无锁、写侧互斥"。原来读侧每次都要拿一次自旋锁（`exchange` + `store` 两次原子写），
+// 而每个字段读都要过 1~2 次可读性检查 ⇒ 每帧上千次原子写全花在"读一个只读区间表"上。
 struct EngineReadableRegion {
-    std::uintptr_t begin{0};
-    std::uintptr_t end{0};
+    std::atomic<std::uintptr_t> begin{0};
+    std::atomic<std::uintptr_t> end{0};
 };
 
 // 一帧里真正会被触及的映射区间很少（模块映像 + 游戏堆 + 少量独立分配），8 个槽位足够；
@@ -57,8 +64,12 @@ constexpr std::size_t kEngineReadableRegionCapacity = 8;
 
 struct EngineReadableRegionCache {
     EngineReadableRegion entries[kEngineReadableRegionCapacity]{};
-    std::size_t count{0};
+    std::atomic<std::size_t> count{0};
     std::size_t victim{0};
+    //: 版本号：**偶数 = 稳定，奇数 = 正在写**。写侧在改动前后各加一次；
+    //: 读侧先读版本、扫区间、再读版本 —— 两次不一致（或读到奇数）就当作**未命中**，
+    //: 回退到 `svcQueryMemory` 那条慢路径。**代价只是"这一次慢"，永远不会给出"可读"的错答案。**
+    mutable std::atomic<std::uint32_t> version{0};
 
     // 自旋锁：只保护 `entries` / `count` / `victim` 这三个成员。
     //
@@ -88,26 +99,41 @@ struct EngineReadableRegionCache {
 
     void Clear() noexcept {
         Lock();
-        count = 0;
+        BeginWrite();
+        count.store(0, std::memory_order_relaxed);
         victim = 0;
+        EndWrite();
         Unlock();
     }
 
     // `address + length` 必须已经被调用方做过回绕检查。
+    //
+    // **读侧完全无锁**（批次 095）：版本号前后一致才认这份快照；否则返回 false ⇒ 上层走
+    // `svcQueryMemory` 慢路径（正确性不受影响）。写入 `begin`/`end` 用 release 发布，
+    // 读用 acquire，配合版本号即可排除"读到半个区间"。
     bool Covers(std::uintptr_t address, std::size_t length) const noexcept {
         if (length == 0) {
             return false;
         }
         const std::uintptr_t end = address + length;
-        Lock();
+        const std::uint32_t before = version.load(std::memory_order_acquire);
+        if ((before & 1U) != 0U) {
+            return false;  // 正在写：这一次当作未命中
+        }
+        const std::size_t snapshot = count.load(std::memory_order_relaxed);
         bool covered = false;
-        for (std::size_t index = 0; index < count; ++index) {
-            if (address >= entries[index].begin && end <= entries[index].end) {
+        for (std::size_t index = 0; index < snapshot && index < kEngineReadableRegionCapacity;
+             ++index) {
+            const std::uintptr_t begin = entries[index].begin.load(std::memory_order_acquire);
+            const std::uintptr_t stop = entries[index].end.load(std::memory_order_acquire);
+            if (address >= begin && end <= stop) {
                 covered = true;
                 break;
             }
         }
-        Unlock();
+        if (version.load(std::memory_order_acquire) != before) {
+            return false;  // 扫描期间被改过 ⇒ 这份快照不可信
+        }
         return covered;
     }
 
@@ -116,17 +142,24 @@ struct EngineReadableRegionCache {
             return;
         }
         Lock();
-        if (count < kEngineReadableRegionCapacity) {
-            entries[count].begin = begin;
-            entries[count].end = end;
-            ++count;
+        BeginWrite();
+        const std::size_t used = count.load(std::memory_order_relaxed);
+        if (used < kEngineReadableRegionCapacity) {
+            entries[used].begin.store(begin, std::memory_order_release);
+            entries[used].end.store(end, std::memory_order_release);
+            count.store(used + 1, std::memory_order_relaxed);
         } else {
-            entries[victim].begin = begin;
-            entries[victim].end = end;
+            entries[victim].begin.store(begin, std::memory_order_release);
+            entries[victim].end.store(end, std::memory_order_release);
             victim = (victim + 1) % kEngineReadableRegionCapacity;
         }
+        EndWrite();
         Unlock();
     }
+
+  private:
+    void BeginWrite() const noexcept { version.fetch_add(1, std::memory_order_acq_rel); }
+    void EndWrite() const noexcept { version.fetch_add(1, std::memory_order_release); }
 };
 
 // 整个模块只有一份：与 `api_sequence_probe.hpp` 同例，函数内 `static` 保证单实例。
@@ -202,34 +235,39 @@ inline void EngineGuardLeaveDispatch() noexcept {
 // 所以不引入任何设备侧符号。
 
 // ============================================================================
-// 时间戳：`cntvct_el0` / `cntfrq_el0`，不使用 `svcGetSystemTick()`
+// 时间戳：只用 `cntpct_el0`（物理计数器），不使用 `svcGetSystemTick()`
 // ============================================================================
 // 用系统寄存器而不是 libnx 的 `svcGetSystemTick()`，理由与上面同一条：本头文件不能引用
 // libnx（vendored 与 devkitpro 的 `MemoryInfo` 布局不同，把 libnx 头拉进已经包含
-// `<switch.h>` 的编译单元会直接编译失败）。这两个寄存器在 EL0 可读，`mrs` 不需要头文件。
+// `<switch.h>` 的编译单元会直接编译失败）。`mrs` 不需要头文件。
+//
+// ★★ 寄存器选择是有真机证据的（批次 085）：**`cntvct_el0`（虚拟计数器）在 EL0 会被禁止读**，
+// 那条 `mrs` 一执行就崩（参见 `runtime_perf.hpp` 里的报告与偏移）；可读的是 **`cntpct_el0`**——
+// Atmosphère 自己的 `TickManagerImpl` 与 libnx 的 `armGetSystemTick()` 用的都是它。
 // 非探针构建恒返回 0 —— 计时只在 A/B 探针里用。
 inline std::uint64_t EngineGuardTick() noexcept {
 #if defined(EXL_PROBE_BREAK) && defined(__aarch64__)
     std::uint64_t value = 0;
-    __asm__ __volatile__("mrs %0, cntvct_el0" : "=r"(value));
+    __asm__ __volatile__("mrs %0, cntpct_el0" : "=r"(value));
     return value;
 #else
     return 0;
 #endif
 }
 
-// Tegra X1 上 `cntfrq_el0` = 19.2 MHz；读不到时按这个值兜底。
+// Tegra X1 上 tick 频率 = 19.2 MHz（Atmosphère 自己也是硬编码这个值）。
 constexpr std::uint64_t kEngineGuardFallbackTicksPerSecond = 19200000ULL;
 
+// 频率**不读寄存器**（批次 085 起，连探针构建也不读）：
+// `cntfrq_el0` 是"定时器控制"那一组的寄存器，和计数器本身不是同一个开关；我们**没有**它可读的
+// 证据，而它的值也从来不需要问（恒 19.2 MHz）。081 曾把这条读放进启动路径并导致真机进不去，
+// 当时归因于"`cntfrq_el0` 会陷入、`cntvct_el0` 可读"——后半句已被 085 的真机崩溃推翻，
+// 前半句也没有干净证据。既然不需要，就一律不读（门禁按白名单钉住）。
+#if defined(EXL_PROBE_BREAK)
 inline std::uint64_t EngineGuardTicksPerSecond() noexcept {
-#if defined(__aarch64__)
-    std::uint64_t value = 0;
-    __asm__ __volatile__("mrs %0, cntfrq_el0" : "=r"(value));
-    return value != 0 ? value : kEngineGuardFallbackTicksPerSecond;
-#else
     return kEngineGuardFallbackTicksPerSecond;
-#endif
 }
+#endif  // EXL_PROBE_BREAK
 
 #if defined(EXL_PROBE_BREAK)
 // ---------------------------------------------------------------------------
@@ -270,8 +308,35 @@ inline void EngineGuardSyscallEnd(std::uint64_t startTick) noexcept {
     }
 }
 #else
-inline std::uint64_t EngineGuardSyscallBegin() noexcept { return 0; }
-inline void EngineGuardSyscallEnd(std::uint64_t) noexcept {}
+// ★★ 批次 083：生产构建里这一层**什么都不做**（与 081 之前一致）。
+//
+// 081 曾经在这里加了"常驻性能面"的累加（计数 + 读 `cntvct_el0`），结果真机上**启动就崩**：
+// 崩溃报告 PC = 本函数里的那条 `ldxr/stxr`，`Address: 0` —— 代码是通过**数据 GOT 槽**
+// 取那几个新全局的地址的（`adrp x0,#0xc8000; ldr x0,[x0,#0x1e0]`，文件里存的是链接期地址
+// `0x3511f8`），而运行时那个槽里的值是 0 ⇒ 对 0 做原子加 ⇒ 空指针解引用。
+// 与之对照：模块内**本 TU 可见**的全局（例如 `g_LuaErrorHistory`）编译器直接用
+// `adrp/add`，不走 GOT，所以从来没问题。
+//
+// ⇒ 纪律（写在这里，别再踩）：**跨 TU 的新全局不要放进每帧都走的热路径**；
+// 要跨 TU 记账就用"普通函数调用"（PLT，不碰数据 GOT），或者把计数器与使用者放进同一个 TU。
+// ★★ 批次 084：记账**走函数调用**（PLT），不引用跨 TU 的变量 —— 见 `runtime_perf.hpp` 的约定。
+// 批次 081 就是引用了跨 TU 的全局，编译器经数据 GOT 槽取地址，槽里是 0 ⇒ 启动即崩。
+inline std::uint64_t EngineGuardSyscallBegin() noexcept {
+#if defined(__SWITCH__)
+    return RuntimePerfTick();
+#else
+    return 0;
+#endif
+}
+
+inline void EngineGuardSyscallEnd(std::uint64_t startTick) noexcept {
+#if defined(__SWITCH__)
+    const std::uint64_t endTick = RuntimePerfTick();
+    IsaacRuntime_PerfNoteSyscall(endTick > startTick ? endTick - startTick : 0);
+#else
+    static_cast<void>(startTick);
+#endif
+}
 #endif
 
 // 空地址、长度 0、`address + length` 回绕一律不可用。四个 API 族的 `IsEngineMemoryReadable`

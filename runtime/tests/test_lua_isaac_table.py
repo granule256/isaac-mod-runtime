@@ -28,9 +28,9 @@ import unittest
 from pathlib import Path
 
 try:
-    from .test_support import layered_lua_runtime_sources
+    from .test_support import HOST_CAPABILITY_FAKES, layered_lua_runtime_sources
 except ImportError:
-    from test_support import layered_lua_runtime_sources
+    from test_support import HOST_CAPABILITY_FAKES, layered_lua_runtime_sources
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -45,12 +45,16 @@ HARNESS = r'''
 #include "game_file_reader.hpp"
 #include "game_observer.hpp"
 #include "interfaces/lua/isaac_api.hpp"
+#include "ports/save_file_port.hpp"
 
 #include "application/callback/callback_dispatcher.hpp"
 
+#include <array>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
+#include <string_view>
 
 // Observation seams owned by other families: the Lua runtime links them, so the harness answers
 // "unavailable" exactly like the other Lua runtime tests do.
@@ -101,6 +105,9 @@ bool Expect(const char* name, double expected, const char* stage) {
     return true;
 }
 
+
+@HOST_CAPABILITIES@
+
 int ReportScriptFailure(const char* stage) {
     // 回调里的 Lua 错误由派发器接住并保留回调，但"出过错"仍然应当让测试失败。
     std::printf("ISAAC_FAIL %s: the Lua callback raised an error\n", stage);
@@ -116,6 +123,7 @@ int main(int argc, char** argv) {
     if (!surface && !eid) return 91;
     const char* stage = surface ? "surface" : "eid";
 
+    PublishHostCapabilities();
     const char* script = surface ? kSurfaceScript : kEidScript;
     const char* chunk = surface ? "@isaac_surface.lua" : "@isaac_eid.lua";
     isaac::runtime::SetCurrentLanguageCodeHostImplementation([]() { return g_HostLanguage; });
@@ -169,9 +177,16 @@ int main(int argc, char** argv) {
     if (!Expect("ISAAC_FIRST_FRAME_WARNINGS", 1.0, stage)) return 1;
     // 第二帧调用同样的 stub：同一会话里的告警不许重复。
     if (!Expect("ISAAC_SECOND_FRAME_WARNINGS", 0.0, stage)) return 1;
+    // 批次 026：`Isaac.RenderScaledText` 必须真的走到原生绘制入口（旧桩"什么都不画"，
+    // 而"画了但看不见"与"没走到绘制"在屏幕上完全一样 —— 所以这里钉的是调用计数）。
+    if (surface && g_scaledDrawCalls == 0) {
+        std::printf("ISAAC_FAIL %s: Isaac.RenderScaledText never reached the native draw entry\n",
+                    stage);
+        return 1;
+    }
     std::printf("ISAAC_SURFACE_OK frames=%d first=1 last=%d clock=%llu run_callback=1 "
-                "first_warnings=1 second_warnings=0\n",
-                frames, frames, static_cast<unsigned long long>(clock));
+                "first_warnings=1 second_warnings=0 scaled_draw=%u\n",
+                frames, frames, static_cast<unsigned long long>(clock), g_scaledDrawCalls);
     return 0;
 }
 '''
@@ -205,6 +220,21 @@ local function countLines(needle)
   end
   return total
 end
+
+-- 批次 065：`EntityRef` 必须存在（GoodTrip 的诅咒房过路费 `trip.lua:70` 要用它），
+-- 而且句柄要能读字段：`Type`/`Variant` 从替身缓冲区里读（布局证据见 `entity_ref_api.hpp`）。
+-- 宿主上没有引擎 ⇒ 读不到就是 0，这**不**影响"形状在不在"这条断言。
+local refKind = 'missing'
+local refType = 'missing'
+do
+  local okRef, ref = pcall(EntityRef)
+  if okRef then
+    refKind = type(ref)
+    local okField, value = pcall(function() return ref.Type end)
+    refType = okField and tostring(value) or 'error'
+  end
+end
+print('ENTITYREF ' .. refKind .. ' ' .. refType)
 
 local frames = 0
 local firstCount = nil
@@ -265,8 +295,13 @@ local STUB_PROBES = {
    call = function() return Isaac.GetCallbacks(ModCallbacks.MC_POST_RENDER) end,
    check = function(value) return type(value) == 'table' and next(value) == nil end,
    expected = 'an empty table'},
+  -- 批次 026：这三条**不再是桩**（宿主上补了持久化端口与字体绑定，走的是真实代码路径）。
+  -- `LoadModData` 的期望刻意只钉"返回字符串"：探针在第一帧与第二帧各跑一次，而第一帧的
+  -- `SaveModData` 会往假端口里写东西 ⇒ 第二帧读到的就是它 —— 精确的存取语义由
+  -- `test_lua_mod_persistence` 的 `isaac_mod_data` 场景逐字验证。
   {name = 'Isaac.LoadModData', call = function() return Isaac.LoadModData(mod) end,
-   check = function(value) return value == nil end, expected = 'nil'},
+   check = function(value) return type(value) == 'string' end,
+   expected = "a string (PC 语义：没有存档时是空串)"},
   {name = 'Isaac.SaveModData', call = function() return Isaac.SaveModData(mod, 'x') end,
    check = function(value) return value == nil end, expected = 'nil'},
   {name = 'Isaac.RenderScaledText',
@@ -362,6 +397,11 @@ local function sample()
       ['Isaac.FindByType'] = true,
       ['Isaac.FindInRadius'] = true,
       ['Isaac.CountEnemies'] = true,
+      -- 批次 026：四条"低成本安全桩"改成真实现（boss 标记字节 / 持久化转发 / 字体绘制）。
+      ['Isaac.CountBosses'] = true,
+      ['Isaac.LoadModData'] = true,
+      ['Isaac.SaveModData'] = true,
+      ['Isaac.RenderScaledText'] = true,
     }
     for _, probe in ipairs(STUB_PROBES) do
       local warnings = countLines('未实现：' .. probe.name .. '（')
@@ -532,7 +572,8 @@ class LuaIsaacTableTests(unittest.TestCase):
         )
         harness = temporary / "lua_isaac_harness.cpp"
         harness.write_text(
-            HARNESS.replace("@SURFACE_SCRIPT@", SURFACE_SCRIPT)
+            HARNESS.replace("@HOST_CAPABILITIES@", HOST_CAPABILITY_FAKES)
+            .replace("@SURFACE_SCRIPT@", SURFACE_SCRIPT)
             .replace("@EID_SCRIPT@", EID_SCRIPT)
             .replace("@FRAMES@", str(FRAMES))
             .lstrip()
@@ -588,6 +629,9 @@ class LuaIsaacTableTests(unittest.TestCase):
         """
         result = self.run_scenario("surface")
         self.assertIn("ISAAC_SURFACE_OK", result.stdout)
+        # 批次 065：`EntityRef` 是全局构造器（PC 的值类型），句柄是 userdata 且字段可读。
+        # 这条钉的是"形状在"；**不**声称宿主上读到了引擎的实体身份（宿主没有引擎）。
+        self.assertIn("ENTITYREF userdata ", result.stdout)
         self.assertIn("run_callback=1", result.stdout)
         self.assertIn("first_warnings=1 second_warnings=0", result.stdout)
 

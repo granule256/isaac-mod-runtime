@@ -1,6 +1,6 @@
 #pragma once
 
-#include "ports/file_port.hpp"
+#include "ports/save_file_port.hpp"
 
 #include <array>
 #include <atomic>
@@ -10,11 +10,6 @@
 #include <string_view>
 
 namespace ModPersistence {
-
-using OpenFn = void* (*)(const char*, const char*);
-using ReadFn = std::size_t (*)(void*, std::size_t, std::size_t, void*);
-using WriteFn = std::size_t (*)(const void*, std::size_t, std::size_t, void*);
-using CloseFn = int (*)(void*);
 
 enum class Result {
     Success,
@@ -35,79 +30,23 @@ constexpr std::uint16_t kVersion = 2;
 constexpr std::size_t kHeaderSize = 32;
 constexpr std::size_t kRecordHeaderSize = 24;
 constexpr std::uint8_t kStringType = 1;
-constexpr char kStatePath[] =
-    "sdmc:/SaltySD/plugins/010021C000B6A000/isaac-mod-data.bin";
+//: 模组数据容器的文件名，**相对于游戏存档分区根**（旧值是一条 `sdmc:/SaltySD/...` 的绝对路径，
+//: 那条依赖外部插件提供文件能力，2026-09-17 起废弃）。
+constexpr char kStateName[] = "isaac-mod-data.bin";
 constexpr std::uint64_t kModDataKey = 0x6D6F642D64617461ULL; // "mod-data"
 
-struct FileApi {
-    OpenFn open = nullptr;
-    ReadFn read = nullptr;
-    WriteFn write = nullptr;
-    CloseFn close = nullptr;
-};
-
-// 文件能力走**端口**（`isaac::runtime::IFilePort`，定义在 `src/ports/file_port.hpp`）：
-// 消费者只认这个接口，"以后换一个提供方"就只需换一个 `IFilePort` 实现。
-// `Unavailable` 是**一等状态**：没有注册提供方时，所有操作都以它返回（而不是沉默失败）。
-inline isaac::runtime::IFilePort* g_filePort = nullptr;
-inline std::atomic<std::uint32_t> g_fileApiReady{false};
-
-// 宿主（SaltyNX 插件）那套裸函数：只在**桥接处**注册一次，然后被包成端口。
-// 之所以保留这条兼容路径：插件导出的是 4 个裸函数指针（见 `ports/runtime_host_api.hpp`），
-// 而端口是 C++ 接口 —— 包一层就够，不需要让两边都改。
-inline FileApi g_rawFunctions{};
-
-class RawFilePort final : public isaac::runtime::IFilePort {
-public:
-    [[nodiscard]] isaac::runtime::Status Open(std::string_view path, isaac::runtime::FileMode mode,
-                                              void** handle) noexcept override {
-        if (g_rawFunctions.open == nullptr || handle == nullptr) {
-            return isaac::runtime::Status{isaac::runtime::StatusCode::Unsupported};
-        }
-        // 裸 API 的失败只给一个空指针，分不出"文件不存在"和"打不开"；历史语义是当成
-        // "还没有数据"（`LoadCache` 据此返回 Success + exists=false），这里保持同一口径。
-        void* file = g_rawFunctions.open(path.data(),
-                                         mode == isaac::runtime::FileMode::Write ? "wb" : "rb");
-        if (file == nullptr) {
-            return isaac::runtime::Status{isaac::runtime::StatusCode::NotFound};
-        }
-        *handle = file;
-        return isaac::runtime::Status::Ok();
-    }
-
-    [[nodiscard]] isaac::runtime::Status Read(void* handle, std::uint8_t* target,
-                                              std::size_t capacity,
-                                              std::size_t* readCount) noexcept override {
-        if (g_rawFunctions.read == nullptr || handle == nullptr || target == nullptr ||
-            readCount == nullptr) {
-            return isaac::runtime::Status{isaac::runtime::StatusCode::InvalidArgument};
-        }
-        *readCount = g_rawFunctions.read(target, 1, capacity, handle);
-        return isaac::runtime::Status::Ok();
-    }
-
-    [[nodiscard]] isaac::runtime::Status Write(void* handle, const std::uint8_t* bytes,
-                                               std::size_t count,
-                                               std::size_t* writtenCount) noexcept override {
-        if (g_rawFunctions.write == nullptr || handle == nullptr || bytes == nullptr ||
-            writtenCount == nullptr) {
-            return isaac::runtime::Status{isaac::runtime::StatusCode::InvalidArgument};
-        }
-        *writtenCount = g_rawFunctions.write(bytes, 1, count, handle);
-        return isaac::runtime::Status::Ok();
-    }
-
-    [[nodiscard]] isaac::runtime::Status Close(void* handle) noexcept override {
-        if (g_rawFunctions.close == nullptr || handle == nullptr) {
-            return isaac::runtime::Status{isaac::runtime::StatusCode::InvalidArgument};
-        }
-        return g_rawFunctions.close(handle) == 0
-                   ? isaac::runtime::Status::Ok()
-                   : isaac::runtime::Status{isaac::runtime::StatusCode::IoFailure};
-    }
-};
-
-inline RawFilePort g_rawPort{};
+// 文件能力**只有一条路**（2026-09-17 用户指令）：`isaac::runtime::SessionSaveFilePort()`
+// —— 默认实现就是"游戏存档分区"（`EngineSaveFileAdapter`，直连 `nn::fs`）。
+//
+// 为什么不再保留"宿主插件注册 4 个裸函数"那条路：生产包里插件是关的（`SALTYNX_PLUGIN=0`），
+// 那条路等于永远没有提供方 ⇒ `Mod:SaveData/LoadData` 与 `Isaac.SaveModData/LoadModData`
+// 一直返回"不可用"（真机可见后果：EID 的设置读不回来）。**统一到一个端口**之后，
+// 消费者不必再判"哪条路可用"，线程纪律也由端口实现统一负责（见 `EngineSaveFileAdapter` 的硬闸）。
+//
+// `Unavailable` 仍是一等状态：端口没接上时所有操作如实返回它，不静默失败。
+inline bool HasFileApi() {
+    return isaac::runtime::SessionSaveFilePort() != nullptr;
+}
 
 struct Cache {
     std::array<std::uint8_t, kMaximumFileSize> payload{};
@@ -166,10 +105,6 @@ inline std::uint32_t Checksum(const std::uint8_t* bytes, std::size_t length) {
     return value;
 }
 
-inline bool HasFileApi() {
-    return g_filePort != nullptr;
-}
-
 // 端口的状态码 → 本模块的结果码。`Unsupported`（没有提供方）单独映射成 `Unavailable`：
 // 这是"能力缺失"，与"操作失败"必须能分开，调用方（含 Lua 侧）据此报不同的错。
 inline Result MapStatus(isaac::runtime::Status status) {
@@ -217,33 +152,25 @@ inline Result LoadCache() {
     if (g_cache.loaded) {
         return Result::Success;
     }
-    if (!HasFileApi()) {
+    isaac::runtime::ISaveFilePort* storage = isaac::runtime::SessionSaveFilePort();
+    if (storage == nullptr) {
         return Result::Unavailable;
     }
 
-    void* file = nullptr;
-    const isaac::runtime::Status opened =
-        g_filePort->Open(kStatePath, isaac::runtime::FileMode::Read, &file);
-    if (opened.code() == isaac::runtime::StatusCode::NotFound) {
+    std::array<std::uint8_t, kMaximumFileSize> encoded{};
+    std::size_t bytes = 0;
+    // 整文件读：名字**相对存档根**（旧的 `sdmc:/SaltySD/...` 路径不再使用 —— 游戏嘴里的
+    // `sdmc:` 本来就是它自己的存档分区，见 `ports/save_file_port.hpp` 的说明）。
+    const isaac::runtime::Status readStatus =
+        storage->Read(kStateName, reinterpret_cast<char*>(encoded.data()), encoded.size(), &bytes);
+    if (readStatus.code() == isaac::runtime::StatusCode::NotFound) {
         // 还没有数据：历史语义就是"成功 + exists=false"（第一次保存前就是这样），保持不动。
         g_cache.loaded = true;
         g_cache.exists = false;
         return Result::Success;
     }
-    if (!opened.ok()) {
-        return MapStatus(opened);
-    }
-
-    std::array<std::uint8_t, kMaximumFileSize> encoded{};
-    std::size_t bytes = 0;
-    const isaac::runtime::Status readStatus =
-        g_filePort->Read(file, encoded.data(), encoded.size(), &bytes);
-    const isaac::runtime::Status closeStatus = g_filePort->Close(file);
     if (!readStatus.ok()) {
         return MapStatus(readStatus);
-    }
-    if (!closeStatus.ok()) {
-        return Result::IoFailure;
     }
     if (bytes < kHeaderSize || std::memcmp(encoded.data(), kMagic, sizeof(kMagic) - 1) != 0 ||
         ReadU16(encoded.data() + 8) != kVersion || ReadU16(encoded.data() + 10) != kHeaderSize) {
@@ -300,18 +227,17 @@ inline Result WriteCache(const std::uint8_t* payload, std::size_t payloadLength,
     }
     WriteU32(encoded.data() + 28, Checksum(encoded.data() + kHeaderSize, payloadLength));
 
-    void* file = nullptr;
-    // 写模式拿不到句柄就是写不成：与旧实现一致，一律按 IO 失败报。
-    if (!g_filePort->Open(kStatePath, isaac::runtime::FileMode::Write, &file).ok()) {
-        return Result::IoFailure;
+    isaac::runtime::ISaveFilePort* storage = isaac::runtime::SessionSaveFilePort();
+    if (storage == nullptr) {
+        return Result::Unavailable;
     }
     const std::size_t totalLength = kHeaderSize + payloadLength;
-    std::size_t written = 0;
-    const isaac::runtime::Status writeStatus =
-        g_filePort->Write(file, encoded.data(), totalLength, &written);
-    const isaac::runtime::Status closeStatus = g_filePort->Close(file);
-    if (!writeStatus.ok() || written != totalLength || !closeStatus.ok()) {
-        return Result::IoFailure;
+    // 整文件写：适配器内部会 CreateFile / SetFileSize / Flush / **CommitSaveData**，
+    // 所以"一次写 = 一次提交"，不存在写一半的中间状态。
+    const isaac::runtime::Status writeStatus = storage->Write(
+        kStateName, std::string_view(reinterpret_cast<const char*>(encoded.data()), totalLength));
+    if (!writeStatus.ok()) {
+        return MapStatus(writeStatus);
     }
 
     std::memcpy(g_cache.payload.data(), payload, payloadLength);
@@ -391,29 +317,13 @@ inline std::uint64_t HashModNamespace(const char* name, std::size_t length) {
     return value;
 }
 
-// 文件能力的**唯一注入点**：谁提供就注入谁（桥接处那一次调用）。
+// 文件能力的**唯一注入点**现在在端口那一层：`isaac::runtime::SetSessionSaveFilePort()`。
+// 本模块不再自己持有提供方指针 —— 这就是"解耦合"的具体含义：
+//   * 消费者只问 `SessionSaveFilePort()`；
+//   * 谁提供（存档分区适配器 / 测试用的假端口）由注入点决定，消费者无感。
 // 传 nullptr = 明确撤销提供方（此后所有操作返回 `Unavailable`，是一等状态而不是沉默失败）。
-inline void ConfigureFilePort(isaac::runtime::IFilePort* port) {
-    detail::g_filePort = port;
-    detail::g_cache = {};
-    detail::g_fileApiReady.store(port != nullptr, std::memory_order_release);
-}
-
-// 兼容入口：宿主导出的是 4 个裸函数指针，包成端口后走同一条缝。
-// 仍然只允许在桥接处调用（`tests/unit/test_file_api_seam.py` 钉住"注入点唯一"）。
-inline void ConfigureFileApi(OpenFn open, ReadFn read, WriteFn write, CloseFn close) {
-    detail::g_rawFunctions = {open, read, write, close};
-    ConfigureFilePort(&detail::g_rawPort);
-}
-
 inline bool IsFileApiReady() {
-    return detail::g_fileApiReady.load(std::memory_order_acquire);
-}
-
-inline void ResetForTesting() {
-    detail::g_rawFunctions = {};
-    ConfigureFilePort(nullptr);
-    detail::g_cache = {};
+    return detail::HasFileApi();
 }
 
 inline void ResetCacheForTesting() {

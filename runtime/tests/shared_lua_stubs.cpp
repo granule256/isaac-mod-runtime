@@ -36,6 +36,11 @@ ISAAC_TEST_WEAK GameIsPausedObservation ObserveGameIsPaused(uintptr_t, uintptr_t
 ISAAC_TEST_WEAK GameLevelStageObservation ReadCurrentGameLevelStage(uintptr_t, std::uint32_t*) {
     return GameLevelStageObservation::GameUnreadable;
 }
+// 2026-09-18：`Room:IsMirrorWorld()` 的判据读取（当前房间的维度）。
+ISAAC_TEST_WEAK GameLevelStageObservation ReadCurrentGameRoomDimension(uintptr_t,
+                                                                      std::uint32_t*) {
+    return GameLevelStageObservation::GameUnreadable;
+}
 ISAAC_TEST_WEAK GameItemPoolObservation ReadCurrentGameItemPool(uintptr_t, void**) {
     return GameItemPoolObservation::GameUnreadable;
 }
@@ -63,6 +68,17 @@ ISAAC_TEST_WEAK GameRoomObservation ReadGameRoomTypeFromGame(const IsaacRepentan
 }
 ISAAC_TEST_WEAK GameRoomObservation ReadGameCurrentRoomKeyFromGame(const IsaacRepentance::Game*,
                                                                    GameRoomKey*) {
+    return GameRoomObservation::GameUnreadable;
+}
+// 2026-09-18：每帧事件（换房/换层）的判据读取。宿主上没有引擎 ⇒ 默认"读不到"，
+// 于是 `DispatchFrameEvents` 走它自己的降级分支（作废身份、不判变化、不派发）。
+ISAAC_TEST_WEAK GameRoomObservation ReadGameLocationKey(uintptr_t, GameLocationKey*) {
+    return GameRoomObservation::GameUnreadable;
+}
+// 2026-09-18（批次 010）：实体渲染族的第三个实参（渲染偏移）。宿主上默认"读不到"，
+// 于是 `DispatchEntityRenderEvents` 整族不派发 —— 那是它刻意的降级方式：宁可这一帧没有事件，
+// 也不给模组一个假的偏移量。
+ISAAC_TEST_WEAK GameRoomObservation ReadGameRenderOffset(uintptr_t, GameRenderOffset*) {
     return GameRoomObservation::GameUnreadable;
 }
 ISAAC_TEST_WEAK GameRoomObservation ReadGameRoomDescriptorSnapshotFromGame(

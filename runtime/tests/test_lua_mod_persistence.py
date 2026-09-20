@@ -62,63 +62,82 @@ class LuaModPersistenceTests(unittest.TestCase):
             "HasModData",
             "RemoveModData",
             "ISMODST2",
-            "ConfigureFileApi",
+            "SessionSaveFilePort",
+            "kStateName",
         ):
             self.assertIn(token, source)
         for token in ("SaveData", "LoadData", "HasData", "RemoveData", "ModPersistence"):
             self.assertIn(token, mod_api.read_text(encoding="utf-8"))
 
-    def test_file_api_registration_is_published_before_main_thread_reads_it(self):
-        source = (SOURCE / "mod_persistence.hpp").read_text(encoding="utf-8")
+    def test_persistence_port_is_wired_on_the_game_thread_before_any_read(self):
+        """新不变量（2026-09-17 用户指令后）：注入点在**游戏线程**的模组加载路径上，
+        而且"先开线程硬闸、再挂端口"；消费者在没端口时如实报「不可用」，不静默失败。
 
-        self.assertIn("std::atomic<std::uint32_t> g_fileApiReady{false};", source)
-        self.assertIn("g_fileApiReady.load(std::memory_order_acquire)", source)
-        self.assertIn("bool IsFileApiReady()", source)
-        # 发布点现在在**正式入口** `ConfigureFilePort`（B 把文件能力统一到 IFilePort 这条缝）：
-        # 先落提供方、再 release 置位；兼容入口 `ConfigureFileApi` 只是把裸函数包成端口后转调它。
-        configure = source[source.index("inline void ConfigureFilePort"):
-                           source.index("inline bool IsFileApiReady")]
-        self.assertIn("g_fileApiReady.store(port != nullptr, std::memory_order_release);", configure)
-        self.assertLess(configure.index("detail::g_filePort = port;"),
-                        configure.index("g_fileApiReady.store(port != nullptr"))
-        compatibility = source[source.index("inline void ConfigureFileApi"):
-                                source.index("inline bool IsFileApiReady")]
-        self.assertIn("detail::g_rawFunctions = {open, read, write, close};", compatibility)
-        self.assertIn("ConfigureFilePort(&detail::g_rawPort);", compatibility)
+        旧版这条钉的是"原子发布标志先置位再读"，那套机制随 `IFilePort` 一起退休了 ——
+        现在"能不能用"由**端口在不在**回答，"能不能碰卡"由适配器的硬闸回答。
+        """
+        consumer = (SOURCE / "mod_persistence.hpp").read_text(encoding="utf-8")
+        self.assertIn("isaac::runtime::SessionSaveFilePort() != nullptr", consumer)
+        self.assertIn("bool IsFileApiReady()", consumer)
+        wiring = (SOURCE / "hook_manager.cpp").read_text(encoding="utf-8")
+        gate = wiring.index("g_SaveFileAdapter.AllowFromGameThread();")
+        inject = wiring.index("isaac::runtime::SetSessionSaveFilePort(&g_SaveFileAdapter);")
+        self.assertLess(gate, inject, "必须先打开线程硬闸，再把它挂成会话默认端口")
 
-    def test_persistence_bridge_registers_file_api_without_terminating_game(self):
-        bridge = SOURCE / "program" / "saltynx_external_plugin_persistence_bridge.cpp"
-        entry = SOURCE / "program" / "saltynx_external_plugin_persistence_entry.cpp"
-        makefile = ROOT / "runtime" / "Makefile"
+    def test_retired_plugin_persistence_path_is_gone(self):
+        """旧的"插件持久化"通道已退役（2026-09-17，用户批准）：源文件、构建目标、开关都不许回来。
 
-        self.assertTrue(bridge.is_file(), "production persistence bridge is missing")
-        self.assertTrue(entry.is_file(), "production persistence bridge entry is missing")
-        self.assertIn("IsaacModRuntime_RegisterSaltyFileApi", bridge.read_text(encoding="utf-8"))
-        self.assertIn("SaltySDCore_fopen", bridge.read_text(encoding="utf-8"))
-        self.assertIn("RunSaltyNxPersistenceBridge();", entry.read_text(encoding="utf-8"))
-        self.assertNotIn("svc #0x26", entry.read_text(encoding="utf-8"))
-        self.assertIn("SALTYNX_STAGE144_CPPFILES", makefile.read_text(encoding="utf-8"))
-        self.assertIn("mod-persistence-deploy", makefile.read_text(encoding="utf-8"))
-        common = (ROOT / "runtime" / "misc" / "mk" / "common.mk").read_text(encoding="utf-8")
-        self.assertIn("filter-out saltynx_external_plugin_persistence_entry.cpp", common)
-        runtime_bridge = (SOURCE / "saltynx_runtime_bridge.cpp").read_text(encoding="utf-8")
-        self.assertIn("#if defined(EXL_ENABLE_SALTYNX_DIAGNOSTICS)", runtime_bridge)
+        为什么钉"消失"而不是钉"能用"：这条旧路（运行时导出 `IsaacModRuntime_RegisterSaltyFileApi`、
+        等 SaltyNX 插件把 `SaltySDCore_fopen` 一族传进来）与现在的"存档分区直写"
+        （`ISaveFilePort` / `EngineSaveFileAdapter`）是**两份互不相干的持久化实现**，留着就会有人
+        照着错的那条走。退役的代码与标注备份在 `docs/legacy-plugin-persistence-20260917/`。
+        """
+        for name in (
+            "saltynx_external_plugin_persistence_bridge.cpp",
+            "saltynx_external_plugin_persistence_bridge.hpp",
+            "saltynx_external_plugin_persistence_bridge_trace.cpp",
+            "saltynx_external_plugin_persistence_entry.cpp",
+        ):
+            with self.subTest(file=name):
+                self.assertFalse((SOURCE / "program" / name).is_file(), f"{name} 又回到插件目录里了")
 
-    def test_persistence_deployments_require_the_saltynx_file_api_before_callbacks_run(self):
         makefile = (ROOT / "runtime" / "Makefile").read_text(encoding="utf-8")
-
-        self.assertIn("PERSISTENCE_REQUIRED ?= 0", makefile)
-        self.assertIn("-DEXL_PERSISTENCE_REQUIRED", makefile)
-        for target in (
+        for token in (
+            "SALTYNX_STAGE144",
+            "SALTYNX_STAGE145",
             "mod-persistence-deploy",
             "mod-persistence-probe-deploy",
             "mod-persistence-probe-trace-deploy",
+            "mod-persistence-event-diagnostic-deploy",
+            "PERSISTENCE_REQUIRED",
+            "-DEXL_PERSISTENCE_REQUIRED",
         ):
-            start = makefile.index(target + ":")
-            next_target = makefile.find("\n.PHONY:", start + len(target))
-            body = makefile[start:next_target if next_target != -1 else len(makefile)]
-            with self.subTest(target=target):
-                self.assertIn("PERSISTENCE_REQUIRED=1", body)
+            with self.subTest(token=token):
+                self.assertNotIn(token, makefile, f"Makefile 里还有退役线的痕迹：{token}")
+        common = (ROOT / "runtime" / "misc" / "mk" / "common.mk").read_text(encoding="utf-8")
+        self.assertNotIn("saltynx_external_plugin_persistence", common)
+
+        legacy = ROOT / "docs" / "legacy-plugin-persistence-20260917"
+        self.assertTrue((legacy / "README.md").is_file(), "退役代码的备份说明不见了（用户要求单独留一份）")
+        for name in (
+            "saltynx_external_plugin_persistence_bridge.cpp",
+            "saltynx_external_plugin_persistence_bridge_trace.cpp",
+            "saltynx_external_plugin_persistence_entry.cpp",
+        ):
+            with self.subTest(backup=name):
+                self.assertTrue((legacy / "sources" / name).is_file(), f"备份里缺 {name}")
+
+    def test_persistence_has_exactly_one_path(self):
+        """持久化只有一条路：`ISaveFilePort` 会话端口（写存档分区），不再依赖任何插件文件 API。"""
+        port = (ROOT / "runtime" / "src" / "ports" / "save_file_port.hpp").read_text(encoding="utf-8")
+        for token in ("class ISaveFilePort", "SessionSaveFilePort", "SetSessionSaveFilePort"):
+            with self.subTest(token=token):
+                self.assertIn(token, port)
+        consumer = (SOURCE / "mod_persistence.hpp").read_text(encoding="utf-8")
+        self.assertIn("isaac::runtime::SessionSaveFilePort() != nullptr", consumer)
+        for retired in ("SaltySDCore_fopen", "SaltySDCore_fread", "SaltySDCore_fwrite"):
+            with self.subTest(retired=retired):
+                self.assertNotIn(retired, consumer)
 
     def test_hardware_probe_uses_one_pc_mod_to_cover_save_load_and_remove(self):
         probe = ROOT / "runtime" / "diagnostic" / "mod-persistence-probe" / "pc-mods" / "00 Runtime Persistence Probe" / "main.lua"
@@ -161,35 +180,61 @@ std::size_t g_file_size = 0;
 bool g_file_exists = false;
 bool g_fail_write = false;
 
-void* Open(const char*, const char* mode) {
-    if (std::strcmp(mode, "rb") == 0) return g_file_exists ? &g_file : nullptr;
-    if (std::strcmp(mode, "wb") != 0) return nullptr;
-    g_file_exists = true;
-    g_file_size = 0;
-    return &g_file;
-}
+// 内存里的"存档分区"：实现统一端口 `ISaveFilePort`（2026-09-17 用户指令：所有持久化走存档分区、
+// 消费者只认同一个接口）。这里不碰任何真实文件 —— 它证明消费者不依赖具体提供方。
+class HarnessStore final : public isaac::runtime::ISaveFilePort {
+public:
+    [[nodiscard]] isaac::runtime::Status Read(std::string_view, char* out, std::size_t capacity,
+                                              std::size_t* size) noexcept override {
+        if (size == nullptr) {
+            return isaac::runtime::Status{isaac::runtime::StatusCode::InvalidArgument};
+        }
+        *size = 0;
+        if (!g_file_exists) {
+            return isaac::runtime::Status{isaac::runtime::StatusCode::NotFound};
+        }
+        if (g_file_size > capacity) {
+            return isaac::runtime::Status{isaac::runtime::StatusCode::CapacityExceeded};
+        }
+        std::memcpy(out, g_file.data(), g_file_size);
+        *size = g_file_size;
+        return isaac::runtime::Status::Ok();
+    }
 
-std::size_t Read(void* output, std::size_t size, std::size_t count, void*) {
-    const std::size_t requested = size * count;
-    const std::size_t actual = requested < g_file_size ? requested : g_file_size;
-    std::memcpy(output, g_file.data(), actual);
-    return size == 1 ? actual : actual / size;
-}
+    [[nodiscard]] isaac::runtime::Status Write(std::string_view,
+                                               std::string_view data) noexcept override {
+        if (g_fail_write) {
+            return isaac::runtime::Status{isaac::runtime::StatusCode::IoFailure};
+        }
+        if (data.size() > g_file.size()) {
+            return isaac::runtime::Status{isaac::runtime::StatusCode::CapacityExceeded};
+        }
+        std::memcpy(g_file.data(), data.data(), data.size());
+        g_file_size = data.size();
+        g_file_exists = true;
+        return isaac::runtime::Status::Ok();
+    }
 
-std::size_t Write(const void* input, std::size_t size, std::size_t count, void*) {
-    if (g_fail_write) return 0;
-    const std::size_t requested = size * count;
-    if (requested > g_file.size()) return 0;
-    std::memcpy(g_file.data(), input, requested);
-    g_file_size = requested;
-    return count;
-}
+    [[nodiscard]] isaac::runtime::Status Remove(std::string_view) noexcept override {
+        g_file_exists = false;
+        g_file_size = 0;
+        return isaac::runtime::Status::Ok();
+    }
 
-int Close(void*) { return 0; }
+    [[nodiscard]] isaac::runtime::Status Exists(const char*, bool* out) noexcept override {
+        if (out != nullptr) {
+            *out = g_file_exists;
+        }
+        return isaac::runtime::Status::Ok();
+    }
+};
+
+HarnessStore g_store{};
 
 void Configure() {
-    ModPersistence::ResetForTesting();
-    ModPersistence::ConfigureFileApi(&Open, &Read, &Write, &Close);
+    // 唯一注入点：会话默认端口（生产里那一个是存档分区适配器，这里换成内存实现）。
+    isaac::runtime::SetSessionSaveFilePort(&g_store);
+    ModPersistence::ResetCacheForTesting();
 }
 
 void RefreshChecksum() {
@@ -243,6 +288,19 @@ int main(int argc, char** argv) {
         if (ModPersistence::SaveModData(key, "previous", 8) != ModPersistence::Result::Success) return 10;
         ModPersistence::ResetCacheForTesting();
         script = "local m=RegisterMod('Persistent Probe',1); if not m:HasData() or m:LoadData()~='previous' then error('load') end; m:RemoveData(); if m:HasData() or m:LoadData()~='' then error('remove') end; m:AddCallback(ModCallbacks.MC_POST_UPDATE,function() end)";
+    } else if (std::strcmp(scenario, "isaac_mod_data") == 0) {
+        // 批次 026：`Isaac.SaveModData` / `Isaac.LoadModData` 与 `Mod:SaveData` / `Mod:LoadData`
+        // 是**同一件事**（PC 上读写同一份 "saveX.dat"，栈形状也一样）⇒ 这里交叉验证：
+        // 用 Isaac 那一层写、用 Mod 那一层读回来，再反过来写读一次。
+        // 为什么这条重要：EID 开局时判 `EID:HasData()` 之后就是
+        // `json.decode(Isaac.LoadModData(EID))`，旧桩返回 nil 会让 `json.decode` 直接抛错。
+        script = "local m=RegisterMod('Persistent Probe',1); "
+                 "if Isaac.LoadModData(m)~='' then error('isaac empty') end; "
+                 "Isaac.SaveModData(m,'[1,2]'); "
+                 "if m:LoadData()~='[1,2]' then error('isaac save not visible to Mod') end; "
+                 "m:SaveData('mod-side'); "
+                 "if Isaac.LoadModData(m)~='mod-side' then error('mod save not visible to Isaac') end; "
+                 "m:AddCallback(ModCallbacks.MC_POST_UPDATE,function() end)";
     } else if (std::strcmp(scenario, "invalid") == 0) {
         script = "local m=RegisterMod('Persistent Probe',1); m:SaveData({})";
     } else if (std::strcmp(scenario, "corrupt") == 0) {
@@ -351,6 +409,8 @@ int main(int argc, char** argv) {
         for scenario in (
             "save", "load_remove", "invalid", "corrupt", "namespace", "unknown",
             "callback_error", "callback_save_failure",
+            # 批次 026：`Isaac` 那一层的读写与 `Mod` 那一层是同一份存储（交叉验证）。
+            "isaac_mod_data",
         ):
             result = subprocess.run([str(binary), scenario], text=True, capture_output=True)
             self.assertEqual(result.returncode, 0, scenario + "\n" + result.stdout + result.stderr)

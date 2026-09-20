@@ -34,8 +34,26 @@ constexpr LuaApiDescriptor kDefaultApis[] = {
      ThreadAffinity::MainUpdate, ApiMaturity::HardwareVerified},
     {MakeId(ApiDomain::Global, 1, 0x0002), ApiDomain::Global, "Global", "require", kV1, 0,
      ThreadAffinity::MainUpdate, ApiMaturity::HostVerified},
+    // `load`/`loadstring`：**2026-09-18 批次 034 从 Disabled 改成真实现**（PC 是 LuaJIT 5.1，
+    // 两个都有；我们以前把 `load` 置空，卡上的可调用性探针因此整批 skipped，见
+    // `docs/问题与解决记录.md` 续五十九）。成熟度 `HostVerified`：宿主门禁
+    // `test_lua_require_stage13` 的 `success` 场景**实测**了编译成功/失败形状、读取函数形式与
+    // `env` 形式；真机侧由探针报告里的 `load=function loadstring=function` 作存在性证据。
     {MakeId(ApiDomain::Global, 1, 0x0003), ApiDomain::Global, "Global", "load", kV1, 0,
-     ThreadAffinity::Any, ApiMaturity::Disabled},
+     ThreadAffinity::Any, ApiMaturity::HostVerified},
+    // `loadstring` 是 Lua 5.1 的名字（PC 的 LuaJIT 就是 5.1）⇒ 模组里用到的是这一个。
+    {MakeId(ApiDomain::Global, 1, 0x0006), ApiDomain::Global, "Global", "loadstring", kV1, 0,
+     ThreadAffinity::Any, ApiMaturity::HostVerified},
+    // `include(path)`（批次 042）：PC 提供给模组的全局（`analysis/isaacdocs-snapshot/docs/Globals.md:189`），
+    // 语义 = **不缓存**（每次重新读盘执行）+ **只在当前模组目录里解析** + 返回 chunk 的返回值。
+    // 真机证据待补（GoodTrip 装机后能加载即为存在性证据）；宿主上已由
+    // `test_lua_require_stage13` 的 `success` 场景**实测**（含"不缓存"：读盘计数 3 次）。
+    {MakeId(ApiDomain::Global, 1, 0x0007), ApiDomain::Global, "Global", "include", kV1, 0,
+     ThreadAffinity::MainUpdate, ApiMaturity::HostVerified},
+    // 批次 045：`CallbackPriority`（PC 枚举表；**值型条目** —— 没有 C 函数 ⇒ 不进绑定表，
+    // 与 `Options` 的字段同例）。
+    {MakeId(ApiDomain::Global, 1, 0x0008), ApiDomain::Global, "Global", "CallbackPriority", kV1, 0,
+     ThreadAffinity::Any, ApiMaturity::Experimental},
     {MakeId(ApiDomain::Global, 1, 0x0004), ApiDomain::Global, "Global", "loadfile", kV1, 0,
      ThreadAffinity::Any, ApiMaturity::Disabled},
     {MakeId(ApiDomain::Global, 1, 0x0005), ApiDomain::Global, "Global", "dofile", kV1, 0,
@@ -54,7 +72,13 @@ constexpr LuaApiDescriptor kDefaultApis[] = {
     {MakeId(ApiDomain::Global, 1, 0x001D), ApiDomain::Global, "Global", "REPENTANCE", kV1, 0,
      ThreadAffinity::Any, ApiMaturity::Experimental},
     {MakeId(ApiDomain::Global, 1, 0x001A), ApiDomain::Global, "Global", "KColor", kV1, 0,
-     ThreadAffinity::MainRender, ApiMaturity::Experimental},
+     ThreadAffinity::MainRender, ApiMaturity::HardwareVerified},
+    // 批次 065：全局 `EntityRef(entity)` —— PC 的实体引用值类型。GoodTrip 的诅咒房过路费
+    // （`scripts/trip.lua:70`）直接 `EntityRef(player)`；缺它时那句报
+    // "attempt to call a nil value (global 'EntityRef')"。实现是"替 Lua 持有引擎那块缓冲区"，
+    // 布局证据见 `interfaces/lua/entity_ref_api.hpp`。
+    {MakeId(ApiDomain::Global, 1, 0x0009), ApiDomain::Global, "Global", "EntityRef", kV1, 0,
+     ThreadAffinity::ManagedCallback, ApiMaturity::Experimental},
     {MakeId(ApiDomain::Global, 1, 0x001B), ApiDomain::Global, "Global", "Vector", kV1, 0,
      ThreadAffinity::MainRender, ApiMaturity::Experimental},
     {MakeId(ApiDomain::Global, 1, 0x001C), ApiDomain::Global, "Global", "Sprite", kV1, 0,
@@ -90,6 +114,19 @@ constexpr LuaApiDescriptor kDefaultApis[] = {
     // Mod surface.
     {MakeId(ApiDomain::Mod, 1, 0x0001), ApiDomain::Mod, "Mod", "AddCallback", kV1, 0,
      ThreadAffinity::MainUpdate, ApiMaturity::HardwareVerified},
+    // 0x0002 `Mod.RemoveCallback` —— **真实现**（2026-09-18）：回调表由**我们自己**维护
+    // （`CallbackRegistry`），所以这条完全是运行时侧的事，没有引擎底座可接。
+    // 语义要点：按**函数身份**摘掉该 (id, owner) 上的这一条（同 id 其余登记必须留下），
+    // 详见 `mod_api.cpp` 的 `ModRemoveCallback`。EID 在真机上真的会调它
+    // （`features/eid_repentogon.lua:53/126/168`、`features/eid_bagofcrafting_search.lua:96`），
+    // 缺它时那几处报 "attempt to call a nil value (method 'RemoveCallback')"。
+    // id 取法：**先扫遍整个 Mod 域**再定（该域此前只有 0x0001 一条 ⇒ 0x0002 空着）。
+    {MakeId(ApiDomain::Mod, 1, 0x0002), ApiDomain::Mod, "Mod", "RemoveCallback", kV1, 0,
+     ThreadAffinity::ManagedCallback, ApiMaturity::Experimental},
+    // 批次 045（GoodTrip）：`Mod:AddPriorityCallback`。**优先级排序暂未实现**（只校验、登记行为同
+    // `AddCallback`）—— 真排序要在 `CallbackRegistry` 加并行优先级数组；偏差写在实现处注释里。
+    {MakeId(ApiDomain::Mod, 1, 0x0003), ApiDomain::Mod, "Mod", "AddPriorityCallback", kV1, 0,
+     ThreadAffinity::MainUpdate, ApiMaturity::Experimental},
     {MakeId(ApiDomain::Persistence, 1, 0x0001), ApiDomain::Persistence, "Mod", "SaveData", kV1, 0,
      ThreadAffinity::ManagedCallback, ApiMaturity::Experimental},
     {MakeId(ApiDomain::Persistence, 1, 0x0002), ApiDomain::Persistence, "Mod", "LoadData", kV1, 0,
@@ -132,6 +169,22 @@ constexpr LuaApiDescriptor kDefaultApis[] = {
      ThreadAffinity::ManagedCallback, ApiMaturity::Experimental},
     {MakeId(ApiDomain::Game, 1, 0x0009), ApiDomain::Game, "Game", "GetVictoryLap", kV1, 0,
      ThreadAffinity::ManagedCallback, ApiMaturity::Experimental},
+    // 0x000A `Game:ChangeRoom(int, int)` —— **直接调引擎方法**（批次 050，2026-09-19）。
+    // 底座 `Game::ChangeRoom(int,int)` @ `0x353FE0`（模块基址 + 偏移 + 入口指纹，见
+    // `runtime_constants.hpp` 的批次 050 段）。GoodTrip 的传送主路径就是它
+    // （`scripts/trip.lua` 6 处 `Game():ChangeRoom(目标格, -1)`），也是"能选房并传送"这条
+    // 验收标准的必经之路。id 取域内下一个空号（Game 域此前用到 0x0009）。
+    {MakeId(ApiDomain::Game, 1, 0x000A), ApiDomain::Game, "Game", "ChangeRoom", kV1, 0,
+     ThreadAffinity::ManagedCallback, ApiMaturity::Experimental},
+    // 0x000B `Game:StartRoomTransition(int, Direction, RoomTransitionAnim, EntityPlayer, int)`
+    // —— 批次 055，2026-09-19。GoodTrip 的传送**默认路径**（`scripts/trip.lua:207`；
+    // `cfg.FastTransition` 默认 false ⇒ 走的就是这一条，缺它时模组报
+    // "attempt to call a nil value (method 'StartRoomTransition')"）。
+    // 底座 `Game::StartRoomTransition` @ `0x353CBC`（模块基址 + 偏移 + 入口指纹，见
+    // `runtime_constants.hpp` 的批次 055 段）；5 个参数里第 4 个是玩家实体指针，
+    // 由 `EngineCallShape::VoidIntIntIntHandleInt` 描述符接手。
+    {MakeId(ApiDomain::Game, 1, 0x000B), ApiDomain::Game, "Game", "StartRoomTransition", kV1, 0,
+     ThreadAffinity::ManagedCallback, ApiMaturity::Experimental},
     // `Seeds` 家族（`Game:GetSeeds()` 的返回值）。EID 只用到这两个：
     //   * `IsCustomRun()` —— PC 语义"挑战局或带种子的局"（IsaacDocs 原文）；
     //   * `GetStartSeed()` —— EID 拿它当缓存键（`eid_bagofcrafting.lua:822`、
@@ -141,9 +194,9 @@ constexpr LuaApiDescriptor kDefaultApis[] = {
     {MakeId(ApiDomain::Seed, 1, 0x0002), ApiDomain::Seed, "Seeds", "GetStartSeed", kV1, 0,
      ThreadAffinity::ManagedCallback, ApiMaturity::Experimental},
     {MakeId(ApiDomain::Level, 1, 0x0001), ApiDomain::Level, "Level", "GetStage", kV1, 0,
-     ThreadAffinity::ManagedCallback, ApiMaturity::HostVerified},
-    {MakeId(ApiDomain::Level, 1, 0x0002), ApiDomain::Level, "Level", "IsAscent", kV1, 0,
      ThreadAffinity::ManagedCallback, ApiMaturity::HardwareVerified},
+    {MakeId(ApiDomain::Level, 1, 0x0002), ApiDomain::Level, "Level", "IsAscent", kV1, 0,
+     ThreadAffinity::ManagedCallback, ApiMaturity::HostVerified},
     // 批次 4：`Level:GetCurses()`。`Level` **内嵌在 `Game` 起始处**（同一地址），所以读的是
     // `Game + 0x0C`（u32 诅咒位掩码）。**语义偏差**见 `remaining_api.cpp` 的注释：PC 是
     // `curses | 永久诅咒 & ~禁用诅咒` 三步，那两次调用的函数地址本轮未定位，这里**只返回字段值**。
@@ -183,10 +236,23 @@ constexpr LuaApiDescriptor kDefaultApis[] = {
     // 批次 11（2026-09-16）：`Level` 的关卡类型三条。字段证据见 `runtime_constants.hpp` 的
     // `kLevelStageTypeOffset`（`Level::SetStage` 把两个参数连着写进 `+0x00`/`+0x04`）。
     {MakeId(ApiDomain::Level, 1, 0x000B), ApiDomain::Level, "Level", "GetStageType", kV1, 0,
-     ThreadAffinity::ManagedCallback, ApiMaturity::Experimental},
+     ThreadAffinity::ManagedCallback, ApiMaturity::HardwareVerified},
     {MakeId(ApiDomain::Level, 1, 0x000C), ApiDomain::Level, "Level", "IsAltStage", kV1, 0,
-     ThreadAffinity::ManagedCallback, ApiMaturity::Experimental},
+     ThreadAffinity::ManagedCallback, ApiMaturity::HardwareVerified},
     {MakeId(ApiDomain::Level, 1, 0x000D), ApiDomain::Level, "Level", "IsPreAscent", kV1, 0,
+     ThreadAffinity::ManagedCallback, ApiMaturity::HardwareVerified},
+    // 批次 028：`Level:GetLastRoomDesc()`（EID 链式缺口）。引擎那条函数本身就是
+    // "取 `Level + 0x2155C`/`+0x21564`（上一个房间的索引/维度）→ 尾调用 `GetRoomByIdx`"，
+    // 我们直接调引擎并把返回的 `RoomDescriptor*` 交给现成的 `PushRoomDescriptor`。
+    {MakeId(ApiDomain::Level, 1, 0x000E), ApiDomain::Level, "Level", "GetLastRoomDesc", kV1, 0,
+     ThreadAffinity::ManagedCallback, ApiMaturity::Experimental},
+    // 0x000F / 0x0010（批次 051）`Level:AddCurse(int,bool)` / `Level:RemoveCurses(int)` ——
+    // 走**引擎方法数据行**（16 字节只读、0 字节代码）。底座 `Level::AddCurse(eLevelCurse,bool)`
+    // @ `0x3E7E08`、`Level::RemoveCurses(unsigned)` @ `0x3D8EC4`；GoodTrip 用它们临时加/撤
+    // "迷宫诅咒"（`scripts/trip.lua:26`/`126`）。
+    {MakeId(ApiDomain::Level, 1, 0x000F), ApiDomain::Level, "Level", "AddCurse", kV1, 0,
+     ThreadAffinity::ManagedCallback, ApiMaturity::Experimental},
+    {MakeId(ApiDomain::Level, 1, 0x0010), ApiDomain::Level, "Level", "RemoveCurses", kV1, 0,
      ThreadAffinity::ManagedCallback, ApiMaturity::Experimental},
     {MakeId(ApiDomain::Room, 1, 0x0001), ApiDomain::Room, "Room", "GetType", kV1, 0,
      ThreadAffinity::ManagedCallback, ApiMaturity::HostVerified},
@@ -225,7 +291,27 @@ constexpr LuaApiDescriptor kDefaultApis[] = {
     // 实现是调引擎自己的 `Room::GetFrameCount()`（`0x470B0C`，安装期 16 字节守卫），
     // 所以成熟度先记 `HostVerified`（宿主夹具覆盖"调到/绑定不可用"两条路），真机验收后再上 `HardwareVerified`。
     {MakeId(ApiDomain::Room, 1, 0x000A), ApiDomain::Room, "Room", "GetFrameCount", kV1,
-     0, ThreadAffinity::ManagedCallback, ApiMaturity::HostVerified},
+     0, ThreadAffinity::ManagedCallback, ApiMaturity::HardwareVerified},
+    // 0x000B `Room.IsMirrorWorld` —— **真实现**（2026-09-18）：判据是"当前房间的维度 == 1"，
+    // 读 `Level + 0x21560`（引擎判"当前房间属于哪个维度"的那个字，我们为判换房早已在读它）。
+    // 维度枚举的含义出自 PC 文档快照 `RoomDescriptor.md`（1 = 次级维度 = Downpour/Dross 的镜子维度）。
+    // EID 在 `main.lua:839` 无条件调它（`level:GetCurrentRoom():IsMirrorWorld()`），
+    // 缺它时那一行报 "attempt to call a nil value"。
+    // ⚠️ 已知过宽：矿坑逃脱序列也用维度 1 ⇒ 那一幕也会答 true（见实现处注释）。
+    // id 取法：**先扫遍整个 Room 域**再定（该域此前用到 0x000A ⇒ 0x000B 空着）。
+    {MakeId(ApiDomain::Room, 1, 0x000B), ApiDomain::Room, "Room", "IsMirrorWorld", kV1,
+     0, ThreadAffinity::ManagedCallback, ApiMaturity::Experimental},
+    // 批次 046（GoodTrip 运行期）：`Room:GetDoor(slot)` —— **方法存在、恒返回 nil**（如实降级）。
+    // 缺它时 `floor.lua:223` 报 "attempt to call a nil value (method 'GetDoor')"，模组的运行期
+    // 回调每帧抛错、整块功能被摘掉；PC 上这条**本来就可以返回 nil**（没有门的槽位）⇒ 先对齐形状。
+    // 取证后再换真实现（**不编造门对象**：假门会让模组画出错误连通图，比"暂时没有门"更糟）。
+    {MakeId(ApiDomain::Room, 1, 0x000C), ApiDomain::Room, "Room", "GetDoor", kV1,
+     0, ThreadAffinity::ManagedCallback, ApiMaturity::Experimental},
+    // 0x000D（批次 051）`Room:PlayMusic()` —— 走**引擎方法数据行**（16 字节只读、0 字节代码）。
+    // 底座 `Room::PlayMusic()` @ `0x451834`；GoodTrip 传送到没有音乐的房间后补一次
+    // （`scripts/trip.lua:202`）。⚠️ 它的 `this` 是**当前房间**，所以数据行的 `receipt` 用 `Room`。
+    {MakeId(ApiDomain::Room, 1, 0x000D), ApiDomain::Room, "Room", "PlayMusic", kV1, 0,
+     ThreadAffinity::ManagedCallback, ApiMaturity::Experimental},
     {MakeId(ApiDomain::ItemPool, 1, 0x0001), ApiDomain::ItemPool, "ItemPool", "GetCollectible", kV1,
      0, ThreadAffinity::ManagedCallback, ApiMaturity::HostVerified},
     {MakeId(ApiDomain::ItemPool, 1, 0x0002), ApiDomain::ItemPool, "ItemPool", "GetLastPool", kV1,
@@ -235,7 +321,16 @@ constexpr LuaApiDescriptor kDefaultApis[] = {
     // 底座是 `ItemPool + 0xa68 + color` 的每色一字节"已识别"表（15 项，紧跟在 `+0xa2c` 的药丸
     // 效果表之后）；证据见 `runtime_constants.hpp` 的 `kItemPoolPillIdentifiedOffset`。
     {MakeId(ApiDomain::ItemPool, 1, 0x0003), ApiDomain::ItemPool, "ItemPool", "IsPillIdentified",
-     kV1, 0, ThreadAffinity::ManagedCallback, ApiMaturity::Experimental},
+     kV1, 0, ThreadAffinity::ManagedCallback, ApiMaturity::HardwareVerified},
+    // 批次 028（2026-09-18 夜）：两条 EID 真的在调、而我们缺的 ItemPool 成员。
+    // `GetPillEffect` 最急：EID 在 `features/eid_api.lua:881` 调它，真机报
+    // `attempt to call a nil value (method 'GetPillEffect')` ⇒ 那颗药的描述整条消失。
+    // 成熟度按项目口径先记 `Experimental`（有宿主测试与真机报错做判据，但还没在真机上
+    // 逐值核对返回的 PillEffect 编号）。
+    {MakeId(ApiDomain::ItemPool, 1, 0x0004), ApiDomain::ItemPool, "ItemPool", "GetPillEffect", kV1,
+     0, ThreadAffinity::ManagedCallback, ApiMaturity::Experimental},
+    {MakeId(ApiDomain::ItemPool, 1, 0x0005), ApiDomain::ItemPool, "ItemPool", "GetPoolForRoom", kV1,
+     0, ThreadAffinity::ManagedCallback, ApiMaturity::Experimental},
 
     // Music surface.
     {MakeId(ApiDomain::Music, 1, 0x0001), ApiDomain::Music, "MusicManager", "GetCurrentMusicID",
@@ -244,17 +339,24 @@ constexpr LuaApiDescriptor kDefaultApis[] = {
      ThreadAffinity::MainRender, ApiMaturity::HardwareVerified},
     {MakeId(ApiDomain::Music, 1, 0x0003), ApiDomain::Music, "MusicManager", "Resume", kV1, 0,
      ThreadAffinity::MainRender, ApiMaturity::HardwareVerified},
+    // 批次 045（GoodTrip）：`SFXManager()` 返回对象的两个方法 —— **`Play` 是明确的空实现**
+    // （引擎音效单例与 `Play` 地址未取证）、`IsPlaying` 恒 false。形状与 PC 一致是硬要求：
+    // 缺它时模组整个加载失败（真机实测 `goodtripfixed/scripts/trip.lua:8`）。
+    {MakeId(ApiDomain::Music, 1, 0x0004), ApiDomain::Music, "SFXManager", "Play", kV1, 0,
+     ThreadAffinity::MainUpdate, ApiMaturity::Experimental},
+    {MakeId(ApiDomain::Music, 1, 0x0005), ApiDomain::Music, "SFXManager", "IsPlaying", kV1, 0,
+     ThreadAffinity::MainUpdate, ApiMaturity::Experimental},
 
     // RNG surface.
     {MakeId(ApiDomain::Rng, 1, 0x0001), ApiDomain::Rng, "RNG", "SetSeed", kV1, 0,
-     ThreadAffinity::ManagedCallback, ApiMaturity::HostVerified},
+     ThreadAffinity::ManagedCallback, ApiMaturity::HardwareVerified},
     {MakeId(ApiDomain::Rng, 1, 0x0002), ApiDomain::Rng, "RNG", "Next", kV1, 0,
      ThreadAffinity::ManagedCallback, ApiMaturity::HostVerified},
     // 批次 13（2026-09-16）：`RNG:GetSeed()` —— EID 的 `spikes:GetRNG():GetSeed()` 链上少不了
     // 这一环（缺它就是 "attempt to call a nil value"）。种子就是 RNG 对象头 4 字节
     // （`RNG::SetSeed @ 0x44E3C0` 的第一条存值 `str w1, [x0]`），所以这是纯读、不走引擎调用。
     {MakeId(ApiDomain::Rng, 1, 0x0003), ApiDomain::Rng, "RNG", "GetSeed", kV1, 0,
-     ThreadAffinity::ManagedCallback, ApiMaturity::HostVerified},
+     ThreadAffinity::ManagedCallback, ApiMaturity::HardwareVerified},
 
     // Input surface: reachability was probed, the edge timing is still unproven.
     {MakeId(ApiDomain::Input, 1, 0x0001), ApiDomain::Input, "Input", "IsButtonTriggered", kV1, 0,
@@ -269,6 +371,14 @@ constexpr LuaApiDescriptor kDefaultApis[] = {
      ThreadAffinity::MainUpdate, ApiMaturity::Experimental},
     {MakeId(ApiDomain::Input, 1, 0x0006), ApiDomain::Input, "Input", "GetActionValue", kV1, 0,
      ThreadAffinity::MainUpdate, ApiMaturity::Experimental},
+    // 批次 041（GoodTrip）：鼠标两条。**Switch 上没有鼠标** ⇒ 处理器是"明确降级"
+    // （`Input.GetMousePosition` 恒返回 (0,0)、`Input.IsMouseBtnPressed` 恒 false），
+    // 判据与后果写在 `input_api.cpp` 那两个处理器的注释里（GoodTrip 每帧都调前者，
+    // 所以"不抛错"是硬要求）。成熟度只能是 Experimental：本机没有鼠标输入源。
+    {MakeId(ApiDomain::Input, 1, 0x0007), ApiDomain::Input, "Input", "GetMousePosition", kV1, 0,
+     ThreadAffinity::MainUpdate, ApiMaturity::Experimental},
+    {MakeId(ApiDomain::Input, 1, 0x0008), ApiDomain::Input, "Input", "IsMouseBtnPressed", kV1, 0,
+     ThreadAffinity::MainUpdate, ApiMaturity::Experimental},
 
     // Font surface. `Font` is the first family whose native object the Runtime allocates itself
     // (`~Font()` does not delete `this`), so every entry point here is a call into a game function
@@ -282,13 +392,13 @@ constexpr LuaApiDescriptor kDefaultApis[] = {
     // the domain byte is part of the wire id, so reusing `Global` would make the ids collide with
     // the global table's own sequence.
     {MakeId(ApiDomain::Font, 1, 0x0001), ApiDomain::Font, "Font", "Load", kV1, 0,
-     ThreadAffinity::ManagedCallback, ApiMaturity::Experimental},
+     ThreadAffinity::ManagedCallback, ApiMaturity::HardwareVerified},
     {MakeId(ApiDomain::Font, 1, 0x0002), ApiDomain::Font, "Font", "Unload", kV1, 0,
-     ThreadAffinity::ManagedCallback, ApiMaturity::Experimental},
+     ThreadAffinity::ManagedCallback, ApiMaturity::HardwareVerified},
     {MakeId(ApiDomain::Font, 1, 0x0003), ApiDomain::Font, "Font", "IsLoaded", kV1, 0,
-     ThreadAffinity::ManagedCallback, ApiMaturity::Experimental},
+     ThreadAffinity::ManagedCallback, ApiMaturity::HardwareVerified},
     {MakeId(ApiDomain::Font, 1, 0x0004), ApiDomain::Font, "Font", "GetStringWidth", kV1, 0,
-     ThreadAffinity::ManagedCallback, ApiMaturity::Experimental},
+     ThreadAffinity::ManagedCallback, ApiMaturity::HardwareVerified},
     {MakeId(ApiDomain::Font, 1, 0x0005), ApiDomain::Font, "Font", "GetStringWidthUTF8", kV1, 0,
      ThreadAffinity::ManagedCallback, ApiMaturity::Experimental},
     {MakeId(ApiDomain::Font, 1, 0x0006), ApiDomain::Font, "Font", "GetLineHeight", kV1, 0,
@@ -300,7 +410,7 @@ constexpr LuaApiDescriptor kDefaultApis[] = {
     {MakeId(ApiDomain::Font, 1, 0x0009), ApiDomain::Font, "Font", "SetMissingCharacter", kV1, 0,
      ThreadAffinity::ManagedCallback, ApiMaturity::Experimental},
     {MakeId(ApiDomain::Font, 1, 0x000A), ApiDomain::Font, "Font", "DrawString", kV1, 0,
-     ThreadAffinity::MainRender, ApiMaturity::Experimental},
+     ThreadAffinity::MainRender, ApiMaturity::HardwareVerified},
     {MakeId(ApiDomain::Font, 1, 0x000B), ApiDomain::Font, "Font", "DrawStringScaled", kV1, 0,
      ThreadAffinity::MainRender, ApiMaturity::Experimental},
     {MakeId(ApiDomain::Font, 1, 0x000C), ApiDomain::Font, "Font", "DrawStringUTF8", kV1, 0,
@@ -437,8 +547,11 @@ constexpr LuaApiDescriptor kDefaultApis[] = {
      ThreadAffinity::ManagedCallback, ApiMaturity::Experimental},
     {MakeId(ApiDomain::Isaac, 1, 0x0012), ApiDomain::Isaac, "Isaac", "SaveModData", kV1, 0,
      ThreadAffinity::ManagedCallback, ApiMaturity::Experimental},
+    // `Isaac.RenderScaledText`（批次 026 真实现；**2026-09-18 批次 036 升为 HardwareVerified**）：
+    // 真机验收链见 `docs/问题与解决记录.md` 续六十一 —— 探针每帧画两行 ASCII 对照
+    // （我们自己的字体 vs 这条 API），用户目视**两行都在**；报告里 `RenderScaledText=ok`。
     {MakeId(ApiDomain::Isaac, 1, 0x0013), ApiDomain::Isaac, "Isaac", "RenderScaledText", kV1, 0,
-     ThreadAffinity::MainRender, ApiMaturity::Experimental},
+     ThreadAffinity::MainRender, ApiMaturity::HardwareVerified},
 
     // 批次 2：引擎实体只读视图。`Isaac.GetPlayer`（条目 `0x0E010006`，id 不变）从批次 2 起是
     // 真实现（读引擎内存）；另外四个方法挂在 `Entity` / `EntityPlayer` 的元表上（owner 就是元表名）。
@@ -452,7 +565,7 @@ constexpr LuaApiDescriptor kDefaultApis[] = {
     {MakeId(ApiDomain::Isaac, 1, 0x0014), ApiDomain::Isaac, "Entity", "ToPlayer", kV1, 0,
      ThreadAffinity::ManagedCallback, ApiMaturity::Experimental},
     {MakeId(ApiDomain::Isaac, 1, 0x0015), ApiDomain::Isaac, "EntityPlayer", "HasCollectible", kV1, 0,
-     ThreadAffinity::ManagedCallback, ApiMaturity::Experimental},
+     ThreadAffinity::ManagedCallback, ApiMaturity::HardwareVerified},
     {MakeId(ApiDomain::Isaac, 1, 0x0016), ApiDomain::Isaac, "EntityPlayer", "GetPlayerType", kV1, 0,
      ThreadAffinity::ManagedCallback, ApiMaturity::Experimental},
     {MakeId(ApiDomain::Isaac, 1, 0x0017), ApiDomain::Isaac, "EntityPlayer", "GetData", kV1, 0,
@@ -530,7 +643,7 @@ constexpr LuaApiDescriptor kDefaultApis[] = {
     // `Item`/`Card`/`PillEffect::IsAvailable`，其中 `Item` 那条的 `flags` 是我们的兼容层定义
     // （已登记偏离）。取证见 `docs/问题与解决记录.md` 续十二。
     {MakeId(ApiDomain::Isaac, 1, 0x0055), ApiDomain::Isaac, "ItemConfig_Item", "IsAvailable",
-     kV1, 0, ThreadAffinity::ManagedCallback, ApiMaturity::Experimental},
+     kV1, 0, ThreadAffinity::ManagedCallback, ApiMaturity::HardwareVerified},
 
     // 批次 9（2026-09-15）：`Entity:ToFamiliar()` —— EID 用到而运行时里没有的一条。
     // 判据同 `Entity:ToPickup()`：`Type == ENTITY_FAMILIAR(3)` 且 vptr 精确等于
@@ -542,9 +655,9 @@ constexpr LuaApiDescriptor kDefaultApis[] = {
     // 与具体 variant 比较。前置是"网格实体视图"这一族本身：`Room:GetGridEntity()` 过去恒返回
     // nil（登记在案的偏离），表已定位（`Room + 0x30`，证据见 `runtime_constants.hpp`）。
     {MakeId(ApiDomain::Isaac, 1, 0x0052), ApiDomain::Isaac, "GridEntity", "GetVariant", kV1, 0,
-     ThreadAffinity::ManagedCallback, ApiMaturity::Experimental},
+     ThreadAffinity::ManagedCallback, ApiMaturity::HardwareVerified},
     {MakeId(ApiDomain::Isaac, 1, 0x0053), ApiDomain::Isaac, "GridEntity", "GetType", kV1, 0,
-     ThreadAffinity::ManagedCallback, ApiMaturity::Experimental},
+     ThreadAffinity::ManagedCallback, ApiMaturity::HardwareVerified},
     // 批次 13（2026-09-16）：`GridEntity:GetRNG()` —— EID 的
     // `features/eid_itemprediction.lua:120` 直接 `spikes:GetRNG():GetSeed()`（血契尖刺的种子）。
     // 实体自己的 RNG 在 `GridEntity + 0x30`（证据：`GridEntity::hurt_func` 里
@@ -552,7 +665,7 @@ constexpr LuaApiDescriptor kDefaultApis[] = {
     // `add x0, x19, #0x30; RNG::SetSeed(…, 35)`；见 `runtime_constants.hpp`）。
     // ★ 交回 Lua 的是**调用瞬间的 16 字节快照**（PC 返回活引用），已登记为偏离。
     {MakeId(ApiDomain::Isaac, 1, 0x0054), ApiDomain::Isaac, "GridEntity", "GetRNG", kV1, 0,
-     ThreadAffinity::ManagedCallback, ApiMaturity::Experimental},
+     ThreadAffinity::ManagedCallback, ApiMaturity::HardwareVerified},
 
     // 批次 4：房间实体枚举（`Isaac.FindInRadius`/`FindByType`/`CountEnemies` 从 stub 变成
     // 真实现，id 不变）与实体视图补全。
@@ -566,6 +679,19 @@ constexpr LuaApiDescriptor kDefaultApis[] = {
     // EID 真的往它里面写（`features/eid_api.lua:2229`：`entity:GetData()[str] = value`）。
     // 字段（`Price`/`ShopItemId`/…）走 `__index`，不占 catalog 行。
     {MakeId(ApiDomain::Isaac, 1, 0x0024), ApiDomain::Isaac, "Entity", "ToPickup", kV1, 0,
+     ThreadAffinity::ManagedCallback, ApiMaturity::Experimental},
+    // 批次 063：`Entity:IsFlying()` —— PC 在基类 `Entity` 上（`Entity.md`），
+    // 而 `EntityPlayer` 继承基类方法。GoodTrip 的诅咒房判定（`scripts/trip.lua:90`）要用它，
+    // 没有它时刺房（type 10）整条传送路径报 "attempt to call a nil value (method 'IsFlying')"。
+    // id 取域内下一个空号（0x002E）。
+    {MakeId(ApiDomain::Isaac, 1, 0x002E), ApiDomain::Isaac, "Entity", "IsFlying", kV1, 0,
+     ThreadAffinity::ManagedCallback, ApiMaturity::Experimental},
+    // 批次 065：`Entity:TakeDamage(Damage, DamageFlags, Source, CountdownFrames)` ——
+    // GoodTrip 的诅咒房过路费（`scripts/trip.lua:70`）要用它（配合全局 `EntityRef(entity)`）。
+    // **手写**：签名里有 float + 一个按引用交给引擎的 `EntityRef` 句柄，还要按接收者种类选入口
+    // （玩家用 `Entity_Player::TakeDamage`、其余用基类），数据行那套形状覆盖不了 —— 理由写在
+    // 实现处。**已知偏离**：`DamageFlags` 在引擎侧没有对应形参，这一版被忽略（伤害照常造成）。
+    {MakeId(ApiDomain::Isaac, 1, 0x002F), ApiDomain::Isaac, "Entity", "TakeDamage", kV1, 0,
      ThreadAffinity::ManagedCallback, ApiMaturity::Experimental},
     {MakeId(ApiDomain::Isaac, 1, 0x0025), ApiDomain::Isaac, "Entity", "GetData", kV1, 0,
      ThreadAffinity::ManagedCallback, ApiMaturity::Experimental},
@@ -648,6 +774,41 @@ constexpr LuaApiDescriptor kDefaultApis[] = {
     // 因为引擎那一层的返回类型我们没从反汇编确认过 —— 用效果说话更稳。
     {MakeId(ApiDomain::Isaac, 1, 0x004E), ApiDomain::Isaac, "EntityPlayer", "AddCollectible", kV1, 0,
      ThreadAffinity::ManagedCallback, ApiMaturity::Experimental},
+    // 0x0056 `EntityPlayer.AddCoins` —— **真实现**（2026-09-18）：底座是
+    // `Entity_Player::AddCoins(int)`（`0x280068`，清单里的 `missing_easy`，符号
+    // `_ZN15IsaacRepentance13Entity_Player8AddCoinsEi`）。PC 签名 `AddCoins(int Amount)`、返回 void。
+    //
+    // 为什么 id 取"域内下一个空号"而不是照抄 PC 的某个编号：**API 的 id 是我们内部的
+    // 索引，模组看不到它**（模组是用 `player:AddCoins(n)` 这种名字调的，不像 `ModCallbacks`
+    // 那样要传数字）—— 取域内**下一个空号**（0x004E 给 `AddCollectible`、0x004F 给
+    // `GetCollectibleCount` 时用的都是这条规则）。⚠️ 别抄我上一版写的 0x004F：那个号已经被
+    // `GetCollectibleCount` 占了，`Validate()` 的"id 必须唯一"会直接判红（2026-09-18 就这么红过一次）。
+    // 真正影响兼容性的是**方法名与参数表**，那两条与 PC 文档逐字一致。
+    {MakeId(ApiDomain::Isaac, 1, 0x0056), ApiDomain::Isaac, "EntityPlayer", "AddCoins", kV1, 0,
+     ThreadAffinity::ManagedCallback, ApiMaturity::Experimental},
+    // 0x0057~0x005A `EntityPlayer` 的四个引擎方法 —— **真实现**（2026-09-19 批次 050）。
+    // 底座与偏移：`SetShootingCooldown` @ `0x2FB994`、`AnimateHappy` @ `0x2F6CA8`、
+    // `AnimateSad` @ `0x2F6D2C`、`GetBlackHearts` → 引擎侧符号 `GetNumBlackHearts` @ `0x27FF84`
+    // （见 `runtime_constants.hpp` 的批次 050 段，每条带入口指纹）。
+    //
+    // 为什么这一批是这四个：真机把错误推进到 `scripts/control.lua:38` 的
+    // `player:SetShootingCooldown(2)`（"打开地图后按方向键"那条路），而它在
+    // `widget.draw_minimap_ui()` **之前** ⇒ 缺它屏幕什么都不画；另外三个是同一条路上
+    // 紧随其后的调用点（`AnimateHappy`/`AnimateSad` 在传送成功/失败时各一次，
+    // `GetBlackHearts` 在传送前的体力判断里连调两次）。
+    // id 仍取域内下一个空号（0x0056 之后连着四个），理由同上。
+    {MakeId(ApiDomain::Isaac, 1, 0x0057), ApiDomain::Isaac, "EntityPlayer", "SetShootingCooldown",
+     kV1, 0, ThreadAffinity::ManagedCallback, ApiMaturity::Experimental},
+    // 0x0058 / 0x0059 / 0x005A（批次 051）：`AnimateHappy()`、`AnimateSad()`、`GetBlackHearts()`。
+    // 三个都走**引擎方法数据行**（`engine_method_api.hpp`）——每个 API 只花 16 字节只读数据、
+    // 0 字节代码；这正是"以后加 API 不再撞代码段预算"的落点（050 就是被预算逼着砍掉它们的）。
+    // `GetBlackHearts` 的引擎符号叫 `GetNumBlackHearts`（同族 `GetNumCoins` 那种命名）。
+    {MakeId(ApiDomain::Isaac, 1, 0x0058), ApiDomain::Isaac, "EntityPlayer", "AnimateHappy", kV1, 0,
+     ThreadAffinity::ManagedCallback, ApiMaturity::Experimental},
+    {MakeId(ApiDomain::Isaac, 1, 0x0059), ApiDomain::Isaac, "EntityPlayer", "AnimateSad", kV1, 0,
+     ThreadAffinity::ManagedCallback, ApiMaturity::Experimental},
+    {MakeId(ApiDomain::Isaac, 1, 0x005A), ApiDomain::Isaac, "EntityPlayer", "GetBlackHearts", kV1,
+     0, ThreadAffinity::ManagedCallback, ApiMaturity::Experimental},
     // 0x0029 `EntityPickup.IsShopItem` —— **安全 stub（恒 false）**：EID 在卡片/药丸描述路径上
     // 无条件调用它（`main.lua:1611`/`1636`），缺了它那一句就是
     // "attempt to call a nil value (method 'IsShopItem')"；而"商店商品"的判据我们**没有证据**
@@ -656,6 +817,19 @@ constexpr LuaApiDescriptor kDefaultApis[] = {
     // 走 `__index`，不占 catalog 行。
     {MakeId(ApiDomain::Isaac, 1, 0x0029), ApiDomain::Isaac, "EntityPickup", "IsShopItem", kV1, 0,
      ThreadAffinity::ManagedCallback, ApiMaturity::Experimental},
+    // 批次 028：`EntityPickup:CanReroll()`（EID 链式缺口的一半；同名的 `EntityNPC:CanReroll`
+    // 要等我们有了 `EntityNPC` 视图才能接 —— 见 `runtime_constants.hpp` 的注释）。
+    {MakeId(ApiDomain::Isaac, 1, 0x002B), ApiDomain::Isaac, "EntityPickup", "CanReroll", kV1, 0,
+     ThreadAffinity::ManagedCallback, ApiMaturity::Experimental},
+    // 批次 041（GoodTrip）：`Isaac.GetRoomEntities()`（id 0x002C）**真实现** —— 语义照 PC 文档
+    //（`Isaac.md:382` "all entities in the room"），来源与 `Isaac.FindByType` 同一套三段扫描
+    //（活表 + 玩家向量 + 效果表，去重）；缺它 GoodTrip 的 `scripts/trip.lua:38` 直接索引 nil。
+    // `Isaac.ExecuteCommand()`（id 0x002D）：**平台降级** —— Switch 没有控制台，处理器什么都不做
+    //（PC 的返回类型是 void，形状一致；差别是命令不生效，见实现处注释）。
+    {MakeId(ApiDomain::Isaac, 1, 0x002C), ApiDomain::Isaac, "Isaac", "GetRoomEntities", kV1, 0,
+     ThreadAffinity::ManagedCallback, ApiMaturity::Experimental},
+    {MakeId(ApiDomain::Isaac, 1, 0x002D), ApiDomain::Isaac, "Isaac", "ExecuteCommand", kV1, 0,
+     ThreadAffinity::MainUpdate, ApiMaturity::Experimental},
     // 批次 5：`Entity.GetSprite()`（id 0x002A）—— 真实现，**只读**：返回 `Entity + 0x50` 那个
     // 内嵌 `ANM2` 的 `Sprite` 视图（偏移证据见 `runtime_constants.hpp` 的 `kEntitySpriteOffset`）。
     // 句柄带"引擎实体来源"标记（`kSpriteSourceEngineEntity`）：`__gc` 不析构、不释放引擎对象，

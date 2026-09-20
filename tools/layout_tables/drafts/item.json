@@ -1,0 +1,964 @@
+{
+ "schema": "isaac-layout-table/1",
+ "build_id": "91C73FDD575061318D68886316AFEAC72388B2AB",
+ "struct": "item",
+ "note": [
+  "★ 这是**自动起草**的草稿（`tools/draft_layout_evidence.py` 生成），不参与 C++ 生成。",
+  "每行的证据是「镜像里访问该偏移的一条指令 + 它所在的函数」，可被 `tools/build_layout_table.py --verify` 重新反汇编复核。",
+  "语义（字段名/含义）尚未人工确认 ⇒ confidence 一律 candidate，不得进对外 API。"
+ ],
+ "rows": [
+  {
+   "name": "kItemConfigCollectibleBeginOffset",
+   "kind": "int32",
+   "offset": 0,
+   "width": 8,
+   "confidence": "candidate",
+   "semantic": "（草稿）自动取证：语义未确认，仅登记「偏移 + 一处可复核的访问指令」",
+   "evidence": [
+    {
+     "kind": "access",
+     "function": "_ZNK15IsaacRepentance10ItemConfig14GetCollectibleEi",
+     "address": "0x003c0c5c",
+     "offset": 0,
+     "width": 8,
+     "why": "镜像里访问该偏移的指令（ldr x，宽度 8）；共找到 77227 条同类访问，此为该常量名呼应度最高的函数之一"
+    },
+    {
+     "kind": "access",
+     "function": "_ZNK15IsaacRepentance10ItemConfig14GetCollectibleEi",
+     "address": "0x003c0c78",
+     "offset": 0,
+     "width": 8,
+     "why": "镜像里访问该偏移的指令（ldp x，宽度 8）；共找到 77227 条同类访问，此为该常量名呼应度最高的函数之一"
+    },
+    {
+     "kind": "access",
+     "function": "_ZN15IsaacRepentance10ItemConfig18IsValidCollectibleENS_16eCollectibleTypeE",
+     "address": "0x003c0d78",
+     "offset": 0,
+     "width": 8,
+     "why": "镜像里访问该偏移的指令（ldr x，宽度 8）；共找到 77227 条同类访问，此为该常量名呼应度最高的函数之一"
+    }
+   ]
+  },
+  {
+   "name": "kItemConfigItemTypeOffset",
+   "kind": "int32",
+   "offset": 0,
+   "width": 8,
+   "confidence": "candidate",
+   "semantic": "（草稿）自动取证：语义未确认，仅登记「偏移 + 一处可复核的访问指令」",
+   "evidence": [
+    {
+     "kind": "access",
+     "function": "_ZN15IsaacRepentance10ItemConfig18IsValidCollectibleENS_16eCollectibleTypeE",
+     "address": "0x003c0d78",
+     "offset": 0,
+     "width": 8,
+     "why": "镜像里访问该偏移的指令（ldr x，宽度 8）；共找到 77227 条同类访问，此为该常量名呼应度最高的函数之一"
+    },
+    {
+     "kind": "access",
+     "function": "_ZN15IsaacRepentance10ItemConfig18IsValidCollectibleENS_16eCollectibleTypeE",
+     "address": "0x003c0d88",
+     "offset": 0,
+     "width": 8,
+     "why": "镜像里访问该偏移的指令（ldp x，宽度 8）；共找到 77227 条同类访问，此为该常量名呼应度最高的函数之一"
+    },
+    {
+     "kind": "access",
+     "function": "_ZN15IsaacRepentance10ItemConfig18IsValidCollectibleENS_16eCollectibleTypeE",
+     "address": "0x003c0dc8",
+     "offset": 0,
+     "width": 8,
+     "why": "镜像里访问该偏移的指令（ldr x，宽度 8）；共找到 77227 条同类访问，此为该常量名呼应度最高的函数之一"
+    }
+   ]
+  },
+  {
+   "name": "kItemConfigItemIdOffset",
+   "kind": "int32",
+   "offset": 4,
+   "width": 4,
+   "confidence": "candidate",
+   "semantic": "（草稿）自动取证：语义未确认，仅登记「偏移 + 一处可复核的访问指令」",
+   "evidence": [
+    {
+     "kind": "access",
+     "function": "_ZN15IsaacRepentance13Entity_Player10AddCostumeEPKNS_10ItemConfig4ItemEb",
+     "address": "0x00290c88",
+     "offset": 4,
+     "width": 4,
+     "why": "镜像里访问该偏移的指令（ldr w，宽度 4）；共找到 2360 条同类访问，此为该常量名呼应度最高的函数之一"
+    },
+    {
+     "kind": "access",
+     "function": "_ZN15IsaacRepentance13Entity_Player10AddCostumeEPKNS_10ItemConfig4ItemEb",
+     "address": "0x00290cdc",
+     "offset": 4,
+     "width": 4,
+     "why": "镜像里访问该偏移的指令（ldr w，宽度 4）；共找到 2360 条同类访问，此为该常量名呼应度最高的函数之一"
+    },
+    {
+     "kind": "access",
+     "function": "_ZN15IsaacRepentance13Entity_Player10AddCostumeEPKNS_10ItemConfig4ItemEb",
+     "address": "0x00290d30",
+     "offset": 4,
+     "width": 4,
+     "why": "镜像里访问该偏移的指令（ldr w，宽度 4）；共找到 2360 条同类访问，此为该常量名呼应度最高的函数之一"
+    }
+   ]
+  },
+  {
+   "name": "kItemConfigCollectibleEndOffset",
+   "kind": "int32",
+   "offset": 8,
+   "width": 8,
+   "confidence": "candidate",
+   "semantic": "（草稿）自动取证：语义未确认，仅登记「偏移 + 一处可复核的访问指令」",
+   "evidence": [
+    {
+     "kind": "access",
+     "function": "_ZN15IsaacRepentance13Entity_Player14play_item_animENS_16eCollectibleTypeEbRKNSt3__112basic_stringIcNS2_11char_traitsIcEENS2_9allocatorIcEEEEib",
+     "address": "0x0028da64",
+     "offset": 8,
+     "width": 8,
+     "why": "镜像里访问该偏移的指令（ldp x，宽度 8）；共找到 15988 条同类访问，此为该常量名呼应度最高的函数之一"
+    },
+    {
+     "kind": "access",
+     "function": "_ZN15IsaacRepentance13Entity_Player14play_item_animENS_16eCollectibleTypeEbRKNSt3__112basic_stringIcNS2_11char_traitsIcEENS2_9allocatorIcEEEEib",
+     "address": "0x0028dad0",
+     "offset": 8,
+     "width": 8,
+     "why": "镜像里访问该偏移的指令（ldp x，宽度 8）；共找到 15988 条同类访问，此为该常量名呼应度最高的函数之一"
+    },
+    {
+     "kind": "access",
+     "function": "_ZN15IsaacRepentance13Entity_Player14play_item_animENS_16eCollectibleTypeEbRKNSt3__112basic_stringIcNS2_11char_traitsIcEENS2_9allocatorIcEEEEib",
+     "address": "0x0028dba0",
+     "offset": 8,
+     "width": 8,
+     "why": "镜像里访问该偏移的指令（ldp x，宽度 8）；共找到 15988 条同类访问，此为该常量名呼应度最高的函数之一"
+    }
+   ]
+  },
+  {
+   "name": "kItemConfigItemNameOffset",
+   "kind": "int32",
+   "offset": 8,
+   "width": 8,
+   "confidence": "candidate",
+   "semantic": "（草稿）自动取证：语义未确认，仅登记「偏移 + 一处可复核的访问指令」",
+   "evidence": [
+    {
+     "kind": "access",
+     "function": "_ZNK15IsaacRepentance10ItemConfig4Card14GetDisplayNameEN4KAGE9eLanguageE",
+     "address": "0x003b3d5c",
+     "offset": 8,
+     "width": 8,
+     "why": "镜像里访问该偏移的指令（stp x，宽度 8）；共找到 15988 条同类访问，此为该常量名呼应度最高的函数之一"
+    },
+    {
+     "kind": "access",
+     "function": "_ZNK15IsaacRepentance10ItemConfig10PillEffect14GetDisplayNameEN4KAGE9eLanguageE",
+     "address": "0x003b3f8c",
+     "offset": 8,
+     "width": 8,
+     "why": "镜像里访问该偏移的指令（stp x，宽度 8）；共找到 15988 条同类访问，此为该常量名呼应度最高的函数之一"
+    },
+    {
+     "kind": "access",
+     "function": "_ZNK15IsaacRepentance10ItemConfig4Item14GetDisplayNameEN4KAGE9eLanguageE",
+     "address": "0x003b940c",
+     "offset": 8,
+     "width": 8,
+     "why": "镜像里访问该偏移的指令（stp x，宽度 8）；共找到 15988 条同类访问，此为该常量名呼应度最高的函数之一"
+    }
+   ]
+  },
+  {
+   "name": "kItemConfigTrinketBeginOffset",
+   "kind": "int32",
+   "offset": 24,
+   "width": 8,
+   "confidence": "candidate",
+   "semantic": "（草稿）自动取证：语义未确认，仅登记「偏移 + 一处可复核的访问指令」",
+   "evidence": [
+    {
+     "kind": "access",
+     "function": "_ZNK15IsaacRepentance10ItemConfig10GetTrinketEi",
+     "address": "0x003c0c9c",
+     "offset": 24,
+     "width": 8,
+     "why": "镜像里访问该偏移的指令（ldp x，宽度 8）；共找到 7001 条同类访问，此为该常量名呼应度最高的函数之一"
+    },
+    {
+     "kind": "access",
+     "function": "_ZN15IsaacRepentance13Entity_Player10AddCostumeEPKNS_10ItemConfig4ItemEb",
+     "address": "0x0029128c",
+     "offset": 24,
+     "width": 8,
+     "why": "镜像里访问该偏移的指令（ldr x，宽度 8）；共找到 7001 条同类访问，此为该常量名呼应度最高的函数之一"
+    },
+    {
+     "kind": "access",
+     "function": "_ZN15IsaacRepentance7History11HistoryItemC2ENS_12eTrinketTypeENS_11eLevelStageENS_10eStageTypeENS_9eRoomTypeENS_8ItemPool13eItemPoolTypeEi",
+     "address": "0x00399bd0",
+     "offset": 24,
+     "width": 4,
+     "why": "镜像里访问该偏移的指令（str w，宽度 4）；共找到 7001 条同类访问，此为该常量名呼应度最高的函数之一"
+    }
+   ]
+  },
+  {
+   "name": "kItemConfigItemDescriptionOffset",
+   "kind": "int32",
+   "offset": 32,
+   "width": 8,
+   "confidence": "candidate",
+   "semantic": "（草稿）自动取证：语义未确认，仅登记「偏移 + 一处可复核的访问指令」",
+   "evidence": [
+    {
+     "kind": "access",
+     "function": "_ZN15IsaacRepentance13Entity_Player14check_familiarEjiRNS_3RNGEPKNS_10ItemConfig4ItemEi",
+     "address": "0x0029aeb8",
+     "offset": 32,
+     "width": 8,
+     "why": "镜像里访问该偏移的指令（ldr x，宽度 8）；共找到 8722 条同类访问，此为该常量名呼应度最高的函数之一"
+    },
+    {
+     "kind": "access",
+     "function": "_ZN15IsaacRepentance13Entity_Player20TriggerEffectRemovedEPKNS_10ItemConfig4ItemEi",
+     "address": "0x002de65c",
+     "offset": 32,
+     "width": 8,
+     "why": "镜像里访问该偏移的指令（ldr x，宽度 8）；共找到 8722 条同类访问，此为该常量名呼应度最高的函数之一"
+    },
+    {
+     "kind": "access",
+     "function": "_ZN15IsaacRepentance13Entity_Player20TriggerEffectRemovedEPKNS_10ItemConfig4ItemEi",
+     "address": "0x002de734",
+     "offset": 32,
+     "width": 8,
+     "why": "镜像里访问该偏移的指令（ldr x，宽度 8）；共找到 8722 条同类访问，此为该常量名呼应度最高的函数之一"
+    }
+   ]
+  },
+  {
+   "name": "kItemConfigTrinketEndOffset",
+   "kind": "int32",
+   "offset": 32,
+   "width": 8,
+   "confidence": "candidate",
+   "semantic": "（草稿）自动取证：语义未确认，仅登记「偏移 + 一处可复核的访问指令」",
+   "evidence": [
+    {
+     "kind": "access",
+     "function": "_ZN15IsaacRepentance13Entity_Player14check_familiarEjiRNS_3RNGEPKNS_10ItemConfig4ItemEi",
+     "address": "0x0029aeb8",
+     "offset": 32,
+     "width": 8,
+     "why": "镜像里访问该偏移的指令（ldr x，宽度 8）；共找到 8722 条同类访问，此为该常量名呼应度最高的函数之一"
+    },
+    {
+     "kind": "access",
+     "function": "_ZN15IsaacRepentance13Entity_Player20TriggerEffectRemovedEPKNS_10ItemConfig4ItemEi",
+     "address": "0x002de65c",
+     "offset": 32,
+     "width": 8,
+     "why": "镜像里访问该偏移的指令（ldr x，宽度 8）；共找到 8722 条同类访问，此为该常量名呼应度最高的函数之一"
+    },
+    {
+     "kind": "access",
+     "function": "_ZN15IsaacRepentance13Entity_Player20TriggerEffectRemovedEPKNS_10ItemConfig4ItemEi",
+     "address": "0x002de734",
+     "offset": 32,
+     "width": 8,
+     "why": "镜像里访问该偏移的指令（ldr x，宽度 8）；共找到 8722 条同类访问，此为该常量名呼应度最高的函数之一"
+    }
+   ]
+  },
+  {
+   "name": "kItemConfigNullItemBeginOffset",
+   "kind": "int32",
+   "offset": 48,
+   "width": 8,
+   "confidence": "candidate",
+   "semantic": "（草稿）自动取证：语义未确认，仅登记「偏移 + 一处可复核的访问指令」",
+   "evidence": [
+    {
+     "kind": "access",
+     "function": "_ZNK15IsaacRepentance10ItemConfig11GetNullItemEi",
+     "address": "0x003c0cc8",
+     "offset": 48,
+     "width": 8,
+     "why": "镜像里访问该偏移的指令（ldp x，宽度 8）；共找到 4035 条同类访问，此为该常量名呼应度最高的函数之一"
+    },
+    {
+     "kind": "access",
+     "function": "_ZN15IsaacRepentance3HUD10HistoryHUD14ShouldShowItemEPNS_13Entity_PlayerEPKNS_10ItemConfig4ItemE",
+     "address": "0x003b13c4",
+     "offset": 48,
+     "width": 4,
+     "why": "镜像里访问该偏移的指令（ldr w，宽度 4）；共找到 4035 条同类访问，此为该常量名呼应度最高的函数之一"
+    },
+    {
+     "kind": "access",
+     "function": "_ZN15IsaacRepentance3HUD10HistoryHUD14ShouldShowItemEPNS_13Entity_PlayerEPKNS_10ItemConfig4ItemE",
+     "address": "0x003b13d0",
+     "offset": 48,
+     "width": 4,
+     "why": "镜像里访问该偏移的指令（str w，宽度 4）；共找到 4035 条同类访问，此为该常量名呼应度最高的函数之一"
+    }
+   ]
+  },
+  {
+   "name": "kItemConfigItemGfxFileNameOffset",
+   "kind": "int32",
+   "offset": 56,
+   "width": 8,
+   "confidence": "candidate",
+   "semantic": "（草稿）自动取证：语义未确认，仅登记「偏移 + 一处可复核的访问指令」",
+   "evidence": [
+    {
+     "kind": "access",
+     "function": "_ZN15IsaacRepentance13Entity_Player21is_item_anim_finishedENS_10ItemConfig11eNullItemIDERKNSt3__112basic_stringIcNS3_11char_traitsIcEENS3_9allocatorIcEEEE",
+     "address": "0x002d6874",
+     "offset": 56,
+     "width": 8,
+     "why": "镜像里访问该偏移的指令（ldr x，宽度 8）；共找到 4838 条同类访问，此为该常量名呼应度最高的函数之一"
+    },
+    {
+     "kind": "access",
+     "function": "_ZN15IsaacRepentance13Entity_Player20TriggerEffectRemovedEPKNS_10ItemConfig4ItemEi",
+     "address": "0x002de320",
+     "offset": 56,
+     "width": 4,
+     "why": "镜像里访问该偏移的指令（ldr w，宽度 4）；共找到 4838 条同类访问，此为该常量名呼应度最高的函数之一"
+    },
+    {
+     "kind": "access",
+     "function": "_ZN15IsaacRepentance13Entity_Player20TriggerEffectRemovedEPKNS_10ItemConfig4ItemEi",
+     "address": "0x002de414",
+     "offset": 56,
+     "width": 4,
+     "why": "镜像里访问该偏移的指令（ldr w，宽度 4）；共找到 4838 条同类访问，此为该常量名呼应度最高的函数之一"
+    }
+   ]
+  },
+  {
+   "name": "kItemConfigNullItemEndOffset",
+   "kind": "int32",
+   "offset": 56,
+   "width": 8,
+   "confidence": "candidate",
+   "semantic": "（草稿）自动取证：语义未确认，仅登记「偏移 + 一处可复核的访问指令」",
+   "evidence": [
+    {
+     "kind": "access",
+     "function": "_ZN15IsaacRepentance13Entity_Player21is_item_anim_finishedENS_10ItemConfig11eNullItemIDERKNSt3__112basic_stringIcNS3_11char_traitsIcEENS3_9allocatorIcEEEE",
+     "address": "0x002d6874",
+     "offset": 56,
+     "width": 8,
+     "why": "镜像里访问该偏移的指令（ldr x，宽度 8）；共找到 4838 条同类访问，此为该常量名呼应度最高的函数之一"
+    },
+    {
+     "kind": "access",
+     "function": "_ZN15IsaacRepentance13Entity_Player20TriggerEffectRemovedEPKNS_10ItemConfig4ItemEi",
+     "address": "0x002de320",
+     "offset": 56,
+     "width": 4,
+     "why": "镜像里访问该偏移的指令（ldr w，宽度 4）；共找到 4838 条同类访问，此为该常量名呼应度最高的函数之一"
+    },
+    {
+     "kind": "access",
+     "function": "_ZN15IsaacRepentance13Entity_Player20TriggerEffectRemovedEPKNS_10ItemConfig4ItemEi",
+     "address": "0x002de414",
+     "offset": 56,
+     "width": 4,
+     "why": "镜像里访问该偏移的指令（ldr w，宽度 4）；共找到 4838 条同类访问，此为该常量名呼应度最高的函数之一"
+    }
+   ]
+  },
+  {
+   "name": "kItemConfigCardBeginOffset",
+   "kind": "int32",
+   "offset": 72,
+   "width": 8,
+   "confidence": "candidate",
+   "semantic": "（草稿）自动取证：语义未确认，仅登记「偏移 + 一处可复核的访问指令」",
+   "evidence": [
+    {
+     "kind": "access",
+     "function": "_ZNK15IsaacRepentance10ItemConfig7GetCardEi",
+     "address": "0x003c0d18",
+     "offset": 72,
+     "width": 8,
+     "why": "镜像里访问该偏移的指令（ldp x，宽度 8）；共找到 2027 条同类访问，此为该常量名呼应度最高的函数之一"
+    },
+    {
+     "kind": "access",
+     "function": "_ZN15IsaacRepentance13Entity_Player21is_item_anim_finishedENS_10ItemConfig11eNullItemIDERKNSt3__112basic_stringIcNS3_11char_traitsIcEENS3_9allocatorIcEEEE",
+     "address": "0x002d687c",
+     "offset": 72,
+     "width": 1,
+     "why": "镜像里访问该偏移的指令（ldrb，宽度 1）；共找到 2027 条同类访问，此为该常量名呼应度最高的函数之一"
+    },
+    {
+     "kind": "access",
+     "function": "_ZN15IsaacRepentance10ItemConfig4InitEv",
+     "address": "0x003b430c",
+     "offset": 72,
+     "width": 8,
+     "why": "镜像里访问该偏移的指令（ldr x，宽度 8）；共找到 2027 条同类访问，此为该常量名呼应度最高的函数之一"
+    }
+   ]
+  },
+  {
+   "name": "kItemConfigPillEffectMimicChargeOffset",
+   "kind": "int32",
+   "offset": 72,
+   "width": 1,
+   "confidence": "candidate",
+   "semantic": "（草稿）自动取证：语义未确认，仅登记「偏移 + 一处可复核的访问指令」",
+   "evidence": [
+    {
+     "kind": "access",
+     "function": "_ZN15IsaacRepentance13Entity_Player21is_item_anim_finishedENS_10ItemConfig11eNullItemIDERKNSt3__112basic_stringIcNS3_11char_traitsIcEENS3_9allocatorIcEEEE",
+     "address": "0x002d687c",
+     "offset": 72,
+     "width": 1,
+     "why": "镜像里访问该偏移的指令（ldrb，宽度 1）；共找到 2027 条同类访问，此为该常量名呼应度最高的函数之一"
+    },
+    {
+     "kind": "access",
+     "function": "_ZN15IsaacRepentance13Entity_Player7UsePillENS_11ePillEffectENS_10ePillColorEj",
+     "address": "0x002e14b4",
+     "offset": 72,
+     "width": 8,
+     "why": "镜像里访问该偏移的指令（ldr x，宽度 8）；共找到 2027 条同类访问，此为该常量名呼应度最高的函数之一"
+    },
+    {
+     "kind": "access",
+     "function": "_ZN15IsaacRepentance10ItemConfig4InitEv",
+     "address": "0x003b430c",
+     "offset": 72,
+     "width": 8,
+     "why": "镜像里访问该偏移的指令（ldr x，宽度 8）；共找到 2027 条同类访问，此为该常量名呼应度最高的函数之一"
+    }
+   ]
+  },
+  {
+   "name": "kItemConfigCardEndOffset",
+   "kind": "int32",
+   "offset": 80,
+   "width": 1,
+   "confidence": "candidate",
+   "semantic": "（草稿）自动取证：语义未确认，仅登记「偏移 + 一处可复核的访问指令」",
+   "evidence": [
+    {
+     "kind": "access",
+     "function": "_ZNK15IsaacRepentance10ItemConfig4Card11IsAvailableEv",
+     "address": "0x003c1cbc",
+     "offset": 80,
+     "width": 1,
+     "why": "镜像里访问该偏移的指令（ldrb，宽度 1）；共找到 1862 条同类访问，此为该常量名呼应度最高的函数之一"
+    },
+    {
+     "kind": "access",
+     "function": "_ZN15IsaacRepentance13Entity_Player20TriggerEffectRemovedEPKNS_10ItemConfig4ItemEi",
+     "address": "0x002dee48",
+     "offset": 80,
+     "width": 8,
+     "why": "镜像里访问该偏移的指令（ldr x，宽度 8）；共找到 1862 条同类访问，此为该常量名呼应度最高的函数之一"
+    },
+    {
+     "kind": "access",
+     "function": "_ZN15IsaacRepentance10ItemConfigC2Ev",
+     "address": "0x003b4114",
+     "offset": 80,
+     "width": 8,
+     "why": "镜像里访问该偏移的指令（stp x，宽度 8）；共找到 1862 条同类访问，此为该常量名呼应度最高的函数之一"
+    }
+   ]
+  },
+  {
+   "name": "kItemConfigItemAchievementIdOffset",
+   "kind": "int32",
+   "offset": 80,
+   "width": 8,
+   "confidence": "candidate",
+   "semantic": "（草稿）自动取证：语义未确认，仅登记「偏移 + 一处可复核的访问指令」",
+   "evidence": [
+    {
+     "kind": "access",
+     "function": "_ZN15IsaacRepentance13Entity_Player20TriggerEffectRemovedEPKNS_10ItemConfig4ItemEi",
+     "address": "0x002dee48",
+     "offset": 80,
+     "width": 8,
+     "why": "镜像里访问该偏移的指令（ldr x，宽度 8）；共找到 1862 条同类访问，此为该常量名呼应度最高的函数之一"
+    },
+    {
+     "kind": "access",
+     "function": "_ZN15IsaacRepentance10ItemConfigC2Ev",
+     "address": "0x003b4114",
+     "offset": 80,
+     "width": 8,
+     "why": "镜像里访问该偏移的指令（stp x，宽度 8）；共找到 1862 条同类访问，此为该常量名呼应度最高的函数之一"
+    },
+    {
+     "kind": "access",
+     "function": "_ZN15IsaacRepentance10ItemConfig4InitEv",
+     "address": "0x003b4304",
+     "offset": 80,
+     "width": 8,
+     "why": "镜像里访问该偏移的指令（str x，宽度 8）；共找到 1862 条同类访问，此为该常量名呼应度最高的函数之一"
+    }
+   ]
+  },
+  {
+   "name": "kItemConfigItemTagsOffset",
+   "kind": "int32",
+   "offset": 88,
+   "width": 8,
+   "confidence": "candidate",
+   "semantic": "（草稿）自动取证：语义未确认，仅登记「偏移 + 一处可复核的访问指令」",
+   "evidence": [
+    {
+     "kind": "access",
+     "function": "_ZN15IsaacRepentance13Entity_Player14check_familiarEjiRNS_3RNGEPKNS_10ItemConfig4ItemEi",
+     "address": "0x0029af88",
+     "offset": 88,
+     "width": 8,
+     "why": "镜像里访问该偏移的指令（ldr x，宽度 8）；共找到 2072 条同类访问，此为该常量名呼应度最高的函数之一"
+    },
+    {
+     "kind": "access",
+     "function": "_ZN15IsaacRepentance13Entity_Player14check_familiarEjiRNS_3RNGEPKNS_10ItemConfig4ItemEi",
+     "address": "0x0029b020",
+     "offset": 88,
+     "width": 8,
+     "why": "镜像里访问该偏移的指令（ldr x，宽度 8）；共找到 2072 条同类访问，此为该常量名呼应度最高的函数之一"
+    },
+    {
+     "kind": "access",
+     "function": "_ZN15IsaacRepentance13Entity_Player20TriggerEffectRemovedEPKNS_10ItemConfig4ItemEi",
+     "address": "0x002dec90",
+     "offset": 88,
+     "width": 8,
+     "why": "镜像里访问该偏移的指令（ldr x，宽度 8）；共找到 2072 条同类访问，此为该常量名呼应度最高的函数之一"
+    }
+   ]
+  },
+  {
+   "name": "kItemConfigPillEffectBeginOffset",
+   "kind": "int32",
+   "offset": 96,
+   "width": 8,
+   "confidence": "candidate",
+   "semantic": "（草稿）自动取证：语义未确认，仅登记「偏移 + 一处可复核的访问指令」",
+   "evidence": [
+    {
+     "kind": "access",
+     "function": "_ZNK15IsaacRepentance10ItemConfig13GetPillEffectENS_11ePillEffectE",
+     "address": "0x003c0cf0",
+     "offset": 96,
+     "width": 8,
+     "why": "镜像里访问该偏移的指令（ldp x，宽度 8）；共找到 1348 条同类访问，此为该常量名呼应度最高的函数之一"
+    },
+    {
+     "kind": "access",
+     "function": "_ZN15IsaacRepentance10ItemConfigC2Ev",
+     "address": "0x003b4118",
+     "offset": 96,
+     "width": 8,
+     "why": "镜像里访问该偏移的指令（stp x，宽度 8）；共找到 1348 条同类访问，此为该常量名呼应度最高的函数之一"
+    },
+    {
+     "kind": "access",
+     "function": "_ZN15IsaacRepentance10ItemConfig4InitEv",
+     "address": "0x003b4368",
+     "offset": 96,
+     "width": 8,
+     "why": "镜像里访问该偏移的指令（str x，宽度 8）；共找到 1348 条同类访问，此为该常量名呼应度最高的函数之一"
+    }
+   ]
+  },
+  {
+   "name": "kItemConfigCardMimicChargeOffset",
+   "kind": "int32",
+   "offset": 100,
+   "width": 4,
+   "confidence": "candidate",
+   "semantic": "（草稿）自动取证：语义未确认，仅登记「偏移 + 一处可复核的访问指令」",
+   "evidence": [
+    {
+     "kind": "access",
+     "function": "_ZN15IsaacRepentance10ItemConfig4LoadEPKcPNS_8ModEntryE",
+     "address": "0x003b5e00",
+     "offset": 100,
+     "width": 4,
+     "why": "镜像里访问该偏移的指令（str w，宽度 4）；共找到 301 条同类访问，此为该常量名呼应度最高的函数之一"
+    },
+    {
+     "kind": "access",
+     "function": "_ZN15IsaacRepentance10ItemConfig14LoadWispConfigEPKcPNS_8ModEntryE",
+     "address": "0x003bbb84",
+     "offset": 100,
+     "width": 4,
+     "why": "镜像里访问该偏移的指令（str s，宽度 4）；共找到 301 条同类访问，此为该常量名呼应度最高的函数之一"
+    },
+    {
+     "kind": "access",
+     "function": "_ZN15IsaacRepentance10ItemConfig14LoadWispConfigEPKcPNS_8ModEntryE",
+     "address": "0x003bc1f8",
+     "offset": 100,
+     "width": 4,
+     "why": "镜像里访问该偏移的指令（ldr s，宽度 4）；共找到 301 条同类访问，此为该常量名呼应度最高的函数之一"
+    }
+   ]
+  },
+  {
+   "name": "kItemConfigPillEffectEndOffset",
+   "kind": "int32",
+   "offset": 104,
+   "width": 8,
+   "confidence": "candidate",
+   "semantic": "（草稿）自动取证：语义未确认，仅登记「偏移 + 一处可复核的访问指令」",
+   "evidence": [
+    {
+     "kind": "access",
+     "function": "_ZN15IsaacRepentance10ItemConfig4InitEv",
+     "address": "0x003b4370",
+     "offset": 104,
+     "width": 8,
+     "why": "镜像里访问该偏移的指令（str x，宽度 8）；共找到 1103 条同类访问，此为该常量名呼应度最高的函数之一"
+    },
+    {
+     "kind": "access",
+     "function": "_ZN15IsaacRepentance10ItemConfig4InitEv",
+     "address": "0x003b4654",
+     "offset": 104,
+     "width": 8,
+     "why": "镜像里访问该偏移的指令（str x，宽度 8）；共找到 1103 条同类访问，此为该常量名呼应度最高的函数之一"
+    },
+    {
+     "kind": "access",
+     "function": "_ZN15IsaacRepentance10ItemConfig4InitEv",
+     "address": "0x003b46c0",
+     "offset": 104,
+     "width": 8,
+     "why": "镜像里访问该偏移的指令（str x，宽度 8）；共找到 1103 条同类访问，此为该常量名呼应度最高的函数之一"
+    }
+   ]
+  },
+  {
+   "name": "kItemConfigItemMaxChargesOffset",
+   "kind": "int32",
+   "offset": 116,
+   "width": 4,
+   "confidence": "candidate",
+   "semantic": "（草稿）自动取证：语义未确认，仅登记「偏移 + 一处可复核的访问指令」",
+   "evidence": [
+    {
+     "kind": "access",
+     "function": "_ZN15IsaacRepentance10ItemConfig4LoadEPKcPNS_8ModEntryE",
+     "address": "0x003b5e60",
+     "offset": 116,
+     "width": 4,
+     "why": "镜像里访问该偏移的指令（str w，宽度 4）；共找到 159 条同类访问，此为该常量名呼应度最高的函数之一"
+    },
+    {
+     "kind": "access",
+     "function": "_ZNK15IsaacRepentance10ItemConfig4Item17GetSoulChargeTypeEv",
+     "address": "0x003c19fc",
+     "offset": 116,
+     "width": 4,
+     "why": "镜像里访问该偏移的指令（ldr w，宽度 4）；共找到 159 条同类访问，此为该常量名呼应度最高的函数之一"
+    },
+    {
+     "kind": "access",
+     "function": "_ZN15IsaacRepentance13Entity_Player13EvaluateItemsEv",
+     "address": "0x00280e20",
+     "offset": 116,
+     "width": 4,
+     "why": "镜像里访问该偏移的指令（ldr w，宽度 4）；共找到 159 条同类访问，此为该常量名呼应度最高的函数之一"
+    }
+   ]
+  },
+  {
+   "name": "kItemConfigPlayerFormEndOffset",
+   "kind": "int32",
+   "offset": 152,
+   "width": 8,
+   "confidence": "candidate",
+   "semantic": "（草稿）自动取证：语义未确认，仅登记「偏移 + 一处可复核的访问指令」",
+   "evidence": [
+    {
+     "kind": "access",
+     "function": "_ZN15IsaacRepentance12EntityConfig11LoadPlayersEPKcPNS_8ModEntryE",
+     "address": "0x0006e41c",
+     "offset": 152,
+     "width": 8,
+     "why": "镜像里访问该偏移的指令（stp x，宽度 8）；共找到 603 条同类访问，此为该常量名呼应度最高的函数之一"
+    },
+    {
+     "kind": "access",
+     "function": "_ZN15IsaacRepentance12EntityConfig6PlayerD2Ev",
+     "address": "0x0006fbdc",
+     "offset": 152,
+     "width": 1,
+     "why": "镜像里访问该偏移的指令（ldrb，宽度 1）；共找到 603 条同类访问，此为该常量名呼应度最高的函数之一"
+    },
+    {
+     "kind": "access",
+     "function": "_ZNSt3__16vectorIN15IsaacRepentance12EntityConfig6PlayerENS_9allocatorIS3_EEE8__appendEm",
+     "address": "0x00074580",
+     "offset": 152,
+     "width": 8,
+     "why": "镜像里访问该偏移的指令（stp x，宽度 8）；共找到 603 条同类访问，此为该常量名呼应度最高的函数之一"
+    }
+   ]
+  },
+  {
+   "name": "kItemConfigItemChargeTypeOffset",
+   "kind": "int32",
+   "offset": 176,
+   "width": 4,
+   "confidence": "candidate",
+   "semantic": "（草稿）自动取证：语义未确认，仅登记「偏移 + 一处可复核的访问指令」",
+   "evidence": [
+    {
+     "kind": "access",
+     "function": "_ZNK15IsaacRepentance10ItemConfig4Item17GetSoulChargeTypeEv",
+     "address": "0x003c19e8",
+     "offset": 176,
+     "width": 4,
+     "why": "镜像里访问该偏移的指令（ldr w，宽度 4）；共找到 651 条同类访问，此为该常量名呼应度最高的函数之一"
+    },
+    {
+     "kind": "access",
+     "function": "_ZN15IsaacRepentance13Entity_Player19DischargeActiveItemEib",
+     "address": "0x002b9874",
+     "offset": 176,
+     "width": 4,
+     "why": "镜像里访问该偏移的指令（ldr w，宽度 4）；共找到 651 条同类访问，此为该常量名呼应度最高的函数之一"
+    },
+    {
+     "kind": "access",
+     "function": "_ZN15IsaacRepentance13Entity_Player11IsItemTimedENS_16eCollectibleTypeE",
+     "address": "0x002ddc3c",
+     "offset": 176,
+     "width": 4,
+     "why": "镜像里访问该偏移的指令（ldr w，宽度 4）；共找到 651 条同类访问，此为该常量名呼应度最高的函数之一"
+    }
+   ]
+  },
+  {
+   "name": "kItemConfigItemHiddenOffset",
+   "kind": "int32",
+   "offset": 183,
+   "width": 1,
+   "confidence": "candidate",
+   "semantic": "（草稿）自动取证：语义未确认，仅登记「偏移 + 一处可复核的访问指令」",
+   "evidence": [
+    {
+     "kind": "access",
+     "function": "_ZN15IsaacRepentance10ItemConfig4LoadEPKcPNS_8ModEntryE",
+     "address": "0x003b6234",
+     "offset": 183,
+     "width": 1,
+     "why": "镜像里访问该偏移的指令（strb，宽度 1）；共找到 8 条同类访问，此为该常量名呼应度最高的函数之一"
+    },
+    {
+     "kind": "access",
+     "function": "_ZNK15IsaacRepentance10ItemConfig4Item13IsAvailableExEj",
+     "address": "0x003c1034",
+     "offset": 183,
+     "width": 1,
+     "why": "镜像里访问该偏移的指令（ldrb，宽度 1）；共找到 8 条同类访问，此为该常量名呼应度最高的函数之一"
+    },
+    {
+     "kind": "access",
+     "function": "_ZN2nn3nex18PRUDPLiteMessageV111HeaderParseEPNS0_10ByteStreamEPNS0_8PacketInERjS6_",
+     "address": "0x005e5928",
+     "offset": 183,
+     "width": 1,
+     "why": "镜像里访问该偏移的指令（ldrb，宽度 1）；共找到 8 条同类访问，此为该常量名呼应度最高的函数之一"
+    }
+   ]
+  },
+  {
+   "name": "kItemConfigItemQualityOffset",
+   "kind": "int32",
+   "offset": 200,
+   "width": 8,
+   "confidence": "candidate",
+   "semantic": "（草稿）自动取证：语义未确认，仅登记「偏移 + 一处可复核的访问指令」",
+   "evidence": [
+    {
+     "kind": "access",
+     "function": "_ZN15IsaacRepentance10ItemConfig4InitEv",
+     "address": "0x003b43d0",
+     "offset": 200,
+     "width": 8,
+     "why": "镜像里访问该偏移的指令（str x，宽度 8）；共找到 349 条同类访问，此为该常量名呼应度最高的函数之一"
+    },
+    {
+     "kind": "access",
+     "function": "_ZN15IsaacRepentance10ItemConfig4InitEv",
+     "address": "0x003b4720",
+     "offset": 200,
+     "width": 8,
+     "why": "镜像里访问该偏移的指令（str x，宽度 8）；共找到 349 条同类访问，此为该常量名呼应度最高的函数之一"
+    },
+    {
+     "kind": "access",
+     "function": "_ZN15IsaacRepentance10ItemConfig4InitEv",
+     "address": "0x003b4984",
+     "offset": 200,
+     "width": 8,
+     "why": "镜像里访问该偏移的指令（stp x，宽度 8）；共找到 349 条同类访问，此为该常量名呼应度最高的函数之一"
+    }
+   ]
+  },
+  {
+   "name": "kItemConfigItemCraftingQualityOffset",
+   "kind": "int32",
+   "offset": 204,
+   "width": 4,
+   "confidence": "candidate",
+   "semantic": "（草稿）自动取证：语义未确认，仅登记「偏移 + 一处可复核的访问指令」",
+   "evidence": [
+    {
+     "kind": "access",
+     "function": "_ZN15IsaacRepentance10ItemConfig19LoadCraftingRecipesEPKcPNS_8ModEntryE",
+     "address": "0x003bdc74",
+     "offset": 204,
+     "width": 4,
+     "why": "镜像里访问该偏移的指令（stp w，宽度 4）；共找到 137 条同类访问，此为该常量名呼应度最高的函数之一"
+    },
+    {
+     "kind": "access",
+     "function": "_ZN15IsaacRepentance10ItemConfig4LoadEPKcPNS_8ModEntryE",
+     "address": "0x003b62b0",
+     "offset": 204,
+     "width": 4,
+     "why": "镜像里访问该偏移的指令（str w，宽度 4）；共找到 137 条同类访问，此为该常量名呼应度最高的函数之一"
+    },
+    {
+     "kind": "access",
+     "function": "_ZN15IsaacRepentance10ItemConfig4LoadEPKcPNS_8ModEntryE",
+     "address": "0x003b6308",
+     "offset": 204,
+     "width": 4,
+     "why": "镜像里访问该偏移的指令（ldr w，宽度 4）；共找到 137 条同类访问，此为该常量名呼应度最高的函数之一"
+    }
+   ]
+  },
+  {
+   "name": "kItemPoolLastPoolOffset",
+   "kind": "int32",
+   "offset": 2240,
+   "width": 4,
+   "confidence": "candidate",
+   "semantic": "（草稿）自动取证：语义未确认，仅登记「偏移 + 一处可复核的访问指令」",
+   "evidence": [
+    {
+     "kind": "access",
+     "function": "_ZN15IsaacRepentance8ItemPool14GetCollectibleENS0_13eItemPoolTypeEjjNS_16eCollectibleTypeE",
+     "address": "0x003c64c0",
+     "offset": 2240,
+     "width": 4,
+     "why": "镜像里访问该偏移的指令（str w，宽度 4）；共找到 61 条同类访问，此为该常量名呼应度最高的函数之一"
+    },
+    {
+     "kind": "access",
+     "function": "_ZN15IsaacRepentance8ItemPool14GetCollectibleENS0_13eItemPoolTypeEjjNS_16eCollectibleTypeE",
+     "address": "0x003c66e8",
+     "offset": 2240,
+     "width": 4,
+     "why": "镜像里访问该偏移的指令（str w，宽度 4）；共找到 61 条同类访问，此为该常量名呼应度最高的函数之一"
+    },
+    {
+     "kind": "access",
+     "function": "_ZN15IsaacRepentance8ItemPool4InitEjPKc",
+     "address": "0x003c8850",
+     "offset": 2240,
+     "width": 4,
+     "why": "镜像里访问该偏移的指令（str w，宽度 4）；共找到 61 条同类访问，此为该常量名呼应度最高的函数之一"
+    }
+   ]
+  },
+  {
+   "name": "kItemPoolPillEffectOffset",
+   "kind": "int32",
+   "offset": 2604,
+   "width": 4,
+   "confidence": "candidate",
+   "semantic": "（草稿）自动取证：语义未确认，仅登记「偏移 + 一处可复核的访问指令」",
+   "evidence": [
+    {
+     "kind": "access",
+     "function": "_ZN15IsaacRepentance8ItemPool13GetPillEffectENS_10ePillColorEPNS_13Entity_PlayerE",
+     "address": "0x003c85bc",
+     "offset": 2604,
+     "width": 4,
+     "why": "镜像里访问该偏移的指令（ldr w，宽度 4）；共找到 9 条同类访问，此为该常量名呼应度最高的函数之一"
+    },
+    {
+     "kind": "access",
+     "function": "_ZN15IsaacRepentance8ItemPool18ForceAddPillEffectENS_11ePillEffectE",
+     "address": "0x003caa6c",
+     "offset": 2604,
+     "width": 4,
+     "why": "镜像里访问该偏移的指令（str w，宽度 4）；共找到 9 条同类访问，此为该常量名呼应度最高的函数之一"
+    },
+    {
+     "kind": "access",
+     "function": "_ZN15IsaacRepentance8ItemPool16RerollPillEffectENS_10ePillColorEjb",
+     "address": "0x003cae68",
+     "offset": 2604,
+     "width": 4,
+     "why": "镜像里访问该偏移的指令（str w，宽度 4）；共找到 9 条同类访问，此为该常量名呼应度最高的函数之一"
+    }
+   ]
+  },
+  {
+   "name": "kItemPoolPillIdentifiedOffset",
+   "kind": "int32",
+   "offset": 2664,
+   "width": 1,
+   "confidence": "candidate",
+   "semantic": "（草稿）自动取证：语义未确认，仅登记「偏移 + 一处可复核的访问指令」",
+   "evidence": [
+    {
+     "kind": "access",
+     "function": "_ZN15IsaacRepentance8ItemPool16RerollPillEffectENS_10ePillColorEjb",
+     "address": "0x003caabc",
+     "offset": 2664,
+     "width": 1,
+     "why": "镜像里访问该偏移的指令（strb，宽度 1）；共找到 52 条同类访问，此为该常量名呼应度最高的函数之一"
+    },
+    {
+     "kind": "access",
+     "function": "_ZN15IsaacRepentance8ItemPool4InitEjPKc",
+     "address": "0x003c8bfc",
+     "offset": 2664,
+     "width": 8,
+     "why": "镜像里访问该偏移的指令（str x，宽度 8）；共找到 52 条同类访问，此为该常量名呼应度最高的函数之一"
+    },
+    {
+     "kind": "access",
+     "function": "_ZN15IsaacRepentance8ItemPool16RestoreGameStateERKNS_17GameStateItemPoolE",
+     "address": "0x003ca210",
+     "offset": 2664,
+     "width": 1,
+     "why": "镜像里访问该偏移的指令（strb，宽度 1）；共找到 52 条同类访问，此为该常量名呼应度最高的函数之一"
+    }
+   ]
+  }
+ ]
+}

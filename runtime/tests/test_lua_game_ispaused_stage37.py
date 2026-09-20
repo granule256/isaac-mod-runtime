@@ -241,7 +241,12 @@ int main(int argc, char** argv) {
 
         self.assertIn("std::atomic<u32> g_InManagedCallbackDispatch{false};", source)
         self.assertNotIn("g_InPostUpdateDispatch", source)
-        self.assertIn("Game:IsPaused is only available during a Runtime callback", game_api)
+        # ★ 设计变更（2026-09-19，批次 043，用户已批准）：`Game:IsPaused` 那道
+        # `InManagedCallbackScope()` 守卫**已删除** —— PC 允许模组在加载期读引擎状态
+        # （GoodTrip 的 `scripts/floor.lua:11-17` 就是这么写的），报错会让整个模组的功能
+        # 整块消失。判据与证据见 `docs/改动日志-20260919.md`（042·补二 / 043）。
+        self.assertNotIn("Game:IsPaused is only available during a Runtime callback", game_api)
+        self.assertIn("批次 043", game_api)
 
         invoker = source[
             source.index("struct LuaCallbackInvoker"):

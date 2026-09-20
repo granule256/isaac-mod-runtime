@@ -314,10 +314,10 @@ int main(int argc, char** argv) {
     }
 
     LuaRuntime::LuaSpriteBindings bindings{};
-    bindings.ctor = reinterpret_cast<uintptr_t>(&FakeCtor);
-    bindings.destructor_ = reinterpret_cast<uintptr_t>(&FakeDtor);
-    bindings.render = reinterpret_cast<uintptr_t>(&FakeRender);
-    bindings.renderLayer = reinterpret_cast<uintptr_t>(&FakeRenderLayer);
+    bindings.ctor = &FakeCtor;
+    bindings.destructor_ = &FakeDtor;
+    bindings.render = &FakeRender;
+    bindings.renderLayer = &FakeRenderLayer;
     LuaRuntime::SetSpriteBindings(bindings);
     isaac::runtime::SetSpritePropertyApplyHostImplementation(&HarnessApplyProperties);
 

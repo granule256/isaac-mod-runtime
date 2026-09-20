@@ -1,0 +1,114 @@
+{
+ "schema": "isaac-layout-table/1",
+ "build_id": "91C73FDD575061318D68886316AFEAC72388B2AB",
+ "struct": "level",
+ "note": [
+  "★ 这是**自动起草**的草稿（`tools/draft_layout_evidence.py` 生成），不参与 C++ 生成。",
+  "每行的证据是「镜像里访问该偏移的一条指令 + 它所在的函数」，可被 `tools/build_layout_table.py --verify` 重新反汇编复核。",
+  "语义（字段名/含义）尚未人工确认 ⇒ confidence 一律 candidate，不得进对外 API。"
+ ],
+ "rows": [
+  {
+   "name": "kLevelStageOffset",
+   "kind": "int32",
+   "offset": 0,
+   "width": 8,
+   "confidence": "candidate",
+   "semantic": "（草稿）自动取证：语义未确认，仅登记「偏移 + 一处可复核的访问指令」",
+   "evidence": [
+    {
+     "kind": "access",
+     "function": "_ZN15IsaacRepentance8BossPool9GetBossIdENS_11eLevelStageENS_10eStageTypeEPNS_3RNGE",
+     "address": "0x000304f0",
+     "offset": 0,
+     "width": 8,
+     "why": "镜像里访问该偏移的指令（ldr x，宽度 8）；共找到 77227 条同类访问，此为该常量名呼应度最高的函数之一"
+    },
+    {
+     "kind": "access",
+     "function": "_ZN15IsaacRepentance8BossPool9GetBossIdENS_11eLevelStageENS_10eStageTypeEPNS_3RNGE",
+     "address": "0x00030530",
+     "offset": 0,
+     "width": 8,
+     "why": "镜像里访问该偏移的指令（ldr x，宽度 8）；共找到 77227 条同类访问，此为该常量名呼应度最高的函数之一"
+    },
+    {
+     "kind": "access",
+     "function": "_ZN15IsaacRepentance8BossPool9GetBossIdENS_11eLevelStageENS_10eStageTypeEPNS_3RNGE",
+     "address": "0x00030540",
+     "offset": 0,
+     "width": 4,
+     "why": "镜像里访问该偏移的指令（ldr w，宽度 4）；共找到 77227 条同类访问，此为该常量名呼应度最高的函数之一"
+    }
+   ]
+  },
+  {
+   "name": "kLevelStageTypeOffset",
+   "kind": "int32",
+   "offset": 4,
+   "width": 1,
+   "confidence": "candidate",
+   "semantic": "（草稿）自动取证：语义未确认，仅登记「偏移 + 一处可复核的访问指令」",
+   "evidence": [
+    {
+     "kind": "access",
+     "function": "_ZN15IsaacRepentance8FXLayers4InitEPKcNS_11eLevelStageENS_10eStageTypeE",
+     "address": "0x00344750",
+     "offset": 4,
+     "width": 1,
+     "why": "镜像里访问该偏移的指令（ldrb，宽度 1）；共找到 2360 条同类访问，此为该常量名呼应度最高的函数之一"
+    },
+    {
+     "kind": "access",
+     "function": "_ZN15IsaacRepentance8FXLayers4InitEPKcNS_11eLevelStageENS_10eStageTypeE",
+     "address": "0x00344880",
+     "offset": 4,
+     "width": 1,
+     "why": "镜像里访问该偏移的指令（ldrb，宽度 1）；共找到 2360 条同类访问，此为该常量名呼应度最高的函数之一"
+    },
+    {
+     "kind": "access",
+     "function": "_ZN15IsaacRepentance8FXLayers4InitEPKcNS_11eLevelStageENS_10eStageTypeE",
+     "address": "0x00344990",
+     "offset": 4,
+     "width": 1,
+     "why": "镜像里访问该偏移的指令（ldrb，宽度 1）；共找到 2360 条同类访问，此为该常量名呼应度最高的函数之一"
+    }
+   ]
+  },
+  {
+   "name": "kLevelCursesOffset",
+   "kind": "int32",
+   "offset": 12,
+   "width": 4,
+   "confidence": "candidate",
+   "semantic": "（草稿）自动取证：语义未确认，仅登记「偏移 + 一处可复核的访问指令」",
+   "evidence": [
+    {
+     "kind": "access",
+     "function": "_ZNK15IsaacRepentance5Level9GetCursesEv",
+     "address": "0x003d57dc",
+     "offset": 12,
+     "width": 4,
+     "why": "镜像里访问该偏移的指令（ldr w，宽度 4）；共找到 2060 条同类访问，此为该常量名呼应度最高的函数之一"
+    },
+    {
+     "kind": "access",
+     "function": "_ZN15IsaacRepentance5Level12RemoveCursesEj",
+     "address": "0x003d8ed8",
+     "offset": 12,
+     "width": 4,
+     "why": "镜像里访问该偏移的指令（ldr w，宽度 4）；共找到 2060 条同类访问，此为该常量名呼应度最高的函数之一"
+    },
+    {
+     "kind": "access",
+     "function": "_ZN15IsaacRepentance5Level12RemoveCursesEj",
+     "address": "0x003d8ee8",
+     "offset": 12,
+     "width": 4,
+     "why": "镜像里访问该偏移的指令（str w，宽度 4）；共找到 2060 条同类访问，此为该常量名呼应度最高的函数之一"
+    }
+   ]
+  }
+ ]
+}
