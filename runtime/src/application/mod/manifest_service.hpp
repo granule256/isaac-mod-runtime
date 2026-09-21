@@ -85,7 +85,7 @@ struct ModPathBuffers {
 
 // 一批已解析的 Mod：路径缓冲 + 指针视图 + 个数。
 //
-// **这是一个大对象**（4 个 Mod ≈ 9.6 KiB）。调用方应当把它放在静态存储里
+// **这是一个大对象**（16 个 Mod ≈ 40 KiB）。调用方应当把它放在静态存储里
 // （`hook_manager.cpp` 就是这么用的），不要放在游戏线程的栈上。
 struct ResolvedManifestModBatch {
     static constexpr std::size_t kCapacity = kModManifestCapacity;
@@ -94,6 +94,10 @@ struct ResolvedManifestModBatch {
     std::array<ResolvedManifestMod, kCapacity> mods{};
     std::size_t count{0};
     std::size_t manifestBytes{0};
+    // 清单里 `enabled = false` 的目录名（2026-09-21）：自动发现**合并**时要把它们排除掉，
+    // 否则"用户关掉的模组"会被扫目录重新捡回来 ⇒ 模组关不掉。
+    std::array<std::array<char, kModDirectoryCapacity>, kCapacity> disabledDirectories{};
+    std::size_t disabledCount{0};
 };
 
 // Reads the manifest through `IContentPort`, parses it with the injected

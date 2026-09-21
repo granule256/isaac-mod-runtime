@@ -1,5 +1,6 @@
 #include "lua_runtime.hpp"
 // 批次 106：`Level:GetStartingRoomIndex()` 的派生记账（纯逻辑，见该头文件顶部的取证说明）。
+#include "frame_event_decision.hpp"
 #include "level_start_room.hpp"
 // `GameFileReader::Bindings` 出现在公开入口的签名里（`InitializeManifestMod` / `InitializeEmbeddedMenuMod`）：
 // 之前它靠别的头间接带进来，宿主 harness 的包含路径不同就会"未声明"，所以显式包含。
@@ -604,6 +605,10 @@ std::atomic<uintptr_t> g_LevelGetAbsoluteStage{0};
 std::atomic<uintptr_t> g_LevelIsNextStageAvailable{0};
 // 2026-09-16：`Room:GetFrameCount()`（`Room::GetFrameCount @ 0x470B0C`）的入口地址。
 std::atomic<uintptr_t> g_RoomGetFrameCount{0};
+// 2026-09-21：`GridEntity::GetPosition() const @ 0x37E498`（PC 的 `GridEntity.Position`）。
+// "可选能力"：为 0 时 handler 报"绑定不可用"并让那次读取失败，**绝不编造坐标**
+// （编了会让 EID 挑到错误的网格实体 —— 而 EID 正是靠它算"离玩家最近的刺"）。
+std::atomic<uintptr_t> g_GridEntityGetPosition{0};
 std::atomic<uintptr_t> g_ItemPoolGetCollectible{0};
 // 批次 10（2026-09-15）：`Room:WorldToScreenPosition()` 要调的引擎函数（PLT 桩地址）。
 std::atomic<uintptr_t> g_GetRenderPosition{0};
@@ -613,6 +618,8 @@ std::atomic<uintptr_t> g_GetRenderPosition{0};
 RenderPositionHostFunction g_GetRenderPositionHost{nullptr};
 // 2026-09-16：`Room:GetFrameCount()` 的宿主替身（设备构建里这段被 `#if` 排除）。
 RoomFrameCountHostFunction g_RoomGetFrameCountHost{nullptr};
+// 2026-09-21：`GridEntity.Position` 的宿主替身（同上，设备构建里走"校验入口 + 调引擎"）。
+GridEntityPositionHostFunction g_GridEntityGetPositionHost{nullptr};
 #endif
 std::atomic<uintptr_t> g_MusicGetCurrentMusicId{0};
 std::atomic<uintptr_t> g_MusicPause{0};
@@ -1610,10 +1617,16 @@ void RegisterGameApi(lua_State* state) {
     // 方法表挂在元表的 `__methods` 上（与 `Sprite`/`Vector` 同一形态）。
     // 批次 12：`GridEntity` 族（`Room:GetGridEntity()` 的返回值）。它的方法都住在 `Room`
     // 所在的那个家族 TU 里（`AttachGridEntityMethods`），与"行表住在自己 TU 里"的规矩一致。
+    // ★ 2026-09-21：`__index` 由**表**改成**函数**（与 `RoomDescriptor` 同一形态）——
+    // PC 的 `GridEntity` 还有 `Position`/`VarData`/`Desc` 这些**字段**（IsaacDocs `GridEntity.md`），
+    // 只挂方法表时模组读它们会拿到 `nil`（EID 献祭房就是栽在 `gridEntity.Position` 上）。
+    // 方法表因此挪到 `__methods`（`GridEntityIndex` 在答完字段后从那里取）。
     luaL_newmetatable(state, kGridEntityMetatable);
+    lua_pushcfunction(state, isaac::runtime::GridEntityIndex);
+    lua_setfield(state, -2, "__index");
     lua_newtable(state);
     static_cast<void>(isaac::runtime::AttachGridEntityMethods(state));
-    lua_setfield(state, -2, "__index");
+    lua_setfield(state, -2, "__methods");
     lua_pop(state, 1);
 
     // 批次 078：`Room:GetDoor(slot)` 的返回值（`GridEntity_Door`）。PC 里门**同时是** `GridEntity`，
@@ -2527,6 +2540,11 @@ std::uintptr_t RoomGetFrameCountThunk() noexcept {
     return g_RoomGetFrameCount.load(std::memory_order_acquire);
 }
 
+// 2026-09-21：PC 的 `GridEntity.Position` 要调的引擎函数入口（0 = 守卫没过/不可用）。
+std::uintptr_t GridEntityGetPositionThunk() noexcept {
+    return g_GridEntityGetPosition.load(std::memory_order_acquire);
+}
+
 std::uintptr_t LevelIsNextStageAvailableThunk() noexcept {
     return g_LevelIsNextStageAvailable.load(std::memory_order_acquire);
 }
@@ -2550,6 +2568,15 @@ void SetRoomGetFrameCountHostFunction(RoomFrameCountHostFunction function) noexc
 
 RoomFrameCountHostFunction GetRoomGetFrameCountHostFunction() noexcept {
     return g_RoomGetFrameCountHost;
+}
+
+// 2026-09-21：`GridEntity.Position` 的宿主注入（宿主没有引擎映像；与上面两条同一形态）。
+void SetGridEntityGetPositionHostFunction(GridEntityPositionHostFunction function) noexcept {
+    g_GridEntityGetPositionHost = function;
+}
+
+GridEntityPositionHostFunction GetGridEntityGetPositionHostFunction() noexcept {
+    return g_GridEntityGetPositionHost;
 }
 #endif
 
@@ -2935,6 +2962,12 @@ void SetLevelIsNextStageAvailableBinding(uintptr_t method) {
 // handler 一次 acquire 读，不会看到"半个已校验记录"）。
 void SetRoomGetFrameCountBinding(uintptr_t method) {
     g_RoomGetFrameCount.store(method, std::memory_order_release);
+}
+
+// 2026-09-21：`GridEntity::GetPosition()` 的发布点，与上面几条同形（一次 release 存储、
+// handler 一次 acquire 读 ⇒ 不会看到"半个已校验记录"）。
+void SetGridEntityGetPositionBinding(uintptr_t method) {
+    g_GridEntityGetPosition.store(method, std::memory_order_release);
 }
 
 void SetItemPoolGetCollectibleBinding(uintptr_t method) {
@@ -3403,6 +3436,12 @@ struct FrameEventState {
     // 不知道时**不判变化** —— 拿读数失败留下的残值当身份，会把回调派发成"每帧一次"。
     std::uint32_t roomKnown{0};
     std::uint32_t levelKnown{0};
+    //: 2026-09-22：本局"开局那间房"还没补派过 `NEW_LEVEL`/`NEW_ROOM`。
+    //: 为什么需要它：旧代码"第一次读到身份时不判变化"，于是开局房间**永远**收不到这两条事件
+    //: （真机读数：开局那一局 `19 MC_POST_NEW_ROOM = 0`），而 PC 是照发的 ——
+    //: EID 的房间信息恰好就在 `NEW_ROOM` 里算，所以"重启后第一次进局正好在献祭房 ⇒ 不显示"。
+    //: 由开局派发成功那一刻置 1，由 `DispatchFrameEvents()` 在补派成功后清 0。
+    std::uint32_t initialRoomPending{0};
     GameLocationKey location{};
     // 下面这些表**只用来比较、绝不解引用**：里面的地址可能已经被释放，但比较两个整数
     // 地址不碰内存。（本项目的纪律是"过期的原生指针不许解引用"，这里遵守。）
@@ -3903,12 +3942,20 @@ void DispatchFrameEvents() {
     bool enteredNewRoom = false;
     bool enteredNewLevel = false;
     if (haveLocation) {
-        if (g_FrameEventState.levelKnown != 0 &&
-            (location.stage != g_FrameEventState.location.stage ||
-             location.stageType != g_FrameEventState.location.stageType)) {
-            enteredNewLevel = true;
+        // 判定抽到 `frame_event_decision.hpp`（纯函数、宿主上逐条验）：三条口径 ——
+        // 开局起始房间补一次、读不到身份时不判也不消费、中途加载时不拿残值当身份。
+        const isaac::runtime::FrameRoomDecision decision =
+            isaac::runtime::DecideFrameRoomEvents(
+            true, g_FrameEventState.roomKnown != 0, g_FrameEventState.levelKnown != 0,
+            location.stage == g_FrameEventState.location.stage &&
+                location.stageType == g_FrameEventState.location.stageType,
+            location.SameRoom(g_FrameEventState.location),
+            g_FrameEventState.initialRoomPending);
+        enteredNewLevel = decision.newLevel;
+        if (decision.initialRoomConsumed) {
+            g_FrameEventState.initialRoomPending = 0;
         }
-        if (g_FrameEventState.roomKnown != 0 && !location.SameRoom(g_FrameEventState.location)) {
+        if (decision.newRoom) {
             enteredNewRoom = true;
             // 换房间 = 房间里的实体整批换掉，"见过"的表随之作废，于是新房间里原本摆着的
             // 实体（掉落物、跟班、敌人…）会各自收到一次 INIT（见文件上方"代价与已知差异"）。
@@ -3930,8 +3977,13 @@ void DispatchFrameEvents() {
         if (enteredNewLevel || g_FrameEventState.levelKnown == 0) {
             g_LevelStartRoom.Observe(location.stage, location.stageType, location.roomIndex);
         }
-        // 第一次读到身份时**不判变化**：那时这一局刚开局，`MC_POST_GAME_STARTED` 已经承担了
-        // "开局"这件事，再补一次"进入新房间"会让模组把开局那间房当成第二间房。
+        // ★ 2026-09-22 更正：这句话以前是这么写的 ——"第一次读到身份时**不判变化**：那时这一局
+        // 刚开局，`MC_POST_GAME_STARTED` 已经承担了'开局'这件事，再补一次'进入新房间'会让模组
+        // 把开局那间房当成第二间房"。**前半段的前提是错的**：PC 在开局时"开局事件"与
+        // "进入第一间房"是**两件事**（`POST_GAME_STARTED` → `POST_NEW_LEVEL` → `POST_NEW_ROOM`），
+        // 少发后者会让依赖房间事件的模组在开局房间里彻底不工作（EID 献祭房信息就是这样丢的）。
+        // 现在的口径：**开局那一间房补派一次**（由 `initialRoomPending` 驱动，见上面派发处）；
+        // 只有"运行时在该层中途才加载"（没有 `initialRoomPending`）时才不判变化。
         g_FrameEventState.location = location;
         g_FrameEventState.roomKnown = 1;
         g_FrameEventState.levelKnown = 1;
@@ -3976,6 +4028,11 @@ void DispatchPostUpdate() {
         // 没派发成就留到下一帧再试 —— 它只是"晚到"，语义上仍然是"这一局的开局事件"。
         if (DispatchPostGameStarted(pending == kGameStartedFromSave)) {
             g_PendingGameStarted.store(0, std::memory_order_release);
+            // ★ 2026-09-22：开局这件事派发成功之后，把**起始房间**也当成"进了一个新层 + 新房间"。
+            // 顺序与 PC 一致（`POST_GAME_STARTED` → `POST_NEW_LEVEL` → `POST_NEW_ROOM`），
+            // 而且就在**同一帧**的 `DispatchFrameEvents()` 里补：模组（EID）在开局回调里建的表，
+            // 到了 `NEW_ROOM` 那一步已经能用了。判定与理由见 `frame_event_decision.hpp`。
+            g_FrameEventState.initialRoomPending = 1;
         }
     }
     if (!IsReady() || g_LuaState == nullptr ||

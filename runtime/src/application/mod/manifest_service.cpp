@@ -164,6 +164,12 @@ Status ManifestService::ResolveAll(std::uint8_t* manifestBuffer, std::size_t man
         return status;
     }
 
+    // 先把"被显式关掉的目录名"搬进批次：自动发现合并时要用（见 `ResolvedManifestModBatch`）。
+    batch->disabledCount = 0;
+    for (std::size_t index = 0; index < parsed.manifest.disabledCount; ++index) {
+        batch->disabledDirectories[batch->disabledCount] = parsed.manifest.disabledDirectories[index];
+        ++batch->disabledCount;
+    }
     // 逐条拼路径：一条失败就整批失败（半个批次更危险 —— 调用方会以为其余 Mod 是"加载成功但没内容"）。
     for (std::size_t index = 0; index < parsed.manifest.count; ++index) {
         const ModManifestEntry& entry = parsed.manifest.entries[index];

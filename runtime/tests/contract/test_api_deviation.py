@@ -55,7 +55,31 @@ DEVIATIONS = ROOT / "runtime" / "src" / "interfaces" / "lua" / "api_deviation.cp
 #: `GetGridPath`（`0x04010006`）由 `Placeholder` 降为 `Partial`（只剩"越界给 0 而不是越界读"
 #: 这一条口径差异）。判据：`runtime/tests/test_lua_room_grid.py`、
 #: `tools/room_grid_reachability_probe.py`。
-EXPECTED_DEVIATIONS = 21
+#:
+#: **21 → 24（2026-09-21，批次 017）**：补进三条**平台降级** —— `Input.GetMousePosition`（`0x09010007`）、
+#: `Input.IsMouseBtnPressed`（`0x09010008`）、`Isaac.ExecuteCommand`（`0x0E01002D`）。
+#: 它们的事实此前只写在 `api_catalog.cpp` 的目录注释与实现注释里（原话就是"平台降级 / 平台限制"），
+#: 符合本表"只收代码注释里已经明确承认的偏离"的收表口径，却一直没被收进来 —— 于是台账里
+#: **一条"平台固有"都没有**，"这条差异还能不能还"这个问题在表里就没有答案。
+#: 本批给每条加了"性质"字段（见下文 `EXPECTED_PLATFORM` / `EXPECTED_DEBT` / `EXPECTED_DESIGN`），
+#: 三条平台条目是本批唯一的**新增**（其余 21 条只加字段、正文的语义结论与判据一字未改）。
+#: 起因与口径见 `dist/change-archive-20260921/017-deviation-nature-split/README.md`。
+EXPECTED_DEVIATIONS = 24
+
+#: **按性质分组的条数**（2026-09-21，批次 017 建立；口径逐字写在 `api_deviation.cpp` 文件头）：
+#:
+#:   * `platform`（平台固有）= PC 上有对应物、Switch 平台侧**没有可用底座或语义无法映射**，
+#:     且**已经取证过"没有"** ⇒ 继续做工作也消不掉；
+#:   * `debt`（我们的欠账）= 底座**存在或可定位**，只是还没定位 / 没实现 / 实现得偏保守 ⇒ **能还**；
+#:   * `design`（主动保留的口径差异）= 两侧都做得到，但我们**有意**选了别的口径、且台账写明不打算改
+#:     （复刻 PC 等于复刻它的未定义行为；或照着做会把引擎内部指针交给模组）⇒ 不改。
+#:
+#: **这三个数字都只能降不能升**（消掉一条偏离就把它改小，并在上面补一行说明为什么 —— 与
+#: `EXPECTED_DEVIATIONS`、`EXPECTED_JUDGEMENT_GAPS` 同一套记账方式）。新增偏离时**必须**同时
+#: 想清楚它属于哪一类：想不清楚就说明这条偏离还没调查到能判断"能不能还"的程度，别急着登记。
+EXPECTED_PLATFORM = 3
+EXPECTED_DEBT = 19
+EXPECTED_DESIGN = 2
 
 #: "判据：暂无（…）"的条数 —— **欠账**，只能降不能升。
 #:
@@ -181,6 +205,91 @@ class ApiDeviationContractTests(unittest.TestCase):
             len(gaps), EXPECTED_JUDGEMENT_GAPS,
             f"'暂无判据'的偏离条数变了（现在 {len(gaps)} 条：{gaps}）。"
             "要么补上可执行判据，要么在 EXPECTED_JUDGEMENT_GAPS 上面写清为什么又多欠一条。")
+
+    def test_every_entry_states_a_valid_nature(self):
+        """★ 每条必须写清**性质**：`platform`（平台固有）/ `debt`（我们的欠账）/ `design`（主动保留）。
+
+        为什么加这条（2026-09-21，批次 017）：台账原来只有"偏离长什么样"（`kind`），读者分不清一条
+        偏离是**这台机器上永远消不掉**的，还是**我们还没做到**的 —— 前者登记完就该停止投入，后者
+        应当排进待办、还清后把条目删掉。没有这一栏时，两种情况都会办错。
+
+        ★ 口径（逐字写在 `api_deviation.cpp` 文件头，这里只钉"写了没有、取值合不合法"）：
+          * `platform` = PC 上有对应物、Switch 平台侧**没有可用底座或语义无法映射**（鼠标、控制台），
+            且**已经取证过"没有"**；
+          * `debt` = 底座**存在或可定位**，只是还没定位 / 没实现 / 实现得偏保守 ⇒ **能还**；
+          * `design` = 两侧都做得到，但我们**有意**选了别的口径且写明不打算改（复刻 PC 的未定义行为、
+            或把引擎内部指针交给模组）⇒ 不改。
+
+        "不许有未归类的条目"也在这里判：缺标记（空串）与取值写错都会红。
+        """
+        from tools.api_deviation_ledger import NATURE_MARKER, NATURES, load_entries
+
+        entries = load_entries(DEVIATIONS)
+        self.assertGreater(len(entries), 10, "一条偏离都没解析到 —— 门禁失去意义")
+        unclassified = [hex(entry.identifier) for entry in entries if not entry.is_classified]
+        self.assertEqual(
+            unclassified, [],
+            f"这些偏离没有合法的'{NATURE_MARKER}'取值（只能是 {list(NATURES)}）：{unclassified}。"
+            "口径见 api_deviation.cpp 文件头；想不清楚属于哪一类，说明这条偏离还没调查到能判断"
+            "'能不能还'的程度。")
+        # 取值必须与括号里那个中文名对得上（防止只改取值、把名字留在原文里）。
+        for entry in entries:
+            with self.subTest(id=hex(entry.identifier)):
+                self.assertTrue(
+                    entry.nature_label,
+                    f"{hex(entry.identifier)} 的性质取值 {entry.nature!r} 不在 {list(NATURES)} 里")
+                self.assertIn(
+                    f"{NATURE_MARKER}{entry.nature}（{entry.nature_label}）", entry.text,
+                    f"{hex(entry.identifier)} 的性质标记形状不对：应当是"
+                    f"'{NATURE_MARKER}{entry.nature}（{entry.nature_label}）——理由：…'")
+
+    def test_each_entry_states_the_nature_reason(self):
+        """★ 每条的性质后面必须跟**一行理由**：读者不看别处就明白为什么这么归类。
+
+        与"偏离后果"同一条纪律（098 的教训）：光有分类标签没有理由，下一个人无法复核 ——
+        他只能重新做一遍调查，或者干脆相信这个标签。
+        """
+        from tools.api_deviation_ledger import NATURE_REASON_MARKER, load_entries
+
+        entries = load_entries(DEVIATIONS)
+        missing = [hex(entry.identifier) for entry in entries if not entry.nature_reason]
+        self.assertEqual(
+            missing, [],
+            f"这些偏离没有写'{NATURE_REASON_MARKER}'后面那行理由：{missing}")
+        for entry in entries:
+            with self.subTest(id=hex(entry.identifier)):
+                self.assertGreater(
+                    len(entry.nature_reason), 8,
+                    f"{hex(entry.identifier)} 的性质理由太短，等于没写：{entry.nature_reason!r}")
+                self.assertNotIn(
+                    "暂无", entry.nature_reason,
+                    f"{hex(entry.identifier)} 的性质理由是'暂无'式占位 —— 那等于没写")
+
+    def test_nature_counts_are_pinned(self):
+        """★ 三个性质的**条数**写死 —— 只能降不能升（照 `EXPECTED_*` 那套记账方式）。
+
+        为什么连条数也要钉：`platform` 与 `debt` 的比值就是"这台机器上还有多少是**能还**的"，
+        是排期的依据。数字松了就会出现"悄悄把一条欠账标成平台固有、于是没人再管它"这种漂移。
+        消掉一条偏离（真的实现出来了）⇒ 把数字改小并补一行说明；新增 ⇒ 说明它为何属于这一类。
+        """
+        from tools.api_deviation_ledger import load_entries
+
+        entries = load_entries(DEVIATIONS)
+        counts: dict[str, int] = {}
+        for entry in entries:
+            counts[entry.nature] = counts.get(entry.nature, 0) + 1
+        expected = {
+            "platform": EXPECTED_PLATFORM,
+            "debt": EXPECTED_DEBT,
+            "design": EXPECTED_DESIGN,
+        }
+        self.assertEqual(
+            counts, expected,
+            f"按性质分组的条数变了（现在 {counts}，门禁钉的是 {expected}）。"
+            "消掉一条欠账/改判一条性质时，请同步上面三个 EXPECTED_* 并在注释里写清为什么。")
+        self.assertEqual(
+            sum(expected.values()), EXPECTED_DEVIATIONS,
+            "三个性质的条数之和必须等于 EXPECTED_DEVIATIONS —— 有条目没被算进任何一组")
 
     def test_no_duplicate_ids(self):
         identifiers = [identifier for identifier, _, _ in deviation_entries(self.deviations)]

@@ -70,12 +70,20 @@ void SetLevelGetAbsoluteStageBinding(uintptr_t method);
 // 安装期用 16 字节守卫校验）。与 `SetLevelGetAbsoluteStageBinding` 同一形态：
 // 0 = 不可用，handler 会明说"绑定不可用"，不编造帧数。
 void SetRoomGetFrameCountBinding(uintptr_t method);
+// 2026-09-21：`GridEntity::GetPosition() const @ 0x37E498`（PC 的 `GridEntity.Position`，
+// `const Vector`）。与上一条同一形态：0 = 不可用，handler 报"绑定不可用"，**不编造坐标**。
+// （读入口的 thunk 声明在 `lua_runtime_state.hpp`，与其它 thunk 一致：消费方是 `interfaces/lua` 的 TU。）
+void SetGridEntityGetPositionBinding(uintptr_t method);
 #if !defined(__SWITCH__)
 // 宿主注入钩子（设备构建里不存在）：设备侧这条走"校验 16 字节入口 + 调引擎函数"，
 // 宿主上没有引擎映像，所以用注入的实现替代。类型是"房间指针进、帧数出"。
 using RoomFrameCountHostFunction = std::int32_t (*)(const void* room);
 void SetRoomGetFrameCountHostFunction(RoomFrameCountHostFunction function) noexcept;
 [[nodiscard]] RoomFrameCountHostFunction GetRoomGetFrameCountHostFunction() noexcept;
+// 2026-09-21：`GridEntity.Position` 的宿主替身（设备构建里不存在这段）。
+using GridEntityPositionHostFunction = void (*)(const void* entity, float* x, float* y);
+void SetGridEntityGetPositionHostFunction(GridEntityPositionHostFunction function) noexcept;
+[[nodiscard]] GridEntityPositionHostFunction GetGridEntityGetPositionHostFunction() noexcept;
 #endif
 // `Room:WorldToScreenPosition()` 用的引擎函数（PLT 桩）。宿主上由注入的实现替代。
 [[nodiscard]] uintptr_t GetRenderPositionThunk() noexcept;

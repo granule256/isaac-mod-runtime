@@ -189,6 +189,23 @@ class SymbolHintTests(unittest.TestCase):
         self.assertTrue(all(names))
         self.assertEqual(len(names), len(set(names)), "同一个符号名被挂到两个键上")
 
+    def test_probe_only_hints_stay_out_of_the_main_table(self):
+        """探针专用符号必须**留在自己的表里**，且符号名必须落在探针的命名空间里。
+
+        为什么单开一张表（批次 019）：上面两条断言要求"主表每一项都能在当前**生产** ELF 里
+        解析到"，而探针符号按定义在生产构建里不存在（`PROBE_BREAK=0` 时整个 TU 被编译掉）。
+        把探针符号混进主表只剩两条路：要么放宽那两条断言，要么每次跑门禁都得先出一份探针
+        构建 —— 两条都不能要。所以这里反过来钉住"它不许混进来"，顺便钉住命名空间前缀，
+        免得将来有人把普通变量也塞进这张"门禁不查"的表里。
+        """
+        probe_only = getattr(self.tool, "SYM_ELF_NAMES_PROBE_ONLY", None)
+        self.assertIsNotNone(probe_only, "探针专用符号表不见了")
+        overlap = set(probe_only) & set(self.tool.SYM_ELF_NAMES)
+        self.assertEqual(overlap, set(), f"这些键同时出现在主表与探针表里：{sorted(overlap)}")
+        for key, name in probe_only.items():
+            self.assertTrue(name.startswith("_ZN5isaac7runtime5probe"),
+                            f"{key} 的符号名不在探针命名空间里：{name}")
+
     def test_error_probe_keys_are_all_auto_synced(self):
         """错误通道探针读的每个键都必须能被自动同步。
 

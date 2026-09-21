@@ -78,6 +78,11 @@ class EngineOffsetSignatureTests(unittest.TestCase):
             "kEntityListLiveCapacityOffset",
             "kItemConfigPlayerFormBeginOffset",
             "kEntityFlyingLayerOffset",
+            # 贴图桥（2026-09-21）：三个 zlib C 符号（inflateInit2_/inflate/inflateEnd）不是引擎
+            # 命名空间符号，动态表按名字解析会落到 C 名而非 mangled，故意留空。
+            "kZlibInflateInit2FileOffset",
+            "kZlibInflateFileOffset",
+            "kZlibInflateEndFileOffset",
         }
         rejected_seen = set()
         for entry in load_table():
@@ -416,6 +421,83 @@ class EngineOffsetSignatureTests(unittest.TestCase):
                 self.assertTrue(row.get("evidence"), f"{path.name} 的 {row['name']} 没有证据")
                 self.assertEqual(row.get("confidence"), "candidate",
                                  f"{path.name} 的 {row['name']} 草稿不允许是 confirmed（语义未经人工确认）")
+
+
+    # ------------------------------------------------------------------
+    # 入口中继回调（引擎调我们）：参数**与返回值**都要对账
+    # ------------------------------------------------------------------
+
+    def _relay_rows(self):
+        import importlib.util  # noqa: PLC0415
+
+        spec = importlib.util.spec_from_file_location("abi_report_relay", TOOL)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        image = NRO.read_bytes() if NRO.exists() else None
+        rows = module.classify_relay(module.relay_declarations(), image)
+        return module, rows
+
+    def test_entry_relay_callbacks_declare_the_engines_return_value(self):
+        """中继回调是**以目标函数的身份返回**的 ⇒ 目标函数在 `x0` 里返回什么，回调就得返回什么。
+
+        ## 为什么要有它（2026-09-21 真机事故）
+
+        入口中继把"本模块里的一个 `extern "C"` 回调"当目标函数来跑（`entry_relay.hpp`：槽里 `br`
+        尾调用回调，回调的 `ret` 直接回到游戏的调用方）。前三种形态（我们主动调引擎）看不见这批回调，
+        于是"返回值"这一项**从来没有被任何门禁比过**：
+
+        * `Entity_Player::UseActiveItem`（本体 `0x30653C`）**有返回值** —— 唯一收尾点 `0x31A8C0` 是
+          `mov x0, x22`（`x22 | (UseFlags & 1) << 8`），而我们的回调声明成 `void` ⇒ 游戏调用方读到的
+          `x0` 是回调里最后一次调用的残留值 ⇒ **用后记账（扣充能 / 移除单次道具 / 服装动画）走错分支**，
+          用户看到的是"所有主动道具用后不掉充能、部分道具被移除"；
+        * 同一形状还有 `Entity_Pickup::handle_collision`（`0x2728C8` 的 `mov w0, #1`）与
+          `Room::spawn_entity`（`0x453EA0` 的 `mov w0, w21`）——三个一起修。
+
+        判据（纯静态，对着镜像）：从函数**自己的**收尾点往回扫，先撞上"写 `x0/w0`"⇒ 有返回值；
+        先撞上 `bl/blr` ⇒ 收尾处的 `x0` 是调用残留 ⇒ void。两边不一致即判红。
+        """
+        module, rows = self._relay_rows()
+        self.assertEqual(len(rows), len(module.RELAY_CALLBACK_TARGETS),
+                         "中继回调表与登记条数不一致（`relay_declarations()` 解析不全？）")
+        unresolved = [row["callback"] for row in rows if row["declared_parameters"] is None]
+        self.assertEqual(unresolved, [],
+                         "这些中继回调的 `extern \"C\"` 定义没被解析出来（改过写法就要同步工具）："
+                         + repr(unresolved))
+        bad = [row for row in rows if row["verdict"] == "relay-mismatch"]
+        self.assertEqual(
+            [(row["callback"], row["detail"]) for row in bad], [],
+            "中继回调的声明与引擎不符（参数或返回值）")
+
+    def test_entry_relay_return_values_are_actually_judged(self):
+        """判据本身要真的在判：镜像在场时，"引擎有没有返回值"这一项**不许有判不出的条目**。
+
+        这条防的是"门禁看起来在跑、其实一项都没比"（2026-09-17 那次覆盖率事故的同类形状）。
+        """
+        if not NRO.exists():
+            self.skipTest("仓库里没有游戏镜像（公开仓库不带游戏资源）")
+        _module, rows = self._relay_rows()
+        unknown = [row["callback"] for row in rows if row["engine_returns"] is None]
+        self.assertEqual(unknown, [], "返回值这一项没判出来（收尾点或往回扫的判据要修）：" + repr(unknown))
+        returns = [row["callback"] for row in rows if row["engine_returns"]]
+        self.assertEqual(
+            len(returns), 4,
+            "引擎里有返回值的入口中继靶点数变了（当前 4 个：ItemPool::GetCollectible、"
+            "UseActiveItem、handle_collision、spawn_entity）。变了要么是镜像换了版本、"
+            "要么是判据坏了 —— 两边都要先查清再改这个数字：" + repr(returns))
+
+    def test_the_three_after_use_bookkeeping_callbacks_return_a_value(self):
+        """三个"用后记账"回调**必须**声明非 void 返回值（钉住 2026-09-21 的修复，不许退回 void）。"""
+        _module, rows = self._relay_rows()
+        by_callback = {row["callback"]: row for row in rows}
+        for callback in ("EntryRelayUseActiveItemCallback",
+                         "EntryRelayPickupCollisionCallback",
+                         "EntryRelayRoomEntitySpawnCallback"):
+            row = by_callback[callback]
+            self.assertIsNotNone(row["declared_return"], f"{callback} 没解析出来")
+            self.assertNotEqual(
+                row["declared_return"].replace(" ", ""), "void",
+                f"{callback} 又变回 void 了：中继是**以目标函数的身份**返回的，"
+                "引擎的返回值会被我们弄成垃圾（真机症状：主动道具用后不掉充能 / 道具被移除）")
 
 
 if __name__ == "__main__":

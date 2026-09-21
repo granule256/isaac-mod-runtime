@@ -18,7 +18,9 @@ namespace isaac::runtime {
 // point where no Mod load request is in flight.
 class ContentMountService {
 public:
-    static constexpr std::size_t kMaxMods = 8;
+    // 能挂多少个 Mod（2026-09-21 由 8 → 32 → 64）：每个 Mod 最多占 `kLeaves` 那么多个挂载点
+    // （现在是 6 个叶子），而"一次能加载几个 Mod"现在是 32 ⇒ 64 留一倍余量。
+    static constexpr std::size_t kMaxMods = 64;
     static constexpr std::size_t kMaxDirectoryLength = 128;
     // A Mod contributes its PC-style content directories; all of them are optional in a
     // Mod. These are the leaf names of the PC Mod contract, so they belong to the Mod
@@ -33,11 +35,27 @@ public:
     // 拼成 `.../resources/draw149.png`（不存在）→ 贴图永远加载不上 → `AnimationLayer::RenderFrame`
     // 在 `[spritesheet+0x7c] == 0` 处**静默返回**：现象是"不崩、不报错、什么都不画"
     // （2026-09-13 真机报告 `01789148187`/`01789148432` 正是这个形态）。
-    static constexpr std::array<std::string_view, 4> kLeaves = {
+    // ★ `resources-dlc3`（2026-09-21 晚加）：PC 的**忏悔层**。
+    //
+    // 为什么必须挂它（用户在真机上踩到的坑）：PC 版游戏本体是**两层**资源 —— `resources/` 与
+    // `resources-dlc3/`，后者装忏悔新增/改动的文件，且**同名文件优先于** `resources/`
+    // （IsaacDocs `tutorials/directories-and-save-files.md:53`）。模组要覆盖哪一层的文件，
+    // 就得把文件放在自己目录里的**同一层**（Isaac Blueprints「Creating a mod」），
+    // 所以"只带 PNG 的贴图替换模组"经常整包都在 `resources-dlc3/` 里
+    // （实例：`visible tinted rocks` 的 23 张 `gfx/grid/rocks_*.png`）。
+    // 不挂这一层 ⇒ 那些文件一个都看不见 ⇒ **不报错、画面就是没变化**。
+    //
+    // 顺序（`kLeaves` 的次序 = 挂载次序，本引擎**后注册者优先**：Stage147–148 真机实测，
+    // 新挂的挂载点会盖过本体的 `rp_patch` 与 `resources`，见 `docs/问题与解决记录.md:4873/4903`）：
+    // `resources-dlc3` 排在最后 ⇒ 它同时压过本体两层与**本模组自己的** `resources/`，
+    // 与 PC 的层序一致。
+    static constexpr std::array<std::string_view, 6> kLeaves = {
         std::string_view{"resources"},
         std::string_view{"resources/gfx"},
         std::string_view{"content"},
         std::string_view{"content/gfx"},
+        std::string_view{"resources-dlc3"},
+        std::string_view{"resources-dlc3/gfx"},
     };
     static constexpr std::size_t kLeafCount = kLeaves.size();
 

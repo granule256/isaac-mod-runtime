@@ -32,6 +32,13 @@ public:
     // 个数超过 `batch` 的容量 ⇒ `CapacityExceeded`（**不截断**，见端口的注释）。
     [[nodiscard]] Status Discover(ResolvedManifestModBatch* batch) const noexcept;
 
+    // 把清单里**没有列出**（且没有被显式关掉）的目录追加到已解析的批次后面（2026-09-21）。
+    //
+    // 用途：清单存在时也要让"刚拷进 `mods/` 的目录"生效（PC 语义："丢进文件夹就装好了"）。
+    // 顺序：清单里的保持原样在前，追加的按名字升序在后（顺序确定，不看引擎给的顺序）。
+    // 失败（列不出目录 / 装不下）时调用方按 best-effort 处理：清单那一批照常加载，错误进诊断。
+    [[nodiscard]] Status AppendUnlisted(ResolvedManifestModBatch* batch) const noexcept;
+
 private:
     IModDirectoryPort& directories_;
 };

@@ -60,6 +60,67 @@ void SortNames(ModDirectoryEntry* entries, std::size_t count) noexcept {
     }
 }
 
+// 把一个目录名填成批次里的一条（三条路径 + 指针视图）。`Discover` 与 `AppendUnlisted` 共用。
+// `hasEntry` 一律为 true：真缺 `main.lua`（纯资源型模组）时由 `ModLoadService` 如实报
+// `EntryAbsent` 并保留内容挂载点 —— 这正是 PC 上"只带 resources 的模组"的行为。
+bool FillOneMod(ResolvedManifestModBatch* batch, std::size_t index, const char* name) noexcept {
+    ModPathBuffers& buffers = batch->paths[index];
+    if (!JoinPath(buffers.modRoot.data(), buffers.modRoot.size(), kModRootPrefix, name)) {
+        return false;
+    }
+    char entryRelative[kModEntryCapacity]{};
+    const std::size_t nameLength = std::strlen(name);
+    if (nameLength + 9 >= sizeof(entryRelative)) {   // "mods/" + 名字 + "/main.lua"
+        return false;
+    }
+    std::memcpy(entryRelative, "mods/", 5);
+    std::memcpy(entryRelative + 5, name, nameLength);
+    std::memcpy(entryRelative + 5 + nameLength, "/main.lua", 10);
+    if (!JoinPath(buffers.entryPath.data(), buffers.entryPath.size(), kManifestRootPrefix,
+                  entryRelative) ||
+        !JoinPath(buffers.chunkName.data(), buffers.chunkName.size(), kChunkRootPrefix,
+                  entryRelative)) {
+        return false;
+    }
+    ResolvedManifestMod& resolved = batch->mods[index];
+    resolved.entryPath = buffers.entryPath.data();
+    resolved.modRoot = buffers.modRoot.data();
+    resolved.chunkName = buffers.chunkName.data();
+    resolved.manifestBytes = 0;      // 没有清单：这个字段只用于诊断
+    resolved.hasEntry = true;
+    return true;
+}
+
+// 批次里是否已经有这个目录（比对 `modRoot` 的最后一段）。
+bool BatchHasDirectory(const ResolvedManifestModBatch& batch, const char* name) noexcept {
+    for (std::size_t index = 0; index < batch.count; ++index) {
+        const char* root = batch.mods[index].modRoot;
+        if (root == nullptr) {
+            continue;
+        }
+        const char* base = root;
+        for (const char* cursor = root; *cursor != '\0'; ++cursor) {
+            if (*cursor == '/' || *cursor == '\\') {
+                base = cursor + 1;
+            }
+        }
+        if (std::strcmp(base, name) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
+// 清单里是否**显式关掉**了这个目录（`enabled = false`）。
+bool BatchHasDisabledDirectory(const ResolvedManifestModBatch& batch, const char* name) noexcept {
+    for (std::size_t index = 0; index < batch.disabledCount; ++index) {
+        if (std::strcmp(batch.disabledDirectories[index].data(), name) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
 } // namespace
 
 Status ModDiscoveryService::Discover(ResolvedManifestModBatch* batch) const noexcept {
@@ -89,38 +150,56 @@ Status ModDiscoveryService::Discover(ResolvedManifestModBatch* batch) const noex
             *batch = ResolvedManifestModBatch{};
             return Status{StatusCode::Corrupted};
         }
-        ModPathBuffers& buffers = batch->paths[index];
-        if (!JoinPath(buffers.modRoot.data(), buffers.modRoot.size(), kModRootPrefix,
-                      names[index].name.data())) {
+        if (!FillOneMod(batch, index, names[index].name.data())) {
             *batch = ResolvedManifestModBatch{};
             return Status{StatusCode::CapacityExceeded};
         }
-        // `mods/<目录>/main.lua`：与清单里写的 `entry` 同一个形状。
-        char entryRelative[kModEntryCapacity]{};
-        const std::size_t nameLength = std::strlen(names[index].name.data());
-        if (nameLength + 9 >= sizeof(entryRelative)) {   // "mods/" + 名字 + "/main.lua"
-            *batch = ResolvedManifestModBatch{};
-            return Status{StatusCode::CapacityExceeded};
-        }
-        std::memcpy(entryRelative, "mods/", 5);
-        std::memcpy(entryRelative + 5, names[index].name.data(), nameLength);
-        std::memcpy(entryRelative + 5 + nameLength, "/main.lua", 10);
-        if (!JoinPath(buffers.entryPath.data(), buffers.entryPath.size(), kManifestRootPrefix,
-                      entryRelative) ||
-            !JoinPath(buffers.chunkName.data(), buffers.chunkName.size(), kChunkRootPrefix,
-                      entryRelative)) {
-            *batch = ResolvedManifestModBatch{};
-            return Status{StatusCode::CapacityExceeded};
-        }
-        ResolvedManifestMod& resolved = batch->mods[index];
-        resolved.entryPath = buffers.entryPath.data();
-        resolved.modRoot = buffers.modRoot.data();
-        resolved.chunkName = buffers.chunkName.data();
-        resolved.manifestBytes = 0;      // 没有清单：这个字段只用于诊断
-        resolved.hasEntry = true;        // 缺了会被 `ModLoadService` 如实报成 EntryAbsent
     }
     batch->count = count;
     batch->manifestBytes = 0;
+    return Status{StatusCode::Ok};
+}
+
+// 把"清单里没列出（或没关掉）的目录"追加到已解析的清单批次后面（2026-09-21）。
+//
+// 用户的要求是"拷进 `mods/` 就能用"，而清单一旦存在，原来的语义是"只听清单"。
+// 这里做**合并**：清单里的先来（顺序、开关都由清单说了算），随后按名字升序追加扫到的其余目录。
+// 被清单显式 `enabled = false` 的目录**不追加** —— 否则用户再也关不掉模组。
+//
+// 失败语义：目录列不出来 / 拼路径失败 / 装不下 ⇒ 返回错误，但**调用方按 best-effort 处理**
+// （保留清单那一批照常加载，把错误记进诊断）——"多加载几个"这件事不该让整个加载失败。
+Status ModDiscoveryService::AppendUnlisted(ResolvedManifestModBatch* batch) const noexcept {
+    if (batch == nullptr) {
+        return Status{StatusCode::InvalidArgument};
+    }
+    ModDirectoryEntry names[ResolvedManifestModBatch::kCapacity]{};
+    std::size_t count = 0;
+    const Status listed = directories_.ListSubdirectories(kModsRootRelative, names,
+                                                         ResolvedManifestModBatch::kCapacity, &count);
+    if (!listed.ok()) {
+        return listed;
+    }
+    if (count == 0) {
+        return Status{StatusCode::Ok};   // 没有可追加的，正常
+    }
+    SortNames(names, count);
+
+    for (std::size_t index = 0; index < count; ++index) {
+        const char* name = names[index].name.data();
+        if (!IsUsableDirectoryName(name)) {
+            continue;   // 清单已经生效：单个可疑名字**跳过**即可，不必整批失败
+        }
+        if (BatchHasDirectory(*batch, name) || BatchHasDisabledDirectory(*batch, name)) {
+            continue;   // 清单里已列出（或已显式关掉）
+        }
+        if (batch->count >= ResolvedManifestModBatch::kCapacity) {
+            return Status{StatusCode::CapacityExceeded};   // 装不下：显式失败（不截断）
+        }
+        if (!FillOneMod(batch, batch->count, name)) {
+            return Status{StatusCode::CapacityExceeded};
+        }
+        ++batch->count;
+    }
     return Status{StatusCode::Ok};
 }
 

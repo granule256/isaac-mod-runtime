@@ -633,6 +633,15 @@ private:
             }
             selectedMods_.mods[selectedCount_] = candidate;
             ++selectedCount_;
+        } else {
+            // 被显式关掉的条目也要留一份**目录名**：自动发现合并时靠它把"用户关掉的模组"排除掉。
+            // 同样不截断（满了就是清单太大，与启用条数超限同一种错）。
+            if (selectedMods_.disabledCount >= ModManifest::kMaximumSelectedMods) {
+                failure_ = ModManifest::ParseResult::TooManyMods;
+                return false;
+            }
+            selectedMods_.disabledDirectories[selectedMods_.disabledCount] = candidate.directory;
+            ++selectedMods_.disabledCount;
         }
         return true;
     }

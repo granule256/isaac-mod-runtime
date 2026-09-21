@@ -61,6 +61,10 @@ Status ExlaunchHookAdapter::Install(HookId id, const HookTarget& target) noexcep
         case HookId::GameExit:
         case HookId::PickupCollision:
         case HookId::RoomEntitySpawn:
+        // 贴图桥只走零占洞入口中继（`EntryRelay`）⇒ 旧 IPS 后端不支持，与上面同口径。
+        case HookId::ImagePcxLoad:
+        case HookId::ImageManagerLoadFile:
+        case HookId::ContentGetMountedFilePath:
             return Status{StatusCode::InvalidArgument};
         case HookId::Count:
             return Status{StatusCode::InvalidArgument};

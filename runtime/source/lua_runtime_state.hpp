@@ -155,10 +155,17 @@ void SetEngineModuleBase(std::uintptr_t base) noexcept;
 // 0 表示"没通过安装期守卫 ⇒ 不可用"；handler 那时报"绑定不可用"，**不返回编造的帧数**
 // （编个 0 会让 EID 以为"刚进房间"，把合成结果显示整段跳过）。
 [[nodiscard]] std::uintptr_t RoomGetFrameCountThunk() noexcept;
+// 2026-09-21：`GridEntity::GetPosition() const @ 0x37E498`（PC 的 `GridEntity.Position`）。
+// 0 表示"没通过安装期守卫 ⇒ 不可用"；handler 那时报"绑定不可用"并让字段读取失败，
+// **不编造坐标**（EID 靠它算"离玩家最近的刺"，编一个坐标会让它挑错实体）。
+[[nodiscard]] std::uintptr_t GridEntityGetPositionThunk() noexcept;
 #if !defined(__SWITCH__)
 // 宿主注入钩子（与 `GetRenderPositionHostFunction` 同一形态，类型别名与 `lua_runtime.hpp` 逐字一致）。
 using RoomFrameCountHostFunction = std::int32_t (*)(const void* room);
 [[nodiscard]] RoomFrameCountHostFunction GetRoomGetFrameCountHostFunction() noexcept;
+// 2026-09-21：`GridEntity.Position`（`GridEntity::GetPosition() const @ 0x37E498`）的宿主替身。
+using GridEntityPositionHostFunction = void (*)(const void* entity, float* x, float* y);
+[[nodiscard]] GridEntityPositionHostFunction GetGridEntityGetPositionHostFunction() noexcept;
 #endif
 // 批次 10（2026-09-15）：`Room:WorldToScreenPosition()` 要调的引擎函数（PLT 桩地址，
 // 由 hook_manager 校验 16 字节入口后发布）。

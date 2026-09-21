@@ -2163,6 +2163,128 @@ int GridEntityDoorIsOpen(lua_State* state) {
     return 1;
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// `GridEntity` 基类字段（2026-09-21，修"EID 在献祭房不显示房间信息"）
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// PC 的 `GridEntity` 有这些**字段**（IsaacDocs `GridEntity.md` 的 Variables）：
+// `Position`（`const Vector`）、`Desc`、`VarData`、`State`、`CollisionClass`。
+// 我们过去给**非门的**网格实体只挂了三个**方法**（`GetType`/`GetVariant`/`GetRNG`），
+// 字段一个都没有 ⇒ 读 `gridEntity.Position` 拿到 `nil`。
+//
+// 真机后果（用户 2026-09-21 报"EID 在特殊房间（献祭房）没有房间信息"）：
+// EID 每帧为每个玩家挑"最近的实体"，对每个**有描述**的网格实体取位置
+// （`main.lua:1491` `gridEntity.Position:__sub(sourcePos)`）；而 EID 只给
+// `GRID_SPIKES` 注册了描述（`features/eid_grid_descriptions.lua:115/133`，条件是
+// "当前房间类型 == 献祭房(13) 且 `DisplaySacrificeInfo` 开着"）⇒ 这个缺陷**只在献祭房/
+// 带刺房间**露出来：取 `nil` 再 `:__sub` ⇒ 抛错 ⇒ **那一帧的描述整段不画**（不崩、无提示）。
+//
+// 顺带补上 `VarData`：献祭房的回调紧接着要读它（`descObj.Entity.VarData + 1`），
+// 缺了它就算位置修好也会在下一行继续抛错。`Desc` 与门那条一样只给已取证的三个字段。
+//
+// 没取证偏移的成员（`State`/`CollisionClass`）**不编值**：宁可让模组拿到 `nil`
+// （那是"该字段没实现"的可见信号），也不能给一个恒 0 的假值。
+
+// 调 `GridEntity::GetPosition() const`（入口与 ABI 见 `runtime_constants.hpp` 的
+// `kGridEntityGetPositionOffset`：只有 `this` 一个入参，`Vector2` 走 `s0/s1` 返回）。
+// 返回 false = "这次没有真的调到引擎"（绑定没发布/守卫没过/内存不可读）⇒ 调用方让字段读取失败。
+bool CallGridEntityGetPosition(std::uintptr_t method, const std::array<u8, 16>& expected,
+                               const void* entity, float* x, float* y) noexcept {
+    if (entity == nullptr || x == nullptr || y == nullptr) {
+        return false;
+    }
+#if !defined(__SWITCH__)
+    // 宿主：没有引擎映像，用注入的实现（与 `Room:WorldToScreenPosition` 的宿主钩子同一形态）。
+    if (const auto host = LuaRuntime::GetGridEntityGetPositionHostFunction(); host != nullptr) {
+        host(entity, x, y);
+        return true;
+    }
+#endif
+    if (method == 0 || (method & 3) != 0 || !IsEngineMemoryReadable(method, expected.size())) {
+        return false;
+    }
+    std::array<u8, 16> actual{};
+    std::memcpy(actual.data(), reinterpret_cast<const void*>(method), actual.size());
+    if (actual != expected) {
+        return false;
+    }
+    struct Vector2Value {
+        float x;
+        float y;
+    };
+    using GetPositionFn = Vector2Value (*)(const void*);
+    const Vector2Value value = reinterpret_cast<GetPositionFn>(method)(entity);
+    *x = value.x;
+    *y = value.y;
+    return true;
+}
+
+// `GridEntity` 的 `__index`：先答基类**字段**，再落到方法表（`GetType`/`GetVariant`/`GetRNG`）。
+// 两种句柄都认（门是 `GridEntity` 的子类：PC 里 `door.Position`/`door.VarData` 同样可读）。
+int GridEntityIndex(lua_State* state) {
+    const char* key = lua_tostring(state, 2);
+    void* entityPointer = (key == nullptr) ? nullptr : GridEntityArgument(state, 1);
+    if (entityPointer != nullptr) {
+        const std::uintptr_t entity = reinterpret_cast<std::uintptr_t>(entityPointer);
+        if (std::strcmp(key, "Position") == 0) {
+            // ★ 引擎自己算的位置（`(idx % W + 1) * 40`、`(idx / W) * 40 + 120`）——
+            // 不自己按格子拼：EID 拿它算距离，口径必须与引擎一致。
+            float x = 0.0F;
+            float y = 0.0F;
+            if (CallGridEntityGetPosition(LuaRuntime::GridEntityGetPositionThunk(),
+                                          kGridEntityGetPositionExpectedBytes, entityPointer, &x,
+                                          &y)) {
+                isaac::runtime::PushLuaVector(state, x, y);
+                return 1;
+            }
+            return luaL_error(state, "GridEntity.Position is unavailable in this build");
+        }
+        const auto readField = [entity](std::uintptr_t offset, std::uint32_t* value) {
+            if (!IsEngineMemoryReadable(entity + offset, sizeof(std::uint32_t))) {
+                return false;
+            }
+            std::memcpy(value, reinterpret_cast<const void*>(entity + offset), sizeof(*value));
+            return true;
+        };
+        std::uint32_t value = 0;
+        if (std::strcmp(key, "VarData") == 0) {
+            if (!readField(kGridEntityVarDataOffset, &value)) {
+                return luaL_error(state, "GridEntity.VarData could not read the native state");
+            }
+            lua_pushinteger(state, static_cast<lua_Integer>(value));
+            return 1;
+        }
+        if (std::strcmp(key, "Desc") == 0) {
+            std::uint32_t type = 0;
+            std::uint32_t variant = 0;
+            std::uint32_t varData = 0;
+            static_cast<void>(readField(kGridEntityTypeOffset, &type));
+            static_cast<void>(readField(kGridEntityVariantOffset, &variant));
+            static_cast<void>(readField(kGridEntityVarDataOffset, &varData));
+            lua_createtable(state, 0, 3);
+            lua_pushinteger(state, static_cast<lua_Integer>(type));
+            lua_setfield(state, -2, "Type");
+            lua_pushinteger(state, static_cast<lua_Integer>(variant));
+            lua_setfield(state, -2, "Variant");
+            lua_pushinteger(state, static_cast<lua_Integer>(varData));
+            lua_setfield(state, -2, "VarData");
+            return 1;
+        }
+    }
+    // 落到 `GridEntity` 的方法表（`GetType`/`GetVariant`/`GetRNG`…）。
+    luaL_getmetatable(state, LuaRuntime::kGridEntityMetatable);
+    lua_getfield(state, -1, "__methods");
+    if (lua_istable(state, -1)) {
+        lua_getfield(state, -1, key == nullptr ? "" : key);
+        lua_remove(state, -2);
+        lua_remove(state, -2);
+        return 1;
+    }
+    lua_pop(state, 2);
+    lua_pushnil(state);
+    return 1;
+}
+
 int GridEntityDoorIndex(lua_State* state) {
     auto* handle = static_cast<LuaRuntime::DoorHandle*>(
         luaL_checkudata(state, 1, LuaRuntime::kGridEntityDoorMetatable));
@@ -2254,18 +2376,9 @@ int GridEntityDoorIndex(lua_State* state) {
         isaac::runtime::PushLuaVector(state, position.x, position.y);
         return 1;
     }
-    // 落到 `GridEntity` 的方法表（`GetType`/`GetVariant`/`GetRNG`…）。
-    luaL_getmetatable(state, LuaRuntime::kGridEntityMetatable);
-    lua_getfield(state, -1, "__index");
-    if (lua_istable(state, -1)) {
-        lua_getfield(state, -1, key);
-        lua_remove(state, -2);
-        lua_remove(state, -2);
-        return 1;
-    }
-    lua_pop(state, 2);
-    lua_pushnil(state);
-    return 1;
+    // 落到 `GridEntity` **基类**（字段 + 方法表）。2026-09-21 起基类的 `__index` 也是函数
+    // （它要多答几个字段），所以这里直接转调，而不是像以前那样取一张 `__index` 表。
+    return GridEntityIndex(state);
 }
 
 int RoomDescriptorIndex(lua_State* state) {

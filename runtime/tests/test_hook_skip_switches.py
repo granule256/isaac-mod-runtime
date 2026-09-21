@@ -91,6 +91,10 @@ class HookSkipSwitchTests(unittest.TestCase):
             "PickupCollision": "PICKUPCOLLISION",
             # 批次 104 的房间生成实体（可选点）。
             "RoomEntitySpawn": "ROOMENTITYSPAWN",
+            # 批次 105 的贴图桥（可选点）：`.png`→`.pcx` 兜底失败只退回原生仅 `.pcx`。
+            "ImagePcxLoad": "IMAGEPCXLOAD",
+            "ImageManagerLoadFile": "IMAGEMGRLOADFILE",
+            "ContentGetMountedFilePath": "GETMOUNTEDPATH",
         }
         makefile = MAKEFILE.read_text(encoding="utf-8")
         source = HOOK_MANAGER.read_text(encoding="utf-8")

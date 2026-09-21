@@ -22,6 +22,9 @@ namespace isaac::runtime {
 [[nodiscard]] std::size_t AttachRoomMethods(lua_State* state) noexcept;
 //: `GridEntity` 族（批次 12，2026-09-16）：`Room:GetGridEntity()` 的返回值。
 [[nodiscard]] std::size_t AttachGridEntityMethods(lua_State* state) noexcept;
+// `GridEntity` 基类的 `__index`（2026-09-21）：先答**字段**（`Position`/`VarData`/`Desc`），
+// 再落到方法表（元表的 `__methods`）。门的 `__index` 答不上来时也转调它，所以要在建元表处可见。
+int GridEntityIndex(lua_State* state);
 // `Room:GetDoor(slot)` 的返回值是 `GridEntity_Door`（同时是 `GridEntity`）：
 // 它的元表 `__index` 要先按门的字段答、答不上再落到 `GridEntity` 的方法表，所以实现要在
 // `lua_runtime.cpp` 建元表时可见。

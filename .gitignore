@@ -13,3 +13,7 @@ tools/device.local.json
 # 门禁 `runtime/tests/test_no_tracked_build_artifacts.py` 钉住"不许再有构建产物被跟踪"。
 runtime/.*-build/
 runtime/.*-artifacts/
+
+# 探针/实验构建的对象目录（2026-09-22：发布守卫会拦住它们）
+runtime/.sdmc-build*/
+runtime/.sdmc-build*/

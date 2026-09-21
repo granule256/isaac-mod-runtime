@@ -2,6 +2,7 @@
 
 #include "relay/entry_relay.hpp"       // 侵入核心（source/relay/entry_relay.hpp）
 #include "runtime_constants.hpp"       // M0 台账
+#include "relay/smart_pointer_shim.hpp"  // v2：sret 返回值垫片（source/relay）
 
 namespace isaac::runtime {
 namespace {
@@ -62,6 +63,33 @@ extern "C" void EntryRelayRoomEntitySpawnCallback(void* room, std::uint32_t grid
                                                   const void* entry, std::uint32_t seed,
                                                   void** outEntity, std::uint32_t flags);
 
+// 贴图桥（2026-09-21）：`KAGE::Graphics::ImagePcx::Load(char const*)`。ABI：x0 = this，
+// x1 = 路径（`const char*`），返回 w0 = bool。回调自己决定是否跑原函数（入口中继契约），
+// 并把返回值原样搬回游戏调用方（否则引擎读不到 `Load` 的成功/失败）。
+extern "C" bool EntryRelayImagePcxLoadCallback(void* self, const char* path);
+
+// 贴图桥 v2（2026-09-21 下午）：`KAGE::Graphics::ImageManager::LoadImage(char const*,
+// VertexAttributeDescriptor*, bool)` @0x4d1fe4 —— 真正的拦截点（见 hook_catalog 的注释）。
+// ABI：x0 = this，x1 = 路径，x2 = 顶点描述符，x3 = bool 标志；返回值是 16 字节
+// `SmartPointer<ImageBase>`，按 Itanium ABI 走 **x8（sret）** —— 回调必须用同形状的
+// `SmartPointerShim` 声明（非平凡复制 ⇒ 编译器自动按 sret 处理），否则返回值错位。
+// clang 会为「extern "C" 返回 C++ 类类型」发 `-Wreturn-type-c-linkage` —— 这里**就是**
+// 要按 C++ 对象语义走 sret，压掉该告警（gcc 没有这条告警，不受影响）。
+#if defined(__clang__)
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wreturn-type-c-linkage"
+#endif
+extern "C" isaac::runtime::relay::SmartPointerShim EntryRelayImageManagerLoadFileCallback(
+    void* self, const char* path, void* descriptor, int flag);
+#if defined(__clang__)
+#pragma clang diagnostic pop
+#endif
+
+// 贴图桥 v4：`IContentManager::GetMountedFilePath(char const*)` —— 成员（x0=内容管理器，
+// x1=路径），返回**堆上的挂载路径**（调用方用游戏自己的 delete[] 释放）或空。我们在"`.pcx` 不在任何
+// 挂载点、但同名 `.png` 在"时返回一条合成的 `.pcx` 路径，让引擎自己那条链继续走。
+extern "C" char* EntryRelayContentGetMountedFilePathCallback(void* self, const char* path);
+
 // `RegisterEntryRelayCallbacks` 定义在匿名命名空间之外（外部链接）：调用点在
 // hook_manager.cpp，而 g_hookCallbacks 在本 TU 的匿名命名空间里。
 
@@ -103,6 +131,17 @@ EntryRelayBinding BindingOf(HookId id) noexcept {
         case HookId::RoomEntitySpawn:
             return {"Room::spawn_entity", kRoomSpawnEntityOffset,
                     kRoomSpawnEntityExpectedBytes.data(), callback, &g_fallbackEntries[index]};
+        case HookId::ImagePcxLoad:
+            return {"KAGE::Graphics::ImagePcx::Load", kImagePcxLoadFileOffset,
+                    kImagePcxLoadExpectedBytes.data(), callback, &g_fallbackEntries[index]};
+        case HookId::ImageManagerLoadFile:
+            return {"KAGE::Graphics::ImageManager::LoadImage", kImageManagerLoadFileOffset,
+                    kImageManagerLoadFileExpectedBytes.data(), callback, &g_fallbackEntries[index]};
+        case HookId::ContentGetMountedFilePath:
+            return {"KAGE::Filesys::IContentManager::GetMountedFilePath",
+                    kContentManagerGetMountedFilePathOffset,
+                    kContentManagerGetMountedFilePathExpectedBytes.data(), callback,
+                    &g_fallbackEntries[index]};
         case HookId::ManagerPresent:
         case HookId::GameStart:
         case HookId::Count:
@@ -151,6 +190,15 @@ void RegisterEntryRelayCallbacks() noexcept {
         reinterpret_cast<void*>(&EntryRelayPickupCollisionCallback);
     g_hookCallbacks[static_cast<std::size_t>(HookId::RoomEntitySpawn)] =
         reinterpret_cast<void*>(&EntryRelayRoomEntitySpawnCallback);
+    // 贴图桥：`.pcx` 不存在而同名 `.png` 存在时，在内存里转码兜底（回调体在 hook_manager.cpp）。
+    g_hookCallbacks[static_cast<std::size_t>(HookId::ImagePcxLoad)] =
+        reinterpret_cast<void*>(&EntryRelayImagePcxLoadCallback);
+    // 贴图桥 v2：真正的拦截点（文件版 LoadImage；兜底在原函数失败时接管）。
+    g_hookCallbacks[static_cast<std::size_t>(HookId::ImageManagerLoadFile)] =
+        reinterpret_cast<void*>(&EntryRelayImageManagerLoadFileCallback);
+    // v4：路径解析层（合成 `.pcx` 路径 ⇒ 引擎自己那条链能走通）。
+    g_hookCallbacks[static_cast<std::size_t>(HookId::ContentGetMountedFilePath)] =
+        reinterpret_cast<void*>(&EntryRelayContentGetMountedFilePathCallback);
 }
 
 BindingVerdict EvaluateEntryRelayBinding(const EntryRelayBinding& binding,

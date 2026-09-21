@@ -30,8 +30,26 @@
 | `our < engine`（少给参数） | 引擎要读的参数我们没准备 ⇒ 那些寄存器是**调用方的残留值** | 必须逐条人工分诊，写进 `tools/engine_abi_triage.json`（写明为什么安全） |
 | 浮点/整数不匹配 | 引擎要 `float`/`double`（走 v 寄存器）而我们声明的是整数（走 x 寄存器）⇒ 实参根本传不到 | **一律判红**（2026-09-17 的 `Present` 转发桩就是这个形状） |
 | `our > engine + 1` | 我们多给参数（多出来的引擎不读） | 无害，只提示 |
+| `relay-mismatch`（**入口中继回调**，见下） | 引擎调我们：参数个数不符，**或引擎有返回值而我们声明了 `void`** | **一律判红**（2026-09-21 的真机事故就是这个形状） |
 
 `HasCollectible` 那类错的形状正是"少给一个 `bool`" ⇒ 会被第一类抓住。
+
+### 入口中继回调（引擎调我们）—— 2026-09-21 新增
+
+前面几种形态都是"**我们主动调引擎**"（有调用点，所以能读出我们声明的类型）。而入口中继是反过来：
+把本模块里一个手写 `extern "C"` 回调**当目标函数来跑**（`entry_relay.hpp`：槽里 `br` 尾调用回调，
+回调的 `ret` 直接回到游戏的调用方）⇒ 实参 `x0..x7` 原样进、**返回值也由回调负责**。
+这类回调在旧报告里全是"我们 — 没找到调用点（本轮没比过）"，**返回值这一项从来没有门禁比过**。
+
+事故：`EntryRelayUseActiveItemCallback` 声明成 `void`，而 `Entity_Player::UseActiveItem`
+（本体 `0x30653C`，长 `0x143B4`）唯一的收尾点是 `mov x0, x22`（`0x31A8C0`）⇒ 游戏调用方拿到的
+`x0` 是回调里最后一次调用的残留值 ⇒ 用后记账（扣充能 / 移除单次道具 / 服装动画）走错分支。
+真机症状：**所有主动道具用后不掉充能、部分道具被移除**。同形状还有
+`Entity_Pickup::handle_collision`（`0x2728C8` 的 `mov w0, #1`）与 `Room::spawn_entity`
+（`0x453EA0` 的 `mov w0, w21`）——三个一起修。
+
+判据（纯静态）：`our == engine` 或 `our == engine + 1` 算参数一致（靶点可能是成员函数也可能不是）；
+返回值则从函数**自己的**收尾点往回扫，先撞上"写 `x0/w0`"⇒ 有返回值，先撞上 `bl/blr` ⇒ void。
 
 ### 当前覆盖率与**已知读不出来的形态**（2026-09-17 实测，诚实记账）
 
@@ -90,6 +108,15 @@ SRC_DIRS = [ROOT / "runtime" / "src", ROOT / "runtime" / "source"]
 #: 引擎符号签名表：由 `tools/gen_engine_symbol_signatures.py` 生成（用 c++filt），
 #: 这里**只查表**，不再自己解析 mangled name —— 手写解析器踩过坑（`ItemConfig` 里的 `I` 被当成模板起始）。
 TABLE = ROOT / "tools" / "engine_symbol_signatures.json"
+
+#: 本体镜像。★ 2026-09-21 修：这个常量原先**只被 `load_symbols()` 引用、却从未定义** ——
+#: 那条路一旦被走到就是 `NameError`（本轮加"中继回调返回值"检查时才踩到）。路径写法与
+#: `tools/gen_engine_symbol_signatures.py` 保持一致。
+NRO = (
+    ROOT
+    / "The Binding of Isaac_ Afterbirth+ 1.7.9b [010021C000B6A800][v524288][UPD]"
+    / "Program #0/1/.nro/Repentance.nro"
+)
 
 CONST_RE = re.compile(r"^inline constexpr uintptr_t (k[A-Za-z0-9]+Offset) = (0x[0-9A-Fa-f]+);", re.M)
 
@@ -1049,6 +1076,239 @@ def classify(entry: dict, our_params: list[str] | None) -> dict:
     return row
 
 
+# ============================================================================
+# 单独一类（2026-09-21）：**入口中继回调**（`extern "C"` 签名）
+# ============================================================================
+#
+# （不占用 A–F 的形态号：那些是"我们主动调引擎"的调用点形态，这一批是反过来的"引擎调我们"。）
+#
+# 为什么单独一类：入口中继是把「本模块里的一个回调」当**目标函数本身**来跑的
+# （`runtime/source/relay/entry_relay.hpp`：槽里 `br` 尾调用回调，回调的 `ret` 直接回到游戏的
+# 调用方）。所以：
+#   * 实参：x0..x7 **原样**传进来 ⇒ 回调的参数表必须覆盖目标函数真正读的那几个；
+#   * **返回值：也由回调负责** —— 目标函数在 `x0` 里返回什么，回调就得返回什么。
+#
+# 前三种形态看不见它们：那些是"我们主动调引擎"（有 `reinterpret_cast<Fn>` 调用点），而这里是
+# "引擎调我们"（回调是手写 `extern "C"` 定义、地址被塞进中继槽），所以旧报告对这批靶点只能报
+# "我们 — 没找到调用点（本轮没比过）"。
+#
+# ★ 真机事故（2026-09-21）：`EntryRelayUseActiveItemCallback` 声明成 `void`，而
+# `Entity_Player::UseActiveItem` **有返回值**（本体 `0x31A8C0` 的 `mov x0, x22`）⇒ 游戏调用方
+# 拿到的 `x0` 是回调里最后一次调用的残留值 ⇒ 用后记账（扣充能 / 移除单次道具）走错分支，
+# 用户看到"所有主动道具用后不掉充能、部分道具被移除"。同一个形状还有 `Entity_Pickup::
+# handle_collision`（`0x2728C8` 的 `mov w0, #1`）与 `Room::spawn_entity`（`0x453EA0` 的
+# `mov w0, w21`）——三个一起修。
+#
+# 判据（纯静态，对着本体镜像）：
+#   * 参数：`our == engine` 或 `our == engine + 1`（目标可能是成员函数、也可能不是，
+#     mangled name 分不出"命名空间"与"类"，所以两种都算一致）；`our < engine` 判红；
+#   * 返回值：从函数收尾往回扫，**第一条**"写 x0/w0"的指令 ⇒ 有返回值；
+#     第一条是 `bl/blr` ⇒ 那个 x0 是调用的残留（void 函数）⇒ 判 void。两边不一致就判红。
+RELAY_CALLBACK_TARGETS: tuple[tuple[str, str], ...] = (
+    # (回调函数名, 靶点偏移常量名) —— 与 `entry_relay_hook_adapter.cpp` 的登记逐条对应。
+    ("EntryRelayManagerUpdateCallback", "kManagerUpdateFileOffset"),
+    ("EntryRelayManagerRenderCallback", "kManagerRenderFileOffset"),
+    ("EntryRelayPreGetCollectibleCallback", "kPreGetCollectibleRelayOffset"),
+    ("EntryRelayRebuildMountPointsCallback", "kRebuildContentMountPointsOffset"),
+    ("EntryRelayUseActiveItemCallback", "kEntityPlayerUseActiveItemOffset"),
+    ("EntryRelayUseCardCallback", "kEntityPlayerUseCardOffset"),
+    ("EntryRelayUsePillCallback", "kEntityPlayerUsePillOffset"),
+    ("EntryRelayGameExitCallback", "kGameExitOffset"),
+    ("EntryRelayPickupCollisionCallback", "kEntityPickupHandleCollisionOffset"),
+    ("EntryRelayRoomEntitySpawnCallback", "kRoomSpawnEntityOffset"),
+)
+RELAY_SOURCE = ROOT / "runtime" / "source" / "hook_manager.cpp"
+RELAY_CALLBACK_RE = re.compile(
+    r'extern\s+"C"\s+([A-Za-z_][A-Za-z0-9_:<>\s]*?)\s+(EntryRelay\w+Callback)\s*\(([^)]*)\)\s*\{',
+    re.S,
+)
+
+
+def _u32(data: bytes, offset: int) -> int:
+    return int.from_bytes(data[offset : offset + 4], "little")
+
+
+def _is_ret(word: int) -> bool:
+    return word == 0xD65F03C0
+
+
+def _is_call(word: int) -> bool:
+    return (word & 0xFC000000) in (0x94000000, 0xD63F0000)  # bl / blr
+
+
+def _is_frame_restore(word: int) -> bool:
+    """`ldp x29, x30, [sp, #imm]` / `ldp x29, x30, [sp], #imm`（收尾标志）。"""
+    return (
+        (word >> 24) in (0xA8, 0xA9)
+        and ((word >> 22) & 1) == 1
+        and ((word >> 10) & 0x1F) == 30
+        and ((word >> 5) & 0x1F) == 31
+        and (word & 0x1F) == 29
+    )
+
+
+def _writes_x0(word: int) -> bool:
+    """这条指令是不是"把结果写进 x0/w0"（不含存储、分支、比较）。
+
+    ★ 2026-09-21 修正：第一版把「数据加工-寄存器」那组的组号写成了 `1010/1011`（实际是
+    **分支/异常/系统**那一组）⇒ `mov x0, x22`（`ORR`，组号 `0101`）**被判成"不是写 x0"**，
+    于是 `UseActiveItem` 这种"有返回值"的函数被误判成 void —— **工具自己差点把这次要抓的
+    那个 bug 放过去**。现在按 ARM ARM 的顶层编码表分组：
+      * `0101`/`1101` 数据加工-寄存器（`mov`/`orr`/`and`/`csel`…）
+      * `1000`/`1001` 数据加工-立即数（`movz`/`movk`/`add`/位域 `bfi`…）
+      * `0000` PC 相对（`adr`/`adrp`）
+      * `x1x0` 加载/存储（只有 **load** 才算写）
+      * `101x` 分支/异常/系统、`0111` SIMD ⇒ 都不是写 x0
+    """
+    if _is_call(word) or _is_ret(word):
+        return False
+    group = (word >> 25) & 0x0F
+    if group in (0b0000, 0b0101, 0b1000, 0b1001, 0b1101):
+        return (word & 0x1F) == 0
+    if group in (0b0100, 0b0110, 0b1100, 0b1110):
+        return ((word >> 22) & 1) == 1 and (word & 0x1F) == 0
+    return False
+
+
+def _symbol_offsets(data: bytes) -> list[int]:
+    """镜像里所有已定义符号的文件偏移（升序）—— 用来给"这个函数到哪儿结束"划界。
+
+    没有这条界，短函数会一路扫到**后面那些函数**的 `ret`，于是"有没有返回值"会被邻函数污染
+    （第一版就是这么误判 `UseCard`/`UsePill`/`GameExit` 的）。
+    """
+    try:
+        _soname, symbols = parse_dynamic_symbols(data)
+    except Exception:  # 镜像格式意外时宁可不判，也不瞎判
+        return []
+    return sorted({s.file_offset for s in symbols.values() if s.file_offset is not None})
+
+
+def _function_end(offsets: list[int], start: int, limit: int) -> int:
+    for candidate in offsets:
+        if candidate > start:
+            return min(candidate, start + limit)
+    return start + limit
+
+
+def _first_epilogue(data: bytes, start: int, end: int) -> int | None:
+    """函数自己的第一个收尾点（`ret` 且前面 20 条指令里有 `ldp x29, x30, [sp…]`）。"""
+    for offset in range(start, min(end, len(data) - 4), 4):
+        if not _is_ret(_u32(data, offset)):
+            continue
+        if any(_is_frame_restore(_u32(data, offset - k)) for k in range(4, 4 * 20, 4)):
+            return offset
+    return None
+
+
+def engine_returns_value(data: bytes, start: int,
+                         symbol_offsets: list[int] | None = None,
+                         limit: int = 0x20000) -> bool | None:
+    """本体镜像里这个函数有没有返回值（`True`/`False`，判不出给 `None`）。
+
+    判据：从函数自己的收尾点往回走，**第一条**"有意思"的指令决定结果 ——
+      * 先撞上"写 x0/w0" ⇒ 返回前显式放了值 ⇒ **有返回值**；
+      * 先撞上 `bl`/`blr` ⇒ 收尾处的 x0 是那次调用的残留 ⇒ **void**；
+      * 27 条之内两者都没有 ⇒ 判不出（`None`）。
+    """
+    offsets = symbol_offsets if symbol_offsets is not None else _symbol_offsets(data)
+    end = _function_end(offsets, start, limit)
+    epilogue = _first_epilogue(data, start, end)
+    if epilogue is None:
+        return None
+    for k in range(4, 4 * 27, 4):
+        word = _u32(data, epilogue - k)
+        if _writes_x0(word):
+            return True
+        if _is_call(word):
+            return False
+    return None
+
+
+def relay_declarations() -> dict[str, tuple[str, list[str]]]:
+    """我们声明的中继回调：`名字 → (返回类型, 参数表)`。"""
+    if not RELAY_SOURCE.exists():
+        return {}
+    text = RELAY_SOURCE.read_text(encoding="utf-8", errors="replace")
+    out: dict[str, tuple[str, list[str]]] = {}
+    for return_type, name, raw_params in RELAY_CALLBACK_RE.findall(text):
+        params = [item.strip() for item in raw_params.split(",") if item.strip()]
+        out[name] = (return_type.strip(), params)
+    return out
+
+
+def classify_relay(declared: dict[str, tuple[str, list[str]]], image: bytes | None) -> list[dict]:
+    by_constant = {entry["constant"]: entry for entry in load_table()}
+    symbol_offsets = _symbol_offsets(image) if image is not None else []
+    rows: list[dict] = []
+    for callback, constant in RELAY_CALLBACK_TARGETS:
+        entry = by_constant.get(constant) or {"constant": constant, "parameters": None,
+                                              "demangled": None, "offset": None}
+        row = {
+            "section": "entry-relay",
+            "callback": callback,
+            "constant": constant,
+            "offset": entry.get("offset"),
+            "demangled": entry.get("demangled"),
+            "engine_parameters": entry.get("parameters"),
+            "declared_return": None,
+            "declared_parameters": None,
+            "engine_returns": None,
+            "verdict": "unknown",
+            "detail": "",
+        }
+        signature = declared.get(callback)
+        if signature is None:
+            row["detail"] = "没找到回调定义（`hook_manager.cpp` 里的 `extern \"C\"` 形态变了？）"
+            rows.append(row)
+            continue
+        return_type, params = signature
+        row["declared_return"] = return_type
+        row["declared_parameters"] = params
+        our_returns = return_type.replace(" ", "") != "void"
+        engine_params = entry.get("parameters")
+        engine_count = len(engine_params) if engine_params else None
+        if image is not None and entry.get("offset"):
+            row["engine_returns"] = engine_returns_value(image, int(entry["offset"], 16),
+                                                         symbol_offsets)
+        problems: list[str] = []
+        if engine_count is not None:
+            if len(params) < engine_count:
+                problems.append(f"参数少给：我们 {len(params)} < 引擎 {engine_count}"
+                                "（引擎要读的寄存器是调用方的残留值）")
+            elif len(params) > engine_count + 1:
+                problems.append(f"参数多给：我们 {len(params)} > 引擎 {engine_count} + 1")
+            if engine_count == 0 and len(params) != 0:
+                problems.append(f"引擎无参数而我们声明了 {len(params)} 个")
+        if row["engine_returns"] is not None:
+            if row["engine_returns"] and not our_returns:
+                problems.append("**返回值缺失**：引擎有返回值（x0）而我们声明 void"
+                                " ⇒ 游戏拿到的是回调里最后一次调用的残留值")
+            elif not row["engine_returns"] and our_returns:
+                problems.append("返回值多给：引擎不返回值而我们声明了返回类型")
+        if problems:
+            row["verdict"] = "relay-mismatch"
+            row["detail"] = "；".join(problems)
+        elif row["engine_returns"] is None and engine_count is None:
+            row["detail"] = "镜像/签名表缺这条 ⇒ 这一轮没比过"
+        else:
+            row["verdict"] = "ok"
+            row["detail"] = (f"参数 {len(params)}（引擎 {engine_count}）、"
+                             f"返回值 {'有' if row['engine_returns'] else '无' if row['engine_returns'] is not None else '未判出'}"
+                             " —— 与声明一致")
+        rows.append(row)
+    return rows
+
+
+def print_relay_report(rows: list[dict]) -> None:
+    marks = {"ok": "✓", "relay-mismatch": "✗", "unknown": "?"}
+    print("\n入口中继回调（引擎调我们；返回值也由回调负责）：")
+    for row in rows:
+        engine = "—" if row["engine_returns"] is None else ("有" if row["engine_returns"] else "无")
+        print(f"  {marks[row['verdict']]} {row['callback']:38s} 返回 引擎 {engine} / 我们 "
+              f"{row['declared_return']}  参数 {len(row['declared_parameters'] or [])}"
+              f"（引擎 {len(row['engine_parameters'] or [])}）  {row['detail']}")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="引擎调用 ABI 体检（查签名表 ↔ 我们声明的参数表）")
     parser.add_argument("--json", type=pathlib.Path, help="把结果写成 JSON")
@@ -1070,6 +1330,12 @@ def main() -> int:
         signature = declared_signature(entry["constant"])
         params = signature[1] if signature else None
         rows.append(classify(entry, params))
+
+    # 入口中继回调（引擎调我们）：参数 + **返回值**都要对账（见上面那一节的说明）。
+    image = NRO.read_bytes() if NRO.exists() else None
+    relay_rows = classify_relay(relay_declarations(), image)
+    relay_bad = [row for row in relay_rows if row["verdict"] == "relay-mismatch"]
+    relay_unknown = [row for row in relay_rows if row["verdict"] == "unknown"]
 
     triage = load_triage()
     unresolved = [r for r in rows if r["verdict"] == "unknown"]
@@ -1094,6 +1360,17 @@ def main() -> int:
           f"+ 多给参数 {len(over)}；✗ 浮点不匹配 {len(float_bad)}")
     print(f"参数个数不符 **{len(mismatches)}** 个"
           + (f"（另有 {len(triaged)} 个『少给参数』已在 {TRIAGE.name} 里写明理由）" if triaged else ""))
+    print(f"入口中继回调 {len(relay_rows)} 个：✗ 声明与引擎不符 **{len(relay_bad)}** 个、"
+          f"没比过 {len(relay_unknown)} 个"
+          + ("" if image is not None else "（仓库里没有游戏镜像 ⇒ 返回值这一项没判）"))
+
+    if relay_bad:
+        print("\n✗ 入口中继回调的声明与引擎不符（中继是**以目标函数的身份**返回的，"
+              "参数与返回值都得对上）：")
+        for row in relay_bad:
+            print(f"  {row['callback']} → {row['constant']} @ {row['offset']}"
+                  f" → {row['demangled']}")
+            print(f"    {row['detail']}")
 
     if float_bad:
         print("\n✗ 浮点/整数不匹配（实参传不到引擎）：")
@@ -1114,11 +1391,16 @@ def main() -> int:
             ours = "—" if row["declared_parameters"] is None else len(row["declared_parameters"])
             print(f"  {marks[row['verdict']]} {row['constant']:40s} 引擎 {len(row['parameters'] or [])} 参数"
                   f" / 我们 {ours}  {row['detail']}")
+        print_relay_report(relay_rows)
     if args.json is not None:
         args.json.parent.mkdir(parents=True, exist_ok=True)
-        args.json.write_text(json.dumps(rows, ensure_ascii=False, indent=2), encoding="utf-8")
-        print(f"（JSON 已写入 {args.json}）")
-    return 1 if mismatches else 0
+        args.json.write_text(
+            json.dumps({"call_sites": rows, "entry_relay": relay_rows},
+                       ensure_ascii=False, indent=2),
+            encoding="utf-8")
+        print(f"（JSON 已写入 {args.json}：`call_sites` = 我们调引擎的调用点、"
+              "`entry_relay` = 引擎调我们的中继回调）")
+    return 1 if (mismatches or relay_bad) else 0
 
 
 if __name__ == "__main__":
