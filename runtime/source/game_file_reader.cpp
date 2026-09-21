@@ -76,7 +76,71 @@ bool VerifyBindings(const TargetModule& module, Bindings* bindings) {
     return true;
 }
 
-#if defined(EXL_DIAGNOSTIC_STAGE) && EXL_DIAGNOSTIC_STAGE == 118
+namespace {
+std::atomic<std::uint32_t> g_imagePcxBindingMask{0};
+}  // namespace
+
+std::uint32_t LastImagePcxBindingMask() noexcept { return g_imagePcxBindingMask.load(); }
+
+// 逐个靶点独立校验：**能过的照常发布**（功能尽可能可用），过不了的记进掩码。
+// 依据：2026-09-21 真机——新加一个靶点没过时，整套绑定被放弃、功能静默失效，且读数分不清原因。
+bool VerifyImagePcxBindings(const TargetModule& module, ImagePcxBindings* bindings) {
+    if (bindings == nullptr || module.buildId != kTargetBuildId) {
+        g_imagePcxBindingMask.store(0xFFFFFFFFu);
+        return false;
+    }
+
+    ImagePcxBindings verified{};
+    std::uint32_t mask = 0;
+    if (!VerifyGameEntry(module, kImagePcxLoadInMemoryFileOffset, kImagePcxLoadInMemoryExpectedBytes,
+                         &verified.inMemoryLoad)) {
+        mask |= 1u << 0;
+    }
+    if (!VerifyGameEntry(module, kZlibInflateInit2FileOffset, kZlibInflateInit2ExpectedBytes,
+                         &verified.inflateInit2)) {
+        mask |= 1u << 1;
+    }
+    if (!VerifyGameEntry(module, kZlibInflateFileOffset, kZlibInflateExpectedBytes,
+                         &verified.inflate)) {
+        mask |= 1u << 2;
+    }
+    if (!VerifyGameEntry(module, kZlibInflateEndFileOffset, kZlibInflateEndExpectedBytes,
+                         &verified.inflateEnd)) {
+        mask |= 1u << 3;
+    }
+    if (!VerifyGameEntry(module, kImageManagerLoadMemoryOffset, kImageManagerLoadMemoryExpectedBytes,
+                         &verified.imageManagerLoadMemory)) {
+        mask |= 1u << 4;
+    }
+    // ★ `getMountedFilePath` **不在这里校验**：它同时是我们自己的入口中继挂点 —— 挂点安装
+    // 时已经把它的原版序言逐字节核对过（并且把入口改写成跳转了），这里再"逐字节比原版"必然
+    // 失败（2026-09-21 真机：掩码 0x20 就是它）。运行时的路径解析一律走**中继自带的原函数
+    // 入口**（`Original<...>(HookId::ContentGetMountedFilePath)`），不再需要这个绑定。
+    verified.getMountedFilePath = nullptr;
+    if (!VerifyGameEntry(module, kGameOperatorDeleteArrayOffset,
+                         kGameOperatorDeleteArrayExpectedBytes,
+                         &verified.operatorDeleteArray)) {
+        mask |= 1u << 6;
+    }
+    if (!VerifyGameEntry(module, kGameOperatorNewArrayOffset, kGameOperatorNewArrayExpectedBytes,
+                         &verified.operatorNewArray)) {
+        mask |= 1u << 7;
+    }
+    {
+        const uintptr_t slot =
+            *reinterpret_cast<volatile const uintptr_t*>(module.base + kContentManagerGotSlotOffset);
+        if (slot == 0 || (slot & 0x7) != 0) {
+            mask |= 1u << 8;
+        } else {
+            verified.contentManager = reinterpret_cast<void*>(slot);
+        }
+    }
+
+    g_imagePcxBindingMask.store(mask);
+    *bindings = verified;   // ★ 部分发布：能过的照常给用，由调用方按需判空
+    return mask == 0;
+}
+
 bool VerifyWriteBindings(const TargetModule& module, WriteBindings* bindings) {
     if (bindings == nullptr || module.buildId != kTargetBuildId) return false;
     WriteBindings verified{};
@@ -91,6 +155,7 @@ bool VerifyWriteBindings(const TargetModule& module, WriteBindings* bindings) {
     return true;
 }
 
+#if defined(EXL_DIAGNOSTIC_STAGE) && EXL_DIAGNOSTIC_STAGE == 118
 WriteDiagnosticResult WriteDiagnosticFile(const WriteBindings& bindings) {
     const auto construct = bindings.construct;
     const auto openWrite = bindings.openWrite;

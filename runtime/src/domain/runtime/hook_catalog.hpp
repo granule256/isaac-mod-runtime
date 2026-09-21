@@ -38,6 +38,18 @@ enum class HookId : std::uint8_t {
     PickupCollision,
     // 批次 104（第 2 期）：房间生成实体（`MC_PRE_ROOM_ENTITY_SPAWN`）。
     RoomEntitySpawn,
+    // 贴图桥（2026-09-21）：`.pcx` 加载最后一站。走 `EntryRelay`（零占洞改入口 16 字节）。
+    // 偏移与 16 字节守卫在 `runtime_constants.hpp`。标 `required = false`：装不上只让
+    // `.png`→`.pcx` 兜底静默失效（退化为原生仅 `.pcx`），不该令整个 Mod 加载失败。
+    ImagePcxLoad,
+    // 贴图桥 v2（2026-09-21 下午）：真正的拦截点。`ImageManager::LoadImage` 文件版在
+    // 创建贴图对象**之前**就用 `GetMountedFilePath` 查"文件在不在任何挂载点"，不在直接
+    // 返回空 ⇒ v1 那层（`ImagePcx::Load`）对"文件不存在"永远等不到调用（真机 14:10 验证）。
+    // 本层兜底：原函数失败 → 读同名 `.png` 转 PCX 字节 → 调五参内存版 → 原样交出返回值。
+    ImageManagerLoadFile,
+    // 贴图桥 v4：`IContentManager::GetMountedFilePath` —— 让"文件不在任何挂载点"的 `.pcx`
+    // 也能被引擎自己那条加载链走通（返回合成的 `.pcx` 路径）。见 runtime_constants 的 v4 段。
+    ContentGetMountedFilePath,
     Count,
 };
 
@@ -73,6 +85,9 @@ inline constexpr std::array<HookDescriptor, kHookIdCount> kHookCatalog = {{
     {HookId::GameExit, "GameExit", HookBackend::EntryRelay, false},
     {HookId::PickupCollision, "PickupCollision", HookBackend::EntryRelay, false},
     {HookId::RoomEntitySpawn, "RoomEntitySpawn", HookBackend::EntryRelay, false},
+    {HookId::ImagePcxLoad, "ImagePcxLoad", HookBackend::EntryRelay, false},
+    {HookId::ImageManagerLoadFile, "ImageManagerLoadFile", HookBackend::EntryRelay, false},
+    {HookId::ContentGetMountedFilePath, "ContentGetMountedFilePath", HookBackend::EntryRelay, false},
 }};
 
 // 取登记项。传入 `HookId::Count` 或越界值属于调用方错误，这里退化成第一个登记项

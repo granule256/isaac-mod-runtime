@@ -18,7 +18,8 @@ EID 的套装进度恒 `(0/3)`，我们查了很多轮**代码**（运行时的 
 2. **nro_patches**（★ 这次的漏洞就在这儿）：本地部署包里每个补丁，卡上必须**同名存在、哈希一致**，
    而且**不允许**出现 `<同名>.disabled`（那是"被静默禁用"的形态）；
 3. **多出来的东西**：卡上任何 `*.disabled`（文件或目录）都列出来 —— 它们是**被人为关掉的功能**；
-4. **romfs 模组目录**：卡上的模组目录清单（上限 4 个，超了会整批拒绝加载）。
+4. **romfs 模组目录**：卡上的模组目录清单（上限从运行时源码的常量读，**不写死**——
+   它变过三次：4 → 16 → 32；写死 4 时卡上 6 个目录会被误报成"整批拒绝加载"）。
 
 ## 用法
 
@@ -42,6 +43,29 @@ FTP_TOOL = ROOT / "tools" / "device_ftp.py"
 DEFAULT_DEPLOY = ROOT / "runtime" / ".gdbsym-artifacts" / "deploy"
 TITLE_DIR = "/atmosphere/contents/010021C000B6A000"
 GAP_SECONDS = 1.5
+
+#: 模组数量上限的**唯一真值源**：运行时源码里的常量（`static_assert` 把它和多选表钉一致）。
+#: 这个数字变过三次（4 → 16 → 32），所以任何写死它的地方都会变成"过期判据"。
+CAPACITY_SOURCES = (
+    ROOT / "runtime" / "src" / "domain" / "mod" / "mod_manifest.hpp",
+    ROOT / "runtime" / "source" / "mod_manifest.hpp",
+)
+
+
+def _mod_capacity_from_source() -> int | None:
+    """从源码里读 `kModManifestCapacity`/`kMaximumSelectedMods`（读不到返回 None ⇒ 不下结论）。"""
+    import re
+
+    pattern = re.compile(r"k(?:ModManifestCapacity|MaximumSelectedMods)\s*=\s*(\d+)")
+    for path in CAPACITY_SOURCES:
+        try:
+            text = path.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        match = pattern.search(text)
+        if match:
+            return int(match.group(1))
+    return None
 
 #: ★ 挂点至今**仍走 IPS 那条路**的补丁：卡上缺了 ⇒ 对应功能静默失效。
 #: `lifecycle-relay` 就是 2026-09-17 那次的真凶（缺了它 ⇒ 游戏开局事件永远不来 ⇒
@@ -207,8 +231,14 @@ def main() -> int:
     print("\n== romfs 模组目录 ==")
     mods = ls(f"{TITLE_DIR}/romfs/isaac_mods/mods")
     print(f"  {len(mods)} 个：{'、'.join(mods) if mods else '（读不到）'}")
-    if len(mods) > 4:
-        problems.append(f"模组目录 {len(mods)} 个 > 上限 4 ⇒ 运行时会整批拒绝加载")
+    # ★ 2026-09-21：上限**不能再写死**。它由运行时源码里的常量决定，且跟着批次变过三次
+    # （4 → 16 → 32）；写死 4 时，卡上 6 个目录会被误报成"整批拒绝加载"（当时真就被这条唬了一下）。
+    # 判据改成"从源码读常量"：读不到就**不报**，而不是拿一个可能过期的数字下结论。
+    capacity = _mod_capacity_from_source()
+    if capacity is not None and len(mods) > capacity:
+        problems.append(f"模组目录 {len(mods)} 个 > 上限 {capacity}（`kModManifestCapacity`）⇒ 运行时会整批拒绝加载")
+    elif capacity is None:
+        print("  （上限判不了：源码里的 `kModManifestCapacity` 没读到 ⇒ 不拿旧数字下结论）")
 
     # ---- 汇总 ----
     print("\n== 汇总 ==")

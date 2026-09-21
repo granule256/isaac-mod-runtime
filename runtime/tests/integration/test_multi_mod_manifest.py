@@ -40,8 +40,10 @@ DRIVER = textwrap.dedent(
     r"""
     #include "application/mod/manifest_parser.hpp"
     #include "application/mod/manifest_service.hpp"
+    #include "application/mod/mod_discovery_service.hpp"
     #include "application/mod/mod_load_service.hpp"
     #include "infrastructure/mod/manifest_selector_adapter.hpp"
+    #include "ports/mod_directory_port.hpp"
 
     #include <cstdio>
     #include <cstring>
@@ -68,16 +70,38 @@ DRIVER = textwrap.dedent(
         "{\"directory\":\"ModOff\",\"enabled\":false,\"entry\":\"mods/ModOff/main.lua\"},"
         "{\"directory\":\"ModB\",\"enabled\":true,\"entry\":\"mods/ModB/main.lua\"}]}";
 
-    const char* kFiveEnabled =
-        "{\"schema_version\":1,\"mods\":["
-        "{\"directory\":\"M1\",\"enabled\":true},"
-        "{\"directory\":\"M2\",\"enabled\":true},"
-        "{\"directory\":\"M3\",\"enabled\":true},"
-        "{\"directory\":\"M4\",\"enabled\":true},"
-        "{\"directory\":\"M5\",\"enabled\":true}]}";
+    // "超过上限"的清单由**常量推导**（容量 + 1 条）：容量再抬也不用改这里。
+    std::string TooManyEnabled() {
+        std::string json = "{\"schema_version\":1,\"mods\":[";
+        for (std::size_t index = 0; index <= kModManifestCapacity; ++index) {
+            if (index != 0) { json += ","; }
+            json += "{\"directory\":\"M" + std::to_string(index + 1) + "\",\"enabled\":true}";
+        }
+        json += "]}";
+        return json;
+    }
 
     const char* kNoneEnabled =
         "{\"schema_version\":1,\"mods\":[{\"directory\":\"ModA\",\"enabled\":false}]}";
+
+    // 假的目录端口：返回事先排好序（升序）的目录名，形状与真适配器一致。
+    struct FakeDirectories final : IModDirectoryPort {
+        const char* names[8]{};
+        std::size_t count{0};
+        Status ListSubdirectories(std::string_view, ModDirectoryEntry* out, std::size_t capacity,
+                                  std::size_t* count) noexcept override {
+            if (out == nullptr || count == nullptr) { return Status{StatusCode::InvalidArgument}; }
+            if (this->count > capacity) { return Status{StatusCode::CapacityExceeded}; }
+            for (std::size_t index = 0; index < this->count; ++index) {
+                const std::size_t bytes = std::strlen(names[index]);
+                if (bytes >= out[index].name.size()) { return Status{StatusCode::CapacityExceeded}; }
+                std::memcpy(out[index].name.data(), names[index], bytes);
+                out[index].name[bytes] = '\0';
+            }
+            *count = this->count;
+            return Status{StatusCode::Ok};
+        }
+    };
 
     // 假的内容端口：清单返回**真实的那段 JSON 字节**（解析器是真的，喂垃圾进去只会得到
     // "清单坏了"，测不到任何东西）；入口脚本按"这个 Mod 的入口是否存在"决定成败。
@@ -154,6 +178,10 @@ DRIVER = textwrap.dedent(
         Check(std::strcmp(all.manifest.entries[1].directory.data(), "ModB") == 0,
               "second_mod_is_modb");
         Check(all.manifest.entries[0].enabled, "first_mod_enabled_flag");
+        // 被显式关掉的目录名也要留下：自动发现合并时靠它把"用户关掉的模组"排除掉（2026-09-21）。
+        Check(all.manifest.disabledCount == 1, "disabled_directory_counted");
+        Check(std::strcmp(all.manifest.disabledDirectories[0].data(), "ModOff") == 0,
+              "disabled_directory_name_kept");
 
         // 单模组那条老口径不受影响：仍然是"第一个启用的"。
         ManifestParseOutcome first = Parser().Parse(kTwoEnabled, twoLength);
@@ -164,8 +192,9 @@ DRIVER = textwrap.dedent(
         // --- 2) 失败原因要逐条分开 -----------------------------------------
         ManifestParseAllOutcome none = Parser().ParseAll(kNoneEnabled, std::strlen(kNoneEnabled));
         Check(none.failure == ManifestParseFailure::NoEnabledMod, "no_enabled_mod_reported");
+        const std::string tooManyText = TooManyEnabled();
         ManifestParseAllOutcome tooMany =
-            Parser().ParseAll(kFiveEnabled, std::strlen(kFiveEnabled));
+            Parser().ParseAll(tooManyText.c_str(), tooManyText.size());
         Check(tooMany.failure == ManifestParseFailure::TooManyMods,
               "too_many_mods_reported_not_truncated");
         ManifestParseAllOutcome broken = Parser().ParseAll("{", 1);
@@ -244,10 +273,13 @@ DRIVER = textwrap.dedent(
         // 期望是 `TooManyMods`（不是"取前 4 个"）—— 截断会让第 5 个 Mod 安静地不加载，
         // 而症状是"某个 Mod 没生效"，查起来比一个明确的失败贵得多。
         {
+            const std::string bigText = TooManyEnabled();
             FakeContent big{};
-            big.manifestText = kFiveEnabled;
+            big.manifestText = bigText.c_str();
             ManifestService service{big, Parser()};
-            static std::uint8_t buffer[1024]{};
+            // 缓冲要装得下"容量 + 1"条清单（32 条 ≈ 1.5 KiB）：太小的话失败会退化成
+            // `ManifestRead`（读不下），测不到我们想测的"解析阶段超限"。
+            static std::uint8_t buffer[8192]{};
             static ResolvedManifestModBatch tooManyBatch{};
             ModLoadFailure tooManyFailure{};
             const Status status = service.ResolveAll(buffer, sizeof(buffer), &tooManyBatch,
@@ -258,6 +290,48 @@ DRIVER = textwrap.dedent(
             Check(tooManyFailure.step == ModLoadStep::ManifestParse,
                   "too_many_mods_failure_step");
             Check(tooManyBatch.count == 0, "too_many_mods_yields_no_batch");
+        }
+
+        // --- 8) 清单 + 扫目录**合并**（2026-09-21：拷进 mods/ 就能用）------------------
+        //
+        // 语义：清单里的在前（顺序、开关由清单说了算），随后按名字升序追加"清单没列出的"目录；
+        // 被清单显式 `enabled = false` 的目录**不许被捡回来**（否则用户再也关不掉模组）。
+        {
+            FakeContent content{};
+            content.manifestText = kTwoEnabled;   // ModA 启用 / ModOff 关掉 / ModB 启用
+            ManifestService service{content, Parser()};
+            static std::uint8_t mergeBuffer[1024]{};
+            static ResolvedManifestModBatch mergeBatch{};
+            Check(service.ResolveAll(mergeBuffer, sizeof(mergeBuffer), &mergeBatch, nullptr).ok(),
+                  "merge_resolve_ok");
+            Check(mergeBatch.count == 2, "merge_manifest_part_kept");
+
+            FakeDirectories directories{};
+            directories.names[0] = "AAAnew";   // 升序：AAAnew < ModA < ModB < ModOff < ZZZnew
+            directories.names[1] = "ModA";
+            directories.names[2] = "ModB";
+            directories.names[3] = "ModOff";
+            directories.names[4] = "ZZZnew";
+            directories.count = 5;
+            ModDiscoveryService discovery{directories};
+            Check(discovery.AppendUnlisted(&mergeBatch).ok(), "merge_append_ok");
+            Check(mergeBatch.count == 4, "merge_appended_two_unlisted");
+            Check(std::strcmp(mergeBatch.mods[0].modRoot, "rom:/isaac_mods/mods/ModA") == 0,
+                  "merge_manifest_order_first");
+            Check(std::strcmp(mergeBatch.mods[1].modRoot, "rom:/isaac_mods/mods/ModB") == 0,
+                  "merge_manifest_order_second");
+            Check(std::strcmp(mergeBatch.mods[2].modRoot, "rom:/isaac_mods/mods/AAAnew") == 0,
+                  "merge_appends_sorted_first");
+            Check(std::strcmp(mergeBatch.mods[3].modRoot, "rom:/isaac_mods/mods/ZZZnew") == 0,
+                  "merge_appends_sorted_second");
+            Check(std::strcmp(mergeBatch.mods[2].entryPath,
+                              "rom:/isaac_mods/mods/AAAnew/main.lua") == 0,
+                  "merge_appended_entry_path");
+            for (std::size_t index = 0; index < mergeBatch.count; ++index) {
+                Check(std::strcmp(mergeBatch.mods[index].modRoot,
+                                  "rom:/isaac_mods/mods/ModOff") != 0,
+                      "merge_does_not_resurrect_disabled");
+            }
         }
 
         if (failures == 0) { std::printf("MULTI_MOD_MANIFEST_CHECKS_PASSED\n"); }
@@ -285,6 +359,7 @@ class MultiModManifestIntegrationTests(unittest.TestCase):
              str(SRC / "application" / "mod" / "manifest_parser.cpp"),
              str(SRC / "application" / "mod" / "manifest_service.cpp"),
              str(SRC / "application" / "mod" / "mod_load_service.cpp"),
+             str(SRC / "application" / "mod" / "mod_discovery_service.cpp"),
              str(SRC / "infrastructure" / "mod" / "manifest_selector_adapter.cpp"),
              str(LEGACY / "mod_manifest.cpp"),
              "-o", str(binary)],

@@ -88,6 +88,21 @@
         "探针源码里同一种'对象前 8 字节存原始指针'的写法；仅 PROBE_BREAK 构建编入"
       ],
       "status": "ok"
+    },
+    {
+      "id": "image-pcx-bridge-synthetic-path",
+      "site_file": "runtime/source/image_pcx_bridge_hook.cpp",
+      "site_symbol": "贴图桥：合成的 .pcx 挂载路径（2026-09-21 抽成独立文件）",
+      "produced_by": "游戏模块的 operator new[]（`_Znam` 的 PLT 桩 0x66fb60，按守卫调用）",
+      "freed_by": "游戏模块的 operator delete[]（`_ZdaPv` 的 PLT 桩 0x66fb90）——由引擎调用方释放",
+      "pointer_is_allocation_base": true,
+      "adjustment": "无：一次分配 strlen(pngMounted)+1 整条字符串，返回的就是分配起点",
+      "evidence": [
+        "反汇编：IContentManager::GetMountedFilePath（0x4c2340）在 0x4c239c 用 bl _ZdaPv 释放中间串；FileManager::Exists（0x4c3140）同款 ⇒ 该函数返回的路径由调用方用 delete[] 释放",
+        "两侧都走游戏模块的分配器（PLT 桩分别解析到游戏的 operator new[] / delete[]）",
+        "2026-09-21：这段代码从 hook_manager.cpp 抽到 source/image_pcx_bridge_hook.cpp（评审第 2 条）"
+      ],
+      "status": "ok"
     }
   ]
 }

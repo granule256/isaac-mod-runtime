@@ -135,6 +135,8 @@ DRIVER = textwrap.dedent(
         Status useCard{StatusCode::Ok};
         Status usePill{StatusCode::Ok};
         Status gameExit{StatusCode::Ok};
+        // 贴图桥（2026-09-21）：同样走"全部可选点"断言。
+        Status imagePcxLoad{StatusCode::Ok};
         std::uint32_t useActiveItemCalls = 0;
         std::uint32_t useCardCalls = 0;
         std::uint32_t usePillCalls = 0;
@@ -165,6 +167,10 @@ DRIVER = textwrap.dedent(
                 case HookId::GameExit: ++gameExitCalls; return gameExit;
                 case HookId::PickupCollision: ++pickupCollisionCalls; return pickupCollision;
                 case HookId::RoomEntitySpawn: ++roomEntitySpawnCalls; return roomEntitySpawn;
+                // 贴图桥（2026-09-21）：夹具同样必须为它留一支（-Wswitch）。
+                case HookId::ImagePcxLoad: return imagePcxLoad;
+                case HookId::ImageManagerLoadFile: return imagePcxLoad;
+                case HookId::ContentGetMountedFilePath: return imagePcxLoad;
                 case HookId::Count: break;
             }
             return Status{StatusCode::InvalidArgument};
@@ -530,6 +536,7 @@ DRIVER = textwrap.dedent(
         optionalMissing.gameExit = Status{StatusCode::Rejected};
         optionalMissing.pickupCollision = Status{StatusCode::Rejected};
         optionalMissing.roomEntitySpawn = Status{StatusCode::Rejected};
+        optionalMissing.imagePcxLoad = Status{StatusCode::Rejected};
         HookInstallService optionalService{optionalMissing};
         HookInstallReport optionalReport{};
         Check(optionalService.InstallProductionHooks(ValidModule(), &optionalReport).ok(),
@@ -545,7 +552,10 @@ DRIVER = textwrap.dedent(
                   optionalReport.OutcomeOf(HookId::UsePill) == HookOutcome::Skipped &&
                   optionalReport.OutcomeOf(HookId::GameExit) == HookOutcome::Skipped &&
                   optionalReport.OutcomeOf(HookId::PickupCollision) == HookOutcome::Skipped &&
-                  optionalReport.OutcomeOf(HookId::RoomEntitySpawn) == HookOutcome::Skipped,
+                  optionalReport.OutcomeOf(HookId::RoomEntitySpawn) == HookOutcome::Skipped &&
+                  optionalReport.OutcomeOf(HookId::ImagePcxLoad) == HookOutcome::Skipped &&
+                  optionalReport.OutcomeOf(HookId::ImageManagerLoadFile) == HookOutcome::Skipped &&
+                  optionalReport.OutcomeOf(HookId::ContentGetMountedFilePath) == HookOutcome::Skipped,
               "optional_hooks_recorded_as_skipped");
         Check(optionalReport.productionReady(), "optional_failure_still_ready");
         Check(optionalReport.InstalledCount() == 1, "skipped_hooks_are_not_counted");

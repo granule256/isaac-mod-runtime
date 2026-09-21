@@ -70,6 +70,18 @@ ManifestParseFailure ManifestSelectorAdapter::SelectAll(const char* json, std::s
         target.enabled = true;
     }
     manifest->count = selected.count;
+    manifest->disabledCount = 0;
+    for (std::size_t index = 0; index < selected.disabledCount; ++index) {
+        const std::array<char, ::ModManifest::kDirectoryCapacity>& source =
+            selected.disabledDirectories[index];
+        std::array<char, kModDirectoryCapacity>& target =
+            manifest->disabledDirectories[manifest->disabledCount];
+        const std::size_t directoryBytes =
+            std::min(target.size() - 1, std::strlen(source.data()));
+        std::memcpy(target.data(), source.data(), directoryBytes);
+        target[directoryBytes] = '\0';
+        ++manifest->disabledCount;
+    }
     return ManifestParseFailure::None;
 }
 

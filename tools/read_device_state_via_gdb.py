@@ -102,10 +102,17 @@ SYMS = _SymbolTable({
     # ---- 2026-09-14 夜间加：清单/挂点失败原因（这次读数的主角）----
     'g_DefaultManifestFailureWord': 0x234598,   # 诊断字 [11]，打包格式见 mod_load_step.hpp
     'g_DefaultManifestFailureDetail': 0x23459c,  # 步骤字（1..4 失败、5 纯资源、6 自动发现）
-    'g_DefaultManifestState': 0x2345a0,          # 0 未武装 1 已武装 2 安装中 3 就绪 4 失败
+    'g_DefaultManifestState': 0x2345a0,
+    # 清单 + 扫目录的合并结果（2026-09-21：「拷进 mods/ 就能用」）：
+    #   [0] = 除清单之外多追加了几个目录；[1] = 合并状态码（0 = 成功）
+    'g_AutoAppendedMods': 0x0,
+    'g_AutoAppendStatus': 0x0,          # 0 未武装 1 已武装 2 安装中 3 就绪 4 失败
     'g_HookInstallFailureCode': 0x234614,        # 入口中继后端转发的失败码（0 = 无失败）
     'g_HookInstallFailureSlot': 0x234618,        # 第一个失败挂点 index+1（0 = 没有装失败的）
     'g_HookInstallInstalledCount': 0x23461c,     # 装好的挂点数（函数内静态，见 SYM_ELF_NAMES）
+    # 贴图桥（2026-09-21）：转码失败计数（u32）与最近一次请求的路径（128 字节 C 串，
+    # 零散读词后按 ASCII 解码——用来在真机上确认引擎传进回调的路径形状）。
+    'image_pcx_bindings': 0x0,
     # 模组数据容器（`ModPersistence::detail::g_cache`）的**尾部字段**：payload 是 16 KiB，
     # 尾部依次是 payloadLength(u64)/generation(u64)/loaded(u8)/exists(u8)。
     # 取值时用 `SYMS['g_ModDataCache'] + 0x4000`（见 build_requests 的 `mod_data_tail`）。
@@ -134,6 +141,11 @@ SYMS = _SymbolTable({
     # ---- 运行时读进来的文件内容（诊断"模组为什么算纯资源型"的关键）----
     'g_DefaultManifest': 0x1b4560,     # 上次读进来的 `manifest.json` 原文（512 KiB 缓冲）
     'g_DefaultEntry': 0xb4560,         # 上次读进来的入口脚本原文（1 MiB 缓冲）
+    # ---- 游戏开局中继的三格（相对**游戏模块**；来源 `runtime_constants.hpp` 的
+    #      `kGameStart*` 常量。`--elf` 同步不会碰它们，因为它们是游戏模块的偏移、不是我们的符号）----
+    'gamestart_saved_callsite': 0x3F92A4,
+    'gamestart_new_callsite': 0x3F93F8,
+    'gamestart_relay_slot': 0x68CCC0,
     # ---- 下面三条都相对**游戏模块**----
     'manager_update_entry': 0x3F8DB8,  # `Manager::Update` 入口（该是原样 `ff4301d1...`）
     'manager_render_entry': 0x3F9684,  # `Manager::Render` 入口（该是原样 `ffc302d1...`）
@@ -160,6 +172,12 @@ SYM_ELF_NAMES = {
     'entry_relay_game_exit': 'EntryRelayGameExitCallback',
     'entry_relay_pickup_collision': 'EntryRelayPickupCollisionCallback',
     'entry_relay_room_entity_spawn': 'EntryRelayRoomEntitySpawnCallback',
+    'entry_relay_image_pcx_load': 'EntryRelayImagePcxLoadCallback',
+    'entry_relay_image_mgr_load': 'EntryRelayImageManagerLoadFileCallback',
+    'entry_relay_get_mounted_path': 'EntryRelayContentGetMountedFilePathCallback',
+    # 贴图桥：**唯一**诊断入口（固定布局结构体，见 hook_manager.cpp 的 ImagePcxDiagnostics）。
+    'image_pcx_diag': '_ZN12_GLOBAL__N_1L14g_imagePcxDiagE',
+    'image_pcx_bindings': '_ZN12_GLOBAL__N_1L18g_ImagePcxBindingsE',
     'present_got_intercept': 'IsaacModRuntime_PresentGotSlotIntercept',
     'g_runtimeSelfAddress': 'g_runtimeSelfAddress',
     'g_sequence': '_ZN12_GLOBAL__N_1L10g_sequenceE',
@@ -175,6 +193,8 @@ SYM_ELF_NAMES = {
     'g_DefaultManifestFailureWord': '_ZN12_GLOBAL__N_1L28g_DefaultManifestFailureWordE',
     'g_DefaultManifestFailureDetail': '_ZN12_GLOBAL__N_1L30g_DefaultManifestFailureDetailE',
     'g_DefaultManifestState': '_ZN12_GLOBAL__N_1L22g_DefaultManifestStateE',
+    'g_AutoAppendedMods': '_ZN12_GLOBAL__N_1L18g_AutoAppendedModsE',
+    'g_AutoAppendStatus': '_ZN12_GLOBAL__N_1L18g_AutoAppendStatusE',
     'g_HookInstallFailureCode': '_ZZN5isaac7runtime22HookInstallFailureCodeEvE5value',
     'g_HookInstallFailureSlot': '_ZZN5isaac7runtime22HookInstallFailureSlotEvE5value',
     'g_HookInstallInstalledCount': '_ZZN5isaac7runtime25HookInstallInstalledCountEvE5value',
@@ -331,6 +351,16 @@ SYM_ELF_NAMES = {
     'g_RuntimePerfAllocNewCalls': 'g_RuntimePerfAllocNewCalls',
     'g_RuntimePerfFreeCalls': 'g_RuntimePerfFreeCalls',
 }
+#: **只在探针构建里存在**的符号（批次 019 起）。为什么要跟主表分开：
+#: `runtime/tests/test_elf_syms.py` 钉住的是"主表里每一项都必须能在**当前生产 ELF** 里解析到"
+#: —— 那是"偏移表不许过期"的守门人，不该为探针放宽。探针符号按定义在生产 ELF 里**不存在**
+#: （`PROBE_BREAK=0` 时整个 TU 被编译掉），所以它们单独一张表：解析到就用，解析不到就删键
+#: 并如实记账，主表那两条断言的语义一个字都不动。
+#: 名字前缀是探针自己的命名空间 `isaac::runtime::probe`，同一条门禁里另有断言钉住这一点。
+SYM_ELF_NAMES_PROBE_ONLY = {
+    # 原生模组页探针的诊断字（12 个 u32，布局见 `native_mods_menu_probe.hpp`）。
+    'native_mods_probe': '_ZN5isaac7runtime5probe26g_NativeModsMenuProbeStateE',
+}
 #: 表里有、但**这次构建的 ELF 里已经找不到**的符号：不能沿用过期的偏移（那是"看起来有值、
 #: 其实是别人的变量"），只能在读数时报"读不到"。这里只记账，方便汇报时说明缺了什么。
 SYM_MISSING: dict[str, str] = {}
@@ -347,7 +377,9 @@ HOOK_NAMES = ['ManagerUpdate', 'ManagerRender', 'PreGetCollectible',
               # 读数里的 `[i]` 与 `HookInstallReport` 的槽位一一对应）。
               'UseActiveItem', 'UseCard', 'UsePill', 'GameExit',
               # 批次 103/104：掉落物碰撞、房间生成实体。
-              'PickupCollision', 'RoomEntitySpawn']
+              'PickupCollision', 'RoomEntitySpawn',
+              # 贴图桥（2026-09-21）：`.pcx` 入口中继（v1 诊断层 + v2 真拦截点）。
+              'ImagePcxLoad', 'ImageManagerLoadFile', 'ContentGetMountedFilePath']
 # 只用来做比对、本身不是"要读的内存变量"的符号（读数请求要跳过它们）。
 SYM_ONLY = ('identity', 'manifest_install',
             'entry_relay_update', 'entry_relay_render',
@@ -355,6 +387,8 @@ SYM_ONLY = ('identity', 'manifest_install',
             'entry_relay_use_active_item', 'entry_relay_use_card',
             'entry_relay_use_pill', 'entry_relay_game_exit',
             'entry_relay_pickup_collision', 'entry_relay_room_entity_spawn',
+            'entry_relay_image_pcx_load', 'entry_relay_image_mgr_load',
+            'entry_relay_get_mounted_path',
             'present_got_slot', 'present_target', 'present_callsite_offset')
 # 已经切到零占洞入口中继的挂点 → 它的回调应当等于"模块基址 + 下面这个符号的偏移"。
 RELAY_BY_HOOK = {'ManagerUpdate': 'entry_relay_update',
@@ -367,7 +401,10 @@ RELAY_BY_HOOK = {'ManagerUpdate': 'entry_relay_update',
                  'UsePill': 'entry_relay_use_pill',
                  'GameExit': 'entry_relay_game_exit',
                  'PickupCollision': 'entry_relay_pickup_collision',
-                 'RoomEntitySpawn': 'entry_relay_room_entity_spawn'}
+                 'RoomEntitySpawn': 'entry_relay_room_entity_spawn',
+                 'ImagePcxLoad': 'entry_relay_image_pcx_load',
+                 'ImageManagerLoadFile': 'entry_relay_image_mgr_load',
+                 'ContentGetMountedFilePath': 'entry_relay_get_mounted_path'}
 # 插件里 g_helper 的位置：0xd220 就是它在插件 ELF 里的虚拟地址——插件的段是连续的，
 # 所以**物理地址 = 插件代码段基址 + 虚拟地址**（实测：0x090ec1e000 + 0xd220 = 0x090ec2b220）。
 PLUGIN_HELPER = 0xd220
@@ -733,7 +770,7 @@ def sync_syms_from_elf(elf: Path, *, verbose: bool = False) -> dict[str, str]:
         return {'(整个 ELF)': '没有符号表'}
 
     missing: dict[str, str] = {}
-    for key, name in SYM_ELF_NAMES.items():
+    for key, name in {**SYM_ELF_NAMES, **SYM_ELF_NAMES_PROBE_ONLY}.items():
         hit = symbols.get(name)
         if hit is None:
             missing[key] = name
@@ -787,6 +824,8 @@ def build_requests(base: int, game_base: int, plugin_base: int):
         ('anchor_exl_main', base + SYMS['exl_main'], 2),  # 版本核对：入口函数头
         ('anchor_manifest', base + SYMS['manifest_install'], 2),  # 版本核对：诊断改动的那个函数
         ('manifest_state', base + SYMS['g_DefaultManifestState'], 1),
+        ('auto_appended_mods', base + SYMS['g_AutoAppendedMods'], 1),
+        ('auto_append_status', base + SYMS['g_AutoAppendStatus'], 1),
         ('hook_results', base + SYMS['g_HookInstallResults'], 5),
         ('update_entries', base + SYMS['g_UpdateCallbackEntries'], 1),
         ('render_entries', base + SYMS['g_RenderCallbackEntries'], 1),
@@ -863,6 +902,28 @@ def build_requests(base: int, game_base: int, plugin_base: int):
         ('filetable', base + SYMS['g_diagnosticFileApi'], 4),
         ('hook_callbacks', base + SYMS['g_hookCallbacks'], len(HOOK_NAMES)),
         ('update_entry', game_base + SYMS['manager_update_entry'], 2),
+        # 贴图桥 v2/v3 的挂点入口（0x4d1fe4，相对**游戏模块**）：期望是我们写进去的
+        # 入口补丁（`ldr x16,#8; br x16; .quad 槽` ⇒ 首四字 `5000005800021fd6`）。
+        ('imagemanager_entry', game_base + 0x4D1FE4, 2),
+        # v4 新挂点的入口（相对游戏模块）：期望也是入口补丁。
+        ('getmounted_entry', game_base + 0x4C2340, 2),
+        # 贴图桥用到的 8 个引擎绑定指针（全 0 = 守卫没过、整套绑定没发布）。
+        ('image_pcx_bindings', base + SYMS['image_pcx_bindings'], 8),
+        # 贴图桥诊断结构体（ImagePcxDiagnostics）：一次性读全。
+        ('image_pcx_diag', base + SYMS['image_pcx_diag'], 40),
+        # 批次 019：原生模组页探针的诊断字（12 个 u32 = 48 字节，读 8 个字留余量）。
+        # 生产构建没有这个符号 ⇒ `SYMS[...]` 返回 0，读到的会是模块基址附近的东西；
+        # 所以打印那一段会先用 `nar` 判据（[0] 必须是 1）决定要不要显示。
+        ('native_mods_probe', base + SYMS['native_mods_probe'], 9),
+        # 2026-09-21：游戏开局中继的**两处调用点**与它的回调槽。
+        # 为什么要固定读它们：`GameStart` 走 `RelaySlot` 后端，**必须**由
+        # `atmosphere/nro_patches/isaac-repentance-lifecycle-relay` 的 IPS 把调用点改成
+        # `b <代码洞>` 才装得上；装不上时它按 `required=false` 只记 **Skipped**（不算失败），
+        # 所以"挂点全装好、零失败"这句话**不能**证明这一路是好的（2026-09-17 的套装进度事故
+        # 就是这个形态）。这三格把"补丁在不在"变成一条可以直接看见的读数。
+        ('gamestart_saved_callsite', game_base + SYMS['gamestart_saved_callsite'], 1),
+        ('gamestart_new_callsite', game_base + SYMS['gamestart_new_callsite'], 1),
+        ('gamestart_relay_slot', game_base + SYMS['gamestart_relay_slot'], 1),
         ('render_entry', game_base + SYMS['manager_render_entry'], 2),
         ('present_slot', game_base + SYMS['present_got_slot'], 1),
         ('present_callsite', game_base + SYMS['present_callsite_offset'], 1),
@@ -1307,6 +1368,10 @@ def run_one_shot(ip: str, elf: Path, pid: int = 0, base: int = 0, game_base: int
         seq = first(values, 'g_sequence') & 0xFFFFFFFF
         state = first(values, 'g_stateDetail') & 0xFFFFFFFF
         mstate = first(values, 'g_DefaultManifestState') & 0xFFFFFFFF
+        appended = first(values, 'auto_appended_mods') & 0xFFFFFFFF
+        append_status = first(values, 'auto_append_status') & 0xFFFFFFFF
+        print(f'  清单 + 扫目录合并：多追加 {appended} 个目录（状态码 {append_status}，0 = 成功）'
+              '  ← 「把模组文件夹拷进 mods/ 就能用」')
         self_addr = first(values, 'g_runtimeSelfAddress')
         sane = (seq < 10000 and state < 16 and mstate < 8
                 and (self_addr == 0 or (base and 0 < self_addr - base < 0x200000)))
@@ -1335,6 +1400,130 @@ def first(values: dict[str, list[int]], key: str, index: int = 0, default: int =
 
 def words_to_bytes(words: list[int]) -> bytes:
     return b''.join(v.to_bytes(8, 'little') for v in words)
+
+
+#: 原生模组页探针的失败码（探针里的 `kFailure*` 常量，**只在探针构建**里有意义）。
+NATIVE_MODS_FAILURES = {
+    0: '没有失败',
+    1: '输入跳板拿不到',
+    2: '游戏模块没找到',
+    3: '`SetState` 入口守卫不符',
+    4: '`g_MenuManager` 为空',
+    5: '`Menu_Mods` 入口守卫不符',
+    6: '`Menu_Mods::Render` 入口守卫不符',
+}
+#: 手动 `Init` 的结果（探针里的 `kInit*` 常量）。
+NATIVE_MODS_INIT_RESULTS = {
+    0: '还没试',
+    1: '成功',
+    2: '入口守卫不符',
+    3: '`g_MenuManager` 为空',
+    4: '游戏模块没找到',
+}
+#: `ButtonAction` 的号 → 名字（与 `runtime/source/lua_runtime.cpp` 的 `kButtonActionConstants`
+#: 同一口径；扫描覆盖 0..27，`ACTION_CONSOLE(28)` 不在扫描范围里）。
+NATIVE_MODS_ACTIONS = {
+    0: 'ACTION_LEFT', 1: 'ACTION_RIGHT', 2: 'ACTION_UP', 3: 'ACTION_DOWN',
+    4: 'ACTION_SHOOTLEFT', 5: 'ACTION_SHOOTRIGHT', 6: 'ACTION_SHOOTUP', 7: 'ACTION_SHOOTDOWN',
+    8: 'ACTION_BOMB', 9: 'ACTION_ITEM', 10: 'ACTION_PILLCARD', 11: 'ACTION_DROP',
+    12: 'ACTION_PAUSE', 13: 'ACTION_MAP', 14: 'ACTION_MENUCONFIRM', 15: 'ACTION_MENUBACK',
+    16: 'ACTION_RESTART', 17: 'ACTION_FULLSCREEN', 18: 'ACTION_MUTE', 19: 'ACTION_JOINMULTIPLAYER',
+    20: 'ACTION_MENULEFT', 21: 'ACTION_MENURIGHT', 22: 'ACTION_MENUUP', 23: 'ACTION_MENUDOWN',
+    24: 'ACTION_MENULT', 25: 'ACTION_MENURT', 26: 'ACTION_MENUTAB', 27: '(27 未定义)',
+}
+#: `MenuManager::eState`（静态表：`Update` 的分发表 0..15，逐格对得上具体页面）。
+NATIVE_MODS_STATES = {
+    0: '（空，走默认分支）', 1: 'Menu_Title', 2: 'Menu_Save', 3: 'Menu_Game',
+    4: 'Menu_DailyChallenge', 5: 'Menu_Character', 6: 'Menu_SpecialSeed',
+    7: 'Menu_Challenge', 8: 'Menu_Collection', 9: 'Menu_Stats', 10: 'Menu_Options',
+    11: 'Menu_ControllerSelect', 12: 'Menu_KeyConfig', 13: 'Menu_Cutscenes',
+    14: 'Menu_Bestiary', 15: 'Menu_Custom_Challenge',
+}
+
+
+def print_probe_native_mods_menu(values: dict[str, list[int]]) -> None:
+    """打印"原生模组页探针"那一段（批次 019，`PROBE_BREAK_NATIVE_MODS_MENU`）。
+
+    判据：诊断字 [0] 必须是 1。生产构建里这个符号不存在（读的是模块头），[0] 不会是 1，
+    所以这一段会显示"本构建不含探针"而不是给出一堆看着像数据的垃圾。
+
+    第二版（2026-09-21 深夜）：新增三格 —— 状态机当前状态、被按住的**动作号位图**、
+    答过"是"的**手柄号位图**。第一版就是栽在"猜手柄号"上（真机读数里按键计数全 0）。
+    """
+    import struct as _struct
+    raw = words_to_bytes(values.get('native_mods_probe') or [])
+    print('=== 原生模组页探针（批次 019，只在 `PROBE_BREAK_NATIVE_MODS_MENU` 构建里）===')
+    # 够 16 格（64 字节）就能给出全部结论，最后 1 格（`Init` 有没有留下 ModManager）
+    # 是后加的：老读数只读了 8 个字，那时它是缺的 —— **缺哪一格就说哪一格缺**，
+    # 不要因为少 4 个字节就把整段判成"读不到"（那会白烧一次 attach，项目里有过这种教训）。
+    if len(raw) < 64:
+        print('  （读不到：本构建不含探针，或调试桩这次没 attach 上）')
+        return
+    f = _struct.unpack_from('<16I', raw, 0)
+    has_manual_mods_ptr = len(raw) >= 68
+    if f[0] != 1:
+        print('  （本构建不含探针 —— 诊断字第 0 格不是 1）')
+        return
+    print(f'  ZR 换状态 {f[1]} 次｜ZL 换状态 {f[2]} 次｜探针自己换到状态 {f[3]} = '
+          f'{NATIVE_MODS_STATES.get(f[3], "（超出静态表范围）")}')
+    print(f'  手动画原生页：{"开" if f[4] else "关"}｜Init {NATIVE_MODS_INIT_RESULTS.get(f[5], f[5])}｜'
+          f'已经画了 {f[6]} 帧｜最近失败：{NATIVE_MODS_FAILURES.get(f[7], f[7])}')
+    print(f'  单例：`g_Manager` {"读到" if f[8] else "没读到"}｜'
+          f'`g_MenuManager` {"非空" if f[9] else "空（自动驱动的前置条件不成立）"}｜'
+          f'状态机当前状态（`MenuManager+0x38`）= {f[11]} = '
+          f'{NATIVE_MODS_STATES.get(f[11], "（超出静态表范围）")}')
+    if f[15]:
+        print(f'  引擎自己的模组表：begin/end 相差 {f[10]} 字节'
+              + ('（0 = 空表 ⇒ 原生页即使画出来也没有条目）' if f[10] == 0 else ''))
+    else:
+        print('  引擎自己的模组表：那对 begin/end **不像合法指针** ⇒ 上面那个 0 **不能**读成"空表"，'
+              '\n    ⇒ 说明我们对 `Manager+0x36800` 这个结构的解释不对，要回去重看静态证据')
+    if has_manual_mods_ptr:
+        print('  我们那次 Init：' + ('确实进了函数体（`对象+0x170` 拿到了 ModManager）★'
+                                    if f[16] else '没留下痕迹（`对象+0x170` 是空的 ⇒ 这次调用没真正执行完）'))
+    else:
+        print('  我们那次 Init：（这一格是后加的，本次读数只读了 8 个字 ⇒ 缺）')
+    held = [NATIVE_MODS_ACTIONS[i] for i in range(28) if f[12] & (1 << i)]
+    if f[14] == 0:
+        print('  输入扫描：一轮都没跑（更新中继可能没到过；诊断字第 [14] 格 = 0）')
+    else:
+        print(f'  输入扫描：跑了 {f[14]} 轮｜被按住过的动作号 = '
+              + ('、'.join(held) if held else '（一个都没有——按键期间读数才会非空）'))
+        controllers = [str(i) for i in range(32) if f[13] & (1 << i)]
+        print('  答过"是"的手柄号 = ' + ('、'.join(controllers) if controllers else '（一个都没有）')
+              + '　← 这一行就是"该用哪个手柄号去问输入"的答案')
+
+
+def words_to_bytes(words: list[int]) -> bytes:
+    return b''.join(v.to_bytes(8, 'little') for v in words)
+
+
+#: 原生模组页探针的失败码（探针里的 `kFailure*` 常量，**只在探针构建**里有意义）。
+NATIVE_MODS_FAILURES = {
+    0: '没有失败',
+    1: '输入跳板拿不到',
+    2: '游戏模块没找到',
+    3: '`SetState` 入口守卫不符',
+    4: '`g_MenuManager` 为空',
+    5: '`Menu_Mods` 入口守卫不符',
+    6: '`Menu_Mods::Render` 入口守卫不符',
+}
+#: 手动 `Init` 的结果（探针里的 `kInit*` 常量）。
+NATIVE_MODS_INIT_RESULTS = {
+    0: '还没试',
+    1: '成功',
+    2: '入口守卫不符',
+    3: '`g_MenuManager` 为空',
+    4: '游戏模块没找到',
+}
+#: `MenuManager::eState`（静态表：`Update` 的分发表 0..15，逐格对得上具体页面）。
+NATIVE_MODS_STATES = {
+    0: '（空，走默认分支）', 1: 'Menu_Title', 2: 'Menu_Save', 3: 'Menu_Game',
+    4: 'Menu_DailyChallenge', 5: 'Menu_Character', 6: 'Menu_SpecialSeed',
+    7: 'Menu_Challenge', 8: 'Menu_Collection', 9: 'Menu_Stats', 10: 'Menu_Options',
+    11: 'Menu_ControllerSelect', 12: 'Menu_KeyConfig', 13: 'Menu_Cutscenes',
+    14: 'Menu_Bestiary', 15: 'Menu_Custom_Challenge',
+}
 
 
 #: 模组数据容器的记录格式（`ModPersistence::detail::RecordAt`）：24 字节头
@@ -1685,7 +1874,16 @@ def report(values: dict[str, list[int]], base: int, game_base: int, plugin_base:
                       '上面几行是模组内部状态，`<missing>`/`<error>` 表示那条读不到而不是采样失败。')
     if 'g_RuntimePerfCallbackCalls' in values:
         def u64(key: str) -> int:
-            return int.from_bytes(words_to_bytes(values[key]), 'little')
+            # ★ 2026-09-21：这里**必须容忍缺键**。同一段报告也要能读"不是生产包"的那份 ELF
+            # （例如探针构建），而 `--gc-sections` 会把"本构建里没人读"的计数器整个丢掉
+            # （实测：探针包里没有 `g_RuntimePerfSyscalls`，生产包里有）。
+            # 缺键就报 0 并打印"读不到"，**不许抛 KeyError** —— 那会让整次 attach 白烧，
+            # 而这台机器一个启动周期只允许几次 attach（`build_requests` 的 docstring 同一条纪律）。
+            words = values.get(key)
+            if not words:
+                print(f'  （{key} 读不到：本构建里没有这个符号）')
+                return 0
+            return int.from_bytes(words_to_bytes(words), 'little')
         cb_calls, cb_ticks, cb_max = (u64('g_RuntimePerfCallbackCalls'),
                                       u64('g_RuntimePerfCallbackTicks'),
                                       u64('g_RuntimePerfCallbackMaxTicks'))
@@ -1942,6 +2140,50 @@ def report(values: dict[str, list[int]], base: int, game_base: int, plugin_base:
             print(f'  [{i}] {name:20} 0x{ptr:012x}')
 
     print()
+    print('=== 贴图桥（.pcx 缺失时内存转码）===')
+    diag_words = values.get('image_pcx_diag') or []
+    diag_raw = b''.join(w.to_bytes(8, 'little') for w in diag_words)
+    if len(diag_raw) < 304:
+        print('  （诊断结构体读不到或长度不足 ⇒ 运行时可能是旧构建）')
+    else:
+        import struct as _struct
+        f = _struct.unpack_from('<12I', diag_raw, 0)
+        last_req = diag_raw[48:176].split(b'\x00', 1)[0].decode('utf-8', errors='replace')
+        last_fb = diag_raw[176:304].split(b'\x00', 1)[0].decode('utf-8', errors='replace')
+        names = {0: 'inMemoryLoad', 1: 'inflateInit2', 2: 'inflate', 3: 'inflateEnd',
+                 4: 'imageManagerLoadMemory', 5: '(不再校验:钩子目标)', 6: 'operatorDeleteArray',
+                 7: 'operatorNewArray'}
+        bad = [names[i] for i in range(8) if f[10] & (1 << i)] + \
+              (['contentManager(GOT)'] if f[10] & (1 << 8) else [])
+        print(f'  入口挂点被调用 {f[0]} 次（原函数成功 {f[1]}）｜合成 .pcx 路径 {f[2]} 条｜'
+              f'进入兜底判定 {f[3]} 次')
+        print(f'  兜底：记录未命中放弃 {f[4]}｜读到 .png {f[5]}｜缓存命中 {f[6]}｜'
+              f'实际转码 {f[7]}（失败 {f[8]}）｜喂入成功 {f[9]}')
+        # 2026-09-21：`pngOverrideWins`（老的 `reserved` 槽）=「模组的 PNG 顶掉了**本体已有**的
+        # `.pcx`」次数 —— 用来在真机上确认"只带 PNG 的覆盖型模组"真的走了新路。
+        print(f'  模组 PNG 顶掉本体 .pcx：{f[11]} 次')
+        print(f'  依赖绑定掩码 = 0x{f[10]:x}' + (f' ⇒ 没过的是：{bad}' if bad else ' ⇒ 全部通过 ✓'))
+        print(f'  最近请求路径 = {last_req!r}｜最近兜底路径 = {last_fb!r}')
+    binds = values.get('image_pcx_bindings') or []
+    zero = sum(1 for v in binds if v == 0)
+    print(f'  绑定指针：8 个里 {zero} 个为空')
+    gm_entry = values.get('getmounted_entry') or []
+    gm_hex = b''.join(w.to_bytes(8, 'little') for w in gm_entry[:2]).hex()
+    print(f'  路径解析入口（游戏模块 0x4c2340）= {gm_hex}' +
+          ('  ← 已是入口补丁 ★' if gm_hex.startswith('5000005800021fd6') else '  ← **不是**入口补丁'))
+    entry = values.get('imagemanager_entry') or []
+    got = b''.join(w.to_bytes(8, 'little') for w in entry[:2]).hex()
+    if not entry:
+        print('  游戏模块 LoadImage 入口 = 读不到')
+    elif got.startswith('5000005800021fd6'):
+        print(f'  游戏模块 LoadImage 入口 = {got} ← 已是我们的入口补丁 ★')
+    else:
+        print(f'  游戏模块 LoadImage 入口 = {got} ← **不是**入口补丁（应为 5000005800021fd6…）')
+
+    print()
+    print_probe_native_mods_menu(values)
+
+    print()
     print('=== 游戏模块的两个入口字节（旧式 IPS 有没有改写它们）===')
     for key, name, expect in (('update_entry', 'Manager::Update', 'ff4301d1fd7b01a9'),
                               ('render_entry', 'Manager::Render', 'ffc302d1e83b00fd')):
@@ -1955,6 +2197,34 @@ def report(values: dict[str, list[int]], base: int, game_base: int, plugin_base:
             word = vals[0] & 0xFFFFFFFF
             note = '  ← 是 `bl`/`b`（被改写成跳转了）' if (word >> 26) in (0x25, 0x05) else ''
             print(f'  {name:16} = {got} ← 与原版不同{note}')
+
+    print()
+    print('=== 游戏开局中继：那份**必需**补丁在不在（2026-09-17 套装进度事故的形态）===')
+    # 判据用的是**编码出来的分支指令**，不是猜测：`b <代码洞>` 是打完补丁的样子，
+    # `bl <原函数>` 是原版的样子（原版的四个字节在本地 NRO 里可查）。
+    for key, name, patched, original in (
+            ('gamestart_saved_callsite', '读档调用点', '5f4e0a14', 'f30d0a94'),
+            ('gamestart_new_callsite', '新局调用点', '1e4e0a14', 'ae0d0a94')):
+        words = values.get(key) or []
+        if not words:
+            print(f'  {name} 读不到')
+            continue
+        got = (words[0] & 0xFFFFFFFF).to_bytes(4, 'little').hex()
+        if got == patched:
+            print(f'  {name} = {got} ← 已是 `b <中继代码洞>` ⇒ **补丁在位** ★')
+        elif got == original:
+            print(f'  {name} = {got} ← 还是原版 `bl <原函数>` ⇒ **补丁不在位**：'
+                  '这一路挂点会被跳过（`required=false` ⇒ 只记 Skipped，不算失败）')
+        else:
+            print(f'  {name} = {got} ← 既不是补丁形态、也不是原版形态（第三种情况，要查）')
+    slot = values.get('gamestart_relay_slot') or []
+    if slot:
+        if slot[0] == 0:
+            print('  回调槽 = 0 ⇒ 我们的 `ObserveGameStart` 没发布进去（与"补丁不在位"一致）')
+        else:
+            print(f'  回调槽 = 0x{slot[0]:012x} ⇒ 我们的开局回调**已发布** ★')
+    else:
+        print('  回调槽 读不到')
 
     print()
     print('=== Present 的 GOT 槽（下面几条的偏移都相对**游戏模块**）===')
@@ -2106,12 +2376,18 @@ def report(values: dict[str, list[int]], base: int, game_base: int, plugin_base:
 # `Room:GetGridPath` 恒返回 1000 那条偏离**登记过**，但"后果"写的是"不画路径提示"，
 # 真相是"地上每一颗药丸/卡片只显示问号"—— 登记了却没人看、后果还写错了。
 # ⇒ 把"还有哪些接口不是真值"摊在每次读数旁边：风险面在眼前，而不是等人踩上去。
+#
+# ★ 2026-09-21（批次 017）：这一段**按性质分组**打印（platform 平台固有 / debt 我们的欠账 /
+#   design 主动保留的口径差异），因为"这条差异还能不能还"决定了下一步该做什么 ——
+#   平台固有的登记完就别再投入，欠账要排期还。**只改了打印**：本工具的偏移表（`SYMS`）与
+#   一切读设备内存的逻辑都没有动（那个工具很敏感，偏移错了会误读现场）。
 def print_degradation_surface() -> None:
-    """打印偏离台账的现状（接口名 + 后果 + 判据），缺账本时如实说明而不是静默跳过。"""
+    """打印偏离台账的现状（**按性质分组** + 接口名 + 后果 + 判据），缺账本时如实说明而不是静默跳过。"""
     try:
         sys.path.insert(0, str(ROOT / 'tools'))
-        from api_deviation_ledger import CONSEQUENCE_MARKER, load_entries, summarise
-    except ImportError as error:  # 换台机器只拷了工具、没拷台账
+        from api_deviation_ledger import (
+            CONSEQUENCE_MARKER, NATURE_LABELS, by_nature, group_order, load_entries, summarise)
+    except ImportError as error:  # 换台机器只拷了工具、没拷台账（或是旧版账本模块）
         print()
         print(f'=== 还在返回兜底值的接口（风险面）===')
         print(f'  ⚠ 读不到偏离台账（{error}）⇒ 这一段跳过；'
@@ -2131,26 +2407,44 @@ def print_degradation_surface() -> None:
         catalog_names = {}
     stats = summarise(entries)
     by_kind = '、'.join(f'{kind} {count}' for kind, count in sorted(stats['by_kind'].items()))
-    print()
-    print('=== 还在返回兜底值/近似值的接口（风险面；数据来自 api_deviation.cpp）===')
+    groups = by_nature(entries)
+    by_nature_text = '、'.join(
+        f'{nature or "<未归类>"}（{NATURE_LABELS.get(nature, "未归类")}）{len(groups[nature])}'
+        for nature in group_order(groups))
     gaps = stats['missing_judgement']
     suffix = f'（{gaps}）' if gaps else ''
-    print(f'  共 {stats["total"]} 条偏离：{by_kind}；其中"暂无判据" {len(gaps)} 条{suffix}')
+    print()
+    print('=== 还在返回兜底值/近似值的接口（风险面；数据来自 api_deviation.cpp）===')
+    print(f'  共 {stats["total"]} 条偏离：{by_nature_text}；其中"暂无判据" {len(gaps)} 条{suffix}')
+    print(f'  （偏离种类分布：{by_kind}）')
+    print('  ★ 性质口径决定"这条差异还能不能还"：platform = 平台固有（Switch 上没有底座/语义无法映射，'
+          '永远消不掉，登记完就别再投入）；')
+    print('    debt = 我们的欠账（底座存在或可定位，能还，还清后应当把条目删掉）；'
+          'design = 主动保留的口径差异（有意与 PC 不同，不打算改）。')
     print('  ★ 这些接口交回的不是引擎真值。模组拿它们当判据时会出现"看着正常、其实答错"的行为')
     print('     （098 的实例：`Room:GetGridPath` 恒返 1000 ⇒ EID 认为地上药丸/卡片都够不到、只画问号）。')
-    for entry in entries:
-        name = catalog_names.get(entry.identifier) or f'未知 id 0x{entry.identifier:08X}'
-        consequence = entry.consequence.replace('\n', ' ')
-        judgement = entry.judgement.replace('\n', ' ')
-        if len(consequence) > 110:
-            consequence = consequence[:110] + '…'
-        if len(judgement) > 110:
-            judgement = judgement[:110] + '…'
-        print(f'  · 0x{entry.identifier:08X} {name}（{entry.kind}）')
-        print(f'      后果：{consequence or f"**缺 {CONSEQUENCE_MARKER}**（门禁会红）"}')
-        print('      ' + (f'判据：{judgement}' if judgement else '**缺判据：……**（门禁会红）'))
-    print('  （完整正文与判据：`python3 tools/api_deviation_ledger.py`；'
-          '条数由 `runtime/tests/contract/test_api_deviation.py` 钉住）')
+    for nature in group_order(groups):
+        label = NATURE_LABELS.get(nature, '未归类（取值非法或缺失 —— 门禁会红）')
+        print(f'  ── [{nature or "<未归类>"}] {label}：{len(groups[nature])} 条 ──')
+        for entry in groups[nature]:
+            name = catalog_names.get(entry.identifier) or f'未知 id 0x{entry.identifier:08X}'
+            reason = entry.nature_reason.replace('\n', ' ')
+            consequence = entry.consequence.replace('\n', ' ')
+            judgement = entry.judgement.replace('\n', ' ')
+            if len(reason) > 110:
+                reason = reason[:110] + '…'
+            if len(consequence) > 110:
+                consequence = consequence[:110] + '…'
+            if len(judgement) > 110:
+                judgement = judgement[:110] + '…'
+            print(f'  · 0x{entry.identifier:08X} {name}'
+                  f'（kind={entry.kind} / nature={nature or "未归类"}）')
+            print(f'      理由：{reason or "**缺 性质：…——理由：…**（门禁会红）"}')
+            print(f'      后果：{consequence or f"**缺 {CONSEQUENCE_MARKER}**（门禁会红）"}')
+            print('      ' + (f'判据：{judgement}' if judgement else '**缺判据：……**（门禁会红）'))
+    print('  （完整正文与判据：`python3 tools/api_deviation_ledger.py`（已按性质分组）；'
+          'JSON：`python3 tools/api_deviation_ledger.py --json`；'
+          '条数与每类条数由 `runtime/tests/contract/test_api_deviation.py` 钉住）')
 
 
 # ---------------------------------------------------------------------------

@@ -20,7 +20,8 @@ ROUTING = SRC / "infrastructure" / "hook_routing_adapter.hpp"
 EXPECTED = ("ManagerUpdate", "ManagerRender", "PreGetCollectible",
             "ManagerPresent", "RebuildMountPoints", "GameStart",
             "UseActiveItem", "UseCard", "UsePill", "GameExit", "PickupCollision",
-            "RoomEntitySpawn")
+            "RoomEntitySpawn", "ImagePcxLoad",
+            "ImageManagerLoadFile", "ContentGetMountedFilePath")
 
 
 def catalog_entries(text):
@@ -51,7 +52,7 @@ class HookCatalogTests(unittest.TestCase):
             backends,
             ["EntryRelay", "EntryRelay", "EntryRelay", "GotSlot", "EntryRelay", "RelaySlot",
              "EntryRelay", "EntryRelay", "EntryRelay", "EntryRelay", "EntryRelay",
-             "EntryRelay"],
+             "EntryRelay", "EntryRelay", "EntryRelay", "EntryRelay"],
             "M2b 之后：入口中继 + ManagerPresent 走 GOT 槽；"
             "GameStart 走 RelaySlot（引擎侧中继已放好代码，我们只往槽里写回调指针）；"
             "批次 102 的四个事件靶点都走入口中继（零占洞）")

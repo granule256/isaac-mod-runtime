@@ -45,18 +45,26 @@ struct ModManifest {
     [[nodiscard]] bool HasEntry() const noexcept { return entry[0] != '\0'; }
 };
 
-// 同一次加载里最多几个 Mod（2026-09-16，多模组加载）。
+// 同一次加载里最多几个 Mod（2026-09-16 多模组加载；2026-09-21 由 4 → 16 → 32）。
 //
 // 与旧解析器 `ModManifest::kMaximumSelectedMods` 必须一致（`hook_manager.cpp` 里有
 // `static_assert` 兜住，理由同 `kRomfsModScriptMaximumLength`：两份常量各自演化过就埋过坑）。
-// 取 4 的依据：整个集合是**按值传递**的解析结果，8 个 Mod 会让它涨到 10 KiB 以上。
-inline constexpr std::size_t kModManifestCapacity = 4;
+//
+// 为什么可以从 4 抬到 16：
+//   * 这个"按值传递的解析结果"**不放在栈上** —— 运行时那条路径用的是静态 `batch`
+//     与静态解析器（`hook_manager.cpp`），抬到 32 只多占约 80 KiB 静态存储；
+//   * 挂载位（`ContentMountService::kMaxMods`）同步抬到 64：每个 Mod 最多占 4 个挂载点
+//     （`resources`、`resources/gfx`、`content`、`content/gfx`）。
+inline constexpr std::size_t kModManifestCapacity = 32;
 
-// 一次解析的结果：清单里**所有** `enabled = true` 的 Mod，顺序 = 清单里的书写顺序
-// （PC 正是按这个顺序依次执行各 Mod 的入口脚本）。
 struct ModManifestSet {
     std::array<ModManifestEntry, kModManifestCapacity> entries{};
     std::size_t count{0};
+    // 清单里**显式 `enabled = false`** 的目录名（2026-09-21，为"拷贝目录即安装"服务）：
+    // 自动发现合并时用它 —— **被显式关掉的模组不许被"扫目录"重新捡回来**，
+    // 否则用户就再也关不掉任何模组了。
+    std::array<std::array<char, kModDirectoryCapacity>, kModManifestCapacity> disabledDirectories{};
+    std::size_t disabledCount{0};
 
     [[nodiscard]] bool empty() const noexcept { return count == 0; }
 };

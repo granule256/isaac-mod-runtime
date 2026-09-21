@@ -535,6 +535,33 @@ inline constexpr uintptr_t kGridEntityVarDataOffset = 0x1C;
 //: `GridEntity + 0x28` = **网格下标**（位置由引擎按格子算，不存 float）：
 //: `GridEntity::GetPosition() @ 0x37E498` 读它后转调 `Room::GetGridPosition(int)`。
 inline constexpr uintptr_t kGridEntityGridIndexOffset = 0x28;
+//: `GridEntity::GetPosition() const @ 0x37E498` —— PC Lua 的 `GridEntity.Position`（`const Vector`）。
+//:
+//: 为什么必须补（2026-09-21，用户报"EID 在献祭房不显示房间信息"）：EID 给 Lua 的网格实体挑"离玩家最近的那个"
+//: 时逐个取 `gridEntity.Position`（`main.lua:1491`），而我们过去**没给非门的网格实体**这个字段
+//: ⇒ 取到 `nil` 再 `:__sub` ⇒ 该帧描述整段不画（不崩、无提示）。EID 只给 `GRID_SPIKES` 注册了描述
+//: （`eid_grid_descriptions.lua:115/133`）⇒ 症状**只在献祭房/带刺房间出现**，与用户描述一致。
+//:
+//: 证据（`tools/nro_disasm.py 0x37E498`，符号表 `_ZNK15IsaacRepentance10GridEntity11GetPositionEv`）：
+//: ```
+//: 0037e498  adrp x8, 0xaac000 ; ldr x8, [x8, #0x698]   ; x8 = &g_Game
+//: 0037e4a0  ldr  x8, [x8]                              ; x8 = g_Game
+//: 0037e4a4  mov  w9, #0x1550 ; movk w9, #0x2, lsl #16  ; 0x21550 = Game::Level
+//: 0037e4ac  ldr  w1, [x0, #0x28]                       ; 网格下标
+//: 0037e4b0  ldr  x8, [x8, x9]                          ; x8 = Level（`Room::GetGridPosition` 的 this）
+//: 0037e4b4  mov  x0, x8
+//: 0037e4b8  b    0x66fef0 ; Room::GetGridPosition(int) const   ← 尾调用，返回值原样透传
+//: ```
+//: **ABI**（`Room::GetGridPosition(int) const @ 0x454d38` 的收尾 `ldp s0, s1, [sp, #0x8]`）：
+//: 返回 `Vector2`（两个 float）在 **s0/s1**；入参 `x0` = Level/Room 指针、`w1` = 网格下标。
+//: 也就是说我们只要按 `x0 = 网格实体指针` 调它，返回值直接就是 PC 的 `Position`。
+//: 位置公式（同一条函数）：`x = (idx % W + 1) * 40`、`y = (idx / W) * 40 + 120`。
+inline constexpr uintptr_t kGridEntityGetPositionOffset = 0x37E498;
+//: `GridEntity::GetPosition() const` 的入口 16 字节（`tools/nro_disasm.py` 逐字节核过）。
+inline constexpr std::array<u8, 16> kGridEntityGetPositionExpectedBytes = {
+    0x68, 0x39, 0x00, 0xd0, 0x08, 0x4d, 0x43, 0xf9,
+    0x08, 0x01, 0x40, 0xf9, 0x09, 0xaa, 0x82, 0x52,
+};
 // `GridEntity + 0x10` = **variant**。证据（2026-09-16，行为锚点）：
 // `GridEntity_Poop::InitSubclass` / `GridEntity_Poop::Update` 反复读 `+0x10` 并与 **1000 (0x3E8)**
 // 比较 —— Isaac 里便便的 variant 正是 1000 起（1000=普通便便、1001=玉米…），共 4 处独立比较。
@@ -2490,3 +2517,128 @@ inline constexpr std::array<u8, 16> kRoomSpawnEntityExpectedBytes = {
 inline constexpr uintptr_t kRoomConfigEntryTypeOffset = 0x00;     // i32：`EntityType`
 inline constexpr uintptr_t kRoomConfigEntryVariantOffset = 0x04;  // i16（**不是** i32！）
 inline constexpr uintptr_t kRoomConfigEntrySubTypeOffset = 0x06;  // i16（**不是** i32！）
+
+// ---------------------------------------------------------------------------
+// 贴图桥：`KAGE::Graphics::ImagePcx::Load(char const*)` 入口中继挂点
+// ---------------------------------------------------------------------------
+// 拦截引擎加载 `.pcx` 贴图的最后一站。回调里先让原函数跑（`.pcx` 在则正常返回）；
+// 当它因「文件不存在」失败、但同名 `.png` 存在时，在内存里把 PNG 转成 PCX 字节
+// 喂给内存版 `Load`（见下 `kImagePcxLoadInMemoryFileOffset`）。
+//
+// 靶：`_ZN4KAGE8Graphics8ImagePcx4LoadEPKc`（单参 const char*）。
+// 守卫字节由 `tools/nro_disasm.py 0x4d40a8 16` 抽查（2026-09-21，小端文件字节序）：
+//   stp x29,x30,[sp,#-0x40]! / str x23,[sp,#0x10] / mov x29,sp / stp x22,x21,[sp,#0x20]
+//   显示 a9bc7bfd f9000bf7 910003fd a90257f6 → 文件实际字节（见下数组）每 4 字节反序。
+inline constexpr uintptr_t kImagePcxLoadFileOffset = 0x4d40a8;
+inline constexpr std::array<u8, 16> kImagePcxLoadExpectedBytes = {
+    0xFD, 0x7B, 0xBC, 0xA9, 0xF7, 0x0B, 0x00, 0xF9,
+    0xFD, 0x03, 0x00, 0x91, 0xF6, 0x57, 0x02, 0xA9,
+};
+// 内存版 `Load(const uint8_t* data, uint32_t size, const char* path)`：
+// `_ZN4KAGE8Graphics8ImagePcx4LoadEPKhjPKc`。回调把转好的 PCX 字节喂它。
+// 守卫字节由 `tools/nro_disasm.py 0x4d4160 16` 抽查（2026-09-21，小端文件字节序）：
+//   sub sp,sp,#0x40 / stp x29,x30,[sp,#0x10] / add x29,sp,#0x10 / stp x22,x21,[sp,#0x20]
+inline constexpr uintptr_t kImagePcxLoadInMemoryFileOffset = 0x4d4160;
+inline constexpr std::array<u8, 16> kImagePcxLoadInMemoryExpectedBytes = {
+    0xFF, 0x03, 0x01, 0xD1, 0xFD, 0x7B, 0x01, 0xA9,
+    0xFD, 0x43, 0x00, 0x91, 0xF6, 0x57, 0x02, 0xA9,
+};
+// 转码器需要的三个 zlib 符号（C 符号，非引擎命名空间）。`PngToPcx` 通过注入的
+// `InflateFn` 调用解压，不直接链 zlib 的符号；这里只存地址供 `GameFileReader` 在
+// 设备安装时按偏移核对并发布。全部用「调用侧守卫」：只比入口前 16 字节，不比内部。
+//   inflateInit2_ ：`tools/nro_disasm.py 0x4e1f90 16`（stp;stp;mov;cbz x2）
+inline constexpr uintptr_t kZlibInflateInit2FileOffset = 0x4e1f90;
+inline constexpr std::array<u8, 16> kZlibInflateInit2ExpectedBytes = {
+    0xFD, 0x7B, 0xBE, 0xA9, 0xF4, 0x4F, 0x01, 0xA9,
+    0xFD, 0x03, 0x00, 0x91, 0xA2, 0x07, 0x00, 0xB4,
+};
+//   inflate       ：`tools/nro_disasm.py 0x4e21a0 16`（stp;stp;mov;stp）
+inline constexpr uintptr_t kZlibInflateFileOffset = 0x4e21a0;
+inline constexpr std::array<u8, 16> kZlibInflateExpectedBytes = {
+    0xFD, 0x7B, 0xBA, 0xA9, 0xFC, 0x6F, 0x01, 0xA9,
+    0xFD, 0x03, 0x00, 0x91, 0xFA, 0x67, 0x02, 0xA9,
+};
+//   inflateEnd    ：`tools/nro_disasm.py 0x4e1f20 16`（stp;str x19;mov;cbz x0）
+inline constexpr uintptr_t kZlibInflateEndFileOffset = 0x4e1f20;
+inline constexpr std::array<u8, 16> kZlibInflateEndExpectedBytes = {
+    0xFD, 0x7B, 0xBE, 0xA9, 0xF3, 0x0B, 0x00, 0xF9,
+    0xFD, 0x03, 0x00, 0x91, 0x60, 0x02, 0x00, 0xB4,
+};
+
+// ---------------------------------------------------------------------------
+// 贴图桥 v2（2026-09-21 下午）：`ImageManager::LoadImage` 文件版 + 五参内存版
+// ---------------------------------------------------------------------------
+// 真机 14:10 验证 v1 拦截点（ImagePcx::Load @0x4d40a8）对"文件不存在"**永远等不到调用**：
+// 文件版在创建贴图对象**之前**就先问挂载管理器 `GetMountedFilePath`，返回空（文件不在任何
+// 挂载点）即从入口附近 `stp xzr,xzr,[x19]` 清零返回槽后**直接收尾**（0x4d2378 起就是纯
+// epilogue）。所以拦截点必须上移到这里；兜底改为"原函数失败 → 读同名 .png → 转 PCX 字节
+// → 调五参内存版（按扩展名建 ImagePcx、喂内存 Load、写缓存）→ 原样交出返回值"。
+// 靶：`_ZN4KAGE8Graphics12ImageManager9LoadImageEPKcPNS0_25VertexAttributeDescriptorEb`。
+// 守卫字节由 `tools/nro_disasm.py 0x4d1fe4 16` 抽查（2026-09-21，小端文件序）：
+//   sub sp,sp,#0x80 / stp x29,x30,[sp,#0x20] / add x29,sp,#0x10+0x10 / str x27,[sp,#0x30]
+inline constexpr uintptr_t kImageManagerLoadFileOffset = 0x4d1fe4;
+inline constexpr std::array<u8, 16> kImageManagerLoadFileExpectedBytes = {
+    0xFF, 0x03, 0x02, 0xD1, 0xFD, 0x7B, 0x02, 0xA9,
+    0xFD, 0x83, 0x00, 0x91, 0xFB, 0x1B, 0x00, 0xF9,
+};
+// 靶：`_ZN4KAGE8Graphics12ImageManager9LoadImageEPKhjPKcS5_PNS0_25VertexAttributeDescriptorE`
+// （五参内存版：按路径扩展名建对象 → 虚表 +0xe0 喂字节 → 写缓存）。**只调用、不挂钩**。
+// 守卫字节由 `tools/nro_disasm.py 0x4d2654 16` 抽查（2026-09-21，小端文件序）。
+inline constexpr uintptr_t kImageManagerLoadMemoryOffset = 0x4d2654;
+inline constexpr std::array<u8, 16> kImageManagerLoadMemoryExpectedBytes = {
+    0xFF, 0x03, 0x02, 0xD1, 0xFD, 0x7B, 0x02, 0xA9,
+    0xFD, 0x83, 0x00, 0x91, 0xFC, 0x6F, 0x03, 0xA9,
+};
+
+// ---------------------------------------------------------------------------
+// 贴图桥 v3（2026-09-21 15:1x）：兜底不许"盲开"文件
+// ---------------------------------------------------------------------------
+// 真机 crash_reports 01789974615（Type: User Break，`nn::diag::Abort`）坐实：兜底里用
+// 引擎 `KAGE::Filesys::File::OpenRead` 直接开 `.png` 时，引擎的 `File::open_file_handle`
+// 对"打开失败"**直接 Abort** —— 清单/脚本读取从来只开确定存在的文件，这条 Abort 路以前
+// 从没被踩过。而挂载解析发生在我们上游（`GetMountedFilePath`），原始请求的路径形状
+// 原样传给 `File::OpenRead` 它认不了 ⇒ 必然失败 ⇒ 必然 Abort。
+// 修法：兜底先用引擎自己的 `IContentManager::GetMountedFilePath` 解析（文件不在任何
+// 挂载点 ⇒ 返回空、**不炸** —— `FileManager::Exists` 内部正是这么用它做存在性判断的），
+// 拿到挂载绝对路径再交给 GameFileReader 读；用完用游戏的 `operator delete[]` 还债。
+// `g_ContentManager` 的 GOT 槽：游戏自己取它就是 `adrp 0xaac000; ldr [x0,#0x748]`。
+inline constexpr uintptr_t kContentManagerGotSlotOffset = 0xAAC748;
+// `IContentManager::GetMountedFilePath(char const*)`（成员：x0=内容管理器，x1=路径；
+// 返回堆上挂载绝对路径，调用方须用游戏 `operator delete[]` 释放；不在任何挂载点返回空）。
+// 守卫字节由 `tools/nro_disasm.py 0x4c2340 16` 抽查（2026-09-21，小端文件序）：
+//   stp x29,x30,[sp,#-0x30]! / str x21,[sp,#0x10] / mov x29,sp / stp x20,x19,[sp,#0x20]
+inline constexpr uintptr_t kContentManagerGetMountedFilePathOffset = 0x4C2340;
+inline constexpr std::array<u8, 16> kContentManagerGetMountedFilePathExpectedBytes = {
+    0xFD, 0x7B, 0xBD, 0xA9, 0xF5, 0x0B, 0x00, 0xF9,
+    0xFD, 0x03, 0x00, 0x91, 0xF4, 0x4F, 0x02, 0xA9,
+};
+// 游戏导入的 `operator delete[](void*)`（`_ZdaPv`）PLT 桩（释放 GetMountedFilePath 的返回值；
+// 与 kGameOperatorDeleteOffset 同一形态：游戏分配的内存必须用游戏的 delete 还）。
+// 守卫字节由 `tools/nro_disasm.py 0x66fb90 16` 抽查（2026-09-21，小端文件序）。
+inline constexpr uintptr_t kGameOperatorDeleteArrayOffset = 0x66FB90;
+inline constexpr std::array<u8, 16> kGameOperatorDeleteArrayExpectedBytes = {
+    0x70, 0x21, 0x00, 0xD0, 0x11, 0x9A, 0x46, 0xF9,
+    0x10, 0xC2, 0x34, 0x91, 0x20, 0x02, 0x1F, 0xD6,
+};
+
+// ---------------------------------------------------------------------------
+// 贴图桥 v4（2026-09-21 晚）：在"文件层"递字节，**不碰贴图管理器**
+// ---------------------------------------------------------------------------
+// 教训（16:22 真机卡死）：内存转码不能在贴图管理器内部再回调它自己（插入路径要拿
+// `ImageManager+0x8` 的互斥锁 ⇒ 自己锁死自己）。v4 改成：
+//   ① 挂 `IContentManager::GetMountedFilePath`：`.pcx` 不在任何挂载点、但同名 `.png` 在时，
+//      返回一条**合成的 `.pcx` 挂载路径**（=`.png` 的挂载路径换扩展名）⇒ 引擎自己的文件版
+//      会按"扩展名 pcx"建 `ImagePcx` 并走到对象的文件版 `Load`；
+//   ② 我们已有的 `ImagePcx::Load` 钩子这时就能被调到（v1 当年等不到的就是这个前提！）：
+//      原函数打不开合成路径 → 解析同名 `.png` → 读 → 转 PCX → 调**对象自己的**内存版
+//      `Load`（`0x4d4160`，纯对象级、无锁）→ 返回 bool；
+//   ③ 之后引擎自己完成缓存/登记（它自己的锁、它自己的层级）—— 全程无重入。
+//
+// 合成路径由引擎的调用方用 `_ZdaPv`（delete[]）释放 ⇒ 我们必须用**游戏自己的**
+// `operator new[]`（`_Znam` 的 PLT 桩）分配，保证同一套堆。
+// 守卫字节由 `tools/nro_disasm.py 0x66fb60 16` 抽查（2026-09-21，小端文件序）。
+inline constexpr uintptr_t kGameOperatorNewArrayOffset = 0x66FB60;
+inline constexpr std::array<u8, 16> kGameOperatorNewArrayExpectedBytes = {
+    0x70, 0x21, 0x00, 0xD0, 0x11, 0x8E, 0x46, 0xF9,
+    0x10, 0x62, 0x34, 0x91, 0x20, 0x02, 0x1F, 0xD6,
+};

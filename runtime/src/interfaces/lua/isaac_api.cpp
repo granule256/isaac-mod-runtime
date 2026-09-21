@@ -4099,8 +4099,13 @@ int IsaacGetRoomEntities(lua_State* state) {
 // `Isaac.ExecuteCommand("restart")`；`Isaac.md` 的 ExecuteCommand 一节）。
 //
 // ★ **平台限制**（2026-09-19 批次 041）：Switch 上没有控制台、也没有等价的命令通道
-//   ⇒ 这里**什么都不做**（不抛错、不假装成功）。PC 上它的返回类型是 void，所以"没有返回值"
-//   与 PC 一致；差别只在于**命令不会生效**。
+//   ⇒ 这里**什么都不做**（不抛错、不假装成功）。
+//   ★ 2026-09-21 更正一句错话：这里原写"PC 上它的返回类型是 void，所以『没有返回值』与 PC 一致"，
+//   **是错的** —— 契约原文 `tools/pc_contract_docs/Isaac.md:106` 写的是
+//   `#### string ExecuteCommand ( string command )`：PC 返回**控制台输出的字符串**。
+//   所以我们这条与 PC 的差别是两条：① 命令不会生效（平台限制）；② **返回值类型不同**
+//   （PC 给字符串，我们一个值都不返回 ⇒ 模组若拿返回值当字符串用会拿到 nil；目前没有模组这么用）。
+//   该偏离已按平台固有登记进 `api_deviation.cpp` 的 `0x0E01002D`。
 //   直接后果（要写清楚，别让人以为功能坏了）：GoodTrip 的 `TAB + R` 快速重开
 //   （`scripts/control.lua:61` 那句 `Isaac.ExecuteCommand("restart")`）在我们这儿**不会重开**；
 //   要重开请用游戏自带的方式。将来若要做，得先找到引擎自己的"重开一局"入口，

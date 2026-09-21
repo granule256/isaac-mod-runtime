@@ -148,7 +148,12 @@ DRIVER = textwrap.dedent(
         Check(batch.count == 0, "empty_directory_yields_no_batch");
 
         // --- 3) 超过容量 ⇒ CapacityExceeded，而且**不截断** ----------------------
-        port.directories = {"m1", "m2", "m3", "m4", "m5"};
+        // 容量由常量决定（现为 `kModManifestCapacity`）：按"容量 + 1"生成，
+        // 以后容量再抬也不用改这条用例。
+        port.directories.clear();
+        for (std::size_t index = 0; index <= kModManifestCapacity; ++index) {
+            port.directories.push_back("m" + std::to_string(index + 1));
+        }
         status = service.Discover(&batch);
         Check(status.code() == StatusCode::CapacityExceeded, "too_many_directories_rejected");
         Check(batch.count == 0, "too_many_directories_yields_no_batch");

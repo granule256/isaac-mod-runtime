@@ -121,6 +121,7 @@ class EntryRelayAdapterContractTests(unittest.TestCase):
 
 ADAPTER_DRIVER = r"""
 #include "infrastructure/relay/entry_relay_hook_adapter.hpp"
+#include "relay/smart_pointer_shim.hpp"
 
 #include <cstdint>
 #include <cstdio>
@@ -237,6 +238,42 @@ extern "C" void EntryRelayRoomEntitySpawnCallback(void* room, std::uint32_t grid
     (void)seed;
     (void)outEntity;
     (void)flags;
+}
+
+// 贴图桥（2026-09-21）：`.pcx` 缺失而同名 `.png` 存在时在内存里转码兜底。宿主驱动只验证接线，
+// 不跑真机逻辑，所以桩直接返回 false（即「不接管」）。
+extern "C" bool EntryRelayImagePcxLoadCallback(void* self, const char* path) {
+    (void)self;
+    (void)path;
+    return false;
+}
+
+// 贴图桥 v2（2026-09-21）：返回 16 字节 SmartPointer（sret）。桩全零 = 「空指针、未接管」；
+// 垫片类型的形状由 hook_catalog/adapter 的声明一致性测试另行钉住。
+// 注意：宿主桩也必须用同一垫片类型（`isaac::runtime::relay::SmartPointerShim`），
+// 否则 sret ABI 对不上。
+#if defined(__clang__)
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wreturn-type-c-linkage"
+#endif
+extern "C" isaac::runtime::relay::SmartPointerShim EntryRelayImageManagerLoadFileCallback(
+    void* self, const char* path, void* descriptor, int flag) {
+    (void)self;
+    (void)path;
+    (void)descriptor;
+    (void)flag;
+    return {};
+}
+#if defined(__clang__)
+#pragma clang diagnostic pop
+#endif
+
+// 贴图桥 v4：IContentManager::GetMountedFilePath。桩返回空（文件不在任何挂载点），
+// 驱动只验证接线，不跑真机逻辑。
+extern "C" char* EntryRelayContentGetMountedFilePathCallback(void* self, const char* path) {
+    (void)self;
+    (void)path;
+    return nullptr;
 }
 
 static int g_failures = 0;

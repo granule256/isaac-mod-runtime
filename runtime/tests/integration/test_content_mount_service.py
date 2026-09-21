@@ -17,6 +17,23 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[3]
 SRC = ROOT / "runtime" / "src"
 
+#: 模组的挂载叶子（**顺序 = 挂载次序 = 优先级次序**：本引擎后挂者优先）。
+#: `resources-dlc3` 是 PC 的**忏悔层**（2026-09-21 加）：PC 模组覆盖忏悔资源时整包都放这一层
+#: （实例：`visible tinted rocks` 的 23 张 `gfx/grid/rocks_*.png`），不挂 = 静默不生效。
+MOD_LEAVES = (
+    "resources",
+    "resources/gfx",
+    "content",
+    "content/gfx",
+    "resources-dlc3",
+    "resources-dlc3/gfx",
+)
+
+
+def expected_mounts(prefix: str) -> str:
+    return ",".join(f"{prefix}/{leaf}" for leaf in MOD_LEAVES)
+
+
 DRIVER = textwrap.dedent(
     r"""
     #include "application/mod/content_mount_service.hpp"
@@ -67,16 +84,17 @@ DRIVER = textwrap.dedent(
     }  // namespace
 
     int main() {
-        // 1. 注册一个 Mod：四个叶子（resources、resources/gfx、content、content/gfx）都要挂，
-        //    顺序固定。`*/gfx` 那两个是给 ANM2 内部的 `<Spritesheet Path>` 用的：引擎把挂载点
-        //    直接拼在路径前面，而 .anm2 里写的是相对 gfx 目录的裸文件名。
+        // 1. 注册一个 Mod：全部叶子（`__LEAVES__`）都要挂，顺序固定。
+        //    `*/gfx` 那两个是给 ANM2 内部的 `<Spritesheet Path>` 用的：引擎把挂载点直接拼在
+        //    路径前面，而 .anm2 里写的是相对 gfx 目录的裸文件名。
+        //    `resources-dlc3`（+`/gfx`）是 PC 的忏悔层，**排在最后**（后挂者优先 ⇒ 它压过
+        //    本体两层与模组自己的 `resources`，与 PC 的层序一致）。
         {
             FakePort port;
             ContentMountService service{port};
             Check(service.RegisterMod("rom:/isaac_mods/mods/MuteOnPause/").ok(), "register ok");
-            Check(Rendered(port.calls) == "rom:/isaac_mods/mods/MuteOnPause//resources,rom:/isaac_mods/mods/MuteOnPause//resources/gfx,"
-                  "rom:/isaac_mods/mods/MuteOnPause//content,rom:/isaac_mods/mods/MuteOnPause//content/gfx",
-                  "registers both leaves in order");
+            Check(Rendered(port.calls) == "__EXPECT_MUTEONPAUSE__",
+                  "registers every leaf in order");
             Check(service.mod_count() == 1, "one mod recorded");
             Check(service.mod_directory(0) == "rom:/isaac_mods/mods/MuteOnPause/", "directory recorded");
         }
@@ -87,11 +105,11 @@ DRIVER = textwrap.dedent(
             ContentMountService service{port};
             Check(service.RegisterMod("rom:/isaac_mods/mods/EID/").ok(), "first register");
             Check(service.RegisterMod("rom:/isaac_mods/mods/EID/").ok(), "second register");
-            Check(port.calls.size() == 4, "no duplicate mounts");
+            Check(port.calls.size() == __LEAF_COUNT__, "no duplicate mounts");
             Check(service.mod_count() == 1, "no duplicate record");
         }
 
-        // 3. RemountAll 在引擎重建后原样重放每个 Mod 的四个叶子。
+        // 3. RemountAll 在引擎重建后原样重放每个 Mod 的全部叶子。
         {
             FakePort port;
             ContentMountService service{port};
@@ -99,10 +117,7 @@ DRIVER = textwrap.dedent(
             Check(service.RegisterMod("rom:/isaac_mods/mods/B/").ok(), "register B");
             port.calls.clear();
             Check(service.RemountAll().ok(), "remount ok");
-            Check(Rendered(port.calls) == "rom:/isaac_mods/mods/A//resources,rom:/isaac_mods/mods/A//resources/gfx,"
-                  "rom:/isaac_mods/mods/A//content,rom:/isaac_mods/mods/A//content/gfx,"
-                  "rom:/isaac_mods/mods/B//resources,rom:/isaac_mods/mods/B//resources/gfx,"
-                  "rom:/isaac_mods/mods/B//content,rom:/isaac_mods/mods/B//content/gfx",
+            Check(Rendered(port.calls) == "__EXPECT_A__,__EXPECT_B__",
                   "remount replays every mod in order");
         }
 
@@ -184,7 +199,14 @@ class ContentMountServiceTests(unittest.TestCase):
             directory = Path(temporary)
             source = directory / "content_mount.cpp"
             binary = directory / "content_mount"
-            source.write_text(DRIVER, encoding="utf-8")
+            source.write_text(
+                DRIVER.replace("__EXPECT_MUTEONPAUSE__",
+                               expected_mounts("rom:/isaac_mods/mods/MuteOnPause/"))
+                .replace("__EXPECT_A__", expected_mounts("rom:/isaac_mods/mods/A/"))
+                .replace("__EXPECT_B__", expected_mounts("rom:/isaac_mods/mods/B/"))
+                .replace("__LEAF_COUNT__", str(len(MOD_LEAVES)))
+                .replace("__LEAVES__", "、".join(MOD_LEAVES)),
+                encoding="utf-8")
             compile_result = subprocess.run(
                 [
                     compiler, "-std=c++17", "-Wall", "-Wextra", "-Werror",
@@ -236,6 +258,15 @@ class ContentMountServiceTests(unittest.TestCase):
         # ANM2 的贴图路径是相对 gfx 目录的裸名，必须有 gfx 挂载点才解析得到。
         self.assertIn('std::string_view{"resources/gfx"}', header)
         self.assertIn('std::string_view{"content/gfx"}', header)
+        # 2026-09-21：PC 的忏悔层（`resources-dlc3`）——PC 模组覆盖忏悔资源时整包放在这一层，
+        # 不挂就是"静默不生效"（用户真机实例：`visible tinted rocks` 的 23 张石头贴图）。
+        self.assertIn('std::string_view{"resources-dlc3"}', header)
+        self.assertIn('std::string_view{"resources-dlc3/gfx"}', header)
+        # 顺序也是契约的一部分：后挂者优先 ⇒ dlc3 两个叶子必须在最后（压过模组自己的 `resources`）。
+        self.assertLess(header.index('std::string_view{"resources-dlc3"}'),
+                        header.index('std::string_view{"resources-dlc3/gfx"}'))
+        self.assertGreater(header.index('std::string_view{"resources-dlc3"}'),
+                           header.index('std::string_view{"content/gfx"}'))
         adapter = (SRC / "infrastructure" / "content" /
                    "engine_content_mount_adapter.cpp").read_text(encoding="utf-8")
         self.assertNotIn('"resources"', adapter)

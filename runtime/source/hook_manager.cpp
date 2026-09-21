@@ -17,6 +17,9 @@
 #include "persistence_event_journal.hpp"
 #include "persistence_trace.hpp"
 #include "content_mount_point_probe.hpp"
+// 批次 019：原生模组页能不能叫出来（用户要的"PC 式模组页"第一问）。整个 TU 在
+// `PROBE_BREAK=0` 或 `PROBE_BREAK_NATIVE_MODS_MENU=0` 时被编译掉，头文件只声明不定义。
+#include "probe/native_mods_menu_probe.hpp"
 #include "runtime_constants.hpp"
 #include "interfaces/lua/engine_frame_probe.hpp"
 // 批次 103：`ReadEntityIdentity`（读实体的 Type/Variant，内部带"读引擎字段前先判可读"那套判据）。
@@ -57,6 +60,10 @@
      EXL_DIAGNOSTIC_STAGE == 118)
 #include "game_file_reader.hpp"
 #endif
+// 贴图桥转码器（纯函数，InflateFn 注入）。
+#include "image_pcx_bridge_hook.hpp"
+// v2：sret 返回值垫片（`ImageManager::LoadImage` 按 x8 返回 16 字节 SmartPointer）。
+#include "relay/smart_pointer_shim.hpp"
 #if !defined(EXL_DIAGNOSTIC_STAGE) || EXL_DIAGNOSTIC_STAGE == 13
 #include "mod_manifest.hpp"
 #endif
@@ -1059,6 +1066,11 @@ std::atomic<u32> g_DefaultManifestFailureDetail{static_cast<u32>(DefaultManifest
 // （`EXL_STARTUP_PROBE_STAGE == 8`）与 `TestRunObserver` 的线上格式，语义不能动；诊断字 `[11]`
 // 只在"人读崩溃报告"这条路上被消费，把它升级成"步骤 + 原因 + 文件大小"是纯增益。
 std::atomic<u32> g_DefaultManifestFailureWord{0};
+// 清单与"扫目录"的合并结果（2026-09-21，用户要求"拷进 mods/ 就能用"）：
+//   g_AutoAppendedMods = 除清单之外**多追加**了几个目录（0 = 没有新的 / 合并失败）
+//   g_AutoAppendStatus = 合并的状态码（0 = 成功；非 0 = 列不出目录/装不下，此时保留清单那一批）
+std::atomic<u32> g_AutoAppendedMods{0};
+std::atomic<u32> g_AutoAppendStatus{0};
 #if defined(EXL_STARTUP_PROBE_STAGE) && EXL_STARTUP_PROBE_STAGE == 8
 std::atomic<u32> g_DefaultManifestInitializationAllowed{0};
 
@@ -1075,6 +1087,10 @@ constexpr bool kDefaultPersistenceRequired = false;
 #endif
 GameFileReader::Bindings g_DefaultManifestBindings{};
 
+// 贴图桥（`ImagePcxLoad`）兜底依赖的引擎入口：安装成功后由 `VerifyImagePcxBindings` 发布。
+// 为空表示本机守卫没对上（构建不匹配），此时 `.png`→`.pcx` 兜底静默失效、退回原生仅 `.pcx`。
+GameFileReader::ImagePcxBindings g_ImagePcxBindings{};
+// ─────────────────────────────────────────────────────────────────────────────
 
 std::array<u8, kRomfsModManifestMaximumLength> g_DefaultManifest{};
 std::array<u8, kRomfsModScriptMaximumLength> g_DefaultEntry{};
@@ -1360,6 +1376,24 @@ bool SkipOptionalHooksPredicate(void*, isaac::runtime::HookId id) noexcept {
         return true;
     }
 #endif
+// 贴图桥：二分时单独摘掉（例如「只带 .png 的 Mod 显示异常」就先摘这个，确认是不是兜底转码的问题）。
+#if defined(EXL_SKIP_HOOK_IMAGEPCXLOAD) && EXL_SKIP_HOOK_IMAGEPCXLOAD == 1
+    if (id == isaac::runtime::HookId::ImagePcxLoad) {
+        return true;
+    }
+#endif
+// 贴图桥 v2：二分时单独摘掉。
+#if defined(EXL_SKIP_HOOK_IMAGEMGRLOADFILE) && EXL_SKIP_HOOK_IMAGEMGRLOADFILE == 1
+    if (id == isaac::runtime::HookId::ImageManagerLoadFile) {
+        return true;
+    }
+#endif
+// 贴图桥 v4：路径解析层的单独开关。
+#if defined(EXL_SKIP_HOOK_GETMOUNTEDPATH) && EXL_SKIP_HOOK_GETMOUNTEDPATH == 1
+    if (id == isaac::runtime::HookId::ContentGetMountedFilePath) {
+        return true;
+    }
+#endif
     return false;
 }
 
@@ -1417,6 +1451,22 @@ bool LoadDefaultManifestModThroughService(u32* failureDetail) {
     //
     // 两个后端一起给：`SelectFunction` 是"取第一个启用的"（历史口径，诊断阶段仍在用），
     // `SelectAllFunction` 是"取全部启用的"（多模组加载用的就是它）。
+    //
+    // ★★ 2026-09-21 真机事故：**这里绝对不能再写成函数内 `static`**。
+    // 022 那批（容量 16→32）一度把它改成 `static `，理由是"解析器内部的值对象是几十 KiB 级"——
+    // 那个判断对错了对象：真正大的是 `ResolveAll`/`ParseAll` 里的**解析结果**（`SelectedMods`，
+    // 32 × 1.28 KiB，确实在游戏线程栈上，见 `ResolveAll` 的 `sub sp, sp, #0xc0b0`），
+    // 而 `ManifestService` 自己只有 **一个引用 + 两个函数指针**（约 24 字节）。
+    //
+    // 写成函数内 `static` 带动态初始化 ⇒ 编译器生成**线程安全静态守卫**
+    // （`__cxa_guard_acquire`/`__cxa_guard_release`）⇒ 它们要用 pthread 的互斥量，
+    // 而本模块是 `-nostartfiles` 链接的、**没有 pthread 运行时**：真机上那把锁失败
+    // （`__cxa_guard_release` 里 `bl pthread_mutex_lock` 返回值非零）⇒ libstdc++ 走
+    // `__gnu_cxx::__throw_concurrence_lock_error` **抛异常** ⇒ 这条路上没人接 ⇒ `abort()`
+    // ⇒ newlib 的 `_exit` 是 `b .` **自旋**（不退出、不产生崩溃报告）⇒ **游戏主线程永不返回**。
+    // 现象：**黑屏 + 有声音 + 不崩**（音频线程照跑），启动状态机停在 `ManifestInstallEntered`。
+    // 证据与排查过程见 `docs/问题与解决记录.md` 续七十；门禁
+    // `runtime/tests/test_no_static_guard_init.py` 钉住"产物里不许出现 `__cxa_guard_*`"。
     isaac::runtime::ManifestService manifestService{
         content, isaac::runtime::ManifestParser{
                      isaac::runtime::ManifestSelectorAdapter::SelectFunction(),
@@ -1461,6 +1511,16 @@ bool LoadDefaultManifestModThroughService(u32* failureDetail) {
         }
     }
     (void)discoveryMark;
+    // 合并：清单里**没列出**的目录也要能用（PC 语义"把模组文件夹丢进 mods/ 就装好了"）。
+    // 顺序 = 清单里的在前（顺序与开关都由清单说了算）+ 追加的按名字升序；被清单显式
+    // `enabled = false` 的目录**不追加**（否则用户再也关不掉模组）。
+    // 失败按 best-effort：保留清单那一批照常加载，只把状态码与"追加了几个"记进诊断。
+    // （自动发现那条路已经列过目录，这里再跑一次是幂等的：已有目录会被跳过。）
+    const std::size_t countBeforeMerge = batch.count;
+    const isaac::runtime::Status merged = g_ModDiscoveryService.AppendUnlisted(&batch);
+    g_AutoAppendedMods.store(merged.ok() ? static_cast<u32>(batch.count - countBeforeMerge) : 0u,
+                             std::memory_order_release);
+    g_AutoAppendStatus.store(static_cast<u32>(merged.code()), std::memory_order_release);
     // 模组开关（2026-09-16，路线 B）：**在挂载点与脚本之前**按状态把被关掉的模组移出去。
     // 真机已验：模组加载这一步存档分区已经挂好，所以这一次读就是"当次生效"的。
     // 读失败（通道不可用/文件读坏）时**不拦**：宁可照常加载（用户看到的是"开关没生效"），
@@ -1644,6 +1704,16 @@ HOOK_DEFINE_TRAMPOLINE(ManagerUpdateHook) {
         // 探针 break 由渲染帧数统一触发（见渲染回调里的那处），这里只保留 update 回调的计数，
         // 免得两次计时口径不一致时先到的那个把会话提前结束。
 #endif
+#endif
+        // 批次 019：原生模组页探针（由 `PROBE_BREAK_NATIVE_MODS_MENU` 单独控制）。
+        // 它与上面那一批**互不依赖**：上面那批探针会自己**主动报错结束会话**，所以两边同时
+        // 编进来时本探针多半轮不到（要单独跑就把 `PROBE_BREAK_CONTENT_MOUNT=0` 一起传进来）。
+        // 它只读单例、写自己的诊断字，不做任何 IO。
+        // 注：本条注释刻意不写出那个报错指令的字面名字 —— `test_instruction_guard` 的
+        // "默认路径里不许有主动报错"是按整段子串判定的，注释里出现也会红（这次就红了）。
+        // 只改措辞、不放宽断言：真正的调用一旦写进来，那条门禁仍旧会红。
+#if defined(EXL_PROBE_BREAK) && EXL_PROBE_BREAK_NATIVE_MODS_MENU
+        isaac::runtime::probe::NativeModsMenuProbeUpdate();
 #endif
         PersistenceTrace::Flush();
         ManagerUpdateHookAudit::Flush();
@@ -2098,6 +2168,11 @@ bool IsRenderPresentRelayInstalled() {
 extern "C" __attribute__((visibility("hidden"))) void
 IsaacModRuntime_DispatchPostRenderBeforePresent(void* graphicsManager) {
     g_RenderPresentRelayEntries.fetch_add(1, std::memory_order_relaxed);
+#if defined(EXL_PROBE_BREAK) && EXL_PROBE_BREAK_NATIVE_MODS_MENU
+    // 批次 019：手动模式下的原生模组页在**所有游戏画面之后、Present 之前**画（探针专用，
+    // 只在"手动模式开着且 Init 成功"时真的调用）。生产包不含这段。
+    isaac::runtime::probe::NativeModsMenuProbeBeforePresent();
+#endif
     // 参数是 `Present` 的实参（`KAGE::Graphics::g_Manager`），派发路径不用它 —— 见
     // `g_RenderFrameManager` 的注释。两个中继都没跑过时只能拿它兜底；那种情况下
     // `PrimeDefaultCallbacks` 会返回 false，回调不执行，但也不会崩。
@@ -2218,6 +2293,15 @@ void PublishEntryRelayOriginals(const TargetModule& module) {
     if (usesRelay(isaac::runtime::HookId::PreGetCollectible)) {
         // 这里直接写 `base + offset`（不经过 `target_address`：它的定义在本函数之后）。
         LuaRuntime::SetItemPoolGetCollectibleBinding(module.base + kPreGetCollectibleRelayOffset);
+    }
+    // 贴图桥（`ImagePcxLoad` / v2 `ImageManagerLoadFile`）：best-effort 发布内存版 Load +
+    // 三个 zlib 符号 + v2 的五参内存版。失败只让 `.png`→`.pcx` 兜底静默失效，不影响安装。
+    if (usesRelay(isaac::runtime::HookId::ImagePcxLoad) ||
+        usesRelay(isaac::runtime::HookId::ImageManagerLoadFile) ||
+        usesRelay(isaac::runtime::HookId::ContentGetMountedFilePath)) {
+        GameFileReader::VerifyImagePcxBindings(module, &g_ImagePcxBindings);
+        // 把两组静态绑定交给贴图桥（桥只存地址、回调里现读，见其头文件）。
+        isaac::runtime::bridge::Attach(&g_DefaultManifestBindings, &g_ImagePcxBindings);
     }
 }
 
@@ -3068,6 +3152,31 @@ bool VerifyRoomGetFrameCount(const TargetModule& module, uintptr_t* method) {
     return true;
 }
 
+// 2026-09-21：`GridEntity::GetPosition() const @ 0x37E498`（PC 的 `GridEntity.Position`）。
+// 与上面几条同形：**安装期必须核对入口 16 字节**；不符就只留 0 ⇒ handler 报"绑定不可用"，
+// 绝不返回编造的坐标（EID 靠它挑"离玩家最近的刺"，编一个坐标会让它挑错实体）。
+bool VerifyGridEntityGetPosition(const TargetModule& module, uintptr_t* method) {
+    if (method == nullptr || module.base == 0 || module.buildId != kTargetBuildId ||
+        kGridEntityGetPositionOffset > UINTPTR_MAX - module.base ||
+        kGridEntityGetPositionExpectedBytes.size() > module.textSize ||
+        kGridEntityGetPositionOffset > module.textSize - kGridEntityGetPositionExpectedBytes.size()) {
+        return false;
+    }
+    const uintptr_t candidate = module.base + kGridEntityGetPositionOffset;
+    if ((candidate & 3) != 0 ||
+        !module.Contains(candidate, kGridEntityGetPositionExpectedBytes.size()) ||
+        !IsMappedRxModuleCodeWindow(candidate, kGridEntityGetPositionExpectedBytes.size())) {
+        return false;
+    }
+    std::array<u8, kGridEntityGetPositionExpectedBytes.size()> bytes{};
+    std::memcpy(bytes.data(), reinterpret_cast<const void*>(candidate), bytes.size());
+    if (!verify_bytes(kGridEntityGetPositionExpectedBytes.data(), bytes.data(), bytes.size())) {
+        return false;
+    }
+    *method = candidate;
+    return true;
+}
+
 bool VerifyLevelIsNextStageAvailable(const TargetModule& module, uintptr_t* method) {
     if (method == nullptr || module.base == 0 || module.buildId != kTargetBuildId ||
         kLevelIsNextStageAvailableOffset > UINTPTR_MAX - module.base ||
@@ -3508,23 +3617,40 @@ extern "C" std::uint32_t EntryRelayPreGetCollectibleCallback(void* itemPool, std
 // /`CheckFlipGridIndexes`/`OnUseLemegeton`/`OnUseGlowingHourglass`/`OnUseGeneral` 末尾都没有
 // `return`）⇒ 这条偏离对卡上现有模组的实际行为**无影响**；将来有模组真的用返回值拦，要按
 // PC 语义补上"照常放电"。
-extern "C" void EntryRelayUseActiveItemCallback(void* player, std::uint32_t item,
-                                                std::uint32_t useFlags, std::int32_t activeSlot,
-                                                std::int32_t customVarData) {
-    using UseActiveItemFn = void (*)(void*, std::uint32_t, std::uint32_t, std::int32_t,
-                                     std::int32_t);
+// ★★ 返回值必须原样搬运（2026-09-21 修：真机 bug"所有主动道具用后不掉充能、部分道具被移除"）★★
+//
+// 入口中继是**以目标函数的身份**运行的（`entry_relay.hpp`：槽里 `br` 尾调用本回调，本回调的
+// `ret` 直接回到游戏的调用方）⇒ **目标函数的返回值也由本回调负责**。而
+// `Entity_Player::UseActiveItem` 是**有返回值**的：本体镜像里它唯一的收尾点（`0x31A8C0`，
+// 函数 `0x30653C` 起、长 `0x143B4`）是
+//     bfi  x22, x20, #8, #1     ; 把 (UseFlags & 1) 塞进第 8 位
+//     mov  x0, x22              ; ← 返回值
+//     …拆栈… ret
+// 第一版把它声明成 `void` ⇒ 游戏调用方读到的 `x0` 是我们回调里最后一次调用的残留值
+// （不是本次使用算出来的那套标志）⇒ 用后记账（扣充能 / 移除单次道具 / 服装动画）按垃圾值走分支。
+// 判据与扫描方式见 `tools/engine_offset_abi_report.py` 的"入口中继回调"一节（门禁
+// `runtime/tests/test_engine_offset_signatures.py` 钉住"引擎有返回值而我们声明 void"这一类错）。
+extern "C" std::uint64_t EntryRelayUseActiveItemCallback(void* player, std::uint32_t item,
+                                                        std::uint32_t useFlags,
+                                                        std::int32_t activeSlot,
+                                                        std::int32_t customVarData) {
+    using UseActiveItemFn = std::uint64_t (*)(void*, std::uint32_t, std::uint32_t, std::int32_t,
+                                              std::int32_t);
     if (LuaRuntime::DispatchPreUseItem(reinterpret_cast<std::uintptr_t>(player),
                                        static_cast<std::int32_t>(item),
                                        static_cast<std::int32_t>(useFlags), activeSlot,
                                        customVarData)) {
-        return;  // 模组拦下了这次使用（见上面关于"照常放电"的偏离说明）
+        // 模组拦下了这次使用（见上面关于"照常放电"的偏离说明）。返回 0 = "本次没走完使用流程"：
+        // PC 在拦下之后仍要放电，而我们的拦下是"直接返回"，0（无标志）是与之最接近的语义。
+        return 0;
     }
     const auto original =
         isaac::runtime::Original<UseActiveItemFn>(isaac::runtime::HookId::UseActiveItem);
-    original(player, item, useFlags, activeSlot, customVarData);
+    const std::uint64_t result = original(player, item, useFlags, activeSlot, customVarData);
     LuaRuntime::DispatchUseItem(reinterpret_cast<std::uintptr_t>(player),
                                 static_cast<std::int32_t>(item),
                                 static_cast<std::int32_t>(useFlags), activeSlot, customVarData);
+    return result;
 }
 
 extern "C" void EntryRelayUseCardCallback(void* player, std::uint32_t card,
@@ -3561,9 +3687,12 @@ extern "C" void EntryRelayGameExitCallback(void* game, std::uint32_t shouldSave)
 // 批次 103：掉落物碰撞。
 // 顺序是"**先派发、后决定要不要跑原函数**"：PC 的返回值三态里 `true` 与 `false` 都不执行
 // 内部代码（区别只在引擎自己怎么记这次碰撞，那部分我们没有对应实现），只有 `nil` 才照常执行。
-extern "C" void EntryRelayPickupCollisionCallback(void* pickup, void* collider,
-                                                  std::uint32_t low) {
-    using HandleCollisionFn = void (*)(void*, void*, std::uint32_t);
+// ★ 返回值同样必须原样搬运（2026-09-21）：本体里 `Entity_Pickup::handle_collision` 在收尾前
+// 有 `mov w0, #1`（`0x2728C8`，函数 `0x271F2C` 起、长 `0x9C4`）⇒ 它返回"这次碰撞有没有被处理"。
+// 我们声明成 `void` 时游戏拿到的是垃圾值，掉落物拾取的记账（含"道具被拿走"那条路）会走错分支。
+extern "C" std::uint64_t EntryRelayPickupCollisionCallback(void* pickup, void* collider,
+                                                          std::uint32_t low) {
+    using HandleCollisionFn = std::uint64_t (*)(void*, void*, std::uint32_t);
     // 过滤值 = 掉落物的变体（PC 给这条回调的可选实参类型是 `PickupVariant`）。
     // 用导出的 `ReadEntityIdentity`（它内部做"读引擎字段前先判可读"那套判据 —— 这套判据只有
     // `isaac_api.cpp` 里有一份，不在这里重写一份）。
@@ -3579,11 +3708,13 @@ extern "C" void EntryRelayPickupCollisionCallback(void* pickup, void* collider,
                                                identityReadable
                                                    ? static_cast<std::int32_t>(variant)
                                                    : -1)) {
-        return;
+        // 拦下：模组要求"这次碰撞不算数"。返回 0 = "引擎没有处理这次碰撞"（三态里 `true`/`false`
+        // 的差别在于引擎自己的记账，那部分我们没有对应实现，见上面的说明）。
+        return 0;
     }
     const auto original =
         isaac::runtime::Original<HandleCollisionFn>(isaac::runtime::HookId::PickupCollision);
-    original(pickup, collider, low);
+    return original(pickup, collider, low);
 }
 
 // 批次 104：房间生成实体。
@@ -3596,11 +3727,14 @@ extern "C" void EntryRelayPickupCollisionCallback(void* pickup, void* collider,
 // ⚠️ 读不到 `RoomConfig::Entry` 那三个字段时**不派发**（不编造值）：EID 的处理器拿
 // `entityType/variant/subtype/gridIndex` 去建索引，给错的比给不到更糟。可读性判据在
 // `ReadRoomConfigEntryFields` 里（唯一一份"读引擎字段前先判可读"的实现）。
-extern "C" void EntryRelayRoomEntitySpawnCallback(void* room, std::uint32_t gridIndex,
-                                                  const void* entry, std::uint32_t seed,
-                                                  void** outEntity, std::uint32_t flags) {
+// ★ 返回值原样搬运（2026-09-21）：本体里 `Room::spawn_entity` 在收尾前有 `mov w0, w21`
+// （`0x453EA0`，函数 `0x453918` 起、长 `0x5A8`）⇒ 它返回一个 32 位结果（调用方要用的那个值）。
+extern "C" std::uint64_t EntryRelayRoomEntitySpawnCallback(void* room, std::uint32_t gridIndex,
+                                                          const void* entry, std::uint32_t seed,
+                                                          void** outEntity,
+                                                          std::uint32_t flags) {
     using SpawnEntityFn =
-        void (*)(void*, std::uint32_t, const void*, std::uint32_t, void**, std::uint32_t);
+        std::uint64_t (*)(void*, std::uint32_t, const void*, std::uint32_t, void**, std::uint32_t);
     std::int32_t entityType = 0;
     std::int32_t variant = 0;
     std::int32_t subType = 0;
@@ -3612,7 +3746,7 @@ extern "C" void EntryRelayRoomEntitySpawnCallback(void* room, std::uint32_t grid
     }
     const auto original =
         isaac::runtime::Original<SpawnEntityFn>(isaac::runtime::HookId::RoomEntitySpawn);
-    original(room, gridIndex, entry, seed, outEntity, flags);
+    return original(room, gridIndex, entry, seed, outEntity, flags);
 }
 
 // 新后端（入口中继）下的挂载点重建挂点。语义与旧后端一致：**先跑原函数，再跑我们的重挂载**。
@@ -3625,6 +3759,7 @@ extern "C" void EntryRelayRebuildMountPointsCallback() {
     original();
     IsaacModRuntime_RebuildContentMountPointsRelay();
 }
+
 
 bool TryInstallRebuildMountPointsRelay(const TargetModule& module) {
     uintptr_t slot = 0;
@@ -4142,6 +4277,10 @@ HookInstallResult TryInstallManagerUpdateHook(const TargetModule& module) {
         uintptr_t roomGetFrameCount = 0;
         VerifyRoomGetFrameCount(module, &roomGetFrameCount);
         LuaRuntime::SetRoomGetFrameCountBinding(roomGetFrameCount);
+        // 2026-09-21：`GridEntity::GetPosition()`（PC 的 `GridEntity.Position`，EID 献祭房那条路要用）。
+        uintptr_t gridEntityGetPosition = 0;
+        VerifyGridEntityGetPosition(module, &gridEntityGetPosition);
+        LuaRuntime::SetGridEntityGetPositionBinding(gridEntityGetPosition);
         // 批次 10：`Room:WorldToScreenPosition()` 的引擎函数（两处发布点都要发 —— 漏发会让
         // 诊断档里少一个方法，这条教训本项目已经栽过一次）。
         uintptr_t getRenderPosition = 0;
@@ -4227,6 +4366,11 @@ void PublishManagerEngineBindings(const TargetModule& module) {
     uintptr_t roomGetFrameCount = 0;
     VerifyRoomGetFrameCount(module, &roomGetFrameCount);
     LuaRuntime::SetRoomGetFrameCountBinding(roomGetFrameCount);
+    // 2026-09-21（第二处发布点，与上面那条必须成对）：`GridEntity::GetPosition()`。
+    // 守卫不符只留 0 ⇒ handler 报"绑定不可用"并让那次字段读取失败，不编造坐标。
+    uintptr_t gridEntityGetPosition = 0;
+    VerifyGridEntityGetPosition(module, &gridEntityGetPosition);
+    LuaRuntime::SetGridEntityGetPositionBinding(gridEntityGetPosition);
     // 批次 10（2026-09-15）：`Room:WorldToScreenPosition()` 要调的引擎函数。同样按"可选能力"
     // 处理：守卫不符只留 0，handler 报"绑定不可用"，不编造坐标。
     uintptr_t getRenderPosition = 0;

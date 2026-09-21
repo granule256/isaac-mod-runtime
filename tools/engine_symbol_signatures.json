@@ -1729,6 +1729,15 @@
   "kind": "field"
  },
  {
+  "constant": "kGridEntityGetPositionOffset",
+  "offset": "0x37e498",
+  "mangled": "_ZNK15IsaacRepentance10GridEntity11GetPositionEv",
+  "demangled": "IsaacRepentance::GridEntity::GetPosition() const",
+  "parameters": [],
+  "parameter_count": 0,
+  "kind": "function"
+ },
+ {
   "constant": "kGridEntityDoorCanEnterOffset",
   "offset": "0x384fc8",
   "mangled": "_ZNK15IsaacRepentance15GridEntity_Door8CanEnterEv",
@@ -2207,6 +2216,17 @@
   "kind": "function"
  },
  {
+  "constant": "kContentManagerGetMountedFilePathOffset",
+  "offset": "0x4c2340",
+  "mangled": "_ZN4KAGE7Filesys15IContentManager18GetMountedFilePathEPKc",
+  "demangled": "KAGE::Filesys::IContentManager::GetMountedFilePath(char const*)",
+  "parameters": [
+   "char const*"
+  ],
+  "parameter_count": 1,
+  "kind": "function"
+ },
+ {
   "constant": "kContentGetDirectoryEntriesOffset",
   "offset": "0x4c23c4",
   "mangled": "_ZN4KAGE7Filesys15IContentManager19GetDirectoryEntriesEPKcRj",
@@ -2614,6 +2634,85 @@
   "kind": "function"
  },
  {
+  "constant": "kImageManagerLoadFileOffset",
+  "offset": "0x4d1fe4",
+  "mangled": "_ZN4KAGE8Graphics12ImageManager9LoadImageEPKcPNS0_25VertexAttributeDescriptorEb",
+  "demangled": "KAGE::Graphics::ImageManager::LoadImage(char const*, KAGE::Graphics::VertexAttributeDescriptor*, bool)",
+  "parameters": [
+   "char const*",
+   "KAGE::Graphics::VertexAttributeDescriptor*",
+   "bool"
+  ],
+  "parameter_count": 3,
+  "kind": "function"
+ },
+ {
+  "constant": "kImageManagerLoadMemoryOffset",
+  "offset": "0x4d2654",
+  "mangled": "_ZN4KAGE8Graphics12ImageManager9LoadImageEPKhjPKcS5_PNS0_25VertexAttributeDescriptorE",
+  "demangled": "KAGE::Graphics::ImageManager::LoadImage(unsigned char const*, unsigned int, char const*, char const*, KAGE::Graphics::VertexAttributeDescriptor*)",
+  "parameters": [
+   "unsigned char const*",
+   "unsigned int",
+   "char const*",
+   "char const*",
+   "KAGE::Graphics::VertexAttributeDescriptor*"
+  ],
+  "parameter_count": 5,
+  "kind": "function"
+ },
+ {
+  "constant": "kImagePcxLoadFileOffset",
+  "offset": "0x4d40a8",
+  "mangled": "_ZN4KAGE8Graphics8ImagePcx4LoadEPKc",
+  "demangled": "KAGE::Graphics::ImagePcx::Load(char const*)",
+  "parameters": [
+   "char const*"
+  ],
+  "parameter_count": 1,
+  "kind": "function"
+ },
+ {
+  "constant": "kImagePcxLoadInMemoryFileOffset",
+  "offset": "0x4d4160",
+  "mangled": "_ZN4KAGE8Graphics8ImagePcx4LoadEPKhjPKc",
+  "demangled": "KAGE::Graphics::ImagePcx::Load(unsigned char const*, unsigned int, char const*)",
+  "parameters": [
+   "unsigned char const*",
+   "unsigned int",
+   "char const*"
+  ],
+  "parameter_count": 3,
+  "kind": "function"
+ },
+ {
+  "constant": "kZlibInflateEndFileOffset",
+  "offset": "0x4e1f20",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kZlibInflateInit2FileOffset",
+  "offset": "0x4e1f90",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kZlibInflateFileOffset",
+  "offset": "0x4e21a0",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
   "constant": "kManagerPresentTargetOffset",
   "offset": "0x4f3014",
   "mangled": "_ZN4KAGE8Graphics7Manager7PresentEv",
@@ -2652,8 +2751,26 @@
   "kind": "field"
  },
  {
+  "constant": "kGameOperatorNewArrayOffset",
+  "offset": "0x66fb60",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
   "constant": "kLibcxxStringAssignOffset",
   "offset": "0x66fb80",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kGameOperatorDeleteArrayOffset",
+  "offset": "0x66fb90",
   "mangled": null,
   "demangled": null,
   "parameters": null,
@@ -3230,6 +3347,15 @@
  {
   "constant": "kGameOwnerGlobalSlotOffset",
   "offset": "0xaac698",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kContentManagerGotSlotOffset",
+  "offset": "0xaac748",
   "mangled": null,
   "demangled": null,
   "parameters": null,
