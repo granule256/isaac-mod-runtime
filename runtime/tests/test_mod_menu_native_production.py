@@ -598,16 +598,37 @@ class ModMenuNativeProductionTests(unittest.TestCase):
                          "不许用 `font/CJK/LanaPixel.fnt`：它的图集背景不透明黑，"
                          "真机被画成黑方块（比没有中文更糟）")
         # 那个字体对象**仍然要被读**（兜底画字时取行高）——但只能读，不许写。
-        # 判据 = 这个偏移**只许出现在两处**：常量自己的定义、以及 `DrawRowLabel` 里取字体对象那一次。
-        # （任何多出来的用处都意味着有人又拿它去写那个对象了。）
+        # ★ 2026-09-25（批次 124）**判据加强**（用户批准）：
+        #   旧判据是"这个偏移只许出现在两处、其中一处必须在 `DrawRowLabel` 体内" —— 它是**间接**判据。
+        #   批次 124 要在模组页上多画一行（`Console: ON/OFF`），那里**也要读**这个字体对象
+        #   ⇒ 出现次数不再是"有没有人写"的可靠代理。改成直接盯住两件事：
+        #   ① 取字体对象**只许经一个具名入口** `EngineFontObject()`（偏移只出现在"常量定义 + 它"两处）；
+        #   ② 两处画字都调那个入口（各自再拼一次地址 = 又开了一个可以往里写的口子）；
+        #   ③ **任何写接口都不许碰到字体对象** —— 这条比旧判据更直接（不再靠次数推）。
         self.assertIn("constexpr std::uintptr_t kManagerFontOffset = 0x117120;", self.cpp,
                       "`g_Manager + 0x117120` 要有一个具名常量")
-        draw_body = function_body(self.cpp, "bool DrawRowLabel")
-        self.assertIn("kManagerFontOffset", draw_body,
-                      "兜底画字要用它取行高（`Font::GetLineHeight`）—— 唯一的合法用处")
+        font_entry = function_body(self.cpp, "void* EngineFontObject")
+        self.assertIn("kManagerFontOffset", font_entry,
+                      "取字体对象那个唯一入口里应当就是 `g_Manager + 这个偏移`")
         self.assertEqual(self.cpp.count("kManagerFontOffset"), 2,
-                         "这个偏移只许出现两次（常量定义 + 兜底画字那一次）；"
-                         "多出来的用处多半又是「往那个对象里写东西」")
+                         "这个偏移只许出现两次：常量定义 + `EngineFontObject()` 那一次")
+        for drawer in ("bool DrawRowLabel",):
+            drawer_body = function_body(self.cpp, drawer)
+            self.assertIn("EngineFontObject()", drawer_body,
+                          f"{drawer} 要经 `EngineFontObject()` 取字体对象，不许自己再拼一次地址")
+        # 批次 126：控制台开关那一行**不再由我们画**（批次 124 的 `DrawConsoleRowLabel` 已删）——
+        # 用户定案"作为模组的一个写在第一个模组位置上" ⇒ 它现在是**条目表里的下标 0**，
+        # 引擎的 `Menu_Mods::Render` 自己会把它画成 `1.Console: ON`。
+        # ⇒ 上面那个循环里少了一个名字，判据**不能就此变松**：改成判"它确实被造进了表里"
+        #   （少了下标 0 这一条，页面上就没有那一行，而读数只会显示"条目数少 1"，看不出原因）。
+        self.assertIn("constexpr std::uint32_t kConsoleRowEntryIndex = 0;", self.cpp,
+                      "控制台开关那一行要有具名的表内下标常量（0 = 第一个模组位置）")
+        self.assertIn("g_Sources[kConsoleRowEntryIndex] = {ConsoleRowName(), true, false};", self.cpp,
+                      "造表时必须把这一条插在下标 0")
+        for line in self.cpp.splitlines():
+            if "WriteField(" in line or "WriteAt(" in line:
+                self.assertNotIn("font", line,
+                                 "写调用不许碰到字体对象（077 那条路已按真机结论撤掉）")
         # 状态面那一格是本条纪律的载体：它数"我们改写过几次"，恒 0。
         self.assertIn("fontObjectWrites", self.hpp, "状态面里要有这一格（恒 0）的说明")
         self.assertIn("恒 0", self.hpp, "要写明它恒 0，不然下一个人会以为它忘了赋值")

@@ -2732,3 +2732,99 @@ inline constexpr std::array<u8, 16> kMenuManagerSetStateExpectedBytes = {
     0xFD, 0x7B, 0xBD, 0xA9, 0xF5, 0x0B, 0x00, 0xF9,
     0xFD, 0x03, 0x00, 0x91, 0xF4, 0x4F, 0x02, 0xA9,
 };
+
+// --- 游戏控制台 `IsaacRepentance::Console` 与系统软键盘（2026-09-25，批次 121）---------------
+//
+// **为什么需要这一段**：Switch 版把控制台"拆线"了，但**类与全部命令实现都在镜像里**。
+//
+//   * `Manager::IsDebuggingConsoleEnabled`（`0x3F9B64`）是两条指令的桩（`mov w0, wzr; ret`），
+//     全镜像**零引用** ⇒ 引擎自己那条"要不要跑控制台"的开关根本不存在；
+//   * `Console` 的构造/`Init`/`Update`/`Render`/`Show`/`ProcessInput`/`ShowKeyboard`
+//     入边**全是 0**（`Console::RunCommand` 有 72 条入边，但**全部来自 `Console` 自己**：
+//     `submit_input` 与它自身）⇒ 这个类从没被实例化、也没接进游戏循环；
+//   * 但 `Console::RunCommand` 一个函数就 **0x6070 字节**，内含 PC 全量命令（`giveitem`/`spawn`/
+//     `stage`/...）的实现 ⇒ **让命令生效的正路是"我们自己建一个实例、把命令喂给它"**，
+//     不必自己重写命令集。
+//
+// **取证口径（这条比结论更值钱）**：本镜像里**连自己导出的函数也走 PLT 桩**（`bl 0x67xxxx`
+// → GOT → 真身），所以"全镜像扫 `BL` 到目标偏移"必然得到**全零**（连角色命名界面调
+// `OpenVirtualKeyboard` 也扫不到）。正确做法是先把 `JUMP_SLOT`→`GOT`→`PLT 桩`映射建起来
+// （`tools/nro_disasm.py` 的 `_relocation_maps` / `_plt_import`）。2026-08-29 的复盘记过这个坑，
+// 2026-09-25 我自己又踩了一次（详见本批记录）。`docs/问题与解决记录.md` 续四十 是"能不能做"的调研。
+//
+// **对象大小**：构造只做 `memset(this+0x20, 0, 0x130)` 并把 `+0x00`/`+0x08`/`+0x158` 清零；
+// `Init` 写到 `+0x160` ⇒ 留 `0x180` 并放哨兵（超界要能被发现，而不是踩到相邻静态变量）。
+inline constexpr std::size_t kConsoleObjectSize = 0x180;
+inline constexpr uintptr_t kConsoleCtorOffset = 0x3BC34;
+inline constexpr std::array<u8, 16> kConsoleCtorExpectedBytes = {
+    0xFD, 0x7B, 0xBF, 0xA9, 0xFD, 0x03, 0x00, 0x91,
+    0x08, 0x80, 0x00, 0x91, 0x1F, 0x00, 0x00, 0xB9,
+};
+inline constexpr uintptr_t kConsoleInitOffset = 0x3BDE8;
+inline constexpr std::array<u8, 16> kConsoleInitExpectedBytes = {
+    0xFF, 0x03, 0x01, 0xD1, 0xFD, 0x7B, 0x02, 0xA9,
+    0xFD, 0x83, 0x00, 0x91, 0xF3, 0x1B, 0x00, 0xF9,
+};
+//: `Console::RunCommand(std::string const&, std::string*, Entity_Player*)`（**成员函数**：`x0` = this）。
+//: 两条对着反汇编逐条确认的语义（决定了我们的调用形状）：
+//:   ① 第 2 个参数（输出串）**可为 null** —— `Console::Print` 里是
+//:      `ldr x0,[x0,#0x150]` + `cbz x0, 跳过` + `std::string::append(out, text)`，
+//:      即"追加"而非覆写、且不接输出时整段跳过；
+//:   ② 第 3 个参数（玩家）**可为 null**，但**为 null 时它会去读 `Game + 0x25C50` 玩家向量的第一个
+//:      元素且不判空**（`ldp x8,x9,[x19]` → `cbnz w9` → `ldr x26,[x8]`）⇒ 玩家列表为空时那是
+//:      **读空指针**。所以我们只在**确实取到玩家**时才把 null 交给引擎（见 `console_bridge.hpp`）。
+inline constexpr uintptr_t kConsoleRunCommandOffset = 0x3D740;
+inline constexpr std::array<u8, 16> kConsoleRunCommandExpectedBytes = {
+    0xE8, 0x0F, 0x19, 0xFC, 0xFD, 0x7B, 0x01, 0xA9,
+    0xFD, 0x43, 0x00, 0x91, 0xFC, 0x6F, 0x02, 0xA9,
+};
+//: `KAGE::System::g_Manager` 的 GOT 槽：**槽里就是那个全局对象本身的地址**
+//: （`ldr x0,[x0,#0x8c0]` 之后直接把 `x0` 当 `this` 传进成员函数，中间没有第二次解引用）
+//: ⇒ 与 `kGameOwnerGlobalSlotOffset`（槽里是指针变量、要解一次）**形状不同**，别照抄。
+inline constexpr uintptr_t kKageSystemManagerSlotOffset = 0xAAC8C0;
+//: `KAGE::System::Manager::OpenVirtualKeyboard(VirtualKeyboardParams const&, unsigned int)`
+//: —— 系统软键盘（swkbd）的引擎入口。**它在真机上是活的**：三个调用者 =
+//: `Menu_Character::ProcessInput`（角色命名用的就是它）、`Console::ProcessInput`、`Console::ShowKeyboard`。
+//: ⇒ 我们不必自己开 applet 会话，用引擎这一个（`this` = `&KAGE::System::g_Manager`）即可。
+inline constexpr uintptr_t kKageOpenVirtualKeyboardOffset = 0x520180;
+inline constexpr std::array<u8, 16> kKageOpenVirtualKeyboardExpectedBytes = {
+    0xFD, 0x7B, 0xBB, 0xA9, 0xFC, 0x0B, 0x00, 0xF9,
+    0xFD, 0x03, 0x00, 0x91, 0xF8, 0x5F, 0x02, 0xA9,
+};
+//: `KAGE::System::VirtualKeyboardParams::VirtualKeyboardParams()` —— 就地构造这个 **0x30 字节**的
+//: 参数块（`+0x00` 标志、`+0x08` 宽字符缓冲、`+0x10` 上限 64、`+0x18` 文本变化回调、
+//: `+0x20` 完成回调、`+0x28` userData）。`Console::ShowKeyboard` 就是一份可照抄的完整配方。
+inline constexpr uintptr_t kKageVirtualKeyboardParamsCtorOffset = 0x51A478;
+inline constexpr std::array<u8, 16> kKageVirtualKeyboardParamsCtorExpectedBytes = {
+    0x08, 0x1D, 0x00, 0x90, 0x08, 0x01, 0x15, 0x91,
+    0x1F, 0x00, 0x00, 0xB9, 0x09, 0x08, 0x80, 0x52,
+};
+//: `VirtualKeyboardParams` 的宽字符缓冲长度上限（引擎自己那两份配方都传 64）。
+inline constexpr std::size_t kVirtualKeyboardTextCapacity = 64;
+//: 给"按偏移解析游戏入口"用的**范围上限**（`engine_call::ResolveFunction` 的 `moduleSize`）：
+//: 取 `Repentance.nro` 的**文件大小** 11,210,752 字节 = `0xAB1000`（NRO 在内存里的映像就是这份
+//: 文件，`.bss` 另算）⇒ 用它当上限**偏保守**，而我们要解析的偏移都远小于它（最大 `0x520180`）。
+inline constexpr std::size_t kGameModuleRangeCheckSize = 0xAB1000;
+//: `IsaacRepentance::WIDTH`（屏幕宽，float）的 **GOT 槽**：槽里放的是**指向 float 的指针**
+//: ⇒ 读法是"槽 → 指针 → 那个 float"（两步）。出处：`Menu_Manager::get_target_offset` 里
+//: `adrp x8,0xaac000; ldr x8,[x8,#0x650]; ldr s0,[x8]`。`mod_menu_native.cpp` 里有一份**同值**的
+//: 文件内常量（`kWidthSlotOffset = 0xAAC650`，那里注释更全：它是用来算"菜单纸该摆在哪"的）。
+//: 为什么控制台也要它：输出要贴**右上角**，必须知道屏幕有多宽才能算左端 x（不能猜）。
+inline constexpr uintptr_t kIsaacScreenWidthSlotOffset = 0xAAC650;
+//: `IsaacRepentance::g_Manager` 里那份**引擎自己的中等字体**（`Menu_Mods::Render` 画每一行用的
+//: 就是它：`add x25, x8, #0x117120`），是纯 ASCII 的 `TeamMeatFont12`。
+//: ★ 与 `mod_menu_native.cpp` 的本地常量 `kManagerFontOffset` 同值 —— 那一处被门禁按**原文**钉住
+//: （`test_mod_menu_native_production.py`），所以这里重新登记一次而不是去改它；引用任一处都行，
+//: 但**都只读**（077 往里面写过扩展字体，真机把中文显示搞坏了，078 撤回 ⇒ 不许再写）。
+inline constexpr uintptr_t kIsaacManagerFontObjectOffset = 0x117120;
+//: 引擎动作表里的"控制台"动作（`ButtonAction.ACTION_CONSOLE`，与 `lua_runtime.cpp` 的常量表一致）。
+inline constexpr std::uint32_t kButtonActionConsole = 28;
+//: 控制台呼出组合键：**同时按住**这两个动作（`ACTION_MENUCONFIRM` = A / `ACTION_MENUBACK` = B，
+//: 与 `mod_menu_native.cpp` 里那三个动作号同一来源：`ACTION_MENUCONFIRM = 14` / `ACTION_MENUBACK = 15`）。
+//: 为什么用"两个一起按"而不是单键：局内几乎每个单键都有本职（A/B 是射击面键），组合能避免误触。
+//: ★ 批次 122 起判据是"**连续按住约 0.8 秒**"（`kConsoleTriggerHoldFrames`，在
+//:   `console_session.hpp`）：光"同时按住"仍然会被连打射击误触（两键会在同一帧里被按下）。
+//: ★ 组合是否可达以真机读数为准（控制台状态面 `g_ConsoleState[10]` 是"最近按下的动作号"、
+//:   `[18]` 是"按过的动作号累计位图"）—— 若实测这两个组合不可达，改这两个数即可。
+inline constexpr std::uint32_t kConsoleTriggerActionA = 14;
+inline constexpr std::uint32_t kConsoleTriggerActionB = 15;

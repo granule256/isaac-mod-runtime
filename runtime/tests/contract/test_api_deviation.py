@@ -77,8 +77,17 @@ EXPECTED_DEVIATIONS = 24
 #: **这三个数字都只能降不能升**（消掉一条偏离就把它改小，并在上面补一行说明为什么 —— 与
 #: `EXPECTED_DEVIATIONS`、`EXPECTED_JUDGEMENT_GAPS` 同一套记账方式）。新增偏离时**必须**同时
 #: 想清楚它属于哪一类：想不清楚就说明这条偏离还没调查到能判断"能不能还"的程度，别急着登记。
-EXPECTED_PLATFORM = 3
-EXPECTED_DEBT = 19
+#:
+#: **platform 3 → 2、debt 19 → 20（2026-09-25，批次 121）**：`Isaac.ExecuteCommand`（`0x0E01002D`）
+#: 那条"平台固有"的**前提被推翻了** —— 当时记为"Switch 没有控制台"，而事实是**控制台类与全部
+#: 命令实现都在镜像里**（引擎只是从不实例化它：构造/`Init`/`Update`/`Render`/`ShowKeyboard`
+#: 的调用边全是 0）。运行时现在自己建一个 `Console` 实例并调它的 `RunCommand`，返回值也照 PC 契约
+#: 给字符串（`Isaac.md:106`）。⇒ 它从"平台固有"变成"**能还的欠账**"：残留的两条限制
+#: （命令长度上限 127 字节、没有玩家时拒绝执行）都是我们实现侧的。
+#: 总数 `EXPECTED_DEVIATIONS` 不变（只是改了性质），判据：`runtime/tests/test_console_bridge.py`
+#: 与 `dist/change-archive-20260925/121-console-bridge/README.md`。
+EXPECTED_PLATFORM = 2
+EXPECTED_DEBT = 20
 EXPECTED_DESIGN = 2
 
 #: "判据：暂无（…）"的条数 —— **欠账**，只能降不能升。

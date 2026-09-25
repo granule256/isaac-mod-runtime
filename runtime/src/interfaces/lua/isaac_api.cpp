@@ -10,6 +10,7 @@
 #include "interfaces/lua/input_api.hpp"
 #include "interfaces/lua/isaac_api.hpp"
 #include "infrastructure/call/engine_call_access.hpp"  // 引擎调用层（111：调引擎只在这里转换签名）
+#include "infrastructure/console/console_bridge.hpp"   // 游戏控制台（121：Isaac.ExecuteCommand 的真实现）
 #include "infrastructure/memory/engine_field_access.hpp"
 #include "infrastructure/memory/engine_memory_guard.hpp"
 #include "interfaces/lua/field_api.hpp"
@@ -4049,23 +4050,67 @@ int IsaacGetRoomEntities(lua_State* state) {
 // `Isaac.ExecuteCommand(string command)`（PC：把一行命令交给游戏内置控制台，例如
 // `Isaac.ExecuteCommand("restart")`；`Isaac.md` 的 ExecuteCommand 一节）。
 //
-// ★ **平台限制**（2026-09-19 批次 041）：Switch 上没有控制台、也没有等价的命令通道
-//   ⇒ 这里**什么都不做**（不抛错、不假装成功）。
+// ★ 历史（041 起）：这里曾是**空桩** —— 当时的结论是"Switch 上没有控制台、也没有等价的命令通道"
+//   （`Manager::IsDebuggingConsoleEnabled` 是 `mov w0,wzr; ret` 桩、`Console` 的方法全镜像零引用）。
+//   那条结论**只说对了一半**：引擎确实不建、不驱动这个对象，**但类与命令实现都在**（续四十）。
 //   ★ 2026-09-21 更正一句错话：这里原写"PC 上它的返回类型是 void，所以『没有返回值』与 PC 一致"，
 //   **是错的** —— 契约原文 `tools/pc_contract_docs/Isaac.md:106` 写的是
 //   `#### string ExecuteCommand ( string command )`：PC 返回**控制台输出的字符串**。
-//   所以我们这条与 PC 的差别是两条：① 命令不会生效（平台限制）；② **返回值类型不同**
-//   （PC 给字符串，我们一个值都不返回 ⇒ 模组若拿返回值当字符串用会拿到 nil；目前没有模组这么用）。
-//   该偏离已按平台固有登记进 `api_deviation.cpp` 的 `0x0E01002D`。
-//   直接后果（要写清楚，别让人以为功能坏了）：GoodTrip 的 `TAB + R` 快速重开
-//   （`scripts/control.lua:61` 那句 `Isaac.ExecuteCommand("restart")`）在我们这儿**不会重开**；
-//   要重开请用游戏自带的方式。将来若要做，得先找到引擎自己的"重开一局"入口，
-//   那属于新的取证任务，不在本批。
+//   所以 041~120 那段时间我们与 PC 的差别有两条：① 命令不会生效；② **返回值类型不同**。
+//   该偏离已按平台固有登记进 `api_deviation.cpp` 的 `0x0E01002D`（批次 121 起这条登记要改口径：
+//   限制从"平台没有控制台"变成"命令长度上限 128 字节 / 没有玩家时拒绝执行"）。
+//   ★ **2026-09-25（批次 121）起它是真实现**：那条"Switch 上没有控制台"的平台限制**不再成立**——
+//   控制台类与全部命令实现一直都在镜像里（只是没被实例化、没接进循环），运行时现在自己建一个
+//   `Console` 实例并把命令喂进去（见 `infrastructure/console/console_bridge.hpp` 的头注释，
+//   取证过程见 `docs/问题与解决记录.md` 续四十 与当天记录）。
+//
+//   ★ 具体到那个已知实例：GoodTrip 的 `TAB + R` 快速重开（`scripts/control.lua:61` 的
+//     `Isaac.ExecuteCommand("restart")`）在 041~120 期间**不会重开**（那时这条命令是空桩，
+//     什么都不做）；批次 121 起命令真的进控制台了，`restart` 是否因此生效**必须在真机上验**
+//     —— 别在验证之前就把它当能用（`restart` 会走 `Manager::RestartGame` 那条原版路径，
+//     但那需要真机证据，不是看代码能推出来的）。
+//
+//   形状与 PC 对齐：**返回控制台输出的字符串**（契约原文 `tools/pc_contract_docs/Isaac.md:106`
+//   写的是 `string ExecuteCommand(string command)`）。下面两种情况返回**空串**（不是 nil）：
+//     * 引擎入口没解析出来（守卫不符 / 基址没发布）；
+//     * 命令被拒（空命令 / 超过 127 字节 / 当前没有玩家 / 输出缓冲已满 / 抓到过对象越界写）。
+//   判据都记在控制台自己的状态面（`g_ConsoleState` 的 `lastStatus`）里，真机上可读 ⇒ 不靠猜。
+//   ★ 没有玩家时**不调引擎**：引擎在第三参数为 null 时会自己去读 `Game + 0x25C50` 玩家列表的
+//     第一个元素且**不判空**（见 `runtime_constants.hpp` 里 `kConsoleRunCommandOffset` 那段），
+//     列表为空时那是读空指针。宁可返回空串。
 int IsaacExecuteCommand(lua_State* state) {
     if (lua_gettop(state) != 1 || lua_type(state, 1) != LUA_TSTRING) {
         return luaL_error(state, "Isaac.ExecuteCommand accepts one string command");
     }
-    return 0;
+    std::size_t length = 0;
+    const char* command = lua_tolstring(state, 1, &length);
+    const std::uintptr_t base = EngineModuleBase();
+    if (command == nullptr || base == 0) {
+        lua_pushliteral(state, "");
+        return 1;
+    }
+    // 入口解析结果按基址缓存（守卫在解析里逐条核对过；基址变了就重解析）。
+    static console::EngineEntries entries{};
+    static std::uintptr_t resolvedBase = 0;
+    static bool resolved = false;
+    if (!resolved || resolvedBase != base) {
+        resolved = console::ResolveConsoleEntries(base, kGameModuleRangeCheckSize, &entries);
+        resolvedBase = base;
+    }
+    if (!resolved) {
+        lua_pushliteral(state, "");
+        return 1;
+    }
+    // 结论码不用在这里分支：被拒时 `TakeLastOutput` 自然拿不到东西 ⇒ 下面返回空串。
+    static_cast<void>(console::ExecuteCommand(entries, base, command, length));
+    const char* produced = nullptr;
+    std::uint32_t producedLength = 0;
+    if (console::TakeLastOutput(&produced, &producedLength)) {
+        lua_pushlstring(state, produced, producedLength);
+    } else {
+        lua_pushliteral(state, "");
+    }
+    return 1;
 }
 
 // `Isaac.GetCallbacks(callbackId[, createIfMissing])`：PC 返回"登记在 callbackId 下的回调表"

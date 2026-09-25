@@ -72,7 +72,9 @@ struct State {
     std::uint32_t pageEnterCalls;    // [10] 模组页进过几次
     std::uint32_t pageBackCalls;     // [11] 模组页返回过几次
     std::uint32_t pageDrivenFrames;  // [12] 模组页被我们驱动的帧数
-    std::uint32_t entryCount;        // [13] 条目数（页面上该有几行）
+    std::uint32_t entryCount;        // [13] 条目数（页面上该有几行）。
+                                     //      ★ 批次 126 起**含下标 0 那一行**（控制台总开关）⇒
+                                     //      比"发现到的模组数"多 1；模组显示成第 2 行起。
     std::uint32_t selectedEntry;     // [14] 当前选中项
     std::uint32_t toggleSaveState;   // [15] 开关写回结果（0 没写 / 1 成功 / 2 失败）
     std::uint32_t fontObjectWrites;  // [16] 我们**改写过几次引擎自己的字体对象**（`g_Manager + 0x117120`）。

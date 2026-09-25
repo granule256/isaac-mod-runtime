@@ -27,6 +27,7 @@ HARNESS = r'''
 
 using isaac::runtime::BuildModPageEntries;
 using isaac::runtime::ModPageEntrySource;
+using isaac::runtime::SetModPageEntryName;
 using isaac::runtime::kModPageEntryEnabledOffset;
 using isaac::runtime::kModPageEntryOldOffset;
 using isaac::runtime::kModPageEntryStride;
@@ -93,6 +94,32 @@ int main() {
         Check(data >= reinterpret_cast<std::uintptr_t>(arena) &&
               data < reinterpret_cast<std::uintptr_t>(arena) + sizeof(arena),
               "名字副本落在调用方给的 arena 里");
+    }
+
+    // 批次 126：**事后换名字**（模组页第 1 行的 `Console: ON` ↔ `Console: OFF` 就靠它）。
+    // 为什么要判：条目表只造一次，而开关随时会被拨 ⇒ 名字必须能改；改的必须是
+    // "标记位 + 长度 + 数据指针"三处一致（只改指针会让长度停在旧名字上）。
+    {
+        static const char kOn[] = "Console: ON";
+        static const char kOff[] = "Console: OFF";
+        std::uint8_t* entry = entries;  // 借第一条来改
+        SetModPageEntryName(entry, kOff);
+        std::uintptr_t data = 0;
+        std::memcpy(&data, entry + kModPageEntryStringDataOffset, sizeof(data));
+        Check(reinterpret_cast<const char*>(data) == kOff, "换名字后指向的就是那个静态串本身");
+        std::uint64_t size = 0;
+        std::memcpy(&size, entry + kModPageEntryStringOffset + 0x08, sizeof(size));
+        Check(size == std::strlen(kOff), "换名字后长度字段跟着改");
+        Check((entry[kModPageEntryStringOffset] & 0x01) == 0x01, "换名字后长串标记仍在");
+        SetModPageEntryName(entry, kOn);
+        std::memcpy(&data, entry + kModPageEntryStringDataOffset, sizeof(data));
+        Check(std::strcmp(reinterpret_cast<const char*>(data), kOn) == 0, "换回去也对");
+        // 空名字/空指针 ⇒ 原样不动（宁可停在旧名字，也不要变成一行空白）。
+        SetModPageEntryName(entry, "");
+        std::memcpy(&data, entry + kModPageEntryStringDataOffset, sizeof(data));
+        Check(std::strcmp(reinterpret_cast<const char*>(data), kOn) == 0, "空名字必须被拒绝");
+        SetModPageEntryName(nullptr, kOn);
+        SetModPageEntryName(entry, nullptr);
     }
 
     // 名字区放不下 ⇒ **整体放弃**（返回 0、不许写半截）。
