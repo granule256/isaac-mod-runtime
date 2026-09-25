@@ -95,6 +95,14 @@ class HookSkipSwitchTests(unittest.TestCase):
             "ImagePcxLoad": "IMAGEPCXLOAD",
             "ImageManagerLoadFile": "IMAGEMGRLOADFILE",
             "ContentGetMountedFilePath": "GETMOUNTEDPATH",
+            # 批次 077（2026-09-23，模组页搬生产）的三个入口中继（可选点）：
+            # 那一列多一格「模组」/ 模组页的渲染 / 挡下引擎替我们那一格跳页，各一个开关。
+            "MenuGameRender": "MENUGAMERENDER",
+            "MenuTitleRender": "MENUTITLERENDER",
+            "MenuManagerSetState": "MENUMANAGERSETSTATE",
+            # 批次 098 的成就闸门（入口中继；092 挂 TryUnlock、096 补开关、098 挪到 SetReadOnly）：
+            # 摘掉它 ⇒ 引擎按自己的判据走（退回 Switch 原生行为），用来判断"某个成就现象是不是我们造成的"。
+            "PersistentGameDataSetReadOnly": "SETREADONLY",
         }
         makefile = MAKEFILE.read_text(encoding="utf-8")
         source = HOOK_MANAGER.read_text(encoding="utf-8")

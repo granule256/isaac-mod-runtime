@@ -41,10 +41,14 @@ bool FakeReader(void*, const char* path, char* buffer, std::size_t capacity, std
     ++reads;
     lastPathOk = false;
     const char* xml = nullptr;
-    if (std::strcmp(path, "rom:/isaac_mods/mods/AlphaMod/metadata.xml") == 0) {
+    // ★ 2026-09-23（批次 085）：路径**不带 `rom:/`** —— 引擎的挂载解析只认"相对应用根"的输入，
+    // 带前缀那种答不出来（项目 2026-09-22 实测过；`test_font_resource_path_normalization.py`
+    // 的文件头也写着"Mod 树在 `rom:/isaac_mods/mods/` 下，引擎永远解析不到"）。
+    // 旧夹具钉的是带前缀那种，正是"页面上显示目录名而不是 metadata 里的 <name>"那个真机 bug 的形状。
+    if (std::strcmp(path, "isaac_mods/mods/AlphaMod/metadata.xml") == 0) {
         lastPathOk = true;
         xml = "<mod><name>Alpha \xe4\xb8\xad\xe6\x96\x87 &amp; Co</name></mod>";
-    } else if (std::strcmp(path, "rom:/isaac_mods/mods/BetaMod/metadata.xml") == 0) {
+    } else if (std::strcmp(path, "isaac_mods/mods/BetaMod/metadata.xml") == 0) {
         lastPathOk = true;
         xml = "<mod><description>no name here</description></mod>";
     }

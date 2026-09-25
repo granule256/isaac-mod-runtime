@@ -276,6 +276,25 @@ extern "C" char* EntryRelayContentGetMountedFilePathCallback(void* self, const c
     return nullptr;
 }
 
+// 批次 077（模组页搬生产）：三个入口中继的桩。夹具同样只验证接线（`g_hookCallbacks`
+// 里那三格应当等于这三个函数的地址），不跑真机逻辑 —— 它们是"尾调用入口桩"，
+// 真实实现要求"原函数跑过、状态没变"，在宿主机上无法成立。
+extern "C" void EntryRelayMenuGameRenderCallback(void* self) { (void)self; }
+extern "C" void EntryRelayMenuTitleRenderCallback(void* self) { (void)self; }
+extern "C" void EntryRelayMenuManagerSetStateCallback(void* self, std::int32_t state) {
+    (void)self;
+    (void)state;
+}
+
+// 批次 098（成就闸门，挂 `SetReadOnly`）：同一个入口中继。夹具同样只验证接线
+// （`g_hookCallbacks` 那一格应当等于这个函数的地址），不跑真机逻辑 ——
+// 它要求"调引擎原函数"，宿主机上没有。
+extern "C" void EntryRelayPersistentGameDataSetReadOnlyCallback(void* self,
+                                                               std::uint32_t readOnly) {
+    (void)self;
+    (void)readOnly;
+}
+
 static int g_failures = 0;
 
 static void Check(bool condition, const char* label) {

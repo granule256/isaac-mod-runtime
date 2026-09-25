@@ -50,6 +50,26 @@ enum class HookId : std::uint8_t {
     // 贴图桥 v4：`IContentManager::GetMountedFilePath` —— 让"文件不在任何挂载点"的 `.pcx`
     // 也能被引擎自己那条加载链走通（返回合成的 `.pcx` 路径）。见 runtime_constants 的 v4 段。
     ContentGetMountedFilePath,
+    // --- 模组页搬生产（2026-09-23，批次 076）：三个入口中继 -------------------------
+    //
+    // 由来：`docs/设计-模组页搬生产-20260923.md`。行为真值源是探针
+    // `runtime/source/probe/native_mods_menu_probe.cpp`（那三个入口在探针里已逐字节核过、
+    // 真机跑过）。偏移与 16 字节守卫在 `runtime_constants.hpp`。
+    //
+    // 三条都标 `required = false`：装不上只让"那一列多一格「模组」/ 模组页"静默失效
+    // （回到改造前：菜单里没有模组那一项），不该因此让整个 Mod 加载失败。
+    //
+    // ⚠️ 这三个靶点与探针**是同一批入口**：入口中继靠"改写入口 16 字节"工作，同一入口
+    // 装第二次必然 `EntryMismatch` ⇒ 探针构建里由 `SkipOptionalHooksPredicate` 跳过这三条
+    // （编译期常量判据），探针自己那套安装照旧生效。
+    MenuGameRender,
+    MenuTitleRender,
+    MenuManagerSetState,
+    // 成就闸门（2026-09-24 批次 098 从 `TryUnlock` 挪到这里）：`SetReadOnly` 是**唯一**写
+    // "只读位"（`PGD+0x1`）的地方，也是每局开局设一次"本局给不给成就"的关卡。
+    // 我们在它入口上按 PC 的规则把参数改成「引擎原参数 OR 该禁」⇒ 禁与不禁都交回引擎。
+    // `required = false`：装不上只是"开模组时不再禁成就"（退回 Switch 原生行为），不影响游戏。
+    PersistentGameDataSetReadOnly,
     Count,
 };
 
@@ -88,6 +108,13 @@ inline constexpr std::array<HookDescriptor, kHookIdCount> kHookCatalog = {{
     {HookId::ImagePcxLoad, "ImagePcxLoad", HookBackend::EntryRelay, false},
     {HookId::ImageManagerLoadFile, "ImageManagerLoadFile", HookBackend::EntryRelay, false},
     {HookId::ContentGetMountedFilePath, "ContentGetMountedFilePath", HookBackend::EntryRelay, false},
+    // 模组页搬生产（2026-09-23）：三个入口中继。名字与 `tools/read_device_state_via_gdb.py`
+    // 的 `HOOK_NAMES` 必须逐字一致（那张表按 HookId 顺序读 `g_hookCallbacks`）。
+    {HookId::MenuGameRender, "MenuGameRender", HookBackend::EntryRelay, false},
+    {HookId::MenuTitleRender, "MenuTitleRender", HookBackend::EntryRelay, false},
+    {HookId::MenuManagerSetState, "MenuManagerSetState", HookBackend::EntryRelay, false},
+    {HookId::PersistentGameDataSetReadOnly, "PersistentGameDataSetReadOnly", HookBackend::EntryRelay,
+     false},
 }};
 
 // 取登记项。传入 `HookId::Count` 或越界值属于调用方错误，这里退化成第一个登记项

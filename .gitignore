@@ -2,6 +2,9 @@
 __pycache__/
 The Binding of Isaac_ Afterbirth+ 1.7.9b \[010021C000B6A800\]\[v524288\]\[UPD\].zip
 The Binding of Isaac_ Afterbirth+ 1.7.9b \[010021C000B6A800\]\[v524288\]\[UPD\]/
+# PC 版游戏本体（用户复制进来的，含解包出来的资源）：游戏数据，不进仓库。
+The Binding of Isaac Rebirth/
+The Binding of Isaac Rebirth pc/
 analysis/
 
 # 设备私有凭据（绝不进仓库）
@@ -17,3 +20,11 @@ runtime/.*-artifacts/
 # 探针/实验构建的对象目录（2026-09-22：发布守卫会拦住它们）
 runtime/.sdmc-build*/
 runtime/.sdmc-build*/
+
+# PC 版主菜单排版参考（游戏数据，不进仓库；由 tools/gamemenu_mod_row.py --pc-anm2 读）
+reference-pc/
+
+# CodeGraph 的本地索引（`runtime/.codegraph/`，2026-09-24 起用）：每台机器各建一份，不进仓库。
+# 它会在目录里自带一份 `.gitignore`，但那只忽略"目录内除自己以外的文件" ⇒ 目录本身仍被 git
+# 视作未跟踪 ⇒ 会撞上 `tools/publish_progress.sh` 的"白名单路径下不许有未跟踪文件"守卫。
+.codegraph/

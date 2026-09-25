@@ -1,7 +1,7 @@
 #pragma once
 
 #include "interfaces/lua/api_sequence_probe.hpp"
-#include "interfaces/lua/engine_memory_guard.hpp"
+#include "infrastructure/memory/engine_memory_guard.hpp"
 
 #include <cstdint>
 

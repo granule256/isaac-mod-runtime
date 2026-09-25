@@ -6,9 +6,12 @@
 #include <atomic>
 
 #include "interfaces/lua/api_sequence_probe.hpp"
+// 批次 110：`Input.IsActionPressed`/`GetActionValue` 的 thunk 在这里变成可调用签名
+// （**前提**：thunk 非 0 已在上游判过 —— 那两条 API 各自有一道非零检查）。
+#include "infrastructure/call/engine_call_access.hpp"
 // 批次 109：`Input.IsActionTriggered` 的"按帧判边沿"要用引擎自己的帧计数
 // （`EngineFrameCountNow`）与毫秒时钟（`EngineMillisecondsNow`）。
-#include "interfaces/lua/engine_memory_guard.hpp"
+#include "infrastructure/memory/engine_memory_guard.hpp"
 #include "interfaces/lua/isaac_api.hpp"
 #include "interfaces/lua/lua_integer_argument.hpp"
 #include "interfaces/lua/owner_binding.hpp"
@@ -19,6 +22,9 @@
 extern "C" {
 #include <lauxlib.h>
 }
+
+//: 引擎调用层的短别名（批次 110）：本文件里"把已核对过的 thunk 变成可调用签名"只走它。
+namespace engine_call = isaac::runtime::engine_call;
 
 namespace isaac::runtime {
 
@@ -163,7 +169,7 @@ int InputIsActionTriggered(lua_State* state) {
     if (thunk == 0) {
         return luaL_error(state, "Input.IsActionTriggered native binding is unavailable");
     }
-    const auto query = reinterpret_cast<ActionQueryFn>(thunk);
+    const auto query = engine_call::AsFunction<ActionQueryFn>(thunk);
     const auto code = static_cast<std::uint32_t>(lua_tointeger(state, 1));
     const auto controller = static_cast<std::uint32_t>(lua_tointeger(state, 2));
     const bool pressed = query(nullptr, code, controller, nullptr);
@@ -204,7 +210,7 @@ int InputIsActionPressed(lua_State* state) {
     if (thunk == 0) {
         return luaL_error(state, "Input.IsActionPressed native binding is unavailable");
     }
-    const auto query = reinterpret_cast<ActionQueryFn>(thunk);
+    const auto query = engine_call::AsFunction<ActionQueryFn>(thunk);
     const auto code = static_cast<std::uint32_t>(lua_tointeger(state, 1));
     const bool held = query(nullptr, code,
                             static_cast<std::uint32_t>(lua_tointeger(state, 2)), nullptr);
@@ -269,7 +275,7 @@ int InputGetActionValue(lua_State* state) {
         return luaL_error(state, "Input.GetActionValue native binding is unavailable");
     }
     // The PC API returns a float; the game's own function is the authority on the scale.
-    const auto query = reinterpret_cast<ActionValueFn>(thunk);
+    const auto query = engine_call::AsFunction<ActionValueFn>(thunk);
     lua_pushnumber(state, static_cast<lua_Number>(
                               query(nullptr, static_cast<std::uint32_t>(lua_tointeger(state, 1)),
                                     static_cast<std::uint32_t>(lua_tointeger(state, 2)), nullptr)));

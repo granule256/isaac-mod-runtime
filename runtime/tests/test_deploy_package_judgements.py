@@ -58,6 +58,14 @@ class DeployPackageJudgementTests(unittest.TestCase):
             legacy = self.root / "runtime" / "atmosphere" / "nro_patches" / name
             legacy.mkdir(parents=True)
             (legacy / "legacy.ips").write_bytes(b"fake-legacy-ips")
+        # ★ 2026-09-23（批次 077）：假运行时也要带 **romfs 覆盖层** —— 真实构建产物里
+        # `mod-row-art` 每次都会写它，而打包工具现在把它当**硬要求**（缺了直接拒绝打包）。
+        overlay = (self.root / "runtime" / "atmosphere" / "contents" / CONTENT_ID
+                   / "romfs" / "rp_patch" / "resources.zh" / "gfx" / "ui" / "main menu")
+        overlay.mkdir(parents=True)
+        (overlay / "gamemenu.anm2").write_bytes(b"<AnimatedSprite/>")
+        (overlay / "isaac-switch").mkdir()
+        (overlay / "isaac-switch" / "mod_row_zh.pcx").write_bytes(b"PCX")
 
     def tearDown(self) -> None:
         self._temp.cleanup()
@@ -132,6 +140,43 @@ class DeployPackageJudgementTests(unittest.TestCase):
         # 必需补丁的**文件**也要在（目录空着等于没带）
         self.assertTrue(any(p.suffix == ".ips" for p in
                             (patches / "isaac-repentance-lifecycle-relay").iterdir()))
+
+    # ---- 2026-09-23（批次 077）：运行时那份 romfs 覆盖层必须进包 ------------------
+
+    def test_package_ships_the_runtime_romfs_overlay(self):
+        """包必须带**运行时构建树里的 romfs 覆盖层**（主菜单那一行「模组」的来源）。
+
+        那一行是**引擎自己画的**：引擎那份菜单动画原本只有 12 层（Switch 版把 PC 本来就有的
+        第 13 层 `Item6` 删了），构建的 `mod-row-art` 步骤把补好的 `gamemenu.anm2` 写进
+        `romfs/rp_patch/…`。**包里缺了它 ⇒ 引擎只有 12 层 ⇒ 那一行退回我们自己画字** ——
+        屏幕上仍有那一行，但不是真机验收过的原图（静默降级，最难查）。
+        """
+        mod = self.make_mod("AlphaMod", 6, png_relative="resources/gfx/a.png")
+        result = self.run_tool(mod, extra=("--drop-mod-pcx",))
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        romfs = self.root / "package" / "atmosphere" / "contents" / CONTENT_ID / "romfs"
+        self.assertTrue((romfs / "rp_patch/resources.zh/gfx/ui/main menu/gamemenu.anm2").is_file(),
+                        "覆盖层里的 gamemenu.anm2 必须进包（引擎画那一行全靠它）")
+        self.assertTrue(
+            (romfs / "rp_patch/resources.zh/gfx/ui/main menu/isaac-switch/mod_row_zh.pcx").is_file(),
+            "覆盖层里的行贴图也要进包")
+        # 合并语义：覆盖层与模组目录在同一个 `romfs/` 下，两边都要在（不许一边盖掉另一边）
+        self.assertTrue((romfs / "isaac_mods/mods/AlphaMod/main.lua").is_file(),
+                        "模组目录不能被覆盖层那一步冲掉")
+
+    def test_missing_romfs_overlay_refuses_to_package(self):
+        """运行时构建树里没有覆盖层 ⇒ **拒绝打包**（不是打个警告继续）。
+
+        为什么要拒绝而不是警告：这一层的降级是静默的（引擎不画 ⇒ 我们自己画字），
+        打出一个"看起来正常、其实不是验收形态"的包，比打包失败难查得多。
+        """
+        overlay_root = (self.root / "runtime" / "atmosphere" / "contents" / CONTENT_ID / "romfs")
+        shutil.rmtree(overlay_root)
+        mod = self.make_mod("AlphaMod", 6, png_relative="resources/gfx/a.png")
+        result = self.run_tool(mod, extra=("--drop-mod-pcx",))
+        self.assertNotEqual(result.returncode, 0, "缺覆盖层必须非零退出")
+        combined = result.stdout + result.stderr
+        self.assertIn("romfs 覆盖层", combined)
 
     def test_no_relay_patches_switch_omits_it_deliberately(self):
         """`--no-relay-patches` 是"我就是要一份不含补丁的包"的显式开关（默认带）。"""

@@ -171,6 +171,12 @@ DRIVER = textwrap.dedent(
                 case HookId::ImagePcxLoad: return imagePcxLoad;
                 case HookId::ImageManagerLoadFile: return imagePcxLoad;
                 case HookId::ContentGetMountedFilePath: return imagePcxLoad;
+                // 批次 077（2026-09-23，模组页搬生产）：三个入口中继同样必须留一支（-Wswitch）。
+                case HookId::MenuGameRender: return imagePcxLoad;
+                case HookId::MenuTitleRender: return imagePcxLoad;
+                case HookId::MenuManagerSetState: return imagePcxLoad;
+                // 批次 098（禁成就，挂 `SetReadOnly`）：同样必须留一支（-Wswitch）。
+                case HookId::PersistentGameDataSetReadOnly: return imagePcxLoad;
                 case HookId::Count: break;
             }
             return Status{StatusCode::InvalidArgument};

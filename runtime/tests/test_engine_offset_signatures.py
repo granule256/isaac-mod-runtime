@@ -482,7 +482,11 @@ class EngineOffsetSignatureTests(unittest.TestCase):
         self.assertEqual(
             len(returns), 4,
             "引擎里有返回值的入口中继靶点数变了（当前 4 个：ItemPool::GetCollectible、"
-            "UseActiveItem、handle_collision、spawn_entity）。变了要么是镜像换了版本、"
+            "UseActiveItem、handle_collision、spawn_entity）。"
+            "★ 批次 098（2026-09-24）这里从 5 **回到 4**：成就闸门按用户裁定从 "
+            "`PersistentGameData::TryUnlock`（返回 bool）挪到 `PersistentGameData::SetReadOnly`"
+            "（返回 void）—— 是设计变更，不是判据坏了。"
+            "除了这类明确的设计变更，变了要么是镜像换了版本、"
             "要么是判据坏了 —— 两边都要先查清再改这个数字：" + repr(returns))
 
     def test_the_three_after_use_bookkeeping_callbacks_return_a_value(self):

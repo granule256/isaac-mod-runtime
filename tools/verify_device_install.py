@@ -19,7 +19,15 @@ EID 的套装进度恒 `(0/3)`，我们查了很多轮**代码**（运行时的 
    而且**不允许**出现 `<同名>.disabled`（那是"被静默禁用"的形态）；
 3. **多出来的东西**：卡上任何 `*.disabled`（文件或目录）都列出来 —— 它们是**被人为关掉的功能**；
 4. **romfs 模组目录**：卡上的模组目录清单（上限从运行时源码的常量读，**不写死**——
-   它变过三次：4 → 16 → 32；写死 4 时卡上 6 个目录会被误报成"整批拒绝加载"）。
+   它变过三次：4 → 16 → 32；写死 4 时卡上 6 个目录会被误报成"整批拒绝加载"）；
+5. **romfs 资源覆盖层**（★ 2026-09-23 批次 071 新增）：本地部署包里只要存在
+   `atmosphere/contents/010021C000B6A000/romfs/`，就把那棵子树下的**每个文件**在卡上按同路径
+   读回、比对**字节数与 sha256**，缺失或不一致一律报错并列出。
+
+   为什么必须补这一条（一句话）：主菜单那一行的「模组」美术**改成了引擎按磁盘路径加载**
+   （`ANM2::Load`，见 `tools/emit_mod_row_art.py`）—— 资源文件没传上去的症状是
+   "**不报错、那一行就是不见了**"，而 `ls` 看不出这种静默缺失。这条就是那类事故的拦截器
+   （与"补丁被改名成 `.disabled` 静默跳过"是同一类：部署核对必须**逐字节**，不能靠肉眼看目录）。
 
 ## 用法
 
@@ -27,6 +35,7 @@ EID 的套装进度恒 `(0/3)`，我们查了很多轮**代码**（运行时的 
     python3 tools/verify_device_install.py --deploy runtime/.gdbsym-artifacts/deploy
 
 FTP 纪律照旧：**每读一项新建一次连接、动作之间间隔 1.5 秒**（这台设备的 FTP 对连续连接敏感）。
+romfs 那一节是**逐个文件**读回核对的，所以文件多时会慢（每个文件一个连接 + 1.5 秒间隔）。
 """
 
 from __future__ import annotations
@@ -123,6 +132,25 @@ def sha(remote: str) -> str | None:
         return None
     parts = output.split()
     return parts[1] if len(parts) >= 2 else None
+
+
+def sha_and_size(remote: str) -> tuple[int | None, str | None]:
+    """一次连接同时拿到"卡上那个文件的字节数与 sha256"（`sha` 子命令的打印格式就是三列）。
+
+    为什么要字节数：**只比哈希会漏掉"本地是空文件"** 这类情况，而"字节数对不上"
+    在报告里比一串十六进制好读得多（本项目要求报错要能一眼看出差在哪）。
+    """
+    code, output = ftp("sha", remote)
+    if code != 0:
+        return None, None
+    parts = output.split()
+    if len(parts) < 3:
+        return None, None
+    try:
+        size = int(parts[0])
+    except ValueError:
+        return None, None
+    return size, parts[1]
 
 
 def local_files(directory: pathlib.Path) -> dict[str, str]:
@@ -239,6 +267,41 @@ def main() -> int:
         problems.append(f"模组目录 {len(mods)} 个 > 上限 {capacity}（`kModManifestCapacity`）⇒ 运行时会整批拒绝加载")
     elif capacity is None:
         print("  （上限判不了：源码里的 `kModManifestCapacity` 没读到 ⇒ 不拿旧数字下结论）")
+
+    # ---- ⑤ romfs 资源覆盖层：逐文件读回核对（★ 批次 071 新增）----
+    #
+    # 为什么逐文件：这一棵子树里放的是**运行期真的会被引擎按路径打开**的资源
+    # （例如『模组』那一行的 `mod_row_<语言>.anm2` + 同名 `.pcx`）。少一个或内容不同，
+    # 症状是"不报错、画面上少一块"—— 肉眼翻目录看不出这种静默缺失，只有逐字节核对能拦住。
+    romfs_local = deploy / "atmosphere" / "contents" / "010021C000B6A000" / "romfs"
+    if romfs_local.is_dir():
+        files = local_files(romfs_local)
+        print(f"\n== romfs 资源覆盖层（本地 {len(files)} 个文件，逐个读回核对）==")
+        missing = 0
+        mismatched = 0
+        for relative, expected in sorted(files.items()):
+            local_path = romfs_local / relative
+            remote = f"{TITLE_DIR}/romfs/{relative}"
+            expected_size = local_path.stat().st_size
+            actual_size, actual = sha_and_size(remote)
+            if actual is None:
+                missing += 1
+                problems.append(f"romfs/{relative}：卡上读不到（缺失？资源没传上去？）")
+                print(f"  ✗ romfs/{relative}：卡上读不到")
+            elif actual != expected or actual_size != expected_size:
+                mismatched += 1
+                problems.append(
+                    f"romfs/{relative}：内容不一致"
+                    f"（卡上 {actual_size} 字节 / {actual[:16]}…，"
+                    f"本地 {expected_size} 字节 / {expected[:16]}…）")
+                print(f"  ✗ romfs/{relative}：内容不一致（卡上 {actual_size} 字节、"
+                      f"本地 {expected_size} 字节）")
+            else:
+                print(f"  ✓ romfs/{relative}（{expected_size} 字节）")
+        if not files:
+            print("  （本地这棵子树是空的 ⇒ 没什么可核对）")
+        elif not missing and not mismatched:
+            print(f"  ⇒ {len(files)} 个文件全部逐字节一致")
 
     # ---- 汇总 ----
     print("\n== 汇总 ==")

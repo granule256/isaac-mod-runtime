@@ -5,7 +5,9 @@
 #include "room_layout.hpp"
 
 #include "interfaces/lua/api_sequence_probe.hpp"
-#include "interfaces/lua/engine_memory_guard.hpp"
+#include "infrastructure/call/engine_call_access.hpp"
+#include "infrastructure/memory/engine_field_access.hpp"
+#include "infrastructure/memory/engine_memory_guard.hpp"
 #include "interfaces/lua/engine_method_lookup.hpp"
 // 批次 028：`ItemPool:GetPillEffect` 的可空 `EntityPlayer` 实参要经 `EntityPointerArgument`
 // 解析（"什么算一个实体句柄"的唯一实现在那个 TU 里），所以这里显式包含它 —— 与本文件里
@@ -274,43 +276,12 @@ int LevelIsAscent(lua_State* state) {
 // 引擎内存读取原语与 `isaac_api.cpp`/`game_api.cpp` 同一形态（设备侧先 `svcQueryMemory` 确认
 // 可读，宿主侧只排除空地址）：拿不到就报 Lua 错误——PC 里 `Level:GetCurses()` 返回 int，
 // 编一个 0 会让 Mod 以为"这一层没有诅咒"。
+// 「这段地址可读吗」：**唯一实现在引擎内存访问层里**（2026-09-24 批次 102 收敛）。
+// 此前四个 API 族各有一份逐字相同的拷贝（去掉注释后各 781 字符）；判决条件一条没改，
+// 只是"实现在几处"从 4 变成了 1。**函数名保留** —— `test_lua_missing_members_batch028`
+// 按这个名字核对四个手写处理器体里有没有做可读性检查。
 bool IsEngineMemoryReadable(std::uintptr_t address, std::size_t length) noexcept {
-    // 实现见 `interfaces/lua/engine_memory_guard.hpp`：四个 API 族共用同一份缓存与计数。
-    //
-    // 语义逐字不变：空地址、长度 0、地址回绕一律 false；设备侧仍要求返回码成功、区间完整落在
-    // 映射内、且带 `Perm_R`。变的是**命中缓存时不再进内核** —— `svcQueryMemory` 返回的描述
-    // 覆盖一整段连续且权限一致的映射，整段都能复用那一次结论。缓存只在受管回调派发期间有效
-    // （`EngineGuardEnterDispatch`/`EngineGuardLeaveDispatch`），所以过期窗口为零。
-    if (!EngineGuardRangeUsable(address, length)) {
-        return false;
-    }
-#if defined(__SWITCH__)
-    // 派发作用域内命中已登记的映射区间：这一帧的同一段内存不再重复问内核。
-    if (EngineGuardLookupCached(address, length)) {
-        return true;
-    }
-    const std::uint64_t syscallStart = EngineGuardSyscallBegin();
-    MemoryInfo info{};
-    u32 pageInfo = 0;
-    // 显式写 `std::uint32_t`：本命名空间里有一个同名模板 `Result<T>` 会遮蔽 libnx 的
-    // `Result`（u32）typedef，直接写 `Result` 会撞上模板推导。
-    const std::uint32_t result = svcQueryMemory(&info, &pageInfo, address);
-    EngineGuardSyscallEnd(syscallStart);
-    if (R_FAILED(result) || info.size == 0 || info.addr > UINTPTR_MAX - info.size) {
-        return false;
-    }
-    if (address < info.addr || address + length > info.addr + info.size ||
-        (info.perm & Perm_R) == 0) {
-        return false;
-    }
-    // 这次系统调用描述的是一整段连续且权限一致的映射，整段都可以复用这个结论。
-    EngineGuardRememberReadable(info.addr, info.addr + info.size);
-    return true;
-#else
-    // 宿主构建没有 `svcQueryMemory`；宿主测试的"引擎内存"是本进程 malloc 出来的伪造块，
-    // 本来就一定可读（见 `runtime/tests/test_lua_entity_player.py`）。
-    return true;
-#endif
+    return isaac::runtime::engine_memory::EngineMemoryReadable(address, length);
 }
 
 bool ReadGameCurses(std::uint32_t* curses) noexcept {
@@ -324,21 +295,20 @@ bool ReadGameCurses(std::uint32_t* curses) noexcept {
     // 两级解引用：槽里是**指针变量**，`*(u64*)槽` 才是 `Game*`（与 `Isaac.GetPlayer` 同链）。
     std::uintptr_t ownerSlot = 0;
     std::uintptr_t game = 0;
-    if (!IsEngineMemoryReadable(base + kGameOwnerGlobalSlotOffset, sizeof(std::uintptr_t))) {
+    // 这一支的每一处读写都走引擎内存访问层（L1）：判定与取值同一次调用，失败时不写出参。
+    if (!isaac::runtime::engine_memory::ReadAt(base + kGameOwnerGlobalSlotOffset, &ownerSlot,
+                                               &IsEngineMemoryReadable)) {
         return false;
     }
-    std::memcpy(&ownerSlot, reinterpret_cast<const void*>(base + kGameOwnerGlobalSlotOffset),
-                sizeof(ownerSlot));
-    if (ownerSlot == 0 || !IsEngineMemoryReadable(ownerSlot, sizeof(std::uintptr_t))) {
+    if (ownerSlot == 0 ||
+        !isaac::runtime::engine_memory::ReadAt(ownerSlot, &game, &IsEngineMemoryReadable)) {
         return false;
     }
-    std::memcpy(&game, reinterpret_cast<const void*>(ownerSlot), sizeof(game));
     if (game == 0 || game > UINTPTR_MAX - kLevelCursesOffset ||
-        !IsEngineMemoryReadable(game + kLevelCursesOffset, sizeof(std::uint32_t))) {
+        !isaac::runtime::engine_memory::ReadAt(game + kLevelCursesOffset, curses,
+                                               &IsEngineMemoryReadable)) {
         return false;
     }
-    std::memcpy(curses, reinterpret_cast<const void*>(game + kLevelCursesOffset),
-                sizeof(std::uint32_t));
     return true;
 }
 
@@ -374,25 +344,23 @@ std::uint32_t CallGameCurseAccessor(std::uintptr_t offset,
         return 0;
     }
     const std::uintptr_t target = base + offset;
-    if (!IsEngineMemoryReadable(target, expected.size())) {
-        return 0;
-    }
-    std::array<u8, 16> actual{};
-    std::memcpy(actual.data(), reinterpret_cast<const void*>(target), actual.size());
-    if (std::memcmp(actual.data(), expected.data(), expected.size()) != 0) {
+    // 入口序言核对走引擎调用层（L2）的 `VerifyEntryBytes`：判定 + 逐字节比较，与原三句逐条同义。
+    if (!isaac::runtime::engine_call::VerifyEntryBytes(target, expected.data(), expected.size(),
+                                                       &IsEngineMemoryReadable)) {
         return 0;
     }
     const std::uintptr_t ownerSlot = GameOwnerSlot();
     std::uintptr_t game = 0;
-    if (ownerSlot == 0 || !IsEngineMemoryReadable(ownerSlot, sizeof(game))) {
+    if (ownerSlot == 0 ||
+        !isaac::runtime::engine_memory::ReadAt(ownerSlot, &game, &IsEngineMemoryReadable)) {
         return 0;
     }
-    std::memcpy(&game, reinterpret_cast<const void*>(ownerSlot), sizeof(game));
     if (game == 0) {
         return 0;
     }
     using AccessorFn = std::uint32_t (*)(void*);
-    const std::uint32_t value = reinterpret_cast<AccessorFn>(target)(reinterpret_cast<void*>(game));
+    const std::uint32_t value = isaac::runtime::engine_call::AsFunction<AccessorFn>(target)(
+        isaac::runtime::engine_memory::AsObject(game));
     if (called != nullptr) {
         *called = true;
     }
@@ -457,17 +425,16 @@ bool ResolveCurrentLevel(std::uintptr_t* level) noexcept {
     if (base == 0 || base > UINTPTR_MAX - kGameOwnerGlobalSlotOffset) {
         return false;
     }
-    if (!IsEngineMemoryReadable(base + kGameOwnerGlobalSlotOffset, sizeof(std::uintptr_t))) {
-        return false;
-    }
     std::uintptr_t ownerSlot = 0;
-    std::memcpy(&ownerSlot, reinterpret_cast<const void*>(base + kGameOwnerGlobalSlotOffset),
-                sizeof(ownerSlot));
-    if (ownerSlot == 0 || !IsEngineMemoryReadable(ownerSlot, sizeof(std::uintptr_t))) {
+    if (!isaac::runtime::engine_memory::ReadAt(base + kGameOwnerGlobalSlotOffset, &ownerSlot,
+                                               &IsEngineMemoryReadable)) {
         return false;
     }
     std::uintptr_t game = 0;
-    std::memcpy(&game, reinterpret_cast<const void*>(ownerSlot), sizeof(game));
+    if (ownerSlot == 0 ||
+        !isaac::runtime::engine_memory::ReadAt(ownerSlot, &game, &IsEngineMemoryReadable)) {
+        return false;
+    }
     if (game == 0) {
         return false;
     }
@@ -480,12 +447,8 @@ bool ResolveCurrentLevel(std::uintptr_t* level) noexcept {
 bool CallLevelIntMethod(std::uintptr_t method, const std::array<u8, 16>& expected,
                         std::int32_t* value) noexcept {
     if (value == nullptr || method == 0 || (method & 3) != 0 ||
-        !IsEngineMemoryReadable(method, expected.size())) {
-        return false;
-    }
-    std::array<u8, 16> actual{};
-    std::memcpy(actual.data(), reinterpret_cast<const void*>(method), actual.size());
-    if (actual != expected) {
+        !isaac::runtime::engine_call::VerifyEntryBytes(method, expected.data(), expected.size(),
+                                                       &IsEngineMemoryReadable)) {
         return false;
     }
     std::uintptr_t level = 0;
@@ -493,7 +456,8 @@ bool CallLevelIntMethod(std::uintptr_t method, const std::array<u8, 16>& expecte
         return false;
     }
     using LevelIntMethod = std::int32_t (*)(const void*);
-    *value = reinterpret_cast<LevelIntMethod>(method)(reinterpret_cast<const void*>(level));
+    *value = isaac::runtime::engine_call::AsFunction<LevelIntMethod>(method)(
+        isaac::runtime::engine_memory::AsObject(level));
     return true;
 }
 
@@ -506,12 +470,8 @@ bool CallLevelIntMethod(std::uintptr_t method, const std::array<u8, 16>& expecte
                                             const std::array<u8, 16>& expected,
                             const float* input, float* output, bool argument) noexcept {
     if (method == 0 || input == nullptr || output == nullptr || (method & 3) != 0 ||
-        !IsEngineMemoryReadable(method, expected.size())) {
-        return false;
-    }
-    std::array<u8, 16> actual{};
-    std::memcpy(actual.data(), reinterpret_cast<const void*>(method), actual.size());
-    if (std::memcmp(expected.data(), actual.data(), actual.size()) != 0) {
+        !isaac::runtime::engine_call::VerifyEntryBytes(method, expected.data(), expected.size(),
+                                                       &IsEngineMemoryReadable)) {
         return false;
     }
     struct Vector2Value {
@@ -520,7 +480,8 @@ bool CallLevelIntMethod(std::uintptr_t method, const std::array<u8, 16>& expecte
     };
     using Method = Vector2Value (*)(const Vector2Value&, bool);
     const Vector2Value value{input[0], input[1]};
-    const Vector2Value result = reinterpret_cast<Method>(method)(value, argument);
+    const Vector2Value result =
+        isaac::runtime::engine_call::AsFunction<Method>(method)(value, argument);
     output[0] = result.x;
     output[1] = result.y;
     return true;
@@ -529,12 +490,8 @@ bool CallLevelIntMethod(std::uintptr_t method, const std::array<u8, 16>& expecte
 bool CallLevelBoolMethod(std::uintptr_t method, const std::array<u8, 16>& expected,
                          bool* value) noexcept {
     if (value == nullptr || method == 0 || (method & 3) != 0 ||
-        !IsEngineMemoryReadable(method, expected.size())) {
-        return false;
-    }
-    std::array<u8, 16> actual{};
-    std::memcpy(actual.data(), reinterpret_cast<const void*>(method), actual.size());
-    if (actual != expected) {
+        !isaac::runtime::engine_call::VerifyEntryBytes(method, expected.data(), expected.size(),
+                                                       &IsEngineMemoryReadable)) {
         return false;
     }
     std::uintptr_t level = 0;
@@ -542,7 +499,8 @@ bool CallLevelBoolMethod(std::uintptr_t method, const std::array<u8, 16>& expect
         return false;
     }
     using LevelBoolMethod = bool (*)(const void*);
-    *value = reinterpret_cast<LevelBoolMethod>(method)(reinterpret_cast<const void*>(level));
+    *value = isaac::runtime::engine_call::AsFunction<LevelBoolMethod>(method)(
+        isaac::runtime::engine_memory::AsObject(level));
     return true;
 }
 
@@ -552,13 +510,12 @@ int LevelGetCurrentRoomIndex(lua_State* state) {
         return luaL_error(state, "Level:GetCurrentRoomIndex accepts no arguments");
     }
     std::uintptr_t level = 0;
+    std::uint32_t index = 0;
     if (!ResolveCurrentLevel(&level) ||
-        !IsEngineMemoryReadable(level + kLevelCurrentRoomIndexOffset, sizeof(std::uint32_t))) {
+        !isaac::runtime::engine_memory::ReadAt(level + kLevelCurrentRoomIndexOffset, &index,
+                                               &IsEngineMemoryReadable)) {
         return luaL_error(state, "Level:GetCurrentRoomIndex could not read the native Level state");
     }
-    std::uint32_t index = 0;
-    std::memcpy(&index, reinterpret_cast<const void*>(level + kLevelCurrentRoomIndexOffset),
-                sizeof(index));
     lua_pushinteger(state, static_cast<lua_Integer>(index));
     return 1;
 }
@@ -724,16 +681,14 @@ bool ReadRoomGridDimensions(std::uintptr_t room, std::uint32_t* width, std::uint
         room > UINTPTR_MAX - kRoomGridHeightOffset - sizeof(std::uint32_t)) {
         return false;
     }
-    if (!IsEngineMemoryReadable(room + kRoomGridWidthOffset, sizeof(std::uint32_t)) ||
-        !IsEngineMemoryReadable(room + kRoomGridHeightOffset, sizeof(std::uint32_t))) {
-        return false;
-    }
     std::uint32_t readWidth = 0;
     std::uint32_t readHeight = 0;
-    std::memcpy(&readWidth, reinterpret_cast<const void*>(room + kRoomGridWidthOffset),
-                sizeof(readWidth));
-    std::memcpy(&readHeight, reinterpret_cast<const void*>(room + kRoomGridHeightOffset),
-                sizeof(readHeight));
+    if (!isaac::runtime::engine_memory::ReadAt(room + kRoomGridWidthOffset, &readWidth,
+                                               &IsEngineMemoryReadable) ||
+        !isaac::runtime::engine_memory::ReadAt(room + kRoomGridHeightOffset, &readHeight,
+                                               &IsEngineMemoryReadable)) {
+        return false;
+    }
     if (readWidth == 0 || readHeight == 0 || readWidth > kRoomGridDimensionMaximum ||
         readHeight > kRoomGridDimensionMaximum) {
         return false;
@@ -764,7 +719,7 @@ std::uintptr_t CurrentRoomAddress() {
     if (ReadCurrentGameRoom(GameOwnerSlot(), &room) != GameRoomObservation::Success) {
         return 0;
     }
-    return reinterpret_cast<std::uintptr_t>(room);
+    return isaac::runtime::engine_memory::AddressOf(room);
 }
 
 bool RoomArgumentCountIs(lua_State* state, int expected, const char* apiName) {
@@ -808,16 +763,12 @@ bool RoomGridIndexArgument(lua_State* state, int index, lua_Integer* value) {
 bool CallRoomIntMethod(void* room, std::uintptr_t method,
                        const std::array<u8, 16>& expected, std::int32_t* value) noexcept {
     if (room == nullptr || value == nullptr || method == 0 || (method & 3) != 0 ||
-        !IsEngineMemoryReadable(method, expected.size())) {
-        return false;
-    }
-    std::array<u8, 16> actual{};
-    std::memcpy(actual.data(), reinterpret_cast<const void*>(method), actual.size());
-    if (actual != expected) {
+        !isaac::runtime::engine_call::VerifyEntryBytes(method, expected.data(), expected.size(),
+                                                       &IsEngineMemoryReadable)) {
         return false;
     }
     using RoomIntMethod = std::int32_t (*)(const void*);
-    *value = reinterpret_cast<RoomIntMethod>(method)(room);
+    *value = isaac::runtime::engine_call::AsFunction<RoomIntMethod>(method)(room);
     return true;
 }
 
@@ -958,12 +909,11 @@ int RoomGetGridPath(lua_State* state) {
     const std::uintptr_t room = CurrentRoomAddress();
     const std::uintptr_t address =
         room + kRoomGridPathArrayOffset + static_cast<std::uintptr_t>(index) * sizeof(std::int32_t);
+    std::int32_t collision = 0;
     if (room == 0 || room > UINTPTR_MAX - kRoomGridPathArrayOffset - cellCount * sizeof(std::int32_t) ||
-        !IsEngineMemoryReadable(address, sizeof(std::int32_t))) {
+        !isaac::runtime::engine_memory::ReadAt(address, &collision, &IsEngineMemoryReadable)) {
         return luaL_error(state, "Room:GetGridPath could not read the native grid path table");
     }
-    std::int32_t collision = 0;
-    std::memcpy(&collision, reinterpret_cast<const void*>(address), sizeof(collision));
     lua_pushinteger(state, static_cast<lua_Integer>(collision));
     return 1;
 }
@@ -1006,25 +956,24 @@ int RoomGetDoor(lua_State* state) {
         room == nullptr) {
         return luaL_error(state, "Room:GetDoor could not read the native Room state");
     }
-    const std::uintptr_t roomAddress = reinterpret_cast<std::uintptr_t>(room);
+    const std::uintptr_t roomAddress = isaac::runtime::engine_memory::AddressOf(room);
     // `Room + 0xE30 + slot*8` = **该槽位的门对象**（`Room::make_door` 存的就是这里）。
     // 比"先取网格下标（`+0xE70`）、再查网格实体表"短一步；那张网格下标表仍然有用
     // （`Room::GetDoorSlotPosition` 用它算坐标），但不是取门的最短路径。
     const std::uintptr_t entitySlot = roomAddress + kRoomDoorObjectTableOffset +
                                       static_cast<std::uintptr_t>(slot) * sizeof(std::uintptr_t);
-    if (!IsEngineMemoryReadable(entitySlot, sizeof(std::uintptr_t))) {
+    std::uintptr_t entity = 0;
+    if (!isaac::runtime::engine_memory::ReadAt(entitySlot, &entity, &IsEngineMemoryReadable)) {
         lua_pushnil(state);
         return 1;
     }
-    std::uintptr_t entity = 0;
-    std::memcpy(&entity, reinterpret_cast<const void*>(entitySlot), sizeof(entity));
     if (entity == 0) {
         lua_pushnil(state);
         return 1;
     }
     auto* handle = static_cast<LuaRuntime::DoorHandle*>(
         lua_newuserdata(state, sizeof(LuaRuntime::DoorHandle)));
-    handle->entity = reinterpret_cast<void*>(entity);
+    handle->entity = isaac::runtime::engine_memory::AsObject(entity);
     handle->slot = static_cast<std::int32_t>(slot);
     handle->reserved = 0;
     luaL_getmetatable(state, LuaRuntime::kGridEntityDoorMetatable);
@@ -1066,26 +1015,25 @@ int RoomGetGridEntity(lua_State* state) {
         room == nullptr) {
         return luaL_error(state, "Room:GetGridEntity could not read the native Room state");
     }
-    const std::uintptr_t roomAddress = reinterpret_cast<std::uintptr_t>(room);
+    const std::uintptr_t roomAddress = isaac::runtime::engine_memory::AddressOf(room);
     lua_Integer gridIndex = 0;
     if (!RoomGridIndexArgument(state, 2, &gridIndex) || gridIndex < 0) {
         return luaL_error(state, "Room:GetGridEntity accepts one grid index");
     }
     const std::uintptr_t slot = roomAddress + kRoomGridEntityTableOffset +
                                 static_cast<std::uintptr_t>(gridIndex) * sizeof(std::uintptr_t);
-    if (!IsEngineMemoryReadable(slot, sizeof(std::uintptr_t))) {
+    std::uintptr_t entity = 0;
+    if (!isaac::runtime::engine_memory::ReadAt(slot, &entity, &IsEngineMemoryReadable)) {
         lua_pushnil(state);
         return 1;
     }
-    std::uintptr_t entity = 0;
-    std::memcpy(&entity, reinterpret_cast<const void*>(slot), sizeof(entity));
     if (entity == 0) {
         lua_pushnil(state);
         return 1;
     }
     auto* handle = static_cast<LuaRuntime::GridEntityHandle*>(
         lua_newuserdata(state, sizeof(LuaRuntime::GridEntityHandle)));
-    handle->entity = reinterpret_cast<void*>(entity);
+    handle->entity = isaac::runtime::engine_memory::AsObject(entity);
     luaL_getmetatable(state, LuaRuntime::kGridEntityMetatable);
     lua_setmetatable(state, -2);
     return 1;
@@ -1117,15 +1065,14 @@ int GridEntityGetVariant(lua_State* state) {
     if (entityPointer == nullptr) {
         return luaL_error(state, "GridEntity:GetVariant expects a grid entity");
     }
-    const std::uintptr_t entity = reinterpret_cast<std::uintptr_t>(entityPointer);
+    const std::uintptr_t entity = isaac::runtime::engine_memory::AddressOf(entityPointer);
     std::uint32_t variant = 0;
     if (entity == 0 ||
-        !IsEngineMemoryReadable(entity + kGridEntityVariantOffset, sizeof(variant))) {
+        !isaac::runtime::engine_memory::ReadAt(entity + kGridEntityVariantOffset, &variant,
+                                               &IsEngineMemoryReadable)) {
         lua_pushnil(state);
         return 1;
     }
-    std::memcpy(&variant, reinterpret_cast<const void*>(entity + kGridEntityVariantOffset),
-                sizeof(variant));
     lua_pushinteger(state, static_cast<lua_Integer>(variant));
     return 1;
 }
@@ -1139,14 +1086,14 @@ int GridEntityGetType(lua_State* state) {
     if (entityPointer == nullptr) {
         return luaL_error(state, "GridEntity:GetType expects a grid entity");
     }
-    const std::uintptr_t entity = reinterpret_cast<std::uintptr_t>(entityPointer);
+    const std::uintptr_t entity = isaac::runtime::engine_memory::AddressOf(entityPointer);
     std::uint32_t type = 0;
-    if (entity == 0 || !IsEngineMemoryReadable(entity + kGridEntityTypeOffset, sizeof(type))) {
+    if (entity == 0 ||
+        !isaac::runtime::engine_memory::ReadAt(entity + kGridEntityTypeOffset, &type,
+                                               &IsEngineMemoryReadable)) {
         lua_pushnil(state);
         return 1;
     }
-    std::memcpy(&type, reinterpret_cast<const void*>(entity + kGridEntityTypeOffset),
-                sizeof(type));
     lua_pushinteger(state, static_cast<lua_Integer>(type));
     return 1;
 }
@@ -1174,7 +1121,7 @@ int GridEntityGetRng(lua_State* state) {
     if (entityPointer == nullptr) {
         return luaL_error(state, "GridEntity:GetRNG expects a grid entity");
     }
-    const std::uintptr_t entity = reinterpret_cast<std::uintptr_t>(entityPointer);
+    const std::uintptr_t entity = isaac::runtime::engine_memory::AddressOf(entityPointer);
     if (entity == 0 || entity > UINTPTR_MAX - kGridEntityRngOffset ||
         !IsEngineMemoryReadable(entity + kGridEntityRngOffset, kRngObjectSize)) {
         lua_pushnil(state);
@@ -1183,8 +1130,10 @@ int GridEntityGetRng(lua_State* state) {
     auto* rng = static_cast<LuaRuntime::RngHandle*>(
         lua_newuserdata(state, sizeof(LuaRuntime::RngHandle)));
     *rng = {};
-    std::memcpy(rng->storage.data(), reinterpret_cast<const void*>(entity + kGridEntityRngOffset),
-                kRngObjectSize);
+    // 上面那次判定覆盖了整段 `kRngObjectSize` 字节 ⇒ 这里只取值（L1 `LoadVerifiedAt`），
+    // 且按 `storage` 的静态类型整段拷贝：`sizeof(std::array<...>)` 与 `kRngObjectSize` 相等。
+    static_cast<void>(isaac::runtime::engine_memory::LoadVerifiedAt(
+        entity + kGridEntityRngOffset, 0, &rng->storage));
     luaL_getmetatable(state, LuaRuntime::kRngMetatable);
     lua_setmetatable(state, -2);
     return 1;
@@ -1209,7 +1158,7 @@ int RoomGetRenderScrollOffset(lua_State* state) {
         return luaL_error(state,
                           "Room:GetRenderScrollOffset could not read the native Room state");
     }
-    const std::uintptr_t address = reinterpret_cast<std::uintptr_t>(room);
+    const std::uintptr_t address = isaac::runtime::engine_memory::AddressOf(room);
     float x = 0.0F;
     float y = 0.0F;
     const std::uintptr_t scrollOffset = address + layout::kRoomRenderScrollOffsetOffset;
@@ -1217,8 +1166,9 @@ int RoomGetRenderScrollOffset(lua_State* state) {
         return luaL_error(state,
                           "Room:GetRenderScrollOffset could not read the native Room state");
     }
-    std::memcpy(&x, reinterpret_cast<const void*>(scrollOffset), sizeof(x));
-    std::memcpy(&y, reinterpret_cast<const void*>(scrollOffset + sizeof(float)), sizeof(y));
+    // 上面那次判定覆盖了整段 8 字节 ⇒ 这两个 float 只取值、不重复问内核（L1 `LoadVerifiedAt`）。
+    static_cast<void>(isaac::runtime::engine_memory::LoadVerifiedAt(scrollOffset, 0, &x));
+    static_cast<void>(isaac::runtime::engine_memory::LoadVerifiedAt(scrollOffset, 1, &y));
     // 每次返回**新的** `Vector` userdata：别名会让 `room:GetRenderScrollOffset().X = 1`
     // 这类写法改到下一次读取的结果上（与 `Entity.Position` 同一口径）。
     auto* vector = static_cast<LuaRuntime::VectorHandle*>(
@@ -1269,7 +1219,7 @@ int RoomGetWorldToScreenPosition(lua_State* state) {
         return luaL_error(state, "Room:WorldToScreenPosition is unavailable in this build");
     }
     // 再加上房间与 Game 各自那一份调整量（同一个函数里的两条 `Vector2::operator+`）。
-    const std::uintptr_t roomAddress = reinterpret_cast<std::uintptr_t>(room);
+    const std::uintptr_t roomAddress = isaac::runtime::engine_memory::AddressOf(room);
     const std::uintptr_t roomScroll = roomAddress + layout::kRoomRenderScrollOffsetOffset;
     std::uintptr_t game = 0;
     if (ResolveCurrentLevel(&game) == false || game == 0) {
@@ -1284,10 +1234,11 @@ int RoomGetWorldToScreenPosition(lua_State* state) {
     float roomY = 0.0F;
     float gameX = 0.0F;
     float gameY = 0.0F;
-    std::memcpy(&roomX, reinterpret_cast<const void*>(roomScroll), sizeof(float));
-    std::memcpy(&roomY, reinterpret_cast<const void*>(roomScroll + sizeof(float)), sizeof(float));
-    std::memcpy(&gameX, reinterpret_cast<const void*>(gameAdjust), sizeof(float));
-    std::memcpy(&gameY, reinterpret_cast<const void*>(gameAdjust + sizeof(float)), sizeof(float));
+    // 两处判定各自覆盖一对 float（8 字节）⇒ 四个分量只取值、不重复问内核（L1 `LoadVerifiedAt`）。
+    static_cast<void>(isaac::runtime::engine_memory::LoadVerifiedAt(roomScroll, 0, &roomX));
+    static_cast<void>(isaac::runtime::engine_memory::LoadVerifiedAt(roomScroll, 1, &roomY));
+    static_cast<void>(isaac::runtime::engine_memory::LoadVerifiedAt(gameAdjust, 0, &gameX));
+    static_cast<void>(isaac::runtime::engine_memory::LoadVerifiedAt(gameAdjust, 1, &gameY));
     auto* result = static_cast<LuaRuntime::VectorHandle*>(
         lua_newuserdata(state, sizeof(LuaRuntime::VectorHandle)));
     result->x = screen[0] + roomX + gameX;
@@ -1307,15 +1258,14 @@ int ItemPoolGetLastPool(lua_State* state) {
     if (ReadCurrentGameItemPool(GameOwnerSlot(), &itemPool) != GameItemPoolObservation::Success) {
         return luaL_error(state, "ItemPool:GetLastPool could not read the native ItemPool state");
     }
-    const std::uintptr_t address = reinterpret_cast<std::uintptr_t>(itemPool);
+    const std::uintptr_t address = isaac::runtime::engine_memory::AddressOf(itemPool);
+    std::uint32_t lastPool = 0;
     if ((address & (alignof(std::uint32_t) - 1)) != 0 ||
         address > UINTPTR_MAX - kItemPoolLastPoolOffset ||
-        !IsEngineMemoryReadable(address + kItemPoolLastPoolOffset, sizeof(std::uint32_t))) {
+        !isaac::runtime::engine_memory::ReadAt(address + kItemPoolLastPoolOffset, &lastPool,
+                                               &IsEngineMemoryReadable)) {
         return luaL_error(state, "ItemPool:GetLastPool could not read the last pool");
     }
-    std::uint32_t lastPool = 0;
-    std::memcpy(&lastPool, reinterpret_cast<const void*>(address + kItemPoolLastPoolOffset),
-                sizeof(lastPool));
     lua_pushinteger(state, static_cast<lua_Integer>(lastPool));
     return 1;
 }
@@ -1346,7 +1296,7 @@ int ItemPoolGetCollectible(lua_State* state) {
     }
     using GetCollectibleFn = std::uint32_t (*)(void*, std::uint32_t, std::uint32_t, std::uint32_t,
                                                std::uint32_t);
-    const auto result = reinterpret_cast<GetCollectibleFn>(method)(
+    const auto result = isaac::runtime::engine_call::AsFunction<GetCollectibleFn>(method)(
         itemPool, static_cast<std::uint32_t>(poolType), static_cast<std::uint32_t>(seed),
         lua_toboolean(state, 3) ? 0u : 1u, static_cast<std::uint32_t>(defaultItem));
     lua_pushinteger(state, static_cast<lua_Integer>(result));
@@ -1393,16 +1343,13 @@ int ItemPoolIsPillIdentified(lua_State* state) {
         return luaL_error(state,
                           "ItemPool:IsPillIdentified could not read the native ItemPool state");
     }
-    const std::uintptr_t address = reinterpret_cast<std::uintptr_t>(itemPool);
+    const std::uintptr_t address = isaac::runtime::engine_memory::AddressOf(itemPool);
+    std::uint8_t identified = 0;
     if (address == 0 || address > UINTPTR_MAX - kItemPoolPillIdentifiedOffset ||
-        !IsEngineMemoryReadable(address + kItemPoolPillIdentifiedOffset + masked,
-                                sizeof(std::uint8_t))) {
+        !isaac::runtime::engine_memory::ReadAt(address + kItemPoolPillIdentifiedOffset + masked,
+                                               &identified, &IsEngineMemoryReadable)) {
         return luaL_error(state, "ItemPool:IsPillIdentified could not read the pill state");
     }
-    std::uint8_t identified = 0;
-    std::memcpy(&identified,
-                reinterpret_cast<const void*>(address + kItemPoolPillIdentifiedOffset + masked),
-                sizeof(identified));
     lua_pushboolean(state, identified != 0 ? 1 : 0);
     return 1;
 }
@@ -1539,9 +1486,9 @@ void RecordRoomDescriptorDataMiss(std::uintptr_t descriptor) noexcept {
     }
     const auto keep = [descriptor](std::uintptr_t offset, std::atomic<std::uint32_t>& slot) {
         std::uint32_t value = 0;
-        if (IsEngineMemoryReadable(descriptor + offset, sizeof(value))) {
-            std::memcpy(&value, reinterpret_cast<const void*>(descriptor + offset), sizeof(value));
-        }
+        // 判定 + 取值同一次调用（L1 `ReadAt`）；失败时 `value` 保留初值 0，与原来那条 if 同义。
+        static_cast<void>(isaac::runtime::engine_memory::ReadAt(descriptor + offset, &value,
+                                                               &IsEngineMemoryReadable));
         slot.store(value, std::memory_order_relaxed);
     };
     keep(kGridIndexOffset, g_IsaacRoomDescDataGridIndex);
@@ -1557,16 +1504,16 @@ void RecordRoomDescriptorDataMiss(std::uintptr_t descriptor) noexcept {
 // （真机探针上踩过同一个坑：`g_Game` 槽里存的不是对象本身）。
 std::uintptr_t ResolveLevelForDescriptor() noexcept {
     const std::uintptr_t slot = GameOwnerSlot();
-    if (slot == 0 || !IsEngineMemoryReadable(slot, sizeof(std::uintptr_t))) {
-        return 0;
-    }
     std::uintptr_t owner = 0;
-    std::memcpy(&owner, reinterpret_cast<const void*>(slot), sizeof(owner));
-    if (owner == 0 || !IsEngineMemoryReadable(owner, sizeof(std::uintptr_t))) {
+    if (slot == 0 ||
+        !isaac::runtime::engine_memory::ReadAt(slot, &owner, &IsEngineMemoryReadable)) {
         return 0;
     }
     std::uintptr_t level = 0;
-    std::memcpy(&level, reinterpret_cast<const void*>(owner), sizeof(level));
+    if (owner == 0 ||
+        !isaac::runtime::engine_memory::ReadAt(owner, &level, &IsEngineMemoryReadable)) {
+        return 0;
+    }
     return level;
 }
 
@@ -1620,11 +1567,9 @@ bool ReadDescriptorU32(std::uintptr_t descriptor, std::uintptr_t offset,
     if (value == nullptr || descriptor == 0 || descriptor > UINTPTR_MAX - offset) {
         return false;
     }
-    if (!IsEngineMemoryReadable(descriptor + offset, sizeof(std::uint32_t))) {
-        return false;
-    }
-    std::memcpy(value, reinterpret_cast<const void*>(descriptor + offset), sizeof(*value));
-    return true;
+    // 判定 + 取值同一次调用（L1 `ReadAt`）：先可读再取值，失败时不写出参。
+    return isaac::runtime::engine_memory::ReadAt(descriptor + offset, value,
+                                                 &IsEngineMemoryReadable);
 }
 
 std::uintptr_t DescriptorAddress(std::uintptr_t level, std::uint32_t slot) noexcept {
@@ -1633,13 +1578,12 @@ std::uintptr_t DescriptorAddress(std::uintptr_t level, std::uint32_t slot) noexc
 
 //: 房间数组里当前有多少个槽位（引擎自己用它做扫描边界）。
 std::uint32_t DescriptorCount(std::uintptr_t level) noexcept {
+    std::uint32_t count = 0;
     if (level == 0 || level > UINTPTR_MAX - kDescriptorCountOffset ||
-        !IsEngineMemoryReadable(level + kDescriptorCountOffset, sizeof(std::uint32_t))) {
+        !isaac::runtime::engine_memory::ReadAt(level + kDescriptorCountOffset, &count,
+                                               &IsEngineMemoryReadable)) {
         return 0;
     }
-    std::uint32_t count = 0;
-    std::memcpy(&count, reinterpret_cast<const void*>(level + kDescriptorCountOffset),
-                sizeof(count));
     // 上限只用来兜住"读到垃圾值"的情形：3 个维度 × 169 个房间 + 少量特殊槽位，实际远小于 512。
     return count > kDescriptorMaximumCount ? kDescriptorMaximumCount : count;
 }
@@ -1760,8 +1704,9 @@ std::uintptr_t ResolveDescriptorNative(std::uintptr_t level, std::int32_t index,
         g_IsaacRoomIdxNativeFallbacks.fetch_add(1, std::memory_order_relaxed);
         return 0;
     }
-    const auto call = reinterpret_cast<LevelGetRoomByIdxFn>(method);
-    const void* descriptor = call(reinterpret_cast<const void*>(level), index, dimension);
+    const auto call = isaac::runtime::engine_call::AsFunction<LevelGetRoomByIdxFn>(method);
+    const void* descriptor =
+        call(isaac::runtime::engine_memory::AsObject(level), index, dimension);
     if (descriptor == nullptr) {
         g_IsaacRoomIdxNativeFallbacks.fetch_add(1, std::memory_order_relaxed);
         return 0;
@@ -1771,7 +1716,7 @@ std::uintptr_t ResolveDescriptorNative(std::uintptr_t level, std::int32_t index,
                                         std::memory_order_relaxed);
     g_IsaacRoomIdxNativeLastDimension.store(static_cast<std::uint32_t>(dimension),
                                             std::memory_order_relaxed);
-    return reinterpret_cast<std::uintptr_t>(descriptor);
+    return isaac::runtime::engine_memory::AddressOf(descriptor);
 }
 
 //: 带记账的包装（批次 074）：记下"最后一次请求的格子"与"解析结果的三个字段"，
@@ -1853,7 +1798,7 @@ int PushRoomDescriptor(lua_State* state, std::uintptr_t descriptor) {
     }
     auto* handle = static_cast<LuaRuntime::RoomDescriptorHandle*>(
         lua_newuserdata(state, sizeof(LuaRuntime::RoomDescriptorHandle)));
-    handle->descriptor = reinterpret_cast<void*>(descriptor);
+    handle->descriptor = isaac::runtime::engine_memory::AsObject(descriptor);
     luaL_getmetatable(state, LuaRuntime::kRoomDescriptorMetatable);
     lua_setmetatable(state, -2);
     return 1;
@@ -1869,7 +1814,7 @@ int RoomDescriptorListGet(lua_State* state) {
         return luaL_error(state, "RoomDescriptorList:Get expects an index");
     }
     const lua_Integer requested = lua_tointegerx(state, 2, nullptr);
-    const std::uintptr_t level = reinterpret_cast<std::uintptr_t>(handle->level);
+    const std::uintptr_t level = isaac::runtime::engine_memory::AddressOf(handle->level);
     const std::uint32_t count = DescriptorCount(level);
     if (requested < 0 || static_cast<std::uint64_t>(requested) >= count) {
         lua_pushnil(state);
@@ -1987,7 +1932,7 @@ int LevelGetRooms(lua_State* state) {
     }
     auto* handle = static_cast<LuaRuntime::RoomDescriptorListHandle*>(
         lua_newuserdata(state, sizeof(LuaRuntime::RoomDescriptorListHandle)));
-    handle->level = reinterpret_cast<void*>(level);
+    handle->level = isaac::runtime::engine_memory::AsObject(level);
     luaL_getmetatable(state, LuaRuntime::kRoomDescriptorListMetatable);
     lua_setmetatable(state, -2);
     return 1;
@@ -2016,14 +1961,13 @@ int LevelIsPreAscent(lua_State* state) {
     std::uint32_t stage = 0;
     std::uint32_t stageType = 0;
     if (!ResolveCurrentLevel(&level) || level == 0 ||
-        !IsEngineMemoryReadable(level + kLevelStageOffset, sizeof(stage)) ||
-        !IsEngineMemoryReadable(level + kLevelStageTypeOffset, sizeof(stageType))) {
+        !isaac::runtime::engine_memory::ReadAt(level + kLevelStageOffset, &stage,
+                                               &IsEngineMemoryReadable) ||
+        !isaac::runtime::engine_memory::ReadAt(level + kLevelStageTypeOffset, &stageType,
+                                               &IsEngineMemoryReadable)) {
         lua_pushboolean(state, 0);
         return 1;
     }
-    std::memcpy(&stage, reinterpret_cast<const void*>(level + kLevelStageOffset), sizeof(stage));
-    std::memcpy(&stageType, reinterpret_cast<const void*>(level + kLevelStageTypeOffset),
-                sizeof(stageType));
     const bool preAscent =
         stage == kLevelStagePreAscent && (stageType & ~1U) == kStageTypeRepentanceEraMasked;
     lua_pushboolean(state, preAscent ? 1 : 0);
@@ -2075,12 +2019,9 @@ void PushRoomConfigRoom(lua_State* state, std::uintptr_t data) {
     lua_createtable(state, 0, static_cast<int>(RowCount(kRoomConfigRoomFields)) + 1);
     for (std::size_t index = 0; index < RowCount(kRoomConfigRoomFields); ++index) {
         std::uint32_t value = 0;
-        if (data != 0 &&
-            IsEngineMemoryReadable(data + kRoomConfigRoomFields[index].offset,
-                                   sizeof(std::uint32_t))) {
-            std::memcpy(&value,
-                        reinterpret_cast<const void*>(data + kRoomConfigRoomFields[index].offset),
-                        sizeof(value));
+        if (data != 0) {
+            static_cast<void>(isaac::runtime::engine_memory::ReadAt(
+                data + kRoomConfigRoomFields[index].offset, &value, &IsEngineMemoryReadable));
         }
         lua_pushinteger(state, static_cast<lua_Integer>(value));
         lua_setfield(state, -2, kRoomConfigRoomFields[index].name);
@@ -2117,7 +2058,7 @@ bool RoomGetDoorSlotPosition(std::int32_t slot, RoomDoorPosition* out) noexcept 
         return false;
     }
     using DoorSlotPositionFn = RoomDoorPosition (*)(const void*, int);
-    const auto call = reinterpret_cast<DoorSlotPositionFn>(method);
+    const auto call = isaac::runtime::engine_call::AsFunction<DoorSlotPositionFn>(method);
     *out = call(room, static_cast<int>(slot));
     return true;
 }
@@ -2147,17 +2088,16 @@ int GridEntityDoorIsOpen(lua_State* state) {
     if (entityPointer == nullptr) {
         return luaL_error(state, "GridEntityDoor:IsOpen expects a door");
     }
-    const std::uintptr_t entity = reinterpret_cast<std::uintptr_t>(entityPointer);
+    const std::uintptr_t entity = isaac::runtime::engine_memory::AddressOf(entityPointer);
     std::uint32_t flags = 0;
-    if (IsEngineMemoryReadable(entity + kGridEntityDoorFlagsOffset, sizeof(std::uint32_t))) {
-        std::memcpy(&flags, reinterpret_cast<const void*>(entity + kGridEntityDoorFlagsOffset),
-                    sizeof(flags));
-    }
+    // 判定 + 取值同一次调用（L1 `ReadAt`）；读不到时 `flags` 保留初值 0，与原 if 同义。
+    static_cast<void>(isaac::runtime::engine_memory::ReadAt(entity + kGridEntityDoorFlagsOffset,
+                                                            &flags, &IsEngineMemoryReadable));
     bool open = (flags & (1u << 4)) != 0;
     const std::uintptr_t method = GridEntityDoorCanEnterMethod();
     if (method != 0 && EngineEntryWordMatches(method, kGridEntityDoorCanEnterEntryWord)) {
         using CanEnterFn = bool (*)(const void*);
-        open = reinterpret_cast<CanEnterFn>(method)(entityPointer);
+        open = isaac::runtime::engine_call::AsFunction<CanEnterFn>(method)(entityPointer);
     }
     lua_pushboolean(state, open ? 1 : 0);
     return 1;
@@ -2200,12 +2140,9 @@ bool CallGridEntityGetPosition(std::uintptr_t method, const std::array<u8, 16>& 
         return true;
     }
 #endif
-    if (method == 0 || (method & 3) != 0 || !IsEngineMemoryReadable(method, expected.size())) {
-        return false;
-    }
-    std::array<u8, 16> actual{};
-    std::memcpy(actual.data(), reinterpret_cast<const void*>(method), actual.size());
-    if (actual != expected) {
+    if (method == 0 || (method & 3) != 0 ||
+        !isaac::runtime::engine_call::VerifyEntryBytes(method, expected.data(), expected.size(),
+                                                       &IsEngineMemoryReadable)) {
         return false;
     }
     struct Vector2Value {
@@ -2213,7 +2150,8 @@ bool CallGridEntityGetPosition(std::uintptr_t method, const std::array<u8, 16>& 
         float y;
     };
     using GetPositionFn = Vector2Value (*)(const void*);
-    const Vector2Value value = reinterpret_cast<GetPositionFn>(method)(entity);
+    const Vector2Value value =
+        isaac::runtime::engine_call::AsFunction<GetPositionFn>(method)(entity);
     *x = value.x;
     *y = value.y;
     return true;
@@ -2225,7 +2163,7 @@ int GridEntityIndex(lua_State* state) {
     const char* key = lua_tostring(state, 2);
     void* entityPointer = (key == nullptr) ? nullptr : GridEntityArgument(state, 1);
     if (entityPointer != nullptr) {
-        const std::uintptr_t entity = reinterpret_cast<std::uintptr_t>(entityPointer);
+        const std::uintptr_t entity = isaac::runtime::engine_memory::AddressOf(entityPointer);
         if (std::strcmp(key, "Position") == 0) {
             // ★ 引擎自己算的位置（`(idx % W + 1) * 40`、`(idx / W) * 40 + 120`）——
             // 不自己按格子拼：EID 拿它算距离，口径必须与引擎一致。
@@ -2240,11 +2178,8 @@ int GridEntityIndex(lua_State* state) {
             return luaL_error(state, "GridEntity.Position is unavailable in this build");
         }
         const auto readField = [entity](std::uintptr_t offset, std::uint32_t* value) {
-            if (!IsEngineMemoryReadable(entity + offset, sizeof(std::uint32_t))) {
-                return false;
-            }
-            std::memcpy(value, reinterpret_cast<const void*>(entity + offset), sizeof(*value));
-            return true;
+            return isaac::runtime::engine_memory::ReadAt(entity + offset, value,
+                                                         &IsEngineMemoryReadable);
         };
         std::uint32_t value = 0;
         if (std::strcmp(key, "VarData") == 0) {
@@ -2293,13 +2228,13 @@ int GridEntityDoorIndex(lua_State* state) {
         lua_pushnil(state);
         return 1;
     }
-    const std::uintptr_t entity = reinterpret_cast<std::uintptr_t>(handle->entity);
+    const std::uintptr_t entity = isaac::runtime::engine_memory::AddressOf(handle->entity);
     const auto readU32 = [entity](std::uintptr_t offset, std::uint32_t* value) {
-        if (entity == 0 || !IsEngineMemoryReadable(entity + offset, sizeof(std::uint32_t))) {
+        if (entity == 0) {
             return false;
         }
-        std::memcpy(value, reinterpret_cast<const void*>(entity + offset), sizeof(*value));
-        return true;
+        return isaac::runtime::engine_memory::ReadAt(entity + offset, value,
+                                                     &IsEngineMemoryReadable);
     };
     std::uint32_t value = 0;
     if (std::strcmp(key, "TargetRoomType") == 0) {
@@ -2389,7 +2324,7 @@ int RoomDescriptorIndex(lua_State* state) {
         lua_pushnil(state);
         return 1;
     }
-    const std::uintptr_t descriptor = reinterpret_cast<std::uintptr_t>(handle->descriptor);
+    const std::uintptr_t descriptor = isaac::runtime::engine_memory::AddressOf(handle->descriptor);
     // 空句柄（`descriptor == nullptr`，见 `PushRoomDescriptor` 的注释）：这一刻解析不到当前房间。
     //
     // ★ 2026-09-19 批次 049：**网格类字段给 -1，而不是 nil**。
@@ -2503,11 +2438,9 @@ int RoomDescriptorIndex(lua_State* state) {
         // 现在：读不到就返回一张**字段全 0** 的表（= "普通房间"这个安全分支），并把这件事记进
         // 状态面（次数 + 现场几个字），下次读数就能看清"是哪种房间、描述符对不对"。
         std::uintptr_t data = 0;
-        const bool readable = IsEngineMemoryReadable(descriptor + kDataOffset, sizeof(std::uintptr_t));
-        if (readable) {
-            std::memcpy(&data, reinterpret_cast<const void*>(descriptor + kDataOffset),
-                        sizeof(data));
-        }
+        // 判定 + 取值同一次调用（L1 `ReadAt`）；读不到时 `data` 保留初值 0，与原 if 同义。
+        static_cast<void>(isaac::runtime::engine_memory::ReadAt(descriptor + kDataOffset, &data,
+                                                               &IsEngineMemoryReadable));
         if (data == 0) {
             RecordRoomDescriptorDataMiss(descriptor);
         }
@@ -2529,7 +2462,7 @@ int RoomDescriptorListIndex(lua_State* state) {
     }
     if (std::strcmp(key, "Size") == 0) {
         lua_pushinteger(state, static_cast<lua_Integer>(
-            DescriptorCount(reinterpret_cast<std::uintptr_t>(handle->level))));
+            DescriptorCount(isaac::runtime::engine_memory::AddressOf(handle->level))));
         return 1;
     }
     // ★ 必须从**元表**取方法表：用 `lua_getfield(state, 1, ...)` 去索引 userdata 会再次
@@ -2672,20 +2605,20 @@ int ItemPoolGetPillEffect(lua_State* state) {
         player = isaac::runtime::EntityPointerArgument(state, 3);
     }
     const std::uintptr_t base = EngineModuleBase();
+    std::uint32_t entryWord = 0;
     if (base == 0 || base > UINTPTR_MAX - kItemPoolGetPillEffectOffset ||
-        !IsEngineMemoryReadable(base + kItemPoolGetPillEffectOffset, sizeof(std::uint32_t))) {
+        !isaac::runtime::engine_memory::ReadAt(base + kItemPoolGetPillEffectOffset, &entryWord,
+                                               &IsEngineMemoryReadable)) {
         return luaL_error(state, "ItemPool:GetPillEffect native binding is unavailable");
     }
-    std::uint32_t entryWord = 0;
-    std::memcpy(&entryWord, reinterpret_cast<const void*>(base + kItemPoolGetPillEffectOffset),
-                sizeof(entryWord));
     if (entryWord != kItemPoolGetPillEffectEntryWord) {
         return luaL_error(state, "ItemPool:GetPillEffect native binding does not match this build");
     }
     // 引擎签名：`int (*)(ItemPool*, int pillColor, Entity_Player*)`（颜色在 w1、玩家在 x2）。
     using GetPillEffectFn = int (*)(void*, int, void*);
-    const int pillEffect = reinterpret_cast<GetPillEffectFn>(base + kItemPoolGetPillEffectOffset)(
-        itemPool, static_cast<int>(pillColor), reinterpret_cast<void*>(player));
+    const int pillEffect = isaac::runtime::engine_call::AsFunction<GetPillEffectFn>(
+        base + kItemPoolGetPillEffectOffset)(
+        itemPool, static_cast<int>(pillColor), isaac::runtime::engine_memory::AsObject(player));
     lua_pushinteger(state, static_cast<lua_Integer>(pillEffect));
     return 1;
 }
@@ -2712,19 +2645,19 @@ int ItemPoolGetPoolForRoom(lua_State* state) {
         return luaL_error(state, "ItemPool:GetPoolForRoom could not read the native ItemPool state");
     }
     const std::uintptr_t base = EngineModuleBase();
+    std::uint32_t entryWord = 0;
     if (base == 0 || base > UINTPTR_MAX - kItemPoolGetPoolForRoomOffset ||
-        !IsEngineMemoryReadable(base + kItemPoolGetPoolForRoomOffset, sizeof(std::uint32_t))) {
+        !isaac::runtime::engine_memory::ReadAt(base + kItemPoolGetPoolForRoomOffset, &entryWord,
+                                               &IsEngineMemoryReadable)) {
         return luaL_error(state, "ItemPool:GetPoolForRoom native binding is unavailable");
     }
-    std::uint32_t entryWord = 0;
-    std::memcpy(&entryWord, reinterpret_cast<const void*>(base + kItemPoolGetPoolForRoomOffset),
-                sizeof(entryWord));
     if (entryWord != kItemPoolGetPoolForRoomEntryWord) {
         return luaL_error(state, "ItemPool:GetPoolForRoom native binding does not match this build");
     }
     // 引擎签名：`int (*)(const ItemPool*, int roomType, unsigned seed)`。
     using GetPoolForRoomFn = int (*)(const void*, int, unsigned);
-    const int pool = reinterpret_cast<GetPoolForRoomFn>(base + kItemPoolGetPoolForRoomOffset)(
+    const int pool = isaac::runtime::engine_call::AsFunction<GetPoolForRoomFn>(
+        base + kItemPoolGetPoolForRoomOffset)(
         itemPool, static_cast<int>(roomType), static_cast<unsigned>(seed));
     lua_pushinteger(state, static_cast<lua_Integer>(pool));
     return 1;
@@ -2748,25 +2681,24 @@ int LevelGetLastRoomDesc(lua_State* state) {
         return luaL_error(state, "Level:GetLastRoomDesc could not read the native Level state");
     }
     const std::uintptr_t base = EngineModuleBase();
+    std::uint32_t entryWord = 0;
     if (base == 0 || base > UINTPTR_MAX - kLevelGetLastRoomDescOffset ||
-        !IsEngineMemoryReadable(base + kLevelGetLastRoomDescOffset, sizeof(std::uint32_t))) {
+        !isaac::runtime::engine_memory::ReadAt(base + kLevelGetLastRoomDescOffset, &entryWord,
+                                               &IsEngineMemoryReadable)) {
         return luaL_error(state, "Level:GetLastRoomDesc native binding is unavailable");
     }
-    std::uint32_t entryWord = 0;
-    std::memcpy(&entryWord, reinterpret_cast<const void*>(base + kLevelGetLastRoomDescOffset),
-                sizeof(entryWord));
     if (entryWord != kLevelGetLastRoomDescEntryWord) {
         return luaL_error(state, "Level:GetLastRoomDesc native binding does not match this build");
     }
     // 引擎签名：`RoomDescriptor* (*)(Level*)`（`this` 在 x0）。
     using GetLastRoomDescFn = void* (*)(void*);
-    void* descriptor = reinterpret_cast<GetLastRoomDescFn>(base + kLevelGetLastRoomDescOffset)(
-        reinterpret_cast<void*>(level));
+    void* descriptor = isaac::runtime::engine_call::AsFunction<GetLastRoomDescFn>(
+        base + kLevelGetLastRoomDescOffset)(isaac::runtime::engine_memory::AsObject(level));
     if (descriptor == nullptr) {
         lua_pushnil(state);
         return 1;
     }
-    return PushRoomDescriptor(state, reinterpret_cast<std::uintptr_t>(descriptor));
+    return PushRoomDescriptor(state, isaac::runtime::engine_memory::AddressOf(descriptor));
 }
 
 

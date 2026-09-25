@@ -5,7 +5,9 @@
 
 （2026-09-20 批次 102：入口中继从四路涨到八路 —— 新增的四个事件靶点
 `UseActiveItem`/`UseCard`/`UsePill`/`GameExit` 全部走 `EntryRelay`。下面两条期望值
-跟着加长；**不是放宽**：每个挂点仍必须恰好一行、顺序仍必须与 `HookId` 一致。）
+跟着加长；**不是放宽**：每个挂点仍必须恰好一行、顺序仍必须与 `HookId` 一致。
+2026-09-23 批次 077（模组页搬生产）：同样加长三条 —— `MenuGameRender`/`MenuTitleRender`/
+`MenuManagerSetState` 都走 `EntryRelay`。）
 """
 
 import re
@@ -21,7 +23,10 @@ EXPECTED = ("ManagerUpdate", "ManagerRender", "PreGetCollectible",
             "ManagerPresent", "RebuildMountPoints", "GameStart",
             "UseActiveItem", "UseCard", "UsePill", "GameExit", "PickupCollision",
             "RoomEntitySpawn", "ImagePcxLoad",
-            "ImageManagerLoadFile", "ContentGetMountedFilePath")
+            "ImageManagerLoadFile", "ContentGetMountedFilePath",
+            "MenuGameRender", "MenuTitleRender", "MenuManagerSetState",
+            # 批次 098（禁成就）：闸门挂在 `SetReadOnly` 上，同样走入口中继。
+            "PersistentGameDataSetReadOnly")
 
 
 def catalog_entries(text):
@@ -52,7 +57,11 @@ class HookCatalogTests(unittest.TestCase):
             backends,
             ["EntryRelay", "EntryRelay", "EntryRelay", "GotSlot", "EntryRelay", "RelaySlot",
              "EntryRelay", "EntryRelay", "EntryRelay", "EntryRelay", "EntryRelay",
-             "EntryRelay", "EntryRelay", "EntryRelay", "EntryRelay"],
+             "EntryRelay", "EntryRelay", "EntryRelay", "EntryRelay",
+             # 批次 077 的三个入口中继。
+             "EntryRelay", "EntryRelay", "EntryRelay",
+             # 批次 092：成就解锁的唯一漏斗（入口中继）。
+             "EntryRelay"],
             "M2b 之后：入口中继 + ManagerPresent 走 GOT 槽；"
             "GameStart 走 RelaySlot（引擎侧中继已放好代码，我们只往槽里写回调指针）；"
             "批次 102 的四个事件靶点都走入口中继（零占洞）")

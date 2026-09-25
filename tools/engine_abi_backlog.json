@@ -155,6 +155,31 @@
       "class": "B",
       "why": "贴图桥 v4 的挂点目标（IContentManager::GetMountedFilePath）：我们改写它的入口、以入口中继接管，回调自己决定是否调原函数；不按引擎签名直接调它（解析原函数走 Original<>）。**不要**再对它做逐字节绑定校验——入口已被我们改写成跳转，比原版序言必然失败（2026-09-21 真机掩码 0x20 的成因）。",
       "evidence": "runtime/source/runtime_constants.hpp 的「贴图桥 v4」段；runtime/src/infrastructure/relay/entry_relay_hook_adapter.cpp 的 BindingOf(ContentGetMountedFilePath)；runtime/source/hook_manager.cpp 的 EntryRelayContentGetMountedFilePathCallback 与 OriginalGetMountedFilePath"
+    },
+    "kFilesysFileExistsOffset": {
+      "class": "C",
+      "why": "**现在没有消费者**（2026-09-22 批次 044 的探针曾用它在读 `metadata.xml` 前做存在性检查，第 045 批改掉了那条路：真正的错在\"把没解析过的路径交给读函数\"，见 `docs/问题与解决记录.md` 续七十）。保留这个常量与它的反汇编证据，因为它是引擎自己的存在性判定：判\"在不在\"时用它**不会**因路径形状不对而炸（它内部会先 `GetMountedFilePath` 解析），以后要用直接拿。类别 C 的口径是\"全仓库没有消费者\"，与这里的现状一致。",
+      "evidence": "grep -rn kFilesysFileExistsOffset runtime/ → 除 runtime_constants.hpp 本身外 0 处；它进签名表是因为 `KAGE::Filesys::File::Exists(char const*)` 是导出的动态符号；入口守卫字节取自 `python3 tools/nro_disasm.py 0x4CCCE8 16`；事故与修法：docs/问题与解决记录.md 续七十、dist/change-archive-20260922/044-real-mod-names/README.md"
+    },
+    "kMenuGameRenderOffset": {
+      "class": "B",
+      "why": "入口中继目标：我们**替换它的入口**（中继回调以目标函数的身份跑），不按引擎签名跳进去调用它。「我们的回调声明得对不对」由 `RELAY_CALLBACK_TARGETS` 那一条对着镜像机器核对（参数 `our == engine + 1`、返回值 `void`），所以这里没有漏检的签名。",
+      "evidence": "runtime/source/runtime_constants.hpp 的 `kMenuGameRenderOffset` + 16 字节守卫（与真 `Repentance.nro` 逐字节相同）；runtime/src/infrastructure/relay/entry_relay_hook_adapter.cpp 的 `BindingOf(HookId::MenuGameRender)`；回调定义见 runtime/source/mod_menu_native.cpp 的 `EntryRelayMenuGameRenderCallback`"
+    },
+    "kMenuTitleRenderOffset": {
+      "class": "B",
+      "why": "入口中继目标（模组页唯一的画手：`MenuManager::Render` 的清单里没有模组页，借标题页那一趟的渲染上下文）。同 `kMenuGameRenderOffset`：回调签名由 `RELAY_CALLBACK_TARGETS` 对着镜像核对。",
+      "evidence": "runtime/src/infrastructure/relay/entry_relay_hook_adapter.cpp 的 `BindingOf(HookId::MenuTitleRender)`；回调定义见 runtime/source/mod_menu_native.cpp 的 `EntryRelayMenuTitleRenderCallback`；镜像里 `IsaacRepentance::Menu_Title::Render()` 无参数、无返回值"
+    },
+    "kMenuManagerSetStateOffset": {
+      "class": "B",
+      "why": "入口中继目标（保险：引擎按它自己的行号想替我们那一格跳统计/选项时挡下来）。我们**确实**还有一个「守卫 + 直接调」的回退路径（`ApplyState`），但它与中继回调同形，而中继回调的签名由 `RELAY_CALLBACK_TARGETS` 对着镜像机器核对（`MenuManager::SetState(eState)` 参数 1 + 隐式 this = 我们声明的 2、返回值 void）。",
+      "evidence": "runtime/source/mod_menu_native.cpp 的 `ApplyState`（优先走中继原函数、守卫直调兜底）与 `EntryRelayMenuManagerSetStateCallback`；runtime/src/infrastructure/relay/entry_relay_hook_adapter.cpp 的 `BindingOf(HookId::MenuManagerSetState)`"
+    },
+    "kPersistentGameDataSetReadOnlyOffset": {
+      "class": "B",
+      "why": "入口中继目标（成就闸门：把引擎原参数 OR「按 PC 规则该禁」后调回退入口），不按引擎签名直接跳进去调用 ⇒ 没有可被 `declared_signature` 读到的调用点声明。回调签名由 `RELAY_CALLBACK_TARGETS` 对着镜像机器核对（引擎 `PersistentGameData::SetReadOnly(bool)` 参数 1 + 隐式 this = 我们声明的 2；返回值两边都是 **void**）。★ 批次 098（2026-09-24）从旧的 `kPersistentGameDataTryUnlockOffset` 换到这里：闸门按用户裁定「照 PC 语义」挂到唯一写只读位的地方，旧常量连同旧中继一起撤掉。",
+      "evidence": "runtime/source/hook_manager.cpp 的 `EntryRelayPersistentGameDataSetReadOnlyCallback`（形状注释与 `Original<SetReadOnlyFn>` 那两行）；runtime/src/domain/runtime/hook_catalog.hpp 的 `HookId::PersistentGameDataSetReadOnly`；runtime/src/infrastructure/relay/entry_relay_hook_adapter.cpp 的 `BindingOf(HookId::PersistentGameDataSetReadOnly)`；签名表里 `_ZN15IsaacRepentance18PersistentGameData11SetReadOnlyEb`（mangled name 自带参数表）；入口 16 字节守卫取自 `python3 tools/nro_disasm.py 0x439460 0x40`"
     }
   }
 }

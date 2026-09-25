@@ -11,6 +11,7 @@
 #include "lua_runtime_state.hpp"
 #include "hook_manager.hpp"
 #include "mod_persistence.hpp"
+#include "fatal_forensics.hpp"
 #include "persistence_event_journal.hpp"
 #include "program/setting.hpp"
 
@@ -40,7 +41,8 @@ extern "C" char __fake_heap[];
 // probes) defines `EXL_LAYERED_RUNTIME`, so the layered headers are required
 // unconditionally: the non-layered duplicate implementations no longer exist.
 #include "interfaces/lua/engine_frame_probe.hpp"
-#include "interfaces/lua/engine_memory_guard.hpp"
+#include "infrastructure/call/engine_call_access.hpp"
+#include "infrastructure/memory/engine_memory_guard.hpp"
 #include "application/callback/callback_dispatcher.hpp"
 #include "application/callback/callback_registry.hpp"
 #include "domain/callback/callback_descriptor.hpp"
@@ -1452,42 +1454,71 @@ int CreateGameHandle(lua_State* state) {
 
 bool ValidateMusicMethod(uintptr_t address, const u8* expected, std::size_t expectedLength);
 
+// 引擎调用层 / 内存访问层的接口。本文件在**全局** `LuaRuntime` 命名空间里（见
+// `lua_runtime_state.hpp` 顶部那条说明），`engine_call::` / `engine_memory::` 这类名字不能直接
+// 解析 —— 用一个短名字别名，免得每条判据写的都是完整路径。
+using isaac::runtime::engine_call::AsFunction;
+using isaac::runtime::engine_call::BytesMatchAt;
+using isaac::runtime::engine_call::ValueMatchesAt;
+using isaac::runtime::engine_call::VerifyEntryBytes;
+using isaac::runtime::engine_memory::AsObject;
+using isaac::runtime::engine_memory::FieldAddress;
+using isaac::runtime::engine_memory::LoadVerifiedAt;
+
+//: 「这段地址是不是引擎模块的**代码段**」—— 形状与 L1/L2 的 `ReadableCheck` 一致，供引擎调用层注入。
+//:
+//: 判据**逐条照搬**本文件原有那两处内联查询（`ValidateItemPoolGetCollectibleMethod` 与
+//: `ValidateMusicMethod` 各一份，去掉注释后逐字相同）：整段落在**同一段映射**内、
+//: `(type & MemState_Type) == MemType_ModuleCodeStatic`、`perm == Perm_Rx`。
+//: ★ 这比层里那份通用可读判定（`EngineMemoryReadable`，只要求带 `Perm_R`）**严得多** ——
+//:   放宽成"能读就行"就等于允许拿一个数据地址当函数入口去调，所以这条判定按原样保留。
+//: 本函数**只判"模块代码段"这一件事**，不比较字节（比较在层的 `VerifyEntryBytes` 里）。
+//: 只在设备上定义：它的两个消费者都在 `#if defined(__SWITCH__)` 里（宿主没有 `svcQueryMemory`）。
+#if defined(__SWITCH__)
+bool IsEngineModuleCodeReadable(uintptr_t address, std::size_t length) {
+    if (length == 0 || address > UINTPTR_MAX - length) {
+        return false;
+    }
+    MemoryInfo info{};
+    u32 pageInfo = 0;
+    if (R_FAILED(svcQueryMemory(&info, &pageInfo, address)) || info.size == 0 ||
+        info.addr > UINTPTR_MAX - info.size) {
+        return false;
+    }
+    const uintptr_t end = address + length;
+    return address >= info.addr && end <= info.addr + info.size &&
+           (info.type & MemState_Type) == MemType_ModuleCodeStatic && info.perm == Perm_Rx;
+}
+#endif
+
 bool ValidateItemPoolGetCollectibleMethod(uintptr_t address) {
     if (address == 0 || (address & 3) != 0) return false;
 #if defined(__SWITCH__)
     constexpr std::size_t entrySize = kPreGetCollectibleRelayExpectedEntry.size();
     constexpr std::size_t totalSize = kPreGetCollectibleRelayExpectedOriginal.size();
-    MemoryInfo info{};
-    u32 pageInfo = 0;
-    if (address > UINTPTR_MAX - totalSize ||
-        R_FAILED(svcQueryMemory(&info, &pageInfo, address)) || info.size == 0 ||
-        info.addr > UINTPTR_MAX - info.size) {
-        return false;
-    }
-    const uintptr_t end = address + totalSize;
-    if (!(address >= info.addr && end <= info.addr + info.size &&
-          (info.type & MemState_Type) == MemType_ModuleCodeStatic && info.perm == Perm_Rx)) {
+    // 先**一次**核对包住整个 16 字节窗口（判据见 `IsEngineModuleCodeReadable`），之后每一次比较都
+    // 只在这段已核对过的窗口里做 —— 问内核的次数与原来一样是**一次**（不是每比一段问一次）。
+    if (!IsEngineModuleCodeReadable(address, totalSize)) {
         return false;
     }
     // 形态一（旧 IPS 中继）：入口前 4 字节是补丁写入的分支，其余仍是被调用函数的原序言。
-    if (std::memcmp(reinterpret_cast<const void*>(address), kPreGetCollectibleRelayExpectedEntry.data(),
-                    entrySize) == 0 &&
-        std::memcmp(reinterpret_cast<const void*>(address + entrySize),
-                    kPreGetCollectibleRelayExpectedOriginal.data() + entrySize,
-                    totalSize - entrySize) == 0) {
+    if (BytesMatchAt(address, kPreGetCollectibleRelayExpectedEntry.data(), entrySize) &&
+        BytesMatchAt(address + entrySize,
+                     kPreGetCollectibleRelayExpectedOriginal.data() + entrySize,
+                     totalSize - entrySize)) {
         return true;
     }
     // 形态二（零占洞入口中继）：入口 16 字节整体被改写成 `ldr x16, #8; br x16; .quad 槽地址`。
     // 两个目标都是小端，整字比较与逐字节比较等价；槽地址只做"非零且 8 字节对齐"的轻量核对
     // （它落在我们自己的模块里，这个函数看不到那边的边界）。
-    if (std::memcmp(reinterpret_cast<const void*>(address), &kEntryRelayEntryStubWord0,
-                    sizeof(kEntryRelayEntryStubWord0)) != 0 ||
-        std::memcmp(reinterpret_cast<const void*>(address + sizeof(kEntryRelayEntryStubWord0)),
-                    &kEntryRelayEntryStubWord1, sizeof(kEntryRelayEntryStubWord1)) != 0) {
+    if (!ValueMatchesAt(address, kEntryRelayEntryStubWord0) ||
+        !ValueMatchesAt(address + sizeof(kEntryRelayEntryStubWord0), kEntryRelayEntryStubWord1)) {
         return false;
     }
     std::uintptr_t slot = 0;
-    std::memcpy(&slot, reinterpret_cast<const void*>(address + 8), sizeof(slot));
+    if (!LoadVerifiedAt(address + 8, 0, &slot)) {
+        return false;
+    }
     return slot != 0 && (slot & (alignof(std::uintptr_t) - 1)) == 0;
 #else
     return true;
@@ -1496,18 +1527,25 @@ bool ValidateItemPoolGetCollectibleMethod(uintptr_t address) {
 
 
 
-bool IsReadableMusicObject(uintptr_t address) {
+//: 「这 `length` 个字节可读、且**不可执行**吗」—— 形状与 L1/L2 的 `ReadableCheck` 一致，
+//: 供引擎调用层（`FieldAddress`）注入。判据**逐条照搬**本文件原来那份（同一个策略在
+//: `game_observer.cpp` 里叫 `IsReadableNonExecutableMapping`，那是那个 TU 的内部实现，
+//: 这里按原样保留一份，不做跨 TU 合并）。
+//: ★ 与 `IsEngineModuleCodeReadable` 是**两种不同的判定**，不许互相替换：这份允许数据段
+//:   （只要带 `Perm_R`），但要求**不带** `Perm_X`；那份只认模块映像的代码段。
+bool IsReadableMusicObject(uintptr_t address, std::size_t length) {
 #if defined(__SWITCH__)
     MemoryInfo info{};
     u32 pageInfo = 0;
     if (R_FAILED(svcQueryMemory(&info, &pageInfo, address)) || info.size == 0 ||
-        info.addr > UINTPTR_MAX - info.size || address > UINTPTR_MAX - sizeof(uintptr_t)) {
+        info.addr > UINTPTR_MAX - info.size || address > UINTPTR_MAX - length) {
         return false;
     }
-    const uintptr_t end = address + sizeof(uintptr_t);
+    const uintptr_t end = address + length;
     return address >= info.addr && end <= info.addr + info.size &&
            (info.perm & Perm_R) != 0 && (info.perm & Perm_X) == 0;
 #else
+    static_cast<void>(length);
     return address != 0 && (address & (alignof(uintptr_t) - 1)) == 0;
 #endif
 }
@@ -1517,29 +1555,30 @@ bool ValidateMusicMethod(uintptr_t address, const u8* expected, std::size_t expe
         return false;
     }
 #if defined(__SWITCH__)
-    MemoryInfo info{};
-    u32 pageInfo = 0;
-    if (address > UINTPTR_MAX - expectedLength ||
-        R_FAILED(svcQueryMemory(&info, &pageInfo, address)) || info.size == 0 ||
-        info.addr > UINTPTR_MAX - info.size) {
-        return false;
-    }
-    const uintptr_t end = address + expectedLength;
-    return address >= info.addr && end <= info.addr + info.size &&
-           (info.type & MemState_Type) == MemType_ModuleCodeStatic && info.perm == Perm_Rx &&
-           std::memcmp(reinterpret_cast<const void*>(address), expected, expectedLength) == 0;
+    // 地址是**别处算好的**（Lua 侧传进来的方法地址 / 调用点传来的入口）⇒ 形状是
+    // `VerifyEntryBytes`（核对已算好的地址），而不是 `ResolveEntryAddress`（基址 + 偏移）。
+    // 注入的判定比层里那份通用可读**更严**：只认模块映像的代码段（见 `IsEngineModuleCodeReadable`）。
+    return VerifyEntryBytes(address, expected, expectedLength, &IsEngineModuleCodeReadable);
 #else
+    // 宿主构建没有 `svcQueryMemory`：宿主门禁会把**进程内的真函数**（例如 `&SetSeed`）当引擎方法
+    // 传进来，其机器码与设备端常量必然不同 ⇒ 原实现把"问内核 + 逐字节比对"整段包在 `__SWITCH__`
+    // 里、宿主一律放行。这里**逐条保持** —— 这不是"放宽判据"，是"设备判据在宿主上无法执行"；
+    // 上面那三条参数/对齐判据在宿主上照旧生效（原来也是如此）。
     return true;
 #endif
 }
 
 bool ResolveMusicForManager(uintptr_t manager, uintptr_t method, const u8* expected,
                             std::size_t expectedLength, uintptr_t* music) {
-    if (manager == 0 || manager > UINTPTR_MAX - kManagerMusicOffset) {
+    if (manager == 0) {
         return false;
     }
-    const uintptr_t candidate = manager + kManagerMusicOffset;
-    if (!IsReadableMusicObject(candidate) || !ValidateMusicMethod(method, expected, expectedLength)) {
+    // `manager + kManagerMusicOffset` 的"偏移算术 + 回绕 + 可读"三件事收进 L1 的 `FieldAddress`
+    // （原来是自己加偏移、再调 `IsReadableMusicObject`）；注入的判定就是本文件那份"可读且不可执行"，
+    // 宽度仍是 8 字节 —— 判据逐条未改。
+    const uintptr_t candidate = FieldAddress(manager, kManagerMusicOffset,
+                                             sizeof(uintptr_t), 0, &IsReadableMusicObject);
+    if (candidate == 0 || !ValidateMusicMethod(method, expected, expectedLength)) {
         return false;
     }
     *music = candidate;
@@ -2204,6 +2243,22 @@ LuaInitResult ResetAfterFailure(lua_State* state, LuaInitResult result) {
     return result;
 }
 
+// 批次 099（2026-09-24）：Lua「无保护抛错」的留证兜底（见 `fatal_forensics.hpp` 的文件头）。
+//
+// 为什么需要它：Lua 的错误在整条链上找不到 `errorJmp` 时，`luaD_throw` 会走到末尾的 `abort()`
+// （离线反汇编见 `docs/问题记录-画面卡死-20260924.md` §10），而我们**从没注册过 `lua_atpanic`**
+// ⇒ 那条路一个字节的痕迹都不留（表现就是画面停、音乐继续、没有崩溃报告）。
+// 这里注册的处理器**不返回**：先 `svcBreak` 把寄存器交给崩溃报告（`x2 = 2` = Lua 这条路）。
+//
+// 为什么在这个文件里定义、而不是放进那个头：它需要 `lua_State` 类型；放头里会把 lua 头
+// 引入每一个包含它的单元（`runtime_entry.cpp` 等），没必要。
+int LuaPanicForensics(lua_State* state) {
+    isaac::runtime::forensics::Break(
+        isaac::runtime::forensics::kKindLuaPanic,
+        static_cast<std::uint64_t>(reinterpret_cast<std::uintptr_t>(state)));
+    return 0;  // 不可达：上面的 Break 是 [[noreturn]]
+}
+
 // 建立流程的**唯一实现**：建 Lua 状态 → 跑 `PrepareRuntime` → 跑自带菜单脚本。
 // 成功时把 `g_LuaState`/`g_Ready` 设好（模组随后往同一个状态里追加）。
 LuaInitResult EnsureRuntimeWithMenuInternal() {
@@ -2218,6 +2273,10 @@ LuaInitResult EnsureRuntimeWithMenuInternal() {
     // 只是把"分配了多少次、多少字节"记下来）。用 `lua_setallocf` 而不是自己 `lua_newstate`：
     // `luaL_newstate` 还会装 panic 处理器，自己建会把那部分丢掉（语义要一字不差地保留）。
     lua_setallocf(state, IsaacRuntime_CountingAlloc, nullptr);
+    // 批次 099（2026-09-24）：把「Lua 在**没有 pcall 保护**的上下文里抛错」从**静默卡死**
+    // 变成**可读的崩溃报告**（处理器本体见上面的 `LuaPanicForensics`）。这一句只装兜底，
+    // **不改任何 Lua 语义**；必须建好状态之后才能注册（在那之前没有 `lua_State`）。
+    lua_atpanic(state, &LuaPanicForensics);
     // 批次 089：挂上采样剖析器（计数钩子，每 `kRuntimePerfProfileInstructionStep` 条指令一次）。
     // **只在实际设备构建里挂**：宿主门禁跑上千次 Lua 脚本，挂上去只会让套件变慢；
     // 剖析器自己的门禁会**显式**调用 `IsaacRuntime_ProfileHook` 来验行为。
@@ -2430,6 +2489,11 @@ std::uint64_t LastLuaErrorHead(std::uint32_t* length) noexcept {
 // 而当时堆只有 2 MiB。把用量报出来，才能判断"32 MiB 够不够"，而不是靠猜。
 std::size_t HeapUsedBytes() noexcept {
 #if defined(__SWITCH__) && defined(EXL_USE_FAKEHEAP)
+    // ★ 这两处**刻意不迁**到引擎内存访问层：`sbrk`/`__fake_heap` 是我们**自己的假堆**，
+    // 不是引擎内存 —— 用 `engine_memory::AddressOf` 去转会把那个名字的含义搞混
+    // （那个命名空间治的是"引擎内存"，见 `engine_field_access.hpp` 头部）。
+    // 台账 `tools/raw_engine_access_baseline.json` 的口径本来就是**代理指标**，
+    // 它明说了"同一个数字里混着两类完全不同的东西"，这一处属于"不是引擎访问"那一类。
     const auto top = reinterpret_cast<std::uintptr_t>(sbrk(0));
     const auto base = reinterpret_cast<std::uintptr_t>(__fake_heap);
     return top > base ? static_cast<std::size_t>(top - base) : 0;
@@ -2616,150 +2680,157 @@ std::uintptr_t RngNextThunk() noexcept {
     return g_RngNext.load(std::memory_order_acquire);
 }
 
+// 取址助手：把原子槽里存的地址交回**带签名的函数指针**。
+//
+// 2026-09-24（批次 114）：转换从 `reinterpret_cast<XxxFn>(…)` 改成引擎调用层的
+// `AsFunction<XxxFn>(…)` —— 全仓"整数地址 → 函数指针"只允许在层里那一处出现（可检索、可审计），
+// 这也正是 `docs/架构诊断-框架为什么失效-20260924.md` 里"裸碰引擎"要治的那一类。
+// 这些地址是**钩子中继在安装时核对过**的（`ResolveEntryAddress` 那条路），所以只做转换、不再核对
+// （层的注释写明：`AsFunction` 不做可读/映像归属核对，交进来的必须是已经核对过的地址）。
 FontCtorFn FontCtorThunk() noexcept {
-    return reinterpret_cast<FontCtorFn>(g_FontCtor.load(std::memory_order_acquire));
+    return AsFunction<FontCtorFn>(g_FontCtor.load(std::memory_order_acquire));
 }
 
 FontDestructorFn FontDestructorThunk() noexcept {
-    return reinterpret_cast<FontDestructorFn>(g_FontDestructor.load(std::memory_order_acquire));
+    return AsFunction<FontDestructorFn>(g_FontDestructor.load(std::memory_order_acquire));
 }
 
 FontLoadFn FontLoadThunk() noexcept {
-    return reinterpret_cast<FontLoadFn>(g_FontLoad.load(std::memory_order_acquire));
+    return AsFunction<FontLoadFn>(g_FontLoad.load(std::memory_order_acquire));
 }
 
 FontUnloadFn FontUnloadThunk() noexcept {
-    return reinterpret_cast<FontUnloadFn>(g_FontUnload.load(std::memory_order_acquire));
+    return AsFunction<FontUnloadFn>(g_FontUnload.load(std::memory_order_acquire));
 }
 
 FontIsLoadedFn FontIsLoadedThunk() noexcept {
-    return reinterpret_cast<FontIsLoadedFn>(g_FontIsLoaded.load(std::memory_order_acquire));
+    return AsFunction<FontIsLoadedFn>(g_FontIsLoaded.load(std::memory_order_acquire));
 }
 
 FontGetStringWidthFn FontGetStringWidthThunk() noexcept {
-    return reinterpret_cast<FontGetStringWidthFn>(
+    return AsFunction<FontGetStringWidthFn>(
         g_FontGetStringWidth.load(std::memory_order_acquire));
 }
 
 FontGetStringWidthUTF8Fn FontGetStringWidthUTF8Thunk() noexcept {
-    return reinterpret_cast<FontGetStringWidthUTF8Fn>(
+    return AsFunction<FontGetStringWidthUTF8Fn>(
         g_FontGetStringWidthUTF8.load(std::memory_order_acquire));
 }
 
 FontGetLineHeightFn FontGetLineHeightThunk() noexcept {
-    return reinterpret_cast<FontGetLineHeightFn>(
+    return AsFunction<FontGetLineHeightFn>(
         g_FontGetLineHeight.load(std::memory_order_acquire));
 }
 
 FontGetBaselineHeightFn FontGetBaselineHeightThunk() noexcept {
-    return reinterpret_cast<FontGetBaselineHeightFn>(
+    return AsFunction<FontGetBaselineHeightFn>(
         g_FontGetBaselineHeight.load(std::memory_order_acquire));
 }
 
 FontGetCharacterWidthFn FontGetCharacterWidthThunk() noexcept {
-    return reinterpret_cast<FontGetCharacterWidthFn>(
+    return AsFunction<FontGetCharacterWidthFn>(
         g_FontGetCharacterWidth.load(std::memory_order_acquire));
 }
 
 FontSetMissingCharacterFn FontSetMissingCharacterThunk() noexcept {
-    return reinterpret_cast<FontSetMissingCharacterFn>(
+    return AsFunction<FontSetMissingCharacterFn>(
         g_FontSetMissingCharacter.load(std::memory_order_acquire));
 }
 
 FontDrawStringScaledFn FontDrawStringScaledThunk() noexcept {
-    return reinterpret_cast<FontDrawStringScaledFn>(
+    return AsFunction<FontDrawStringScaledFn>(
         g_FontDrawStringScaled.load(std::memory_order_acquire));
 }
 
 FontDrawStringUTF8Fn FontDrawStringUTF8Thunk() noexcept {
-    return reinterpret_cast<FontDrawStringUTF8Fn>(
+    return AsFunction<FontDrawStringUTF8Fn>(
         g_FontDrawStringUTF8.load(std::memory_order_acquire));
 }
 
 FontDrawStringScaledUTF8Fn FontDrawStringScaledUTF8Thunk() noexcept {
-    return reinterpret_cast<FontDrawStringScaledUTF8Fn>(
+    return AsFunction<FontDrawStringScaledUTF8Fn>(
         g_FontDrawStringScaledUTF8.load(std::memory_order_acquire));
 }
 
 FontDrawStringFn FontDrawStringThunk() noexcept {
-    return reinterpret_cast<FontDrawStringFn>(g_FontDrawString.load(std::memory_order_acquire));
+    return AsFunction<FontDrawStringFn>(g_FontDrawString.load(std::memory_order_acquire));
 }
 
 SpriteCtorFn SpriteCtorThunk() noexcept {
-    return reinterpret_cast<SpriteCtorFn>(g_SpriteCtor.load(std::memory_order_acquire));
+    return AsFunction<SpriteCtorFn>(g_SpriteCtor.load(std::memory_order_acquire));
 }
 SpriteDestructorFn SpriteDestructorThunk() noexcept {
-    return reinterpret_cast<SpriteDestructorFn>(g_SpriteDestructor.load(std::memory_order_acquire));
+    return AsFunction<SpriteDestructorFn>(g_SpriteDestructor.load(std::memory_order_acquire));
 }
 SpritePlayFn SpritePlayThunk() noexcept {
-    return reinterpret_cast<SpritePlayFn>(g_SpritePlay.load(std::memory_order_acquire));
+    return AsFunction<SpritePlayFn>(g_SpritePlay.load(std::memory_order_acquire));
 }
 SpriteSetAnimationFn SpriteSetAnimationThunk() noexcept {
-    return reinterpret_cast<SpriteSetAnimationFn>(
+    return AsFunction<SpriteSetAnimationFn>(
         g_SpriteSetAnimation.load(std::memory_order_acquire));
 }
 SpriteSetFrameNamedFn SpriteSetFrameNamedThunk() noexcept {
-    return reinterpret_cast<SpriteSetFrameNamedFn>(
+    return AsFunction<SpriteSetFrameNamedFn>(
         g_SpriteSetFrameNamed.load(std::memory_order_acquire));
 }
 SpriteSetFrameFn SpriteSetFrameThunk() noexcept {
-    return reinterpret_cast<SpriteSetFrameFn>(g_SpriteSetFrame.load(std::memory_order_acquire));
+    return AsFunction<SpriteSetFrameFn>(g_SpriteSetFrame.load(std::memory_order_acquire));
 }
 SpriteGetFrameFn SpriteGetFrameThunk() noexcept {
-    return reinterpret_cast<SpriteGetFrameFn>(g_SpriteGetFrame.load(std::memory_order_acquire));
+    return AsFunction<SpriteGetFrameFn>(g_SpriteGetFrame.load(std::memory_order_acquire));
 }
 SpriteSetLayerFrameFn SpriteSetLayerFrameThunk() noexcept {
-    return reinterpret_cast<SpriteSetLayerFrameFn>(
+    return AsFunction<SpriteSetLayerFrameFn>(
         g_SpriteSetLayerFrame.load(std::memory_order_acquire));
 }
 SpriteGetLayerFrameFn SpriteGetLayerFrameThunk() noexcept {
-    return reinterpret_cast<SpriteGetLayerFrameFn>(
+    return AsFunction<SpriteGetLayerFrameFn>(
         g_SpriteGetLayerFrame.load(std::memory_order_acquire));
 }
 SpriteGetTexelFn SpriteGetTexelThunk() noexcept {
-    return reinterpret_cast<SpriteGetTexelFn>(g_SpriteGetTexel.load(std::memory_order_acquire));
+    return AsFunction<SpriteGetTexelFn>(g_SpriteGetTexel.load(std::memory_order_acquire));
 }
 SpriteUpdateFn SpriteUpdateThunk() noexcept {
-    return reinterpret_cast<SpriteUpdateFn>(g_SpriteUpdate.load(std::memory_order_acquire));
+    return AsFunction<SpriteUpdateFn>(g_SpriteUpdate.load(std::memory_order_acquire));
 }
 SpriteIsPlayingFn SpriteIsPlayingThunk() noexcept {
-    return reinterpret_cast<SpriteIsPlayingFn>(g_SpriteIsPlaying.load(std::memory_order_acquire));
+    return AsFunction<SpriteIsPlayingFn>(g_SpriteIsPlaying.load(std::memory_order_acquire));
 }
 SpriteIsFinishedFn SpriteIsFinishedThunk() noexcept {
-    return reinterpret_cast<SpriteIsFinishedFn>(g_SpriteIsFinished.load(std::memory_order_acquire));
+    return AsFunction<SpriteIsFinishedFn>(g_SpriteIsFinished.load(std::memory_order_acquire));
 }
 SpriteRenderFn SpriteRenderThunk() noexcept {
-    return reinterpret_cast<SpriteRenderFn>(g_SpriteRender.load(std::memory_order_acquire));
+    return AsFunction<SpriteRenderFn>(g_SpriteRender.load(std::memory_order_acquire));
 }
 SpriteRenderLayerFn SpriteRenderLayerThunk() noexcept {
-    return reinterpret_cast<SpriteRenderLayerFn>(
+    return AsFunction<SpriteRenderLayerFn>(
         g_SpriteRenderLayer.load(std::memory_order_acquire));
 }
 SpritePlayRandomFn SpritePlayRandomThunk() noexcept {
-    return reinterpret_cast<SpritePlayRandomFn>(g_SpritePlayRandom.load(std::memory_order_acquire));
+    return AsFunction<SpritePlayRandomFn>(g_SpritePlayRandom.load(std::memory_order_acquire));
 }
 
 SpriteLoadFn SpriteLoadThunk() noexcept {
-    return reinterpret_cast<SpriteLoadFn>(g_SpriteLoad.load(std::memory_order_acquire));
+    return AsFunction<SpriteLoadFn>(g_SpriteLoad.load(std::memory_order_acquire));
 }
 
 SpriteLoadGraphicsFn SpriteLoadGraphicsThunk() noexcept {
-    return reinterpret_cast<SpriteLoadGraphicsFn>(
+    return AsFunction<SpriteLoadGraphicsFn>(
         g_SpriteLoadGraphics.load(std::memory_order_acquire));
 }
 
 SpriteReplaceSpritesheetFn SpriteReplaceSpritesheetThunk() noexcept {
-    return reinterpret_cast<SpriteReplaceSpritesheetFn>(
+    return AsFunction<SpriteReplaceSpritesheetFn>(
         g_SpriteReplaceSpritesheet.load(std::memory_order_acquire));
 }
 
 LibcxxStringAssignFn LibcxxStringAssignThunk() noexcept {
-    return reinterpret_cast<LibcxxStringAssignFn>(
+    return AsFunction<LibcxxStringAssignFn>(
         g_LibcxxStringAssign.load(std::memory_order_acquire));
 }
 
 GameOperatorDeleteFn GameOperatorDeleteThunk() noexcept {
-    return reinterpret_cast<GameOperatorDeleteFn>(
+    return AsFunction<GameOperatorDeleteFn>(
         g_GameOperatorDelete.load(std::memory_order_acquire));
 }
 
@@ -3084,7 +3155,9 @@ bool IsMusicReadyForDefaultCallback(uintptr_t manager) {
         return false;
     }
     using GetCurrentMusicIdFn = int (*)(const void*);
-    return reinterpret_cast<GetCurrentMusicIdFn>(method)(reinterpret_cast<const void*>(music)) != 0;
+    // `method` 刚被 `ResolveMusicForManager` 核对过 ⇒ 这里只做"地址 → 带签名的函数指针"这一步
+    // （全仓唯一那处转换在层的 `AsFunction` 里）；`music` 是对象地址，走层的 `AsObject`。
+    return AsFunction<GetCurrentMusicIdFn>(method)(AsObject(music)) != 0;
 }
 #endif
 

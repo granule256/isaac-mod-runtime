@@ -65,11 +65,24 @@ INCLUDES	:=	include
 #---------------------------------------------------------------------------------
 # options for code generation
 #
-# 只读段预算：C 单元（Lua 5.3 的 ~30 个 .c 等）原来仍在生成 `.eh_frame` 栈回溯表（实测
-# 36.5 KB，占只读段近 8%）。C++ 侧一直关着，C 侧这里一起关掉：本模块不用异常、也不做栈回溯，
-# 崩溃报告靠模块符号 + 偏移定位（Atmosphère 报告里就是 `模块名 + 偏移`）。汇编单元与 libnx
-# 预编译对象里的残留表由 `misc/link.ld` 的 `/DISCARD/` 丢弃，2026-09-12 实测该段从 36.5 KB
-# 归零、只读段结束从 0x74108 回到 0x6aeec。
+# ★★ 2026-09-24（批次 104）：`-fno-asynchronous-unwind-tables -fno-unwind-tables` **已撤掉**。
+#
+# 历史（2026-09-12「只读预算收口」）：当时把 C/C++ 两侧的展开表全关掉、并在 `misc/link.ld`
+# 里把 `.eh_frame*` 丢进 `/DISCARD/`，省下 36.5 KB 只读段。当时的结论是"本模块不用异常、
+# 也不做栈回溯，对运行时没有任何副作用"——**这条结论是错的**，代价在 2026-09-21 与 2026-09-24
+# 两次真机卡死里显现出来：
+#
+# * 本模块**一帧展开信息都没有** ⇒ libgcc 的 `_Unwind_RaiseException` 走不到任何一帧
+#   ⇒ **相位 1 直接失败 ⇒ `abort()`**（注意：不是 `std::terminate`！后者只在"展开成功但没人接"
+#   时才走）⇒ newlib `_exit` 自旋 ⇒ **画面不动、音乐还在、连崩溃报告都没有**。
+# * 于是**任何穿过我们模块的 C++ 异常都会把游戏变成无声卡死**（游戏自己抛出并接住的异常不受影响
+#   ⇒ 所以它看起来"随机"）。现场（主线程 pc/lr/栈、读数、反汇编）见
+#   `docs/改动日志-20260924.md` 的 015 段与 `docs/问题与解决记录.md`「续八十」。
+#
+# ⇒ 恢复展开表（`.eh_frame`/`.eh_frame_hdr` + MOD0 的真实区间，见 `misc/link.ld`）。
+#   只读预算实测仍远低于闸门上限（1 MiB 代码段 / 2 MiB 只读段），所以**不用放宽上限**。
+#   C++ 侧仍保留 `-fno-exceptions`（我们自己不抛异常，省落地桩），但**必须**有 CFI，
+#   否则展开器仍然走不动我们这一帧。
 #---------------------------------------------------------------------------------
 ARCH	:=	-march=armv8-a+crc+crypto -mtune=cortex-a57 -mtp=soft -fPIC -fvisibility=hidden
 
@@ -77,7 +90,6 @@ CFLAGS	:=	-g -Wall -Werror -O3 \
 			-ffunction-sections \
 			-Wno-format-zero-length \
 			-fdata-sections \
-			-fno-asynchronous-unwind-tables -fno-unwind-tables \
 			$(ARCH) \
 			$(DEFINES)
 
@@ -96,7 +108,7 @@ CFLAGS	+= $(EXL_CFLAGS) -I"$(DEVKITPRO)/libnx/include" -I$(ROOT_SOURCE) \
 			$(addprefix -I,$(MODULES)) $(foreach root,$(EXTRA_SOURCE_ROOTS),-I$(root)) \
 			$(EXL_HOST_PLUGIN_INCLUDE)
 
-CXXFLAGS	:= $(CFLAGS) $(EXL_CXXFLAGS) -fno-rtti -fno-exceptions -fno-asynchronous-unwind-tables -fno-unwind-tables -std=gnu++23
+CXXFLAGS  := $(CFLAGS) $(EXL_CXXFLAGS) -fno-rtti -fno-exceptions -std=gnu++23
 
 # The Lua bridge is callback-only control code.  Keeping this translation unit
 # size-optimized preserves the hardware-verified module LOAD boundary while
@@ -155,7 +167,7 @@ endif
 SPECS_PATH := $(TOPDIR)/misc/specs
 
 ASFLAGS	:=	-g $(ARCH)
-LDFLAGS	:=  -specs=$(SPECS_PATH)/$(SPECS_NAME) -g $(ARCH) -Wl,-Map,$(notdir $*.map) -nostartfiles
+LDFLAGS     :=  -specs=$(SPECS_PATH)/$(SPECS_NAME) -g $(ARCH) -Wl,-Map,$(notdir $*.map) -nostartfiles -Wl,--eh-frame-hdr
 
 LIBS	:=	-lnx
 

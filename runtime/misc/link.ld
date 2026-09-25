@@ -99,14 +99,27 @@ SECTIONS
   .gcc_except_table : { *(.gcc_except_table .gcc_except_table.*) } :rodata
 
   /*
-   * 只读段预算：`crt0.s` 的 MOD0 头要求 `__eh_frame_hdr_start__/end__` 两个符号，
-   * 但本模块不抛异常、也不做栈回溯（崩溃定位靠“模块名 + 偏移”）。原先 `.eh_frame`
-   * 输出段用 `KEEP` 把链接进来的所有对象的栈回溯表全部保留（实测 36.5 KB，占只读段近 8%）。这两个符号保留为同一个地址（长度 0），
-   * MOD0 里的 eh_frame_hdr 就是空区间，加载器自然不会注册任何展开表；`.eh_frame`
-   * 本体直接丢弃。
+   * ★★ 展开表（`.eh_frame` / `.eh_frame_hdr`）**必须保留** —— 2026-09-24（批次 104）恢复。
+   *
+   * `crt0.s` 的 MOD0 头里有两个字段指向 `__eh_frame_hdr_start__/end__`：**系统加载器**按这对
+   * 区间把本模块的展开信息注册给 libgcc。2026-09-12 为省 36.5 KB 把这一对做成了"同一个地址"
+   * （长度 0）、并把 `.eh_frame` 丢进 `/DISCARD/`，当时记的结论是"对运行时没有任何副作用"。
+   *
+   * **这条结论是错的** —— 2026-09-21 与 2026-09-24 两次真机"无声卡死"（画面不动、音乐还在、
+   * 没有崩溃报告）就是它的代价：展开器拿不到我们任何一帧的信息 ⇒ `_Unwind_RaiseException`
+   * **相位 1 直接失败 ⇒ `abort()`**（不是 `std::terminate`！后者只在"展开成功但没人接"时才走）
+   * ⇒ newlib `_exit` 自旋。⇒ **任何穿过我们模块的 C++ 异常都会把游戏变成无声卡死**。
+   * 完整证据链：`docs/改动日志-20260924.md` 的 015 段与 `docs/问题与解决记录.md`「续八十」。
+   *
+   * 只读预算：实测仍远低于闸门上限（代码段 1 MiB / 只读段 2 MiB），所以不用放宽上限。
+   * 判据由 `runtime/tests/test_architecture_layout.py` 钉住（**不得再被丢掉**）。
    */
-  HIDDEN(__eh_frame_hdr_start__ = .);
-  HIDDEN(__eh_frame_hdr_end__ = .);
+  .eh_frame_hdr : {
+    HIDDEN(__eh_frame_hdr_start__ = .);
+    KEEP (*(.eh_frame_hdr .eh_frame_hdr.*))
+    HIDDEN(__eh_frame_hdr_end__ = .);
+  } :rodata
+  .eh_frame : { KEEP (*(.eh_frame .eh_frame.*)) } :rodata
 
   /* Misc .rodata stuffs (build-id, etc.) */
   .note.gnu.build-id : { *(.note.gnu.build-id) } :rodata
@@ -213,8 +226,7 @@ SECTIONS
   /DISCARD/ : {
     /* No need of the interpreter */
     *(.interp)
-    /* 栈回溯表：见上面对 __eh_frame_hdr_start__ 的说明 */
-    *(.eh_frame .eh_frame.*)
-    *(.eh_frame_hdr .eh_frame_hdr.*)
+    /* ★ 展开表**不在这里丢**（2026-09-24 批次 104 起）：`.eh_frame*` 必须在只读段里、
+       并被 MOD0 的那对符号框住 —— 理由与代价见上面对 `.eh_frame_hdr` 的说明。*/
   }
 }

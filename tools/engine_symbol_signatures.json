@@ -2061,6 +2061,35 @@
   "kind": "field"
  },
  {
+  "constant": "kMenuManagerSetStateOffset",
+  "offset": "0x3fe4dc",
+  "mangled": "_ZN15IsaacRepentance11MenuManager8SetStateENS0_6eStateE",
+  "demangled": "IsaacRepentance::MenuManager::SetState(IsaacRepentance::MenuManager::eState)",
+  "parameters": [
+   "IsaacRepentance::MenuManager::eState"
+  ],
+  "parameter_count": 1,
+  "kind": "function"
+ },
+ {
+  "constant": "kMenuGameRenderOffset",
+  "offset": "0x40e73c",
+  "mangled": "_ZN15IsaacRepentance9Menu_Game6RenderEv",
+  "demangled": "IsaacRepentance::Menu_Game::Render()",
+  "parameters": [],
+  "parameter_count": 0,
+  "kind": "function"
+ },
+ {
+  "constant": "kMenuTitleRenderOffset",
+  "offset": "0x41a574",
+  "mangled": "_ZN15IsaacRepentance10Menu_Title6RenderEv",
+  "demangled": "IsaacRepentance::Menu_Title::Render()",
+  "parameters": [],
+  "parameter_count": 0,
+  "kind": "function"
+ },
+ {
   "constant": "kModManagerResetFileOffset",
   "offset": "0x422440",
   "mangled": "_ZN15IsaacRepentance10ModManager5ResetEv",
@@ -2106,6 +2135,17 @@
   "demangled": "IsaacRepentance::Music::Resume()",
   "parameters": [],
   "parameter_count": 0,
+  "kind": "function"
+ },
+ {
+  "constant": "kPersistentGameDataSetReadOnlyOffset",
+  "offset": "0x439460",
+  "mangled": "_ZN15IsaacRepentance18PersistentGameData11SetReadOnlyEb",
+  "demangled": "IsaacRepentance::PersistentGameData::SetReadOnly(bool)",
+  "parameters": [
+   "bool"
+  ],
+  "parameter_count": 1,
   "kind": "function"
  },
  {
@@ -2263,6 +2303,17 @@
   "demangled": "KAGE::Filesys::File::~File()",
   "parameters": [],
   "parameter_count": 0,
+  "kind": "function"
+ },
+ {
+  "constant": "kFilesysFileExistsOffset",
+  "offset": "0x4ccce8",
+  "mangled": "_ZN4KAGE7Filesys4File6ExistsEPKc",
+  "demangled": "KAGE::Filesys::File::Exists(char const*)",
+  "parameters": [
+   "char const*"
+  ],
+  "parameter_count": 1,
   "kind": "function"
  },
  {
