@@ -16,7 +16,22 @@
     python3 tools/device_ftp.py cat /atmosphere/config/system_settings.ini
     python3 tools/device_ftp.py get /path/on/device  /path/local
     python3 tools/device_ftp.py put /path/local  /path/on/device
+    python3 tools/device_ftp.py put-tree /path/local/dir  /path/on/device   # 整棵目录**顺序**上传 + 逐文件核验
     python3 tools/device_ftp.py sha /path/on/device            # 读回并算 sha256（写后核验用）
+
+★ `put-tree` 的纪律（2026-09-23 批次 071 新增，理由是这台设备的服务端行为）：
+  这台设备上的 FTP 服务**对连续快速连接非常敏感**（会返回 `451` 或直接 reset）。所以整棵目录
+  上传时**不许并发、不许猛重试**：
+    * **你给的那个远端根目录本身**先建出来（`ensure_remote_directory`：先试一次整条路径，
+      服务端说"父目录不存在"（`553`）才从最浅一级往下逐级建）——
+      2026-09-23 批次 075 的教训：老实现只建**树里出现**的那几级，远端根不存在时必 `553`；
+    * 树里每一级目录再 `mkdir` **逐级**创建（父目录不存在就先建父目录）；
+    * 文件**一个接一个**传，每个文件传完**立刻读回 sha256 核对**，对不上就**当场停下**并报告；
+    * 文件之间**睡 1~3 秒**（每个动作本身也是一次新连接，`with_retry` 还会在动作后再等 1.5 秒）；
+    * 写卡前先做一次"游戏在不在跑"的检查（与 `put` 同一套逻辑；**判断不了会如实说明**，
+      不把它当成"安全"）。
+    * **任一步失败都是非零退出**（`with_retry` 抛 `SystemExit`、读回不一致返回 1）——
+      但**别把命令接 `| tail`**：管道会把退出码换成 `tail` 的，看起来像"成功了"。
 
 选项：`--host`（默认 192.168.124.11）、`--port`（默认 5000）、`--user/--password`（账号密码见 tools/device_access.py 的说明）
 """
@@ -42,6 +57,9 @@ DEFAULT_USER = _U
 DEFAULT_PASSWORD = _W
 SETTLE_SECONDS = 1.5
 RETRY_WAIT_SECONDS = 5.0
+#: `put-tree` 每个动作之间额外等待的秒数（项目纪律：连续快速连接会被服务端 `451`/reset）。
+#: 要求是"文件之间睡 1~3 秒"；取 2.0 秒，加上 `with_retry` 自带的 1.5 秒结算，稳在区间内。
+PUT_TREE_GAP_SECONDS = 2.0
 
 
 def connect(args) -> ftplib.FTP:
@@ -180,6 +198,166 @@ def cmd_put(args) -> int:
     return 0
 
 
+def remote_join(remote_root: str, relative: str) -> str:
+    """拼远端路径：远端根是 `/`（SD 根）时**不许拼出 `//gfx`** 这种双斜杠。
+
+    老实现一律 `f'{remote_root}/{relative}'` ⇒ 远端根传 `/` 时每条路径都多一个斜杠。
+    多数服务端会容忍，但这是没必要的形状差异（也让人怀疑"到底建到哪去了"）。
+    """
+    if remote_root in ('', '/'):
+        return f'/{relative}'
+    return f'{remote_root}/{relative}'
+
+
+def mkdir_once(args, path: str) -> str:
+    """建**一个**目录，返回三态字符串（用返回值区分"已存在"与"父目录不存在"，不靠抛异常）：
+
+    * `created`        —— 建成功；
+    * `exists`         —— 服务端回 `550`（已经存在，对"确保存在"这种用法不算失败）；
+    * `missing_parent` —— 服务端回 `553`（**父目录不存在**，得先把父目录建出来）。
+
+    其它失败（网络、`451` 限流、权限不足）照旧由 `with_retry` 抛 `SystemExit` ⇒ **退出码非零**。
+
+    为什么要把 `553` 单独挑出来（2026-09-23 批次 075 的实测教训）：`put-tree` 原来只建
+    **树里出现**的那几级目录、**从不建你给的那个远端根** ⇒ 远端根在卡上还不存在时，
+    树里最浅那一级的 `mkdir` 必然 `553`（那次要给五个新语言根铺文件，全被这一条挡住，
+    只能手工逐级 `mkdir` 绕过去）。这台设备上两种码的含义确实不同，别混成一个。
+    """
+    def action(ftp: ftplib.FTP) -> str:
+        try:
+            ftp.mkd(path)
+            return 'created'
+        except ftplib.error_perm as exc:
+            text = str(exc)
+            if text.startswith('550'):
+                return 'exists'
+            if text.startswith('553'):
+                return 'missing_parent'
+            raise
+
+    return with_retry(args, action, f'mkdir {path}')
+
+
+def ensure_remote_directory(args, remote: str) -> None:
+    """确保设备上 `remote` **这个目录本身**存在（必要时逐级建父目录）。
+
+    先试一次整条路径（这台设备对连续快速连接敏感，能一次解决就不发第二条命令）；
+    只有服务端明确说"父目录不存在"（`553`）时才从最浅一级往下逐级建。
+    远端根写成 `/`（SD 根）时什么都不做 —— 它本来就在。
+
+    任一级建不出来就**抛 `SystemExit`**（非零退出），绝不返回"看起来成功"。
+    """
+    parts = [part for part in remote.split('/') if part]
+    if not parts:
+        print('远端根 = SD 根（/），无需创建')
+        return
+    verdict = mkdir_once(args, remote)
+    time.sleep(PUT_TREE_GAP_SECONDS)
+    if verdict != 'missing_parent':
+        print(f'远端根 {remote}：{"已存在" if verdict == "exists" else "已创建"}')
+        return
+    print(f'远端根 {remote} 的父目录不存在（553）⇒ 从最浅一级开始逐级创建')
+    prefix = ''
+    created = 0
+    for part in parts:
+        prefix = f'{prefix}/{part}'
+        verdict = mkdir_once(args, prefix)
+        time.sleep(PUT_TREE_GAP_SECONDS)
+        if verdict == 'created':
+            created += 1
+            print(f'mkdir {prefix} 完成')
+        elif verdict == 'missing_parent':
+            raise SystemExit(
+                f'✗ mkdir {prefix} 仍报"父目录不存在"（553）—— 这一级在设备上建不出来。'
+                f'已建成的层级：{created} 级。请查清原因（权限？路径过长？这一级其实是文件？）')
+    print(f'远端根 {remote} 逐级创建完成（本次新建成 {created} 级）')
+
+
+def cmd_put_tree(args) -> int:
+    """把一整棵**本地目录**按同结构顺序传到设备上（`<本地目录> <设备目录>`）。
+
+    为什么单独一个子命令、而不是让人循环调 `put`：整棵目录上传最容易出的错有四种，
+    它们**都不会自己报错**，只会在真机上表现为"某个文件不见了 / 是旧的那份"：
+      ① 父目录不存在 ⇒ 每个文件都失败，而人只看最后一行；
+      ② 传了一半就撞上 `451`/reset ⇒ 后面几个文件静默没传；
+      ③ 传上去了但内容不对（截断）；
+      ④ **并发**上传 ⇒ 服务端直接 reset（这台设备的已知行为）。
+    ⇒ 这里把四件事都做成流程：**远端根本身**先建出来（`ensure_remote_directory`），
+      树里每一级目录再逐级 `mkdir`；文件**顺序**传；每个文件**传完读回 sha256**；
+      任一步对不上就**当场停下**并说明停在哪个文件（绝不当成"大概没问题"继续往下传）。
+    """
+    root = Path(args.local)
+    if not root.is_dir():
+        print(f'✗ 本地不是一个目录：{root}', file=sys.stderr)
+        return 2
+    # 写卡前先确认游戏没在跑（与 `put` 完全同一套检查：判断不了会如实说明，不当成"安全"）。
+    if not assert_game_stopped(args):
+        return 1
+    remote_root = args.path.rstrip('/') or '/'
+
+    # ⓪ **远端根本身**要先存在（2026-09-23 批次 075：老实现只建树里那几级，远端根不存在就必 553）。
+    ensure_remote_directory(args, remote_root)
+
+    # ① 目录：把**每个文件的每一级祖先目录**都建出来（顺序 = 浅的在前，父一定先于子）。
+    #    ★ 老实现只收 `path.parent`（= 文件所在的**最后一级**），中间层一个都不建 ⇒
+    #    只要树的深度 ≥ 2、而中间层在卡上不存在，`mkdir` 就报 `553`。
+    #    2026-09-23 批次 075 给五个新语言根铺文件时撞上的就是这个（当时只能手工逐级 `mkdir`）。
+    directories = set()
+    for path in root.rglob('*'):
+        if not path.is_file():
+            continue
+        relative = path.parent.relative_to(root)
+        for depth in range(1, len(relative.parts) + 1):
+            directories.add(Path(*relative.parts[:depth]))
+    for relative in sorted(directories, key=lambda path: len(path.parts)):
+        remote_directory = remote_join(remote_root, relative.as_posix())
+        verdict = mkdir_once(args, remote_directory)
+        if verdict == 'missing_parent':
+            raise SystemExit(
+                f'✗ mkdir {remote_directory} 报"父目录不存在"（553）—— 它的上一级没建成。'
+                f'这不该发生（远端根与每一级父目录都已先建过），请把整段输出发给维护者。')
+        print(f'mkdir {remote_directory}：'
+              f'{"已存在（550）" if verdict == "exists" else "已创建"}')
+        time.sleep(PUT_TREE_GAP_SECONDS)
+
+    # ② 文件：**顺序**传（不并发），每个文件传完立刻读回核对。
+    files = sorted(path for path in root.rglob('*') if path.is_file())
+    print(f'== 顺序上传 {len(files)} 个文件（每个传完读回 sha256 核对，之间等 '
+          f'{PUT_TREE_GAP_SECONDS:.1f} 秒）==')
+    for index, path in enumerate(files, start=1):
+        relative = path.relative_to(root)
+        remote = remote_join(remote_root, relative.as_posix())
+        payload = path.read_bytes()
+        expected = hashlib.sha256(payload).hexdigest()
+
+        def upload(ftp: ftplib.FTP, target: str = remote, data: bytes = payload):
+            ftp.storbinary(f'STOR {target}', io.BytesIO(data))
+
+        with_retry(args, upload, f'put {remote}')
+        time.sleep(PUT_TREE_GAP_SECONDS)
+
+        # 读回核对：**新连接**读（复用连接可能拿到缓存的状态，项目纪律里写过这条）。
+        actual_bytes = fetch_bytes(args, remote)
+        actual = hashlib.sha256(actual_bytes).hexdigest()
+        if actual != expected or len(actual_bytes) != len(payload):
+            print(f'✗ [{index}/{len(files)}] {remote}：读回不一致 —— **停下**', file=sys.stderr)
+            print(f'   本地 {len(payload)} 字节 / {expected[:16]}…', file=sys.stderr)
+            print(f'   设备 {len(actual_bytes)} 字节 / {actual[:16]}…', file=sys.stderr)
+            print(f'   ⇒ 剩下的 {len(files) - index} 个文件**没有传**。请查清原因'
+                  f'（空间不足？名字过长？服务端限流？）再重跑本命令 ——'
+                  f'重跑是幂等的（已一致的文件会再传一次，内容不变）。', file=sys.stderr)
+            return 1
+        print(f'✓ [{index}/{len(files)}] {remote}  {len(payload)} 字节  '
+              f'sha256={actual[:16]}…（读回一致）')
+        time.sleep(PUT_TREE_GAP_SECONDS)
+
+    print(f'== 全部完成：{len(files)} 个文件、{len(directories)} 个目录；'
+          f'每个文件都已读回核对 ==')
+    print('（整棵目录的最终核对仍是 `python3 tools/verify_device_install.py`：'
+          '它按部署清单逐文件比哈希，比"传的时候对过一次"更硬。）')
+    return 0
+
+
 def cmd_mkdir(args) -> int:
     """建目录（`nro_patches` 下每个中继一个目录，写入前必须先建）。"""
     def action(ftp: ftplib.FTP):
@@ -257,6 +435,14 @@ def main() -> int:
     p.add_argument('--force-write', action='store_true',
                    help='跳过"游戏是否已退出"的自动检查（自己确认过再用）')
     p.set_defaults(func=cmd_put)
+
+    p = sub.add_parser('put-tree',
+                       help='整棵目录顺序上传（远端根与各级目录逐级建、逐文件读回核对；写卡前会确认游戏已退出）')
+    p.add_argument('local', help='本地目录')
+    p.add_argument('path', help='设备上的目标目录（**它本身**与各级子目录都会逐级创建）')
+    p.add_argument('--force-write', action='store_true',
+                   help='跳过"游戏是否已退出"的自动检查（自己确认过再用）')
+    p.set_defaults(func=cmd_put_tree)
 
     p = sub.add_parser('sha', help='读回并算大小+sha256')
     p.add_argument('path')

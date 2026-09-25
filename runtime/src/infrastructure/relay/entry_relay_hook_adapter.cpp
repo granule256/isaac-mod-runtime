@@ -33,6 +33,11 @@ extern "C" std::uint32_t EntryRelayPreGetCollectibleCallback(void* itemPool, std
                                                              std::uint32_t defaultItem);
 // 挂载点重建：目标函数无参数（`_ZN...RebuildContentMountPointsEv`）。
 extern "C" void EntryRelayRebuildMountPointsCallback();
+// 成就闸门：`PersistentGameData::SetReadOnly(bool)`（`0x439460`）—— 唯一写"只读位"的地方。
+// 形状 = 目标函数的 ABI（`(this /*x0*/, bool /*w1*/)`，返回 void）；我们在回调里把 w1
+// 改成「引擎原参数 OR 该禁」再调回退入口（依据见 `runtime_constants.hpp` 那一段取证）。
+extern "C" void EntryRelayPersistentGameDataSetReadOnlyCallback(void* self,
+                                                               std::uint32_t readOnly);
 
 // --- 回调面补齐（批次 102）：四个事件靶点 ---------------------------------------
 //
@@ -90,6 +95,15 @@ extern "C" isaac::runtime::relay::SmartPointerShim EntryRelayImageManagerLoadFil
 // 挂载点、但同名 `.png` 在"时返回一条合成的 `.pcx` 路径，让引擎自己那条链继续走。
 extern "C" char* EntryRelayContentGetMountedFilePathCallback(void* self, const char* path);
 
+// 模组页搬生产（2026-09-23，批次 076）：三个入口中继。定义在 `source/mod_menu_native.cpp`
+// （与那一套状态机同处，便于对照注释）。形状按目标函数的 ABI 逐字写：
+//   * `Menu_Game::Render()`   —— 无参成员（x0 = this）；
+//   * `Menu_Title::Render()`  —— 同上；
+//   * `MenuManager::SetState(eState)` —— x0 = this，w1 = 状态号（`int`）。
+extern "C" void EntryRelayMenuGameRenderCallback(void* self);
+extern "C" void EntryRelayMenuTitleRenderCallback(void* self);
+extern "C" void EntryRelayMenuManagerSetStateCallback(void* self, std::int32_t state);
+
 // `RegisterEntryRelayCallbacks` 定义在匿名命名空间之外（外部链接）：调用点在
 // hook_manager.cpp，而 g_hookCallbacks 在本 TU 的匿名命名空间里。
 
@@ -110,6 +124,10 @@ EntryRelayBinding BindingOf(HookId id) noexcept {
         case HookId::RebuildMountPoints:
             return {"RebuildContentMountPoints", kRebuildContentMountPointsOffset,
                     kRebuildContentMountPointsExpectedBytes.data(), callback,
+                    &g_fallbackEntries[index]};
+        case HookId::PersistentGameDataSetReadOnly:
+            return {"PersistentGameData::SetReadOnly", kPersistentGameDataSetReadOnlyOffset,
+                    kPersistentGameDataSetReadOnlyExpectedBytes.data(), callback,
                     &g_fallbackEntries[index]};
         case HookId::UseActiveItem:
             return {"Entity_Player::UseActiveItem", kEntityPlayerUseActiveItemOffset,
@@ -142,6 +160,17 @@ EntryRelayBinding BindingOf(HookId id) noexcept {
                     kContentManagerGetMountedFilePathOffset,
                     kContentManagerGetMountedFilePathExpectedBytes.data(), callback,
                     &g_fallbackEntries[index]};
+        // 模组页搬生产（2026-09-23）：三个入口中继的靶点与 16 字节守卫在 `runtime_constants.hpp`
+        // （那段注释写了三条各自为什么要挂、以及探针构建里必须跳过它们）。
+        case HookId::MenuGameRender:
+            return {"Menu_Game::Render", kMenuGameRenderOffset,
+                    kMenuGameRenderExpectedBytes.data(), callback, &g_fallbackEntries[index]};
+        case HookId::MenuTitleRender:
+            return {"Menu_Title::Render", kMenuTitleRenderOffset,
+                    kMenuTitleRenderExpectedBytes.data(), callback, &g_fallbackEntries[index]};
+        case HookId::MenuManagerSetState:
+            return {"MenuManager::SetState", kMenuManagerSetStateOffset,
+                    kMenuManagerSetStateExpectedBytes.data(), callback, &g_fallbackEntries[index]};
         case HookId::ManagerPresent:
         case HookId::GameStart:
         case HookId::Count:
@@ -177,6 +206,8 @@ void RegisterEntryRelayCallbacks() noexcept {
         reinterpret_cast<void*>(&EntryRelayPreGetCollectibleCallback);
     g_hookCallbacks[static_cast<std::size_t>(HookId::RebuildMountPoints)] =
         reinterpret_cast<void*>(&EntryRelayRebuildMountPointsCallback);
+    g_hookCallbacks[static_cast<std::size_t>(HookId::PersistentGameDataSetReadOnly)] =
+        reinterpret_cast<void*>(&EntryRelayPersistentGameDataSetReadOnlyCallback);
     // 批次 102 的四个：回调体都在 hook_manager.cpp（与各自的派发函数同处，便于对照注释）。
     g_hookCallbacks[static_cast<std::size_t>(HookId::UseActiveItem)] =
         reinterpret_cast<void*>(&EntryRelayUseActiveItemCallback);
@@ -199,6 +230,13 @@ void RegisterEntryRelayCallbacks() noexcept {
     // v4：路径解析层（合成 `.pcx` 路径 ⇒ 引擎自己那条链能走通）。
     g_hookCallbacks[static_cast<std::size_t>(HookId::ContentGetMountedFilePath)] =
         reinterpret_cast<void*>(&EntryRelayContentGetMountedFilePathCallback);
+    // 模组页搬生产（2026-09-23）：三个入口中继（回调体在 `source/mod_menu_native.cpp`）。
+    g_hookCallbacks[static_cast<std::size_t>(HookId::MenuGameRender)] =
+        reinterpret_cast<void*>(&EntryRelayMenuGameRenderCallback);
+    g_hookCallbacks[static_cast<std::size_t>(HookId::MenuTitleRender)] =
+        reinterpret_cast<void*>(&EntryRelayMenuTitleRenderCallback);
+    g_hookCallbacks[static_cast<std::size_t>(HookId::MenuManagerSetState)] =
+        reinterpret_cast<void*>(&EntryRelayMenuManagerSetStateCallback);
 }
 
 BindingVerdict EvaluateEntryRelayBinding(const EntryRelayBinding& binding,

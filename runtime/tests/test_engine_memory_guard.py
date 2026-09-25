@@ -1,4 +1,4 @@
-"""引擎内存可读性缓存（`interfaces/lua/engine_memory_guard.hpp`）的宿主行为测试。
+"""引擎内存可读性缓存（`infrastructure/memory/engine_memory_guard.hpp`）的宿主行为测试。
 
 这一层是 2026-09-13"物品信息显示时卡顿"的修复核心：`svcQueryMemory` 的返回值描述的是一个
 连续且权限一致的映射，所以整个区间都能复用那一次结论；缓存只在一次受管回调派发内有效。
@@ -31,7 +31,7 @@ def host_compilers() -> tuple[str, str] | None:
     return None
 
 HARNESS = r'''
-#include "interfaces/lua/engine_memory_guard.hpp"
+#include "infrastructure/memory/engine_memory_guard.hpp"
 
 #include <atomic>
 #include <cstdint>

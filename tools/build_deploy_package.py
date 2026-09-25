@@ -8,10 +8,21 @@
 
 ## 它做什么
 
-1. 按参数把 **运行时**（`subsdk9` + `main.npdm`）与若干 **模组目录** 拷进 `<输出>/atmosphere/...`；
+1. 按参数把 **运行时**（`subsdk9` + `main.npdm` + **romfs 覆盖层**）与若干 **模组目录** 拷进 `<输出>/atmosphere/...`；
 2. 可选：把一个 **EID 配置 JSON** 放进 `<输出>/EID配置/eid-config.json`（附应用方法见安装说明）；
 3. 生成 `SHA256SUMS.txt`（`hash  相对路径`，与上一版发布包同格式）；
 4. 打成 `<输出>.zip`（zip 里以输出目录名为根，便于直接解压到 SD 卡根）。
+
+## ★ 运行时那份 **romfs 覆盖层** 也必须进包（2026-09-23 修正）
+
+构建会往部署树里写 `atmosphere/contents/<id>/romfs/rp_patch/…`（`runtime/Makefile` 的
+`mod-row-art` 步骤，22 个文件）。它是**主菜单那一列里「模组」那一行**的来源：
+引擎那份菜单动画原本只有 12 层（Switch 版把 PC 本来就有的第 13 层 `Item6` 删了），
+把第 13 层补回去之后**引擎才会把那一行画出来**（批次 075 的真机验收形态）。
+
+**缺了它的后果是静默的**：引擎只有 12 层 ⇒ 那一行退回"我们自己画字" ⇒
+屏幕上有那一行、但**不是验收过的那张原图**。所以本工具把它当**硬要求**
+（缺了直接拒绝打包，而不是打个警告继续）。
 
 ## ★ `atmosphere/nro_patches/`：**只带一份，别的一律不带**（2026-09-22 修正）
 
@@ -81,6 +92,13 @@ MANIFEST_RELATIVE = (Path("atmosphere/contents") / CONTENT_ID
 EXEFS_RELATIVE = Path("atmosphere/contents") / CONTENT_ID / "exefs"
 #: 运行时构建产物里要带上的文件（exefs 里那两个；补丁见 `REQUIRED_RELAY_PATCHES`）
 RUNTIME_FILES = ("subsdk9", "main.npdm")
+#: ★ 2026-09-23（批次 077）：运行时构建产物里还有一份 **romfs 覆盖层**必须进包
+#: （`<runtime>/atmosphere/contents/<id>/romfs/`，构建的 `mod-row-art` 步骤写进去的
+#: `rp_patch/…`；理由与后果见模块 docstring 那一节）。
+#:
+#: 它是"合并"语义：模组目录落在同一个 `romfs/` 下的 `isaac_mods/`，两边互不相干，
+#: 而且这一步跑在模组那一步**之前**。
+RUNTIME_OVERLAY_RELATIVE = Path("atmosphere/contents") / CONTENT_ID / "romfs"
 #: **必须**进包的 IPS 补丁（理由见模块 docstring）。名字 = 构建产物
 #: `atmosphere/nro_patches/<名字>/` 这个目录名；目录里的 `.ips` 文件名带游戏 build id，原样拷。
 REQUIRED_RELAY_PATCHES = ("isaac-repentance-lifecycle-relay",)
@@ -251,6 +269,21 @@ def build(args: argparse.Namespace) -> int:
             return 2
         shutil.copy2(source, exefs / name)
         print(f"运行时  {name:12s} {source.stat().st_size:>9d} 字节  {sha256(source)[:16]}…")
+
+    # 1a) 运行时的 **romfs 覆盖层**（主菜单那一行「模组」的来源；理由见模块 docstring）。
+    #     缺了它**直接拒绝打包** —— 那一行的降级是静默的（引擎不画 ⇒ 我们自己画字），
+    #     打出一个"看起来正常、其实不是验收形态"的包，比打包失败难查得多。
+    overlay_source = runtime / RUNTIME_OVERLAY_RELATIVE
+    if not overlay_source.is_dir():
+        print(f"缺少运行时的 romfs 覆盖层：{overlay_source}", file=sys.stderr)
+        print("  （先构建一次运行时；那一层是构建产物，见 runtime/Makefile 的 `mod-row-art` 步骤）",
+              file=sys.stderr)
+        print("  它是什么：补回 PC 本来就有的第 13 层 `Item6` 的 `gamemenu.anm2` + 各语言的"
+              " `mod_row_*.pcx`；缺了它，主菜单那一行会退回我们自己画字（不是验收过的形态）。",
+              file=sys.stderr)
+        return 2
+    overlay_files = copy_tree(overlay_source, output / RUNTIME_OVERLAY_RELATIVE)
+    print(f"覆盖层  romfs/rp_patch/  {overlay_files} 个文件（引擎画那一行要用的菜单动画与贴图）")
 
     # 1b) **必需**的中继补丁（默认带；`--no-relay-patches` 只给"故意要一份不含补丁的包"用）
     if args.relay_patches:

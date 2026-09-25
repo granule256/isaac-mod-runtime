@@ -4,7 +4,8 @@
 #include "interfaces/lua/engine_method_lookup.hpp"
 
 #include "interfaces/lua/api_sequence_probe.hpp"
-#include "interfaces/lua/engine_memory_guard.hpp"
+#include "infrastructure/memory/engine_field_access.hpp"
+#include "infrastructure/memory/engine_memory_guard.hpp"
 #include "interfaces/lua/isaac_api.hpp"
 #include "interfaces/lua/owner_binding.hpp"
 #include "interfaces/lua/vector_api.hpp"
@@ -107,43 +108,12 @@ constexpr char kGameOwner[] = "Game";
 // 是本进程 malloc 出来的伪造块，本来就一定可读）。
 //
 // **只读**：这两个方法都不写引擎内存。
+// 「这段地址可读吗」：**唯一实现在引擎内存访问层里**（2026-09-24 批次 102 收敛）。
+// 此前四个 API 族各有一份逐字相同的拷贝（去掉注释后各 781 字符）；判决条件一条没改，
+// 只是"实现在几处"从 4 变成了 1。**函数名保留** —— `test_lua_missing_members_batch028`
+// 按这个名字核对四个手写处理器体里有没有做可读性检查。
 bool IsEngineMemoryReadable(std::uintptr_t address, std::size_t length) noexcept {
-    // 实现见 `interfaces/lua/engine_memory_guard.hpp`：四个 API 族共用同一份缓存与计数。
-    //
-    // 语义逐字不变：空地址、长度 0、地址回绕一律 false；设备侧仍要求返回码成功、区间完整落在
-    // 映射内、且带 `Perm_R`。变的是**命中缓存时不再进内核** —— `svcQueryMemory` 返回的描述
-    // 覆盖一整段连续且权限一致的映射，整段都能复用那一次结论。缓存只在受管回调派发期间有效
-    // （`EngineGuardEnterDispatch`/`EngineGuardLeaveDispatch`），所以过期窗口为零。
-    if (!EngineGuardRangeUsable(address, length)) {
-        return false;
-    }
-#if defined(__SWITCH__)
-    // 派发作用域内命中已登记的映射区间：这一帧的同一段内存不再重复问内核。
-    if (EngineGuardLookupCached(address, length)) {
-        return true;
-    }
-    const std::uint64_t syscallStart = EngineGuardSyscallBegin();
-    MemoryInfo info{};
-    u32 pageInfo = 0;
-    // 显式写 `std::uint32_t`：本命名空间里有一个同名模板 `Result<T>` 会遮蔽 libnx 的
-    // `Result`（u32）typedef，直接写 `Result` 会撞上模板推导。
-    const std::uint32_t result = svcQueryMemory(&info, &pageInfo, address);
-    EngineGuardSyscallEnd(syscallStart);
-    if (R_FAILED(result) || info.size == 0 || info.addr > UINTPTR_MAX - info.size) {
-        return false;
-    }
-    if (address < info.addr || address + length > info.addr + info.size ||
-        (info.perm & Perm_R) == 0) {
-        return false;
-    }
-    // 这次系统调用描述的是一整段连续且权限一致的映射，整段都可以复用这个结论。
-    EngineGuardRememberReadable(info.addr, info.addr + info.size);
-    return true;
-#else
-    // 宿主构建没有 `svcQueryMemory`；宿主测试的"引擎内存"是本进程 malloc 出来的伪造块，
-    // 本来就一定可读（见 `runtime/tests/test_lua_entity_player.py`）。
-    return true;
-#endif
+    return isaac::runtime::engine_memory::EngineMemoryReadable(address, length);
 }
 
 template <typename T>

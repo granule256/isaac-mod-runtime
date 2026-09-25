@@ -1,5 +1,6 @@
 #include "interfaces/lua/rng_api.hpp"
 
+#include "infrastructure/call/engine_call_access.hpp"  // 引擎调用层（批次 110：调引擎只在这里转换签名）
 #include "interfaces/lua/lua_integer_argument.hpp"
 #include "interfaces/lua/owner_binding.hpp"
 
@@ -15,6 +16,9 @@
 extern "C" {
 #include <lauxlib.h>
 }
+
+//: 引擎调用层的短别名（批次 110）：本文件里"把已核对过的地址变成可调用签名"只走它。
+namespace engine_call = isaac::runtime::engine_call;
 
 namespace isaac::runtime {
 namespace {
@@ -60,8 +64,9 @@ int RngSetSeed(lua_State* state) {
         return luaL_error(state, "RNG:SetSeed native bindings are unavailable");
     }
     using SetSeedFn = void (*)(void*, std::uint32_t, std::uint32_t);
-    reinterpret_cast<SetSeedFn>(method)(rng->storage.data(), static_cast<std::uint32_t>(seed),
-                                        static_cast<std::uint32_t>(shift));
+    engine_call::AsFunction<SetSeedFn>(method)(rng->storage.data(),
+                                               static_cast<std::uint32_t>(seed),
+                                               static_cast<std::uint32_t>(shift));
     return 0;
 }
 
@@ -75,7 +80,7 @@ int RngNext(lua_State* state) {
         return luaL_error(state, "RNG:Next native bindings are unavailable");
     }
     using NextFn = void (*)(void*);
-    reinterpret_cast<NextFn>(method)(rng->storage.data());
+    engine_call::AsFunction<NextFn>(method)(rng->storage.data());
     std::uint32_t value = 0;
     std::memcpy(&value, rng->storage.data(), sizeof(value));
     lua_pushinteger(state, static_cast<lua_Integer>(value));

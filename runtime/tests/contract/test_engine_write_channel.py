@@ -22,6 +22,12 @@
 3. **偏移有出处**：写点引用的必须是 `runtime_constants.hpp` 里的具名常量（且常量注释里要写出
    证据函数），不许在写点写裸字面量偏移。
 
+2026-09-24（批次 103）：前两条的**落点搬了**，判据跟着搬（用户已批准改断言）——
+原本"每个可写 TU 各有一份 `IsEngineMemoryWritable` 与一句裸 `memcpy`"，现在实现**收敛成层里
+唯一一份**（`infrastructure/memory/engine_field_access.hpp` 的 `EngineMemoryWritable` /
+`WriteField`），两个 TU 只剩一行委托。**契约意图一条没变**：写只有一个驱动点、写之前必须先
+确认可写、且不许拿读缓存给写路径放行。
+
 另外钉住"写入口不滥开"：`EntityPlayer` 目前只放行 `ControlsCooldown`，别的字段名必须报错
 （PC 里那些字段是否可写、写了之后引擎会不会崩，我们**没有**证据）。
 """
@@ -34,13 +40,19 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[3]
 LUA_DIR = ROOT / "runtime" / "src" / "interfaces" / "lua"
 CONSTANTS = ROOT / "runtime" / "source" / "runtime_constants.hpp"
-GUARD = LUA_DIR / "engine_memory_guard.hpp"
+#: 2026-09-24（批次 102）：守卫头文件搬进了**引擎内存访问层**目录
+#: （`src/infrastructure/memory/`）—— 它是"引擎内存"的基础设施，不再属于 Lua 界面层。
+#: 这里**只改路径常量，断言一字未动**。
+GUARD = ROOT / "runtime" / "src" / "infrastructure" / "memory" / "engine_memory_guard.hpp"
+#: 引擎内存访问层：**唯一一份**写判定与写原语的所在处（2026-09-24 批次 103 收敛）。
+LAYER = ROOT / "runtime" / "src" / "infrastructure" / "memory" / "engine_field_access.hpp"
 
 SPRITE = LUA_DIR / "sprite_api.cpp"
 ISAAC = LUA_DIR / "isaac_api.cpp"
 
-#: 允许定义 `WriteEngine` / `IsEngineMemoryWritable` 的编译单元（每个族一份私有实现，
-#: 与既有的 `IsEngineMemoryReadable` 同例）。
+#: 允许定义 `WriteEngine` / `IsEngineMemoryWritable` 的编译单元。批次 103 起这两个名字在 TU 里
+#: **只剩一行委托**（实现收敛进 `LAYER`）——保留名字是为了 11 个调用点与既有门禁的稳定性，
+#: 与既有的 `IsEngineMemoryReadable` 同例。
 WRITE_CAPABLE_SOURCES = (SPRITE, ISAAC)
 
 
@@ -82,32 +94,56 @@ class EngineWriteChannelContractTests(unittest.TestCase):
         self.sprite = SPRITE.read_text(encoding="utf-8")
         self.isaac = ISAAC.read_text(encoding="utf-8")
         self.guard = GUARD.read_text(encoding="utf-8")
+        self.layer = LAYER.read_text(encoding="utf-8")
         self.constants = CONSTANTS.read_text(encoding="utf-8")
 
     # ------------------------------------------------------------------ 唯一入口
     def test_engine_writes_go_through_write_engine_only(self):
-        """裸写引擎内存的写法一律不许出现 —— 写必须经 `WriteEngine<T>`。
+        """裸写引擎内存的写法一律不许出现 —— 写必须经 `WriteEngine<T>`，再落到层里那一句。
 
-        `WriteEngine` 里那一句 `memcpy(reinterpret_cast<void*>…, …)` 是**唯一**允许的裸写；
-        每个编译单元各有一份实现，所以允许出现次数 == 定义个数。
+        2026-09-24（批次 103）：那句落值的 `memcpy` 现在在**层**的 `WriteField` 体内、**全仓
+        唯一一处**；两个可写 TU 里一处裸写都不许有。契约意图不变：**写只能有一个驱动点**。
         """
-        raw_writes = re.findall(r"memcpy\s*\(\s*reinterpret_cast<void\s*\*>", self.sprite + self.isaac)
         definitions = len(re.findall(r"bool\s+WriteEngine\s*\(", self.sprite + self.isaac))
         self.assertEqual(definitions, len(WRITE_CAPABLE_SOURCES),
                          "每个可写编译单元应当有且只有一份 `WriteEngine<T>` 定义")
-        self.assertEqual(len(raw_writes), definitions,
-                         "有绕过 `WriteEngine` 的裸写：先把可写性检查加进 `WriteEngine`，再调用它")
 
-        # 反向对照：整个 lua 目录里，除了 `WriteEngine` 的函数体，不该再有裸写形态。
+        # ① 两个可写 TU：不许有裸写（实现已搬进层），且 `WriteEngine` 只转发。
+        for name, text in (("sprite_api.cpp", self.sprite), ("isaac_api.cpp", self.isaac)):
+            body = function_body(text, "bool WriteEngine(")
+            with self.subTest(source=name):
+                self.assertIn("engine_memory::WriteAt(", body,
+                              "`WriteEngine` 没有转发到层里的写原语（又自己写了一遍？）")
+                self.assertIn("&IsEngineMemoryWritable", body,
+                              "`WriteEngine` 没有把本地那份可写判定注入写原语 ⇒ 写之前没确认可写")
+                self.assertNotIn("memcpy", body,
+                                 "`WriteEngine` 体内还有 `memcpy` —— 落值应当只剩层里那一处")
+
+        # ② 层里那唯一一处落值，必须在 `WriteField` 体内，且地址先过层自己的检查与转换。
+        write_field = function_body(self.layer, "bool WriteField(")
+        self.assertEqual(len(re.findall(r"std::memcpy\s*\(", write_field)), 1,
+                         "层里「往引擎落一个字段」的实现应当只有一处（`WriteField`）")
+        self.assertIn("FieldAddress(", write_field,
+                      "`WriteField` 没有先过地址检查（回绕 / 对齐 / 可写）就落值")
+        self.assertIn("AsObject(", write_field,
+                      "`WriteField` 没有走层自己的「整数地址 → 指针」转换（`AsObject`）")
+        write_at = function_body(self.layer, "bool WriteAt(")
+        self.assertIn("WriteField(", write_at,
+                      "`WriteAt` 应当只是 `WriteField(address, 0, …)` 的转发")
+        self.assertNotIn("memcpy", write_at)
+
+        # 反向对照：整个 lua 目录里，不该再有裸写形态。
         for path in sorted(LUA_DIR.glob("*.cpp")):
             text = path.read_text(encoding="utf-8")
-            body = function_body(text, "bool WriteEngine(") if "bool WriteEngine(" in text else ""
             others = [line.strip() for line in code_lines(text)
-                      if re.search(r"memcpy\s*\(\s*reinterpret_cast<void\s*\*>", line)
-                      and line.strip() not in body]
-            self.assertEqual(others, [], f"{path.name} 里有 `WriteEngine` 之外的裸写：{others}")
+                      if re.search(r"memcpy\s*\(\s*reinterpret_cast<void\s*\*>", line)]
+            self.assertEqual(others, [], f"{path.name} 里有裸写：{others}")
 
-        # 直接对引擎指针做赋值（`*reinterpret_cast<float*>(address) = …`）同样不许出现。
+        # 直接对引擎指针做赋值（`*reinterpret_cast<float*>(address) = …`）同样不许出现 ——
+        # 两个 TU 与层本身都判（层里那段"为什么不这么写"只出现在注释里，会被 `code_lines` 滤掉）。
+        self.assertEqual([line.strip() for line in code_lines(self.layer)
+                          if re.search(r"\*\s*reinterpret_cast<[^>]*\*>\s*\([^)]*\)\s*=", line)],
+                         [], "层里出现了裸指针赋值")
         for name, text in (("sprite_api.cpp", self.sprite), ("isaac_api.cpp", self.isaac)):
             offenders = [line.strip() for line in code_lines(text)
                          if re.search(r"\*\s*reinterpret_cast<[^>]*\*>\s*\([^)]*\)\s*=", line)]
@@ -115,19 +151,34 @@ class EngineWriteChannelContractTests(unittest.TestCase):
 
     # ------------------------------------------------------------------ 可读 ≠ 可写
     def test_write_path_uses_the_writable_cache_and_perm_w(self):
-        """写路径必须查写缓存、按 `Perm_W` 判定，且**不碰**读缓存。"""
+        """写判定**只有一份**（在层里），且按 `Perm_W`、查写缓存、**不碰**读缓存。
+
+        2026-09-24（批次 103）：此前这条按"每个可写 TU 各有一份实现"判；两份实现收敛成层里
+        唯一一份之后，断言改成"实现只在层里 + 两个 TU 只准委托"。意图不变：
+        **可读不等于可写，写路径不许拿读缓存给只读页放行**。
+        """
+        body = function_body(self.layer, "bool EngineMemoryWritable(")
+        self.assertIn("EngineGuardLookupWritable", body,
+                      "写判定没有查写缓存（每次都进内核会拖慢绘制，且写法与读侧不一致）")
+        self.assertIn("EngineGuardRememberWritable", body,
+                      "写判定没有登记写区间（同一页会被反复问内核）")
+        self.assertIn("Perm_W", body, "写判定必须按 `Perm_W`，不能只看可读")
+        self.assertNotIn("EngineGuardLookupCached", body,
+                         "写判定查了**读**缓存：可读不等于可写，模块映像的只读段会因此被放行")
+        self.assertNotIn("Perm_R", body, "写判定不许用 `Perm_R`")
+
+        # 两个可写 TU 只准委托：判定只许有一份，别在 TU 里又长出一份"简化版"。
         for path in WRITE_CAPABLE_SOURCES:
             text = path.read_text(encoding="utf-8")
-            body = function_body(text, "bool IsEngineMemoryWritable(")
+            delegate = function_body(text, "bool IsEngineMemoryWritable(")
             with self.subTest(source=path.name):
-                self.assertIn("EngineGuardLookupWritable", body,
-                              "写路径没有查写缓存（每次都进内核会拖慢绘制，且写法与读侧不一致）")
-                self.assertIn("EngineGuardRememberWritable", body,
-                              "写路径没有登记写区间（同一页会被反复问内核）")
-                self.assertIn("Perm_W", body, "写路径必须按 `Perm_W` 判定，不能只看可读")
-                self.assertNotIn("EngineGuardLookupCached", body,
-                                 "写路径查了**读**缓存：可读不等于可写，模块映像的只读段会因此被放行")
-                self.assertNotIn("Perm_R", body, "写路径不许用 `Perm_R` 判定")
+                self.assertIn("engine_memory::EngineMemoryWritable(", delegate,
+                              "可写判定必须委托层里那一份")
+                for forbidden in ("Perm_W", "Perm_R", "EngineGuardLookupWritable",
+                                  "EngineGuardRememberWritable", "EngineGuardLookupCached"):
+                    self.assertNotIn(forbidden, delegate,
+                                     f"`IsEngineMemoryWritable` 里出现了 {forbidden} —— "
+                                     "判定只准有一份（在层里），TU 里应当是纯委托")
 
     def test_writable_cache_is_separate_and_cleared_with_the_scope(self):
         """写缓存必须与读缓存**分家**，并且随派发作用域一起清空（否则会命中过期区间）。"""

@@ -66,6 +66,7 @@
 | 025 | `GameFileReader` 一族的记录字段改成声明类型（形态 C′） | 59/91 |
 | 027 | 形态 E（取址助手的结果经调用点交给"按签名调"的那一层）+ 源码侧拆开 `ItemConfig` 的 `kind` 分派 | **71/91** |
 | 026 | **修掉形态 A 里"转型操作数切片少了闭括号"的 bug**（"局部变量"那条支路此前从未生效）、 局部变量的初始化表达式允许是"含常量的算式"、新增**形态 F**（常量当实参交给助手） | **65/91** |
+| 114 | **把"变量 → 转型类型"这个查询合成一份**（`cast_type_names_for_variable`）：此前"形态 D 最后一跳"与"形态 F"各写一份，批次 110 只给前者补了引擎交互层的模板实参拼法（`AsFunction<…>` 一族）⇒ 批次 114 把 `remaining_api.cpp` 的 13 处函数指针转换换成 `AsFunction` 之后，**形态 F 那两条（诅咒访问器）断链**，`test_constant_as_argument_helper_chain_is_actually_checked` 与 `test_unknown_entries_are_triaged_in_backlog` 一起判红 | **93/128（72%）** |
 
 ⚠️ **2026-09-17 的更正**：交接文档 026 当时把"4 条读不出来"记成
 "转型那一步不是 `reinterpret_cast<XFn>(method)`"，那是**归因错了** ——
@@ -147,6 +148,86 @@ def load_symbols() -> dict[int, str]:
 
 
 CAST_RE = re.compile(r"reinterpret_cast<\s*([^<>]*(?:<[^<>]*>[^<>]*)*)\s*>")
+
+#: ★ **"类型写在模板实参上"的那些引擎交互层原语**（2026-09-24 批次 110 补）。
+#:
+#:   * `CallUnaryMethod<XxxFn>(method, object)` —— 引擎内存访问层（批次 101 起的规范写法）；
+#:   * `AsFunction<XxxFn>(address)` / `ResolveFunction<XxxFn>(…)` —— 引擎调用层（批次 108）。
+#:
+#: 它们与 `reinterpret_cast<XxxFn>(地址)`（`CAST_RE`）是**同一件事**：都在声明"这个地址我们按
+#: 哪个签名调"。工具**不认的后果是"读数变成没比过"** —— 批次 110 把三个 API TU 的转换换成
+#: `AsFunction` 之后，`test_single_binding_chain_is_actually_checked` 当场红了 4 条
+#: （门禁是对的、工具没跟上源码形态；这是同一类事故的**第三次**，见
+#: `docs/问题与解决记录.md` 的续七十八 / 续八十一）。
+#: ⇒ 纪律：**层的拼法变了，凡是"认源码形态"的工具都要在同一批里补上**（门禁会替你发现）。
+LAYERED_TYPE_PRIMITIVES = ("CallUnaryMethod", "AsFunction", "ResolveFunction")
+
+
+def layered_type_declaration_patterns(variable: str | None = None) -> tuple[re.Pattern, ...]:
+    """`<原语><XxxFn>` 这一族的正则（类型名在第 1 个捕获组）。
+
+    ★ **刻意不把后面的 `(` 一起吃进正则**：`CAST_RE` 也是这样（它只匹配到 `>`）——
+    形态 A 靠 `text.find("(", match.end())` 去取操作数，正则若把 `(` 吃了就会**错位**取到下一个括号
+    （那不是编译错，是静默读错签名，最坏的一种）。
+
+    `variable` 给了就再要求"紧接着 `(变量`"（用在按变量锚定的那处；
+    不给就只认"模板实参"本身（用在"在一个窗口里找任意类型"的地方）。
+    """
+    patterns = []
+    for primitive in LAYERED_TYPE_PRIMITIVES:
+        source = re.escape(primitive) + r"<\s*(\w+)\s*>"
+        if variable is not None:
+            source += r"\s*\(\s*" + re.escape(variable) + r"\b"
+        patterns.append(re.compile(source))
+    return tuple(patterns)
+
+
+def cast_type_names_for_variable(body: str, variable: str) -> list[str]:
+    """在函数体里找"把 `<variable>` 这个地址按某个签名转出来"的**两种拼法**，返回类型名（按拼法序）。
+
+    ★ **这个查询只许有这一份实现**（2026-09-24 批次 114 合并且留痕）：此前"形态 D 最后一跳"
+    与"形态 F"各自写了一份；批次 110 给前者补上了引擎交互层的拼法（`AsFunction<…>` 一族），
+    **却漏了后者** ⇒ 批次 114 把 `remaining_api.cpp` 的 13 处函数指针转换换成 `AsFunction` 之后，
+    形态 F 那两条（诅咒访问器 `CallGameCurseAccessor`）当场判成"读不出声明"，
+    `test_constant_as_argument_helper_chain_is_actually_checked` 与
+    `test_unknown_entries_are_triaged_in_backlog` 一起判红。
+
+    ⇒ 教训（这是**第四次**同类事故）：**层的拼法一变，凡是"认源码形态"的工具都要在同一批里补**；
+    更根本的一点是"**同一个查询不要有两份实现**"（两份必然漂移，漂移的那一份平时不会被发现）。
+
+    两种拼法：
+      ① 调用点自己转型 `reinterpret_cast<XxxFn>(variable)`；
+      ② 转型收进引擎交互层、签名写在**模板实参**上：
+         `AsFunction<XxxFn>(variable)` / `ResolveFunction<XxxFn>(…)` / `CallUnaryMethod<XxxFn>(variable, …)`。
+    """
+    names: list[str] = []
+    for pattern in (
+        re.compile(r"reinterpret_cast<\s*(\w+)\s*>\s*\(\s*" + re.escape(variable) + r"\b"),
+        *layered_type_declaration_patterns(variable),
+    ):
+        for match in pattern.finditer(body):
+            names.append(match.group(1))
+    return names
+
+
+def _cast_like_matches(text: str) -> list[re.Match]:
+    """「把某个操作数转成 / 转交给一个函数指针类型」的所有位置，**按出现顺序**产出。
+
+    两种拼法都算（都是"`>` 之后紧跟 `(` 取操作数"）：
+      ① `reinterpret_cast<XxxFn>(操作数)`；
+      ② 引擎交互层把类型写在**模板实参**上的：`AsFunction<XxxFn>(操作数)` /
+         `ResolveFunction<XxxFn>(…)` / `CallUnaryMethod<XxxFn>(操作数, …)`。
+
+    ★ 按位置排序（而不是"先所有 ① 再所有 ②"）：调用方靠"第一个能解出签名的命中"判决，
+    顺序一变，**同一份源码会给出不同的答案**。
+    """
+    matches = list(CAST_RE.finditer(text))
+    for pattern in layered_type_declaration_patterns():
+        matches.extend(pattern.finditer(text))
+    matches.sort(key=lambda match: match.start())
+    return matches
+
+
 #: **形态 D（2026-09-19 批次 051）**：引擎方法类的"数据行"。
 #: 一条 API 长这样（见 `interfaces/lua/engine_method_api.hpp`）：
 #:     {0x0E010057, kEntityPlayerSetShootingCooldownOffset, kEntityPlayerSetShootingCooldownEntryWord,
@@ -565,9 +646,9 @@ def declared_type_via_callee(local_name: str,
                     parameter_name = parameters[index].split()[-1].strip("*& ")
                     # 形参本身转型，或"形参派生出的地址变量"再转型（形态 F 那一跳同源）。
                     for variable in sorted(derived_address_locals(body, parameter_name)):
-                        for cast in re.finditer(r"reinterpret_cast<\s*(\w+)\s*>\s*\(\s*"
-                                                + re.escape(variable) + r"\b", body):
-                            type_name = cast.group(1)
+                        # 两种写法都认 —— **这个查询的唯一实现**在 `cast_type_names_for_variable`
+                        # （批次 114 起：此前这里与形态 F 各写一份，批次 110 只补了这里 ⇒ 漂移）。
+                        for type_name in cast_type_names_for_variable(body, variable):
                             type_text = (resolve_alias(type_name, file_facts(other)[0])
                                          or resolve_alias_anywhere(type_name) or type_name)
                             params = parameters_of_function_pointer(type_text)
@@ -629,12 +710,13 @@ def declared_type_of_helper_call(helper: str) -> tuple[str, list[str], str] | No
             span = enclosing_span(spans, match.start())
             window_end = min(match.end() + 1200, span[1] if span else len(text))
             window = text[match.end() : window_end]
-            for cast in CAST_RE.finditer(window):
-                name = cast.group(1).strip()
-                type_text = resolve_alias(name, text) or name
-                params = parameters_of_function_pointer(type_text)
-                if params is not None:
-                    return str(path.relative_to(ROOT)), params, f"{helper}() → {type_text}"
+            for pattern in (CAST_RE, *layered_type_declaration_patterns()):
+                for cast in pattern.finditer(window):
+                    name = cast.group(1).strip()
+                    type_text = resolve_alias(name, text) or name
+                    params = parameters_of_function_pointer(type_text)
+                    if params is not None:
+                        return str(path.relative_to(ROOT)), params, f"{helper}() → {type_text}"
             # 调用点自己不转型 ⇒ 看它把地址交给了谁（可能先收进一个局部变量）。
             # ⚠️ `statement` 要**含结尾分号**：原来切到 `match.end()` 为止，而 needle 后面还有 `;`，
             #    于是 `local` 那条正则永远不成立、局部变量名取不出来 —— `Room:GetFrameCount`
@@ -713,11 +795,13 @@ def declared_type_via_argument_helper(constant: str) -> tuple[str, list[str], st
                         continue
                     parameter_name = parameters[index].split()[-1].strip("*& ")
                     for name in sorted(derived_address_locals(body, parameter_name)):
-                        cast = re.search(r"reinterpret_cast<\s*(\w+)\s*>\s*\(\s*"
-                                         + re.escape(name) + r"\b", body)
-                        if cast is None:
+                        # 两种写法都认（查询的唯一实现见 `cast_type_names_for_variable`）。
+                        # 这里只取**第一个**命中，保持原来"一条地址变量 → 一个候选"的语义
+                        # （多候选的裁决交给下面那句 `len(candidates) != 1`）。
+                        type_names = cast_type_names_for_variable(body, name)
+                        if not type_names:
                             continue
-                        type_name = cast.group(1)
+                        type_name = type_names[0]
                         type_text = (resolve_alias(type_name, file_facts(other)[0])
                                      or resolve_alias_anywhere(type_name) or type_name)
                         params = parameters_of_function_pointer(type_text)
@@ -843,8 +927,11 @@ def declared_signature(constant: str) -> tuple[str, list[str], str] | None:
             if constant not in text:
                 continue
             relative = str(path.relative_to(ROOT))
-            # 形态 A：`reinterpret_cast<XxxFn>(…)`，XxxFn 可能是别名或内联的函数指针类型。
-            for match in CAST_RE.finditer(text):
+            # 形态 A：`reinterpret_cast<XxxFn>(…)`，XxxFn 可能是别名或内联的函数指针类型；
+            # ★ 引擎交互层的写法同样算（类型写在**模板实参**上，见 `LAYERED_TYPE_PRIMITIVES`）：
+            #   `AsFunction<XxxFn>(操作数)` / `ResolveFunction<XxxFn>(…)` / `CallUnaryMethod<XxxFn>(操作数, …)`。
+            #   两种拼法都在"`>` 之后紧跟 `(` 取操作数"这一点上同形 ⇒ 同一段逻辑直接复用。
+            for match in _cast_like_matches(text):
                 operand_start = text.find("(", match.end())
                 if operand_start == -1:
                     continue
@@ -1116,8 +1203,28 @@ RELAY_CALLBACK_TARGETS: tuple[tuple[str, str], ...] = (
     ("EntryRelayGameExitCallback", "kGameExitOffset"),
     ("EntryRelayPickupCollisionCallback", "kEntityPickupHandleCollisionOffset"),
     ("EntryRelayRoomEntitySpawnCallback", "kRoomSpawnEntityOffset"),
+    # 批次 077（2026-09-23，模组页搬生产）：三个入口中继。**必须一起登记** ——
+    # 中继是"以目标函数的身份返回"的，参数/返回值错一个就是真机事故
+    # （2026-09-21 那次 `UseActiveItem` 声明成 void 就是这一类）。三个目标都是 `void`
+    # （`Menu_Game::Render()` / `Menu_Title::Render()` / `MenuManager::SetState(eState)`）
+    # ⇒ 不会改变 `test_entry_relay_return_values_are_actually_judged` 里那个"有返回值 4 个"。
+    ("EntryRelayMenuGameRenderCallback", "kMenuGameRenderOffset"),
+    ("EntryRelayMenuTitleRenderCallback", "kMenuTitleRenderOffset"),
+    ("EntryRelayMenuManagerSetStateCallback", "kMenuManagerSetStateOffset"),
+    # 批次 098（禁成就，2026-09-24）的入口中继：闸门从 `TryUnlock` 挪到 `SetReadOnly`。
+    # 引擎 `PersistentGameData::SetReadOnly(bool)` **返回 void**，我们也声明 void
+    # ⇒ 它**不算**"有返回值的中继靶点"，那个计数因此从 5 回到 4
+    # （096 把它算成 5，是因为当时的旧靶点 `TryUnlock` 返回 bool）。
+    ("EntryRelayPersistentGameDataSetReadOnlyCallback", "kPersistentGameDataSetReadOnlyOffset"),
 )
-RELAY_SOURCE = ROOT / "runtime" / "source" / "hook_manager.cpp"
+#: 中继回调的**定义**在哪些文件里（`hook_manager.cpp` 是历史那一批；批次 077 的三个在
+#: `mod_menu_native.cpp` —— 与它们的状态机同处，便于对照注释）。**两个都要扫**：
+#: 只扫一个的话，"另一处的回调声明错了"就会静默不判（门禁看起来在跑、其实少比了几条）。
+RELAY_SOURCES: tuple[pathlib.Path, ...] = (
+    ROOT / "runtime" / "source" / "hook_manager.cpp",
+    ROOT / "runtime" / "source" / "mod_menu_native.cpp",
+)
+RELAY_SOURCE = RELAY_SOURCES[0]  # 单文件调用点的向后兼容（新代码请用 `RELAY_SOURCES`）
 RELAY_CALLBACK_RE = re.compile(
     r'extern\s+"C"\s+([A-Za-z_][A-Za-z0-9_:<>\s]*?)\s+(EntryRelay\w+Callback)\s*\(([^)]*)\)\s*\{',
     re.S,
@@ -1133,7 +1240,17 @@ def _is_ret(word: int) -> bool:
 
 
 def _is_call(word: int) -> bool:
-    return (word & 0xFC000000) in (0x94000000, 0xD63F0000)  # bl / blr
+    """`bl`（PC 相对）或 `blr xN`（寄存器间接）。
+
+    ★ 2026-09-23 修正（批次 077，被 `Menu_Game::Render` 的假阳性逼出来的）：原来写成
+    `(word & 0xFC000000) in (0x94000000, 0xD63F0000)` —— 那个掩码对 `bl` 成立，对 `blr`
+    **永远不成立**：`blr xN` 是 `0xD63F0000 | (Rn << 5)`，`& 0xFC000000` 得到 `0xD4000000`。
+    后果：`blr` 不算"调用" ⇒ 往回扫会**越过它**继续找，撞上"给这次调用准备参数"的那条
+    `add x0, sp, #8`（`_writes_x0` 认它）⇒ 把 **void 函数判成"有返回值"**。
+    `Menu_Game::Render`（`0x40E73C`）正是这一形态：收尾前是 `add x0, sp, #8; blr x8`。
+    `blr` 的掩码按 ARM ARM 写成 `0xFFFFFC1F`（低 5 位是 `Rn`）。
+    """
+    return (word & 0xFC000000) == 0x94000000 or (word & 0xFFFFFC1F) == 0xD63F0000  # bl / blr
 
 
 def _is_frame_restore(word: int) -> bool:
@@ -1225,14 +1342,15 @@ def engine_returns_value(data: bytes, start: int,
 
 
 def relay_declarations() -> dict[str, tuple[str, list[str]]]:
-    """我们声明的中继回调：`名字 → (返回类型, 参数表)`。"""
-    if not RELAY_SOURCE.exists():
-        return {}
-    text = RELAY_SOURCE.read_text(encoding="utf-8", errors="replace")
+    """我们声明的中继回调：`名字 → (返回类型, 参数表)`。**扫 `RELAY_SOURCES` 里的每一个文件**。"""
     out: dict[str, tuple[str, list[str]]] = {}
-    for return_type, name, raw_params in RELAY_CALLBACK_RE.findall(text):
-        params = [item.strip() for item in raw_params.split(",") if item.strip()]
-        out[name] = (return_type.strip(), params)
+    for source in RELAY_SOURCES:
+        if not source.exists():
+            continue
+        text = source.read_text(encoding="utf-8", errors="replace")
+        for return_type, name, raw_params in RELAY_CALLBACK_RE.findall(text):
+            params = [item.strip() for item in raw_params.split(",") if item.strip()]
+            out[name] = (return_type.strip(), params)
     return out
 
 

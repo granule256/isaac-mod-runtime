@@ -65,6 +65,12 @@ Status ExlaunchHookAdapter::Install(HookId id, const HookTarget& target) noexcep
         case HookId::ImagePcxLoad:
         case HookId::ImageManagerLoadFile:
         case HookId::ContentGetMountedFilePath:
+        // 批次 077（模组页搬生产）的三个入口中继同理：只走 `EntryRelay`。
+        case HookId::MenuGameRender:
+        case HookId::MenuTitleRender:
+        case HookId::MenuManagerSetState:
+        // 批次 098（禁成就）：闸门挂在 `SetReadOnly` 上，同样只走零占洞入口中继（`EntryRelay`）。
+        case HookId::PersistentGameDataSetReadOnly:
             return Status{StatusCode::InvalidArgument};
         case HookId::Count:
             return Status{StatusCode::InvalidArgument};

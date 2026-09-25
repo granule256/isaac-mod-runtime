@@ -85,7 +85,17 @@ enum class MountedReadResult : std::uint32_t {
     }
     std::size_t arenaCursor = 0;
     std::uint32_t written = 0;
-    constexpr const char* kPrefix = "rom:/isaac_mods/mods/";
+    // ★★ 2026-09-23 修（批次 085）：前缀**不带 `rom:/`**。
+    //
+    // 真机现象（用户报）：模组页上显示的名字**不是** `metadata.xml` 里的 `<name>`。
+    // 根因：这里原来拼的是 `rom:/isaac_mods/mods/<目录>/metadata.xml`，而**引擎的挂载解析
+    // 只认"相对应用根"的输入、带 `rom:/` 前缀那种答不出来** —— 这条**项目自己早就实测过**
+    // （2026-09-22，探针 v7 就是因此崩掉的；`runtime/tests/test_font_resource_path_normalization.py`
+    // 的文件头也写着"Mod 树在 `rom:/isaac_mods/mods/` 下，引擎永远解析不到"）
+    // ⇒ 解析必然失败 ⇒ 每一行都退成**目录名**。
+    // 现在改成应用根相对名；`mod_menu_native.cpp` 的 reader 还会把带前缀那种当**兜底**再试一次，
+    // 并把"哪一种成了"记进状态面（这样下次真机一眼能看出解析口径）。
+    constexpr const char* kPrefix = "isaac_mods/mods/";
     constexpr const char* kSuffix = "/metadata.xml";
     for (std::uint32_t i = 0; i < directoryCount; ++i) {
         const char* directory = directories[i];

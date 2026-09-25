@@ -20,6 +20,10 @@
 // 批次 019：原生模组页能不能叫出来（用户要的"PC 式模组页"第一问）。整个 TU 在
 // `PROBE_BREAK=0` 或 `PROBE_BREAK_NATIVE_MODS_MENU=0` 时被编译掉，头文件只声明不定义。
 #include "probe/native_mods_menu_probe.hpp"
+// 批次 077：把「模组那一行 + 模组页 + 中文字体接线」整块搬进生产（探针的行为真值源不变）。
+// 三个入口中继由挂点登记表安装（`HookId::MenuGameRender` / `MenuTitleRender` /
+// `MenuManagerSetState`），本 TU 只负责"安装点记一次结果 + 每帧驱动一次"。
+#include "mod_menu_native.hpp"
 #include "runtime_constants.hpp"
 #include "interfaces/lua/engine_frame_probe.hpp"
 // 批次 103：`ReadEntityIdentity`（读实体的 Type/Variant，内部带"读引擎字段前先判可读"那套判据）。
@@ -1394,6 +1398,43 @@ bool SkipOptionalHooksPredicate(void*, isaac::runtime::HookId id) noexcept {
         return true;
     }
 #endif
+// 模组页搬生产（2026-09-23，批次 077）：三个入口中继各自的单独开关。
+// 用途与上面那批一样：真机上"那一列多一格 / 模组页 / 挡 SetState"哪一处出问题，
+// 可以**一次摘一个**把范围缩到具体靶点，而不必回退整批。
+#if defined(EXL_SKIP_HOOK_MENUGAMERENDER) && EXL_SKIP_HOOK_MENUGAMERENDER == 1
+    if (id == isaac::runtime::HookId::MenuGameRender) {
+        return true;
+    }
+#endif
+#if defined(EXL_SKIP_HOOK_MENUTITLERENDER) && EXL_SKIP_HOOK_MENUTITLERENDER == 1
+    if (id == isaac::runtime::HookId::MenuTitleRender) {
+        return true;
+    }
+#endif
+#if defined(EXL_SKIP_HOOK_MENUMANAGERSETSTATE) && EXL_SKIP_HOOK_MENUMANAGERSETSTATE == 1
+    if (id == isaac::runtime::HookId::MenuManagerSetState) {
+        return true;
+    }
+#endif
+// 成就闸门（2026-09-24 批次 098：挂点从 `TryUnlock` 挪到 `SetReadOnly`，开关名同步改）。
+// 用途：真机上遇到"成就该给不给 / 该禁没禁"，可以**一次摘掉这一个挂点**来判断
+// "是不是我们这道闸门干的" —— 摘掉之后引擎按它自己的判据走（退回 Switch 原生行为）。
+#if defined(EXL_SKIP_HOOK_SETREADONLY) && EXL_SKIP_HOOK_SETREADONLY == 1
+    if (id == isaac::runtime::HookId::PersistentGameDataSetReadOnly) {
+        return true;
+    }
+#endif
+// ★★ 探针与生产**互斥**（2026-09-23，批次 077）：这三个靶点与"原生模组页探针"**是同一批入口**，
+// 而入口中继靠"改写目标函数入口 16 字节"工作 ⇒ 同一入口装第二次必然 `EntryMismatch`。
+// 探针构建里必须**跳过生产这三条**，探针自己那套 `TryInstallEntryRelay` 才装得上。
+// 判据是编译期常量（这一段跑在 worker 线程上，读卡会崩 —— 见上面那条注释）。
+#if defined(EXL_PROBE_BREAK) && EXL_PROBE_BREAK_NATIVE_MODS_MENU
+    if (id == isaac::runtime::HookId::MenuGameRender ||
+        id == isaac::runtime::HookId::MenuTitleRender ||
+        id == isaac::runtime::HookId::MenuManagerSetState) {
+        return true;
+    }
+#endif
     return false;
 }
 
@@ -1714,6 +1755,21 @@ HOOK_DEFINE_TRAMPOLINE(ManagerUpdateHook) {
         // 只改措辞、不放宽断言：真正的调用一旦写进来，那条门禁仍旧会红。
 #if defined(EXL_PROBE_BREAK) && EXL_PROBE_BREAK_NATIVE_MODS_MENU
         isaac::runtime::probe::NativeModsMenuProbeUpdate();
+#else
+        // 批次 077：生产版的"每帧点" —— 推进「模组」那一格的导航、驱动模组页（引擎状态 16）。
+        // 位置与探针那一段**完全一致**：都在跑原函数**之前**，因为引擎本帧的
+        // `Manager::Update` 会按我们刚写进去的状态/索引分派。
+        // 注：本条注释刻意不写出那个"跑原函数"调用的字面名字 —— `test_instruction_guard`
+        // 按整段子串数它出现几次，注释里多写一次也会红（这次就红了）。只改措辞、不放宽断言。
+        //
+        // 门控与上面那条探针调用**互斥**（两个 TU 装的是同一批入口，见
+        // `SkipOptionalHooksPredicate` 里那段）。诊断阶段构建"什么都不做"那一道守卫**不在这里**，
+        // 而在 `ModMenuNativeUpdate()` 自己的函数体开头 —— 原因写在那个函数里
+        // （`test_stage118_managed_file_write_diagnostic` 拿"诊断阶段那条条件"当**切片结束符**，
+        //  在这里再插一条同样的条件会让它切早、把跑原函数那一句切出去）。
+        // 注：本条注释**刻意不写出那条条件的字面文本** —— 那条门禁是按整段子串找它的，
+        // 注释里出现也会红（批次 077 实测）。只改措辞、不放宽断言。
+        isaac::runtime::modmenu::ModMenuNativeUpdate();
 #endif
         PersistenceTrace::Flush();
         ManagerUpdateHookAudit::Flush();
@@ -2060,6 +2116,50 @@ HOOK_DEFINE_TRAMPOLINE(ManagerRenderHook) {
 // 新后端（入口中继）：原函数由 entry_relay 记录的回退入口提供。
 // 入口桩是**尾调用**，所以本回调以 `Manager::Render` 的身份运行，
 // `ret` 直接回到游戏的调用方；ABI 必须与目标完全一致（`IsaacRepentance::Manager*`）。
+// 成就闸门（2026-09-24 批次 098：从"拦 `TryUnlock`"改成挂这里 —— 用户裁定"照 PC 语义来"）。
+//
+// 位置 = `PersistentGameData::SetReadOnly(bool)`（`0x439460`）：**唯一**写"只读位"（`PGD+0x1`）
+// 的地方，也是每局开局设一次"本局给不给成就"的关卡（24 个调用点全在开局路径上：
+// `Game::Start` / `StartDailyChallenge` / `RestoreState` / `StartFromRerunState`）。
+// PC 的模型就是这样：开局那一刻按「有模组开着 且 妈腿成就未解锁」算一次，落到只读位，
+// 之后 `TryUnlock` 自己查这个字节 ⇒ 我们不再拦任何解锁调用，只把这一步补上。
+//
+// 参数语义：**`引擎原参数 OR 该禁`**。引擎自己那两条禁成就判据（特殊种子 / 挑战局）照旧生效；
+// 我们只在"按 PC 规则该禁"时把 false 抬成 true。不锁时一律原样传下去 —— 引擎在"本局不该禁"
+// 时会自己调 `SetReadOnly(false)` 把位清掉（`Game::Start` 的 `0x34EA40` 分支），
+// 所以关掉模组之后成就照常可拿，这就是用户要的语义。
+//
+// 形状：`SetReadOnly(PersistentGameData* self /*x0*/, bool /*w1*/)` → void（`w1` 只取低位）。
+extern "C" void EntryRelayPersistentGameDataSetReadOnlyCallback(void* self,
+                                                               std::uint32_t readOnly) {
+    // 分段计数（状态面 [35]..[39]）：回答"这道闸门有没有被走到、是谁让它锁的"。
+    //   ① [35] 恒 0 ⇒ 引擎开局根本没调 `SetReadOnly`（那样闸门位置就不对）；
+    //   ② [36] 涨 = 引擎自己本来就要锁（特殊种子 / 挑战局）；[37] 涨 = 我们按 PC 规则把它抬成锁；
+    //   ③ [38] = 最后一次**真正写下去**的值（1 = 本局不给成就）；[39] = 1 ⇒ 拿不到回退入口。
+    auto& state = isaac::runtime::modmenu::g_ModMenuState;
+    ++state.setReadOnlyCalls;
+    const bool engineWantsLock = (readOnly & 1U) != 0U;
+    if (engineWantsLock) {
+        ++state.setReadOnlyEngineLocked;
+    }
+    const bool pcShouldLock = isaac::runtime::modmenu::AchievementsShouldBeBlockedFor(self);
+    if (pcShouldLock) {
+        ++state.setReadOnlyForcedByPc;
+    }
+    const bool finalValue = engineWantsLock || pcShouldLock;
+    state.setReadOnlyLastValue = finalValue ? 1U : 0U;
+    using SetReadOnlyFn = void (*)(void*, bool);
+    const auto original = isaac::runtime::Original<SetReadOnlyFn>(
+        isaac::runtime::HookId::PersistentGameDataSetReadOnly);
+    if (original == nullptr) {
+        // 拿不到回退入口 ⇒ **什么都不写**（不吞引擎本来要设的值）——
+        // 这种降级是安全的：退回 Switch 原生行为，宁可不禁成就也不误禁。
+        state.setReadOnlyOriginalMissing = 1;
+        return;
+    }
+    original(self, finalValue);
+}
+
 extern "C" void EntryRelayManagerRenderCallback(void* self) {
     auto* manager = reinterpret_cast<IsaacRepentance::Manager*>(self);
     RenderHookBody(manager, [](IsaacRepentance::Manager* inner) {
@@ -2168,11 +2268,12 @@ bool IsRenderPresentRelayInstalled() {
 extern "C" __attribute__((visibility("hidden"))) void
 IsaacModRuntime_DispatchPostRenderBeforePresent(void* graphicsManager) {
     g_RenderPresentRelayEntries.fetch_add(1, std::memory_order_relaxed);
-#if defined(EXL_PROBE_BREAK) && EXL_PROBE_BREAK_NATIVE_MODS_MENU
-    // 批次 019：手动模式下的原生模组页在**所有游戏画面之后、Present 之前**画（探针专用，
-    // 只在"手动模式开着且 Init 成功"时真的调用）。生产包不含这段。
-    isaac::runtime::probe::NativeModsMenuProbeBeforePresent();
-#endif
+    // 批次 019 的"手动画原生模组页"这次调用**已从这里移走**（批次 040）：原因是本函数虽然在
+    // `Present` 之前，却在引擎那套渲染上下文**之外** —— `PushRenderTarget` / `SetBlendMode` /
+    // `LoadShader` / 背景 `FillQuad` 都在 `MenuManager::Render` 里、比我们早，而页面是在那些
+    // 准备**之内**画的。在上下文之外调 `Render` ⇒ 页面落在裸屏幕坐标里 ⇒ 给 `Init` 传什么位置
+    // 都不对（六档 Y 标定全部落空的原因）。现在它挂在 `Menu_Title::Render` 的入口中继上，
+    // 见 `probe/native_mods_menu_probe.cpp` 与 `docs/改动日志-20260922.md` 的 037/040 两节。
     // 参数是 `Present` 的实参（`KAGE::Graphics::g_Manager`），派发路径不用它 —— 见
     // `g_RenderFrameManager` 的注释。两个中继都没跑过时只能拿它兜底；那种情况下
     // `PrimeDefaultCallbacks` 会返回 false，回调不执行，但也不会崩。
@@ -2380,6 +2481,40 @@ DefaultManifestInstallResult TryInstallDefaultManifestMod(const TargetModule& mo
     // 会在 `Sprite()`/`Font()` 处当场失败（2026-09-14 真机，见那个函数的注释）。
     // 与 `Orig` 的发布同理：此处仍在模块初始化线程上，游戏主循环尚未开始，`InitMod` 之前必定完成。
     PublishManagerEngineBindings(module);
+    // ★★ 2026-09-23 修（真机定位到的 bug）：把**会话内容挂载服务发布出去**。
+    //
+    // 重建中继（`IsaacModRuntime_RebuildContentMountPointsRelay`）靠
+    // `SessionContentMountService()` 拿到这个实例，才能在引擎重建挂载点表之后把
+    // **Mod 的挂载点重新挂回去**；而 `SetSessionContentMountService(...)` 以前
+    // **从来没有被调用过** ⇒ 那个指针恒为空 ⇒ 中继每次都直接返回、**一个挂载点都不恢复**。
+    //
+    // 真机后果（2026-09-23 用户报"换过语言之后 EID 的信息显示坏掉"）：
+    //   换语言 → `Manager::SetLanguage` **尾调用** `RebuildContentMountPoints`（反汇编实证）
+    //   → 挂载点表重建、Mod 的挂载点全丢、中继又恢复不了
+    //   → EID 下次开局（`MC_POST_GAME_STARTED`）重新 `Font:Load` 它自己的 `.fnt` 时**文件打不开**
+    //   → 而 `Font::Load` 开头先 `Unload()` ⇒ 字体**永久停在"未加载"** ⇒ 信息全不显示，
+    //     只剩开机时已经载进内存的图标还在闪。**重启就好**（开机走的是 `RegisterMod` 那条路）。
+    //
+    // 放在这里：仍在模块初始化线程上、游戏主循环尚未开始（与上面那些发布同一条理由）；
+    // 中继只可能在挂点装好之后才被调到，所以此处发布一定够早。
+    isaac::runtime::SetSessionContentMountService(&g_ContentMountService);
+#if defined(EXL_PROBE_BREAK) && EXL_PROBE_BREAK_NATIVE_MODS_MENU
+    // 批次 040（探针专用，生产包不含）：在 `Menu_Title::Render` 的**函数入口**挂一个入口中继，
+    // 让探针的原生模组页画在**引擎自己的渲染上下文里**（批次 019~039 是在 `Present` 前中继里
+    // 带外画的，那套上下文不存在 ⇒ 位置怎么调都不对）。
+    // 放在这里而不是帧里：**此处仍在模块初始化线程上、游戏主循环尚未开始**，改游戏代码
+    // 不存在与渲染线程抢的窗口（与上面那些发布同一条理由）。
+    isaac::runtime::probe::NativeModsMenuProbeInstallRelay(module);
+#else
+    // 批次 077：生产版的"安装点"。
+    // 三个入口中继本身由上面那次 `InstallProductionHooks` 按挂点登记表装好了 —— 这里做的是
+    // 探针在安装函数里做的那几件事：把"三个中继装没装上"记进状态面、一次性逐字节核对我们要
+    // **直接调用**的那些引擎入口（`Menu_Mods` 的五个方法、`ANM2` 两个跳板、`Font` 三个入口…）、
+    // 备好读 `metadata.xml` 那组绑定。核对不过只是"不调用"，一个字节都不写。
+    //
+    // 与探针那一段**互斥**（两个 TU 装的是同一批入口）：判据在 `SkipOptionalHooksPredicate`。
+    isaac::runtime::modmenu::ModMenuNativeInstall(module);
+#endif
     // `MC_POST_RENDER` 的 Present 前派发点与内容挂载点重建中继都是可选能力：装不上只是
     // 回退（回调晚一帧派发）或不重建挂载点，不影响安装成败 —— 两个都由
     // `HookInstallService::InstallProductionHooks` 经 `IHookPort` 安装，装没装上记在
@@ -2727,6 +2862,15 @@ void ObserveGameStart(void* game, std::uint32_t eventKind) {
     if (eventKind != 1 && eventKind != 2) {
         return;
     }
+    // ★★ 批次 117/119：**局内单向闩锁**的一条局边界到了。三类的处置不同（见 `NoteNewRun`）：
+    //   * `LoadSave`（继续同一份存档）⇒ 把出局时的留存**接回来**（用户裁定：继续算同一局）；
+    //   * `NewRun`（开新局）⇒ **真清零**（裁定①：进局前关掉模组 ⇒ 这一局不锁）。
+    //   ⚠️ 这两条通知都在 `Game::Start` / `StartFromSavedState` **返回之后**才到，
+    //   而引擎那次写只读位在函数**体内** ⇒ 所以"接回来"必须由下一帧的观察点**补写一次锁**，
+    //   而"开新局要清"靠的是出局时就已经把闩锁转成了留存（详见 `NoteNewRun` 与 `.hpp`）。
+    isaac::runtime::modmenu::NoteNewRun(eventKind == 1
+                                            ? isaac::runtime::modmenu::RunBoundaryKind::LoadSave
+                                            : isaac::runtime::modmenu::RunBoundaryKind::NewRun);
     LuaRuntime::NoteGameStarted(eventKind == 1);
 }
 
@@ -3677,6 +3821,15 @@ extern "C" void EntryRelayUsePillCallback(void* player, std::uint32_t pillEffect
 
 extern "C" void EntryRelayGameExitCallback(void* game, std::uint32_t shouldSave) {
     using GameExitFn = void (*)(void*, std::uint32_t);
+    // ★★ 批次 117：**局内单向闩锁**的"出局"边界 —— 本回调在**退出流程一开始**就触发
+    //   （"先派发、再跑原函数"），所以它**严格早于下一局的任何写位**。
+    //   ★ 批次 119 起它在闩锁上的作用**不是"清成干净的"**，而是**把闩锁转成"留存"**：
+    //   用户裁定"继续同一份存档算同一局"，而他改开关的唯一时机就是出局之后 ⇒ 清了就永远
+    //   看不到"中途开启后又关掉仍锁"。留存由下一次"继续"接回来（见 `NoteNewRun`）。
+    //   这一格 `gameExitCalls` 同时是"本路确实会触发"的现场证据（状态面 [49]）。
+    auto& state = isaac::runtime::modmenu::g_ModMenuState;
+    ++state.gameExitCalls;
+    isaac::runtime::modmenu::NoteNewRun(isaac::runtime::modmenu::RunBoundaryKind::GameExit);
     // `MC_PRE_GAME_EXIT` 的名字里那个 PRE 是相对"这一局结束"而言的：PC 在**退出流程开始前**
     // 触发它，模组在这里做收尾（EID 唯一的 `SaveData` 调用点）。所以顺序是"先派发、再跑原函数"。
     LuaRuntime::DispatchPreGameExit(shouldSave != 0);

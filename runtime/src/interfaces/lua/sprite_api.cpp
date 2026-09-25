@@ -1,7 +1,8 @@
 #include "interfaces/lua/api_sequence_probe.hpp"
 #include "interfaces/lua/sprite_api.hpp"
 #include "interfaces/lua/runtime_perf.hpp"
-#include "interfaces/lua/engine_memory_guard.hpp"
+#include "infrastructure/memory/engine_field_access.hpp"
+#include "infrastructure/memory/engine_memory_guard.hpp"
 
 #include "interfaces/lua/isaac_api.hpp"
 #include "interfaces/lua/owner_binding.hpp"
@@ -41,101 +42,42 @@ constexpr char kSpriteOwner[] = "Sprite";
 constexpr std::size_t kSpriteStorageSlack = kSpriteObjectAlignment;
 
 // 引擎字段读取原语：先确认可读再 `memcpy`（指针猜错必须变成"读不到"而不是"读了就崩"）。
+// 「这段地址可读吗」：**唯一实现在引擎内存访问层里**（2026-09-24 批次 102 收敛）。
+// 此前四个 API 族各有一份逐字相同的拷贝（去掉注释后各 781 字符）；判决条件一条没改，
+// 只是"实现在几处"从 4 变成了 1。**函数名保留** —— `test_lua_missing_members_batch028`
+// 按这个名字核对四个手写处理器体里有没有做可读性检查。
 bool IsEngineMemoryReadable(std::uintptr_t address, std::size_t length) noexcept {
-    // 实现见 `interfaces/lua/engine_memory_guard.hpp`：四个 API 族共用同一份缓存与计数。
-    //
-    // 语义逐字不变：空地址、长度 0、地址回绕一律 false；设备侧仍要求返回码成功、区间完整落在
-    // 映射内、且带 `Perm_R`。变的是**命中缓存时不再进内核** —— `svcQueryMemory` 返回的描述
-    // 覆盖一整段连续且权限一致的映射，整段都能复用那一次结论。缓存只在受管回调派发期间有效
-    // （`EngineGuardEnterDispatch`/`EngineGuardLeaveDispatch`），所以过期窗口为零。
-    if (!EngineGuardRangeUsable(address, length)) {
-        return false;
-    }
-#if defined(__SWITCH__)
-    // 派发作用域内命中已登记的映射区间：这一帧的同一段内存不再重复问内核。
-    if (EngineGuardLookupCached(address, length)) {
-        return true;
-    }
-    const std::uint64_t syscallStart = EngineGuardSyscallBegin();
-    MemoryInfo info{};
-    u32 pageInfo = 0;
-    // 显式写 `std::uint32_t`：本命名空间里有一个同名模板 `Result<T>` 会遮蔽 libnx 的
-    // `Result`（u32）typedef，直接写 `Result` 会撞上模板推导。
-    const std::uint32_t result = svcQueryMemory(&info, &pageInfo, address);
-    EngineGuardSyscallEnd(syscallStart);
-    if (R_FAILED(result) || info.size == 0 || info.addr > UINTPTR_MAX - info.size) {
-        return false;
-    }
-    if (address < info.addr || address + length > info.addr + info.size ||
-        (info.perm & Perm_R) == 0) {
-        return false;
-    }
-    // 这次系统调用描述的是一整段连续且权限一致的映射，整段都可以复用这个结论。
-    EngineGuardRememberReadable(info.addr, info.addr + info.size);
-    return true;
-#else
-    // 宿主构建没有 `svcQueryMemory`；宿主测试的"引擎内存"是本进程 malloc 出来的伪造块，
-    // 本来就一定可读（见 `runtime/tests/test_lua_entity_player.py`）。
-    return true;
-#endif
+    return isaac::runtime::engine_memory::EngineMemoryReadable(address, length);
 }
 
+// 2026-09-24（批次 114）：**实现搬进引擎内存访问层**（`engine_memory::ReadAt`）—— 本 TU 只剩一行
+// 委托，与写侧的 `WriteEngine`、以及 `isaac_api.cpp` 里的同名原语同例。判据一条没改：
+// 先可读、再取值；失败时**不写**出参。
 template <typename T>
 bool ReadEngine(std::uintptr_t address, T* value) noexcept {
-    if (value == nullptr || !IsEngineMemoryReadable(address, sizeof(T))) {
-        return false;
-    }
-    std::memcpy(value, reinterpret_cast<const void*>(address), sizeof(T));
-    return true;
+    return engine_memory::ReadAt(address, value, &IsEngineMemoryReadable);
 }
 
-// 引擎字段**写**原语（2026-09-16，与上面的读原语成对）。
+// 引擎字段**写**原语（2026-09-16，与上面的读原语成对；2026-09-24 批次 103 收敛进访问层）。
 //
 // 为什么不能直接 `*reinterpret_cast<float*>(address) = value`：这里的地址来自**引擎对象**
 // （`ANM2`、`Entity_Player`），任何一次"猜错的地址"都会变成对别人的内存的破坏，而且是静默的。
-// 所以写之前必须确认"这一段内存**可写**"，判据与读侧同源但要**分开缓存**：
-// 可读（`Perm_R`）绝不等于可写（`Perm_W`）—— 模块映像的代码段与只读数据段就是可读而不可写，
-// 拿读缓存给写路径放行会直接触发 `Data Abort`。写缓存见
-// `interfaces/lua/engine_memory_guard.hpp` 的 `EngineGuardWritableRegionCache`。
+// 所以写之前必须先确认"这一段内存**可写**"。判据与写缓存**都不在这个 TU 里了** ——
+// 「这段地址可写吗」现在**唯一实现在引擎内存访问层里**（`EngineMemoryWritable`：按 `Perm_W`、
+// 走**写**缓存；可读 `Perm_R` 绝不等于可写 `Perm_W`）。**函数名保留** ——
+// 契约测试按这个名字核对两个可写 TU 都只是委托，实现只有一份。
 bool IsEngineMemoryWritable(std::uintptr_t address, std::size_t length) noexcept {
-    if (!EngineGuardRangeUsable(address, length)) {
-        return false;
-    }
-#if defined(__SWITCH__)
-    if (EngineGuardLookupWritable(address, length)) {
-        return true;
-    }
-    const std::uint64_t syscallStart = EngineGuardSyscallBegin();
-    MemoryInfo info{};
-    u32 pageInfo = 0;
-    const std::uint32_t result = svcQueryMemory(&info, &pageInfo, address);
-    EngineGuardSyscallEnd(syscallStart);
-    if (R_FAILED(result) || info.size == 0 || info.addr > UINTPTR_MAX - info.size) {
-        return false;
-    }
-    if (address < info.addr || address + length > info.addr + info.size ||
-        (info.perm & Perm_W) == 0) {
-        return false;
-    }
-    EngineGuardRememberWritable(info.addr, info.addr + info.size);
-    return true;
-#else
-    // 宿主构建没有 `svcQueryMemory`：宿主测试里的"引擎内存"是本进程申请出来的伪造块
-    // （`runtime/tests/test_lua_sprite_write_channel.py`），本来就可写。
-    return true;
-#endif
+    return isaac::runtime::engine_memory::EngineMemoryWritable(address, length);
 }
 
 // 唯一的引擎写入口。`WriteEngine` 这个名字在门禁里是**保留字**：契约测试
 // `tests/contract/test_engine_write_channel.py` 要求 `runtime/src/interfaces/lua/` 下
 // 任何"往引擎地址写"的地方都走这里，不许出现裸指针赋值或裸 `memcpy`。
+// 体内那次 `memcpy` 也已搬进层（`engine_memory::WriteAt` ⇒ `WriteField`）——
+// 全仓"往引擎写一个字段"的实现因此**只剩层里那一份**，本处只负责注入"可写"判定。
 template <typename T>
 bool WriteEngine(std::uintptr_t address, const T& value) noexcept {
-    if (!IsEngineMemoryWritable(address, sizeof(T))) {
-        return false;
-    }
-    std::memcpy(reinterpret_cast<void*>(address), &value, sizeof(T));
-    return true;
+    return isaac::runtime::engine_memory::WriteAt(address, value, &IsEngineMemoryWritable);
 }
 
 // --- 所有权与来源（批次 5）-----------------------------------------------------
@@ -153,13 +95,13 @@ void* ResolveSpriteObject(const SpriteHandle* handle) noexcept {
         return nullptr;
     }
     if (handle->source == kSpriteSourceEngineEntity) {
-        const std::uintptr_t owner = reinterpret_cast<std::uintptr_t>(handle->owner);
+        const std::uintptr_t owner = engine_memory::AddressOf(handle->owner);
         // "还活着"的判据只有一份实现（`isaac_api.cpp` 的 `ValidatedEntity` 用的那条）：
         // vptr 仍落在 `Entity` 家族区间内且地址可读。
         if (!IsLiveEntityPointer(owner)) {
             return nullptr;
         }
-        return reinterpret_cast<void*>(owner + kEntitySpriteOffset);
+        return engine_memory::AsObject(owner + kEntitySpriteOffset);
     }
     return handle->sprite;
 }
@@ -367,7 +309,7 @@ void ApplyCachedSpriteProperties(void* sprite, const SpriteHandle* handle) noexc
         apply(sprite, handle);
     }
 #endif
-    const std::uintptr_t base = reinterpret_cast<std::uintptr_t>(sprite);
+    const std::uintptr_t base = engine_memory::AddressOf(sprite);
     if (handle->hasScale != 0) {
         static_cast<void>(WriteEngine<float>(base + kSpriteScaleOffset, handle->scaleX));
         static_cast<void>(WriteEngine<float>(base + kSpriteScaleOffset + sizeof(float), handle->scaleY));
@@ -468,14 +410,20 @@ void ReleaseNativeString(unsigned char* object) noexcept {
     if (deallocate == 0) {
         return;
     }
-    const auto* words = reinterpret_cast<const std::uint64_t*>(object);
-    if ((words[0] & 1ULL) == 0) {
+    // 两处取值都走访问层（批次 114）：这个字符串对象是**引擎的**分配器给的（下面 `deallocate`
+    // 就是它的 `operator delete`），所以读的是引擎内存里的字段，不再用裸指针算术 + 转换。
+    std::uint64_t headerWord = 0;
+    if (!engine_memory::LoadVerifiedAt(engine_memory::AddressOf(object), 0, &headerWord) ||
+        (headerWord & 1ULL) == 0) {
         return;  // 短串：内容内联在对象里，没有堆缓冲
     }
-    void* data = reinterpret_cast<void*>(words[kLibcxxStringDataOffset / sizeof(std::uint64_t)]);
-    if (data == nullptr) {
+    std::uintptr_t bufferAddress = 0;
+    if (!engine_memory::LoadVerifiedAt(engine_memory::AddressOf(object) + kLibcxxStringDataOffset, 0,
+                                       &bufferAddress) ||
+        bufferAddress == 0) {
         return;
     }
+    void* data = engine_memory::AsObject(bufferAddress);
     deallocate(data);
     std::memset(object, 0, kLibcxxStringSize);  // 复位成"空短串"，避免留下悬垂指针
 }
@@ -1002,7 +950,7 @@ int SpriteGetTexel(lua_State* state) {
     // `ANM2+0x60` 是 `AnimationState*`：引擎的 `ANM2::GetTexel` 第一件事就是
     // `add x0, x0, #0x60`（`0xC098`）再 tail-call `AnimationState::GetTexel`（`0xC0B8`）。
     // 状态为空说明还没 `Load`/`SetAnimation`，那时调下去就是空指针解引用。
-    const std::uintptr_t spriteAddress = reinterpret_cast<std::uintptr_t>(sprite);
+    const std::uintptr_t spriteAddress = engine_memory::AddressOf(sprite);
     std::uintptr_t animationState = 0;
     if (spriteAddress == 0 ||
         !ReadEngine(spriteAddress + kSpriteAnimationStateOffset, &animationState)) {
@@ -1096,7 +1044,7 @@ int SpriteIsLoaded(lua_State* state) {
     // 走 `ReadEngine`（先确认可读）而不是裸解引用：引擎实体来源的 sprite 只要实体还在就必然
     // 可读，但"读不到"必须降级成 `false` 而不是崩在一条只读访问器里。
     std::uint8_t flag = 0;
-    if (!ReadEngine(reinterpret_cast<std::uintptr_t>(sprite) + kSpriteLoadedFlagOffset, &flag)) {
+    if (!ReadEngine(engine_memory::AddressOf(sprite) + kSpriteLoadedFlagOffset, &flag)) {
         lua_pushboolean(state, 0);
         return 1;
     }
@@ -1111,7 +1059,7 @@ int PushEngineEntitySpriteHandle(lua_State* state, void* entity) {
         return luaL_error(state, "Entity:GetSprite requires a live entity");
     }
     auto* handle = static_cast<SpriteHandle*>(lua_newuserdata(state, sizeof(SpriteHandle)));
-    handle->sprite = reinterpret_cast<void*>(reinterpret_cast<std::uintptr_t>(entity) +
+    handle->sprite = engine_memory::AsObject(engine_memory::AddressOf(entity) +
                                              kEntitySpriteOffset);
     handle->owner = entity;
     handle->source = kSpriteSourceEngineEntity;
@@ -1185,7 +1133,7 @@ int SpriteGetAnimation(lua_State* state) {
         return luaL_error(state, "Sprite:GetAnimation accepts no arguments");
     }
     std::array<char, kAnimationNameCapacity> name{};
-    if (!ReadAnimationName(reinterpret_cast<std::uintptr_t>(sprite), name.data(), name.size())) {
+    if (!ReadAnimationName(engine_memory::AddressOf(sprite), name.data(), name.size())) {
         lua_pushliteral(state, "");
         return 1;
     }

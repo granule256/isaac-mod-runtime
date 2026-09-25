@@ -2210,6 +2210,29 @@ inline constexpr std::array<u8, 16> kFilesysFileOpenReadExpectedBytes = {
     0xFD, 0x7B, 0xBE, 0xA9, 0xF4, 0x4F, 0x01, 0xA9,
     0xFD, 0x03, 0x00, 0x91, 0x02, 0x1F, 0x00, 0xD0,
 };
+// `bool File::Exists(char const* path)`（`0x4CCCE8`）—— **引擎自己的存在性判定**，
+// 也是"绝不盲开"的现成实现（2026-09-22 批次 043 反汇编逐条读出来的）：
+//
+//     004cccf8  mov  x1, x0               ; path
+//     004cccfc  adrp x0, 0xaac000
+//     004ccd00  ldr  x0, [x0, #0x748]     ; g_ContentManager（**一次取值**就是对象指针）
+//     004ccd04  bl   IContentManager::GetMountedFilePath
+//     004ccd08  cbz  x0, 0x4ccd40         ; 解析不到 ⇒ w20 = 0 ⇒ **直接返回 false，不炸**
+//     004ccd18  bl   nn::fs::OpenFile(…, mounted, 1)   ; 解析得到才真去开
+//
+// ⚠️ 2026-09-22 起**没有消费者**（批次 044 的探针曾用它做"读文件前的存在性检查"，
+// 后来发现真正的错不在这里、而在于**把没解析过的路径交给读函数** ⇒ 进标题界面即崩，
+// 见 `docs/问题与解决记录.md` 续七十；修法是改用 `kContentManagerGetMountedFilePathOffset`
+// 拿"引擎自己能打开的绝对路径"再读）。**保留这个常量与这段证据**，因为它是引擎自己的存在性
+// 判定：判"在不在"时用它**不会**因路径形状不对而炸（它内部会先解析），以后要用直接拿。
+//
+// 参数一个（path），返回 `bool`（w0）。**它是静态函数**（没有 `this`），所以调用点不需要
+// 任何单例指针。
+inline constexpr uintptr_t kFilesysFileExistsOffset = 0x4CCCE8;
+inline constexpr std::array<u8, 16> kFilesysFileExistsExpectedBytes = {
+    0xFF, 0xC3, 0x00, 0xD1, 0xFD, 0x7B, 0x01, 0xA9,
+    0xFD, 0x43, 0x00, 0x91, 0xF4, 0x4F, 0x02, 0xA9,
+};
 // `int File::read_stream_data(char* dest, int count, int elementSize)`（`0x4CD1B0`）：
 //   * `0x4CD1BC ldr w9,[x0,#0x40]; cbz` ⇒ 打开模式必须是"读"（`0x4CD1C4` 返回 0 = 失败）；
 //   * `0x4CD1D4 mul w9, w3, w2` ⇒ 字节数 = `count * elementSize`（与写侧同形）；
@@ -2641,4 +2664,71 @@ inline constexpr uintptr_t kGameOperatorNewArrayOffset = 0x66FB60;
 inline constexpr std::array<u8, 16> kGameOperatorNewArrayExpectedBytes = {
     0x70, 0x21, 0x00, 0xD0, 0x11, 0x8E, 0x46, 0xF9,
     0x10, 0x62, 0x34, 0x91, 0x20, 0x02, 0x1F, 0xD6,
+};
+
+// ---------------------------------------------------------------------------
+// 模组页搬生产（2026-09-23）：三个**入口中继**靶点
+// ---------------------------------------------------------------------------
+// 由来：`docs/设计-模组页搬生产-20260923.md`（用户定案"整块搬"：选择界面那一列多一格「模组」
+// + 模组页 + 中文字体接线）。行为真值源是探针 `runtime/source/probe/native_mods_menu_probe.cpp`
+// —— 那三个入口在探针里已经逐字节核过、真机跑过，这里**逐字节照搬**它的常量（一个字节都不改）。
+//
+// 三个靶点各挂一次入口中继（零占洞：改写目标函数入口 16 字节，见 `relay/entry_relay.hpp`）：
+//   * `Menu_Game::Render`    —— 那一列里多一格「模组」要**挪行 + 挪光标**（我们改图层偏移，
+//                               画完再还原；引擎自己那份动画有第六层时由引擎画，我们不画）；
+//   * `Menu_Title::Render`   —— 模组页（引擎状态 16）**唯一**的画手：`MenuManager::Render`
+//                               每帧调的 15 个页面里没有模组页，所以借标题页那一趟的渲染上下文；
+//   * `MenuManager::SetState`—— 保险：引擎按它自己的行号想替我们那一格跳统计/选项时挡下来。
+//
+// ⚠️ 三个靶点与探针**是同一批入口** ⇒ 探针构建里必须跳过这三个挂点的安装
+// （`hook_manager.cpp` 的 `SkipOptionalHooksPredicate` 里那条 `EXL_PROBE_BREAK_NATIVE_MODS_MENU`
+//  分支）：入口中继是"改写入口 16 字节"，同一入口装第二次必然 `EntryMismatch`。
+//
+// `Menu_Game::Render`（`tools/nro_disasm.py 0x40E73C 16` 抽查，小端文件序）：
+//   sub sp,sp,#0x150 / str d8,[sp,#0x10] / str x28,[sp,#0x10] / stp x29,x30,[sp,#0x10]!
+inline constexpr uintptr_t kMenuGameRenderOffset = 0x40E73C;
+inline constexpr std::array<u8, 16> kMenuGameRenderExpectedBytes = {
+    0xFF, 0x43, 0x05, 0xD1, 0xE8, 0x7B, 0x00, 0xFD,
+    0xFC, 0x87, 0x00, 0xF9, 0xFD, 0xFB, 0x0F, 0xA9,
+};
+// `Menu_Title::Render`（`tools/nro_disasm.py 0x41A574 16`）：
+//   sub sp,sp,#0x50 / ldp x9,x8,[sp,#0x40] / str x21,[sp,#0x10] / stp x29,x30,[sp,#0x20]
+// ★ 为什么挂**函数入口**而不是改那个调用点：整份模块里 `bl Menu_Title::Render`
+//   （文件偏移 `0x3FE8AC`，目标是 PLT 桩 `0x67D500`）是**唯一**引用它的一处
+//   （扫全部 `bl/b`：直接跳 `0x41A574` 的 0 处、重定位表里指向它的 0 处）⇒ 两者语义相同，
+//   而入口中继零占用游戏字节（游戏映像的代码洞只剩 0x30 字节、零余量）。
+inline constexpr uintptr_t kMenuTitleRenderOffset = 0x41A574;
+inline constexpr std::array<u8, 16> kMenuTitleRenderExpectedBytes = {
+    0xFF, 0x43, 0x01, 0xD1, 0xE9, 0x23, 0x01, 0x6D,
+    0xF5, 0x1B, 0x00, 0xF9, 0xFD, 0x7B, 0x02, 0xA9,
+};
+// `MenuManager::SetState(eState)`（`tools/nro_disasm.py 0x3FE4DC 16`）：
+//   stp x29,x30,[sp,#-0x30]! / str x21,[sp,#0x10] / mov x29,sp / stp x20,x19,[sp,#0x20]
+//: `PersistentGameData::SetReadOnly(bool)`（`0x439460`）—— **唯一写"只读位"（`PGD+0x1`）的地方**
+//: （全镜像 24 个调用点，全部在开局路径上：`Game::Start` / `StartDailyChallenge` / `RestoreState` /
+//: `StartFromRerunState`，没有任何"中途重新允许成就"的调用点）。
+//: 函数体（`tools/nro_disasm.py 0x439460 0x40`）：
+//:   `ands w20,w1,#1` … `strb w20,[x19,#1]` ⇒ 它就是"本局给不给成就"的开关本身。
+//:
+//: ★★ 为什么闸门挂在这里，而不是像 092~097 那样拦 `TryUnlock`（2026-09-24 批次 098 改，用户裁定
+//:    "照 PC 语义来"）：PC 的模型是**查询式**—— `ModManager::AchievementsLocked()`（带符号的
+//:    `AfterbirthPlus.nro` 里 `0x250CB8` 逐条反汇编：遍历模组列表，任一启用 ⇒ 读
+//:    `PersistentGameData::Unlocked(4)` 取反 ⇒ 「有模组开着 且 妈腿成就未解锁」= 锁），
+//:    **在开局那一刻问一次**，结果落到只读位；之后 `TryUnlock` 自己查这个字节。
+//:    Switch 移植版把那条查询链删干净了（`check_game_data_modified` 是死代码、
+//:    `Manager::AchievementUnlocksDisallowed` 是空实现），残留的禁成就判据只有"特殊种子"与
+//:    "挑战局"两条 —— 所以我们在这道**唯一写只读位的关卡**上按 PC 的规则补上那一步，
+//:    其余（禁与不禁、什么时候清 0）全部交回引擎自己。
+//:    ★ 反面教训：`Manager+0x36D4D` 曾被当成"本局禁成就"的输入写了六个批次（084~089），真机上
+//:    完全无效 —— `Game::Start` 只是把它抄进 `Game+0x2F0030`（紧挨难度字段 `+0x2F0028`），
+//:    它**不参与** `SetReadOnly` 的判据。
+inline constexpr uintptr_t kPersistentGameDataSetReadOnlyOffset = 0x439460;
+inline constexpr std::array<u8, 16> kPersistentGameDataSetReadOnlyExpectedBytes = {
+    0xFD, 0x7B, 0xBE, 0xA9, 0xF4, 0x4F, 0x01, 0xA9,
+    0xFD, 0x03, 0x00, 0x91, 0x34, 0x00, 0x00, 0x72,
+};
+inline constexpr uintptr_t kMenuManagerSetStateOffset = 0x3FE4DC;
+inline constexpr std::array<u8, 16> kMenuManagerSetStateExpectedBytes = {
+    0xFD, 0x7B, 0xBD, 0xA9, 0xF5, 0x0B, 0x00, 0xF9,
+    0xFD, 0x03, 0x00, 0x91, 0xF4, 0x4F, 0x02, 0xA9,
 };

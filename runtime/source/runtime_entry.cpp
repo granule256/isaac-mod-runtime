@@ -4,6 +4,7 @@
 
 #include "module_finder.hpp"
 #include "hook_manager.hpp"
+#include "fatal_forensics.hpp"
 #include "lua_runtime.hpp"
 #include "manager_update_hook_audit.hpp"
 #include "persistence_event_journal.hpp"
@@ -944,6 +945,11 @@ extern "C" void exl_main(void*, void*) {
     IsaacModRuntime_EnsureThreadTls();
     IsaacModRuntime_PublishRuntimeSelf(reinterpret_cast<std::uintptr_t>(&exl_main));
 #endif
+    // 批次 099（2026-09-24）：装「未捕获 C++ 异常」的留证兜底（见 `fatal_forensics.hpp` 的文件头）。
+    // 为什么放在入口这么早：装完之后**任何时刻**的未捕获异常都会留下一份崩溃报告；
+    // 在那之前只会得到"画面卡死、音乐还在、连报告都没有"那种现场（2026-09-24 的真机现象）。
+    // ★ 它不改游戏逻辑，只在真死之前先 `svcBreak` 把寄存器交出去。
+    isaac::runtime::forensics::InstallAbortForensics();
     // 2026-09-16：这里原有的 `svcSleepThread(15'000'000'000ULL)` 已删除（实验 E1，提交 `38b761b2` 加的）。
     // 入口是被游戏**同步等待**的 ⇒ 在入口等 = 直接给开机加秒数，而崩溃只是整体后移（记录续十六 §二）。
     // 要把"我们自己的启动期动作"挪出装载窗口，等的地方是 `ModuleWorker` 开头（见下面那个函数）。

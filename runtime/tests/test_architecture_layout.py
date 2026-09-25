@@ -308,9 +308,45 @@ class ArchitectureLayoutTests(unittest.TestCase):
         # 历史地址 pin 不得再作为放置指令或上限断言出现（只在说明注释里提及它）。
         self.assertNotRegex(script, r"EXL_LAYOUT_PIN\s*(==|!=)")
         self.assertNotIn(". = EXL_LAYOUT_PIN", script)
-        # 栈回溯表不得被重新保留（KEEP 会让汇编单元与 libnx 预编译对象的表全部留下）。
-        self.assertNotIn("KEEP (*(.eh_frame))", script)
-        self.assertIn("*(.eh_frame .eh_frame.*)", script)
+        # ★★ 2026-09-24（批次 104）**把这条反过来钉**：展开表**必须保留**。
+        #
+        # 原来这里是"栈回溯表不得被重新保留"（断言 KEEP 不出现、`*(.eh_frame .eh_frame.*)`
+        # 出现在 `/DISCARD/` 里）。2026-09-12 为省 36.5 KB 这么做了，结论写着"对运行时没有任何
+        # 副作用"——**错的**：2026-09-21 / 2026-09-24 两次真机**无声卡死**（画面不动、音乐还在、
+        # 没有崩溃报告）的根因就是它 —— 展开器拿不到本模块任何一帧的信息 ⇒
+        # `_Unwind_RaiseException` **相位 1 直接失败 ⇒ `abort()`**（不是 `std::terminate`）
+        # ⇒ `_exit` 自旋。完整证据见 `docs/改动日志-20260924.md` 的 015 段。
+        #
+        # ★ 判据看着**代码**（先去 `/* */` 注释）：脚本里必须写清"为什么不能丢"，那些注释里
+        #   自然会提到 `.eh_frame` / `/DISCARD/` 这些字眼，判文字会误红（本项目已有先例）。
+        code = re.sub(r"/\*.*?\*/", "", script, flags=re.S)
+        self.assertIn("KEEP (*(.eh_frame .eh_frame.*))", code)
+        self.assertIn("KEEP (*(.eh_frame_hdr .eh_frame_hdr.*))", code)
+        self.assertNotRegex(code, r"/DISCARD/[^}]*\.eh_frame",
+                            "展开表又被丢进 /DISCARD/ 了 —— 那会让任何穿过我们模块的 C++ 异常"
+                            "变成无声卡死（批次 104 的根因）")
+        # MOD0 那对符号必须**框住** `.eh_frame_hdr` 输出段（顺序断言 = 真的非空区间；
+        # 写成"同一个地址"（长度 0）时加载器不会注册任何展开表）。
+        start = code.index("HIDDEN(__eh_frame_hdr_start__ = .);")
+        table = code.index("KEEP (*(.eh_frame_hdr")
+        end = code.index("HIDDEN(__eh_frame_hdr_end__ = .);")
+        self.assertLess(start, table, "`__eh_frame_hdr_start__` 必须在 `.eh_frame_hdr` 段之前")
+        self.assertLess(table, end, "`__eh_frame_hdr_end__` 必须在 `.eh_frame_hdr` 段之后"
+                                    "（两者同址 = 空区间 = 加载器不注册展开表）")
+
+    def test_unwind_tables_are_not_compiled_out(self):
+        """展开表还得**真的被编译出来**：链接脚本留着、编译开关却关掉，等于白留。
+
+        判据（同样先去注释）：`misc/mk/common.mk` 里不许再出现"关掉展开表"的那两个开关，
+        且链接选项里要有 `--eh-frame-hdr`（否则 `.eh_frame_hdr` 这张二进制搜索表根本不会生成）。
+        """
+        makefile = re.sub(r"#[^\n]*", "",
+                          (RUNTIME / "misc" / "mk" / "common.mk").read_text(encoding="utf-8"))
+        self.assertNotIn("-fno-unwind-tables", makefile,
+                         "编译开关又把展开表关掉了 —— 那会让任何穿过我们模块的 C++ 异常变成无声卡死")
+        self.assertNotIn("-fno-asynchronous-unwind-tables", makefile)
+        self.assertIn("--eh-frame-hdr", makefile,
+                      "链接选项缺 `--eh-frame-hdr` ⇒ `.eh_frame_hdr` 不会生成、MOD0 指向空")
 
 
 if __name__ == "__main__":

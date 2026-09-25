@@ -9,7 +9,9 @@
 #include "game_observer.hpp"
 #include "interfaces/lua/input_api.hpp"
 #include "interfaces/lua/isaac_api.hpp"
-#include "interfaces/lua/engine_memory_guard.hpp"
+#include "infrastructure/call/engine_call_access.hpp"  // 引擎调用层（111：调引擎只在这里转换签名）
+#include "infrastructure/memory/engine_field_access.hpp"
+#include "infrastructure/memory/engine_memory_guard.hpp"
 #include "interfaces/lua/field_api.hpp"
 
 #include "interfaces/lua/mod_api.hpp"
@@ -50,6 +52,11 @@
 extern "C" {
 #include <lauxlib.h>
 }
+
+//: 引擎调用层的短别名（批次 111）：本文件里"把已核对过的地址变成可调用签名"只走它。
+//: ★ 与 `tools/engine_offset_abi_report.py` 的关系：那个体检工具认"我们按哪个签名调"就看这次转换
+//:   —— 它已支持"类型写在模板实参上"的拼法（`AsFunction<XxxFn>`），见批次 110 的修补。
+namespace engine_call = isaac::runtime::engine_call;
 
 namespace isaac::runtime {
 
@@ -656,101 +663,45 @@ int IsaacRunCallback(lua_State* state) {
 // 这些字段仍然只读 —— 它们参与碰撞、AI、掉落与存档，写坏的症状是随机崩溃或存档损坏，
 // 而"写哪些字段、什么时机写是安全的"目前只有 `ControlsCooldown` 一条有 PC 语义与引擎读点
 // 双重支撑（见 `EntityNewIndex`）。其余写路径一律经 `WriteEngine`，且必须先确认该页可写。
+// 「这段地址可读吗」：**唯一实现在引擎内存访问层里**（2026-09-24 批次 102 收敛）。
+// 此前四个 API 族各有一份逐字相同的拷贝（去掉注释后各 781 字符）；判决条件一条没改，
+// 只是"实现在几处"从 4 变成了 1。**函数名保留** —— `test_lua_missing_members_batch028`
+// 按这个名字核对四个手写处理器体里有没有做可读性检查。
 bool IsEngineMemoryReadable(std::uintptr_t address, std::size_t length) noexcept {
-    // 实现见 `interfaces/lua/engine_memory_guard.hpp`：四个 API 族共用同一份缓存与计数。
-    //
-    // 语义逐字不变：空地址、长度 0、地址回绕一律 false；设备侧仍要求返回码成功、区间完整落在
-    // 映射内、且带 `Perm_R`。变的是**命中缓存时不再进内核** —— `svcQueryMemory` 返回的描述
-    // 覆盖一整段连续且权限一致的映射，整段都能复用那一次结论。缓存只在受管回调派发期间有效
-    // （`EngineGuardEnterDispatch`/`EngineGuardLeaveDispatch`），所以过期窗口为零。
-    if (!EngineGuardRangeUsable(address, length)) {
-        return false;
-    }
-#if defined(__SWITCH__)
-    // 派发作用域内命中已登记的映射区间：这一帧的同一段内存不再重复问内核。
-    if (EngineGuardLookupCached(address, length)) {
-        return true;
-    }
-    const std::uint64_t syscallStart = EngineGuardSyscallBegin();
-    MemoryInfo info{};
-    u32 pageInfo = 0;
-    // 显式写 `std::uint32_t`：本命名空间里有一个同名模板 `Result<T>` 会遮蔽 libnx 的
-    // `Result`（u32）typedef，直接写 `Result` 会撞上模板推导。
-    const std::uint32_t result = svcQueryMemory(&info, &pageInfo, address);
-    EngineGuardSyscallEnd(syscallStart);
-    if (R_FAILED(result) || info.size == 0 || info.addr > UINTPTR_MAX - info.size) {
-        return false;
-    }
-    if (address < info.addr || address + length > info.addr + info.size ||
-        (info.perm & Perm_R) == 0) {
-        return false;
-    }
-    // 这次系统调用描述的是一整段连续且权限一致的映射，整段都可以复用这个结论。
-    EngineGuardRememberReadable(info.addr, info.addr + info.size);
-    return true;
-#else
-    // 宿主构建没有 `svcQueryMemory`；宿主测试的"引擎内存"是本进程 malloc 出来的伪造块，
-    // 本来就一定可读（见 `runtime/tests/test_lua_entity_player.py`）。
-    return true;
-#endif
+    return isaac::runtime::engine_memory::EngineMemoryReadable(address, length);
 }
 
-// 读一个引擎字段：先做可读性检查再 `memcpy`。指针猜错时必须变成"读不到"而不是"读了就崩"。
+// 读一个引擎字段：先做可读性检查再按 `T` 取值。指针猜错时必须变成"读不到"而不是"读了就崩"。
+//
+// 2026-09-24（批次 113）：**实现搬进引擎内存访问层**（`engine_memory::ReadAt`）—— 本 TU 只剩一行
+// 委托，与写侧的 `WriteEngine`、以及上面那份 `IsEngineMemoryReadable` 同例（保留名字是为了
+// **几十个调用点**与既有门禁的稳定）。判据一条没改：先可读、再取值；失败时**不写**出参。
 template <typename T>
 bool ReadEngine(std::uintptr_t address, T* value) noexcept {
-    if (value == nullptr || !IsEngineMemoryReadable(address, sizeof(T))) {
-        return false;
-    }
-    std::memcpy(value, reinterpret_cast<const void*>(address), sizeof(T));
-    return true;
+    return isaac::runtime::engine_memory::ReadAt(address, value, &IsEngineMemoryReadable);
 }
 
-// 写一个引擎字段（2026-09-16 新增，与上面的读原语成对）。
+// 写一个引擎字段（2026-09-16 新增，与上面的读原语成对；2026-09-24 批次 103 收敛进访问层）。
 //
 // 上面那段"本批次不提供任何写引擎内存的接口"的注释是批次 3 的口径，从**写通道**这一批起
 // 被取代：现在**允许**写，但只有一个入口（`WriteEngine`）且必须先确认"这一页可写"。
-// 判据与读侧同源却**分开缓存**：可读（`Perm_R`）不等于可写（`Perm_W`），模块映像的代码段与
-// 只读数据段就是可读不可写（详见 `interfaces/lua/engine_memory_guard.hpp` 里
-// `EngineGuardWritableRegionCache` 的注释）。
+//
+// 判据与写缓存**都不在这个 TU 里了**：「这段地址可写吗」现在**唯一实现在引擎内存访问层里**
+// （`EngineMemoryWritable`：按 `Perm_W`、走**写**缓存 —— 可读 `Perm_R` 不等于可写 `Perm_W`，
+// 模块映像的代码段与只读数据段就是可读不可写）。**函数名保留** ——
+// 契约测试按这个名字核对两个可写 TU 都只是委托，实现只有一份。
 //
 // 目前唯一的调用点是 `EntityPlayer.ControlsCooldown`（`EntityNewIndex`）—— EID 用它抑制输入。
 // 其它字段**没有**写入口，理由与批次 3 相同：写参与碰撞/AI/掉落/存档的字段，症状是随机崩溃
 // 或存档损坏，必须有证据才做。
 bool IsEngineMemoryWritable(std::uintptr_t address, std::size_t length) noexcept {
-    if (!EngineGuardRangeUsable(address, length)) {
-        return false;
-    }
-#if defined(__SWITCH__)
-    if (EngineGuardLookupWritable(address, length)) {
-        return true;
-    }
-    const std::uint64_t syscallStart = EngineGuardSyscallBegin();
-    MemoryInfo info{};
-    u32 pageInfo = 0;
-    const std::uint32_t result = svcQueryMemory(&info, &pageInfo, address);
-    EngineGuardSyscallEnd(syscallStart);
-    if (R_FAILED(result) || info.size == 0 || info.addr > UINTPTR_MAX - info.size) {
-        return false;
-    }
-    if (address < info.addr || address + length > info.addr + info.size ||
-        (info.perm & Perm_W) == 0) {
-        return false;
-    }
-    EngineGuardRememberWritable(info.addr, info.addr + info.size);
-    return true;
-#else
-    // 宿主构建没有 `svcQueryMemory`：宿主测试里的"引擎内存"是本进程申请出来的伪造块。
-    return true;
-#endif
+    return isaac::runtime::engine_memory::EngineMemoryWritable(address, length);
 }
 
+// 写引擎字段的唯一入口：判定（注入上面那份可写判定）+ 落值，都落在访问层里。
 template <typename T>
 bool WriteEngine(std::uintptr_t address, const T& value) noexcept {
-    if (!IsEngineMemoryWritable(address, sizeof(T))) {
-        return false;
-    }
-    std::memcpy(reinterpret_cast<void*>(address), &value, sizeof(T));
-    return true;
+    return isaac::runtime::engine_memory::WriteAt(address, value, &IsEngineMemoryWritable);
 }
 
 // 玩家数量上限（`kEnginePlayerMaximumCount`）现在是共享常量（`runtime_constants.hpp`），
@@ -1105,14 +1056,14 @@ bool ReadEntityTable(std::uintptr_t list, const EntityTableSpec& spec, EntityTab
     return true;
 }
 
-// 已经用一次可读性检查覆盖过整段时使用：只做 `memcpy`，不再重复系统调用。
+// 已经用一次可读性检查覆盖过整段时使用：只按 `T` 取值，不再重复系统调用。
+//
+// 2026-09-24（批次 113）：**实现搬进引擎内存访问层**（`engine_memory::LoadVerified`），本 TU 只剩
+// 一行委托（与上面 `ReadEngine` 同例）。判据：`address == 0` 或出参为空 ⇒ **一个字节都不取**、
+// 返回假 —— 原来那种形态会从地址 0 直接 `memcpy`；调用点都已经过整段核对，这里顺带把那种形态堵上。
 template <typename T>
 bool ReadEngineUnchecked(std::uintptr_t address, T* value) noexcept {
-    if (value == nullptr) {
-        return false;
-    }
-    std::memcpy(value, reinterpret_cast<const void*>(address), sizeof(T));
-    return true;
+    return isaac::runtime::engine_memory::LoadVerified(address, value);
 }
 
 // `vptr` 是否落在 `Entity` 家族的 vtable 区间里。
@@ -2085,7 +2036,7 @@ int EntityPickupCanReroll(lua_State* state) {
     }
     // 引擎签名：`bool (*)(const Entity_Pickup*)`（`this` 在 x0，布尔在 w0 返回）。
     using CanRerollFn = bool (*)(const void*);
-    const bool canReroll = reinterpret_cast<CanRerollFn>(
+    const bool canReroll = engine_call::AsFunction<CanRerollFn>(
         base + kEntityPickupCanRerollOffset)(reinterpret_cast<const void*>(entity));
     lua_pushboolean(state, canReroll ? 1 : 0);
     return 1;
@@ -2287,8 +2238,8 @@ bool CallItemIsAvailable(std::uintptr_t method, std::uintptr_t entry) {
     // `Item::IsAvailableEx(uint)`：x0 = 条目、x1 = flags（兼容层定义、已登记偏离）、
     // x2 = 0（反汇编里读到的四个分支都没用到第三个参数）。
     using ItemFn = bool (*)(void*, std::int64_t, std::uint32_t);
-    return reinterpret_cast<ItemFn>(method)(reinterpret_cast<void*>(entry),
-                                            kItemIsAvailableFlags, 0);
+    return engine_call::AsFunction<ItemFn>(method)(reinterpret_cast<void*>(entry),
+                                                   kItemIsAvailableFlags, 0);
 #else
     static_cast<void>(method);
     const ItemConfigIsAvailableHostImplementation injected =
@@ -2302,7 +2253,7 @@ bool CallItemIsAvailable(std::uintptr_t method, std::uintptr_t entry) {
 bool CallCardIsAvailable(std::uintptr_t method, std::uintptr_t entry) {
 #if defined(__SWITCH__)
     using NoArgFn = bool (*)(void*);
-    return reinterpret_cast<NoArgFn>(method)(reinterpret_cast<void*>(entry));
+    return engine_call::AsFunction<NoArgFn>(method)(reinterpret_cast<void*>(entry));
 #else
     static_cast<void>(method);
     const ItemConfigIsAvailableHostImplementation injected =
@@ -2315,7 +2266,7 @@ bool CallCardIsAvailable(std::uintptr_t method, std::uintptr_t entry) {
 bool CallPillEffectIsAvailable(std::uintptr_t method, std::uintptr_t entry) {
 #if defined(__SWITCH__)
     using NoArgFn = bool (*)(void*);
-    return reinterpret_cast<NoArgFn>(method)(reinterpret_cast<void*>(entry));
+    return engine_call::AsFunction<NoArgFn>(method)(reinterpret_cast<void*>(entry));
 #else
     static_cast<void>(method);
     const ItemConfigIsAvailableHostImplementation injected =
@@ -2338,8 +2289,8 @@ bool CallEntityPlayerHasCollectible(std::uintptr_t method, std::uintptr_t entity
     // ⇒ `(eCollectibleType, bool)`。第二个参数**原样透传**给引擎（PC 语义就是那个
     // `ignoreModifiers`），不做我们自己的解释 —— 这样"传什么"与 PC 完全一致。
     using HasCollectibleFn = bool (*)(void*, std::uint32_t, std::uint32_t);
-    return reinterpret_cast<HasCollectibleFn>(method)(reinterpret_cast<void*>(entity), collectibleId,
-                                                      ignoreModifiers ? 1U : 0U);
+    return engine_call::AsFunction<HasCollectibleFn>(method)(
+        reinterpret_cast<void*>(entity), collectibleId, ignoreModifiers ? 1U : 0U);
 #else
     // 宿主构建没有引擎映像，也无法把一个 C++ 函数放到 `base + 0x27D3F4`，所以那一条 `bl` 由
     // 测试注入的实现顶替（声明见 `isaac_api.hpp`）。宿主仍然能验证"vptr 校验先于调用""参数就是
@@ -2382,7 +2333,7 @@ int EntityPlayerAddCollectible(lua_State* state) {
     }
     using AddCollectibleFn = std::uint32_t (*)(std::uintptr_t, std::uint32_t, std::uint32_t,
                                                std::uint32_t, std::uint32_t, std::uint32_t);
-    reinterpret_cast<AddCollectibleFn>(method)(
+    engine_call::AsFunction<AddCollectibleFn>(method)(
         entity, static_cast<std::uint32_t>(type), static_cast<std::uint32_t>(charge),
         force ? 1U : 0U, static_cast<std::uint32_t>(slot),
         static_cast<std::uint32_t>(varData));
@@ -2394,7 +2345,7 @@ int EntityPlayerAddCollectible(lua_State* state) {
     if (hasCollectible != 0) {
         using HasCollectibleFn = std::uint32_t (*)(std::uintptr_t, std::uint32_t, std::uint32_t);
         collected =
-            reinterpret_cast<HasCollectibleFn>(hasCollectible)(
+            engine_call::AsFunction<HasCollectibleFn>(hasCollectible)(
                 entity, static_cast<std::uint32_t>(type), 0U) != 0;
     }
     lua_pushboolean(state, collected ? 1 : 0);
@@ -4290,27 +4241,27 @@ std::uintptr_t ResolveFieldReceipt(lua_State* state, FieldReceipt receipt, int i
                 room == nullptr) {
                 return 0;
             }
-            return reinterpret_cast<std::uintptr_t>(room);
+            return engine_memory::AddressOf(room);
         }
         case FieldReceipt::Level: {
             // `Level` 内嵌在 `Game` 起始处，解析链与 `Room`/描述符那条**逐字相同**：
             // `g_Game` 槽是"槽的地址"（指针变量）→ 解一次得 owner → 再解一次才是 `Game*`。
             // 少解一层会去读模块里的代码字节（真机探针上踩过同一个坑）。
             const std::uintptr_t moduleBase = EngineModuleBase();
-            if (moduleBase == 0 || moduleBase > UINTPTR_MAX - kGameOwnerGlobalSlotOffset) {
+            if (moduleBase == 0) {
                 return 0;
             }
-            const std::uintptr_t slot = moduleBase + kGameOwnerGlobalSlotOffset;
-            if (!IsEngineMemoryReadable(slot, sizeof(std::uintptr_t))) {
-                return 0;
-            }
+            // 两跳都走层（偏移算术 + 回绕检查 + 可读性判定 + 取值）。
+            // `requiredAlignment = 0`：与原实现逐条一致 —— 它只查"回绕 + 该 8 字节可读"，
+            // 没有对齐判据（槽是指针变量，按定义已对齐；这里不额外加原实现没有的条件）。
             std::uintptr_t owner = 0;
-            if (!ReadEngine(slot, &owner) || owner == 0 ||
-                !IsEngineMemoryReadable(owner, sizeof(std::uintptr_t))) {
+            if (!engine_memory::LoadPointerAt(moduleBase, kGameOwnerGlobalSlotOffset, 0, &owner,
+                                              &IsEngineMemoryReadable) ||
+                owner == 0) {
                 return 0;
             }
             std::uintptr_t level = 0;
-            if (!ReadEngine(owner, &level)) {
+            if (!engine_memory::LoadPointerAt(owner, 0, 0, &level, &IsEngineMemoryReadable)) {
                 return 0;
             }
             return level;
@@ -4653,7 +4604,7 @@ int FieldApiHandler(lua_State* state) {
     switch (row->kind) {
         case FieldKind::I32: {
             std::int32_t value = 0;
-            if (!ReadEngine(receiver + row->offset, &value)) {
+            if (!engine_memory::ReadField(receiver, row->offset, &value, &IsEngineMemoryReadable, 0)) {
                 PushMissingFieldValue(state, row->missing);
                 return 1;
             }
@@ -4662,7 +4613,7 @@ int FieldApiHandler(lua_State* state) {
         }
         case FieldKind::Bool: {
             std::uint8_t value = 0;
-            if (!ReadEngine(receiver + row->offset, &value)) {
+            if (!engine_memory::ReadField(receiver, row->offset, &value, &IsEngineMemoryReadable, 0)) {
                 PushMissingFieldValue(state, row->missing);
                 return 1;
             }
@@ -4672,8 +4623,8 @@ int FieldApiHandler(lua_State* state) {
         case FieldKind::Sum2U32: {
             std::uint32_t first = 0;
             std::uint32_t second = 0;
-            if (!ReadEngine(receiver + row->offset, &first) ||
-                !ReadEngine(receiver + row->offset2, &second)) {
+            if (!engine_memory::ReadField(receiver, row->offset, &first, &IsEngineMemoryReadable, 0) ||
+                !engine_memory::ReadField(receiver, row->offset2, &second, &IsEngineMemoryReadable, 0)) {
                 PushMissingFieldValue(state, row->missing);
                 return 1;
             }
@@ -4683,7 +4634,7 @@ int FieldApiHandler(lua_State* state) {
         case FieldKind::BoolEquals: {
             // `offset2` 在这里是"要比较的常量"（例如 `ITEM_TRINKET`），不是第二个偏移。
             std::uint32_t value = 0;
-            if (!ReadEngine(receiver + row->offset, &value)) {
+            if (!engine_memory::ReadField(receiver, row->offset, &value, &IsEngineMemoryReadable, 0)) {
                 PushMissingFieldValue(state, row->missing);
                 return 1;
             }
@@ -4694,8 +4645,8 @@ int FieldApiHandler(lua_State* state) {
             // `offset`/`offset2` 是一对 `T*`（begin/end），元素数是 `(end - begin) / sizeof(T)`。
             std::uintptr_t begin = 0;
             std::uintptr_t end = 0;
-            if (!ReadEngine(receiver + row->offset, &begin) ||
-                !ReadEngine(receiver + row->offset2, &end)) {
+            if (!engine_memory::ReadField(receiver, row->offset, &begin, &IsEngineMemoryReadable, 0) ||
+                !engine_memory::ReadField(receiver, row->offset2, &end, &IsEngineMemoryReadable, 0)) {
                 PushMissingFieldValue(state, row->missing);
                 return 1;
             }
@@ -4718,7 +4669,7 @@ int FieldApiHandler(lua_State* state) {
             // 读一个 `u32`，"非零即真"。`Level:IsAltStage()` 就是这一条：
             // PC 契约（`Level.md`）= "StageType 不是 STAGETYPE_ORIGINAL(0)"。
             std::uint32_t value = 0;
-            if (!ReadEngine(receiver + row->offset, &value)) {
+            if (!engine_memory::ReadField(receiver, row->offset, &value, &IsEngineMemoryReadable, 0)) {
                 PushMissingFieldValue(state, row->missing);
                 return 1;
             }
@@ -4736,8 +4687,8 @@ int FieldApiHandler(lua_State* state) {
             // 两种口径在这个场景下同值；口径的选择依据是上面那条 PC 契约，不是这个数值。
             std::uintptr_t begin = 0;
             std::uintptr_t end = 0;
-            if (!ReadEngine(receiver + row->offset, &begin) ||
-                !ReadEngine(receiver + row->offset2, &end)) {
+            if (!engine_memory::ReadField(receiver, row->offset, &begin, &IsEngineMemoryReadable, 0) ||
+                !engine_memory::ReadField(receiver, row->offset2, &end, &IsEngineMemoryReadable, 0)) {
                 PushMissingFieldValue(state, row->missing);
                 return 1;
             }
@@ -4749,7 +4700,7 @@ int FieldApiHandler(lua_State* state) {
             std::uint64_t total = 0;
             for (std::uintptr_t address = begin; address < end; address += sizeof(std::uint32_t)) {
                 std::uint32_t value = 0;
-                if (!ReadEngine(address, &value)) {
+                if (!engine_memory::ReadAt(address, &value, &IsEngineMemoryReadable)) {
                     PushMissingFieldValue(state, row->missing);
                     return 1;
                 }
@@ -4761,7 +4712,7 @@ int FieldApiHandler(lua_State* state) {
         case FieldKind::U32:
         default: {
             std::uint32_t value = 0;
-            if (!ReadEngine(receiver + row->offset, &value)) {
+            if (!engine_memory::ReadField(receiver, row->offset, &value, &IsEngineMemoryReadable, 0)) {
                 PushMissingFieldValue(state, row->missing);
                 return 1;
             }
@@ -4910,7 +4861,7 @@ int EntityTakeDamage(lua_State* state) {
         }
         using EntityPlayerTakeDamageFn = void (*)(std::uintptr_t, float, std::uint64_t,
                                                   const void*, std::int32_t);
-        reinterpret_cast<EntityPlayerTakeDamageFn>(method)(
+        engine_call::AsFunction<EntityPlayerTakeDamageFn>(method)(
             entity, static_cast<float>(lua_tonumber(state, 2)), flags, reference, countdown);
         return 0;
     }
@@ -4920,7 +4871,7 @@ int EntityTakeDamage(lua_State* state) {
     }
     using EntityTakeDamageFn = void (*)(std::uintptr_t, float, std::uint64_t, const void*,
                                         std::int32_t);
-    reinterpret_cast<EntityTakeDamageFn>(method)(
+    engine_call::AsFunction<EntityTakeDamageFn>(method)(
         entity, static_cast<float>(lua_tonumber(state, 2)), flags, reference, countdown);
     return 0;
 }
@@ -5247,7 +5198,7 @@ bool ReadCurrentLanguageCode(char* output, std::size_t capacity) noexcept {
     }
     using GetLanguageCodeFn = const char* (*)(void*);
     const char* code =
-        reinterpret_cast<GetLanguageCodeFn>(method)(reinterpret_cast<void*>(manager));
+        engine_call::AsFunction<GetLanguageCodeFn>(method)(reinterpret_cast<void*>(manager));
     return ReadLanguageCodeString(reinterpret_cast<std::uintptr_t>(code), output, capacity);
 }
 

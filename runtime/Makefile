@@ -220,6 +220,9 @@ EXL_ONLY_REQUIRED_HOOK_CFLAGS := -DEXL_ONLY_REQUIRED_HOOK=$(ONLY_REQUIRED_HOOK)
 #   make ... SKIP_HOOK_USEACTIVEITEM=1 / SKIP_HOOK_USECARD=1 / SKIP_HOOK_USEPILL=1 / SKIP_HOOK_GAMEEXIT=1
 #     ↑ 2026-09-20 批次 102 的四个事件中继（都是可选点）
 #   make ... SKIP_HOOK_PICKUPCOLLISION=1 / SKIP_HOOK_ROOMENTITYSPAWN=1   # 批次 103/104
+#   make ... SKIP_HOOK_MENUGAMERENDER=1 / SKIP_HOOK_MENUTITLERENDER=1 / SKIP_HOOK_MENUMANAGERSETSTATE=1
+#     ↑ 2026-09-23 批次 077（模组页搬生产）的三个入口中继（都是可选点）：
+#       那一列多一格「模组」/ 模组页的渲染 / 挡下引擎替我们那一格跳页，各一个开关。
 # 单变量对照开关（2026-09-17）：`LEGACY_DIRECTORY_BLOCK_FREE=1` 时退回"拿引擎返回值直接释放"的
 # 旧（错）行为 —— 只用来回答"问题 1 是这条修复治好的，还是 Present 汇编转发桩治好的"。
 # 默认 0 = 修复形状（正式交付永远是 0）。
@@ -243,6 +246,12 @@ SKIP_HOOK_ROOMENTITYSPAWN ?= 0
 SKIP_HOOK_IMAGEPCXLOAD ?= 0
 SKIP_HOOK_IMAGEMGRLOADFILE ?= 0
 SKIP_HOOK_GETMOUNTEDPATH ?= 0
+SKIP_HOOK_MENUGAMERENDER ?= 0
+SKIP_HOOK_MENUTITLERENDER ?= 0
+SKIP_HOOK_MENUMANAGERSETSTATE ?= 0
+# 成就闸门（`PersistentGameData::SetReadOnly` 入口中继；092 挂在 TryUnlock、098 挪到这里）：
+# 摘掉之后引擎按它自己的判据走（退回 Switch 原生行为），用来判断"某个成就现象是不是我们造成的"。
+SKIP_HOOK_SETREADONLY ?= 0
 EXL_SKIP_HOOK_CFLAGS := \
   -DEXL_SKIP_HOOK_PRESENT=$(SKIP_HOOK_PRESENT) \
   -DEXL_SKIP_HOOK_RENDER=$(SKIP_HOOK_RENDER) \
@@ -257,7 +266,11 @@ EXL_SKIP_HOOK_CFLAGS := \
   -DEXL_SKIP_HOOK_ROOMENTITYSPAWN=$(SKIP_HOOK_ROOMENTITYSPAWN) \
   -DEXL_SKIP_HOOK_IMAGEPCXLOAD=$(SKIP_HOOK_IMAGEPCXLOAD) \
   -DEXL_SKIP_HOOK_IMAGEMGRLOADFILE=$(SKIP_HOOK_IMAGEMGRLOADFILE) \
-  -DEXL_SKIP_HOOK_GETMOUNTEDPATH=$(SKIP_HOOK_GETMOUNTEDPATH)
+  -DEXL_SKIP_HOOK_GETMOUNTEDPATH=$(SKIP_HOOK_GETMOUNTEDPATH) \
+  -DEXL_SKIP_HOOK_MENUGAMERENDER=$(SKIP_HOOK_MENUGAMERENDER) \
+  -DEXL_SKIP_HOOK_MENUTITLERENDER=$(SKIP_HOOK_MENUTITLERENDER) \
+  -DEXL_SKIP_HOOK_MENUMANAGERSETSTATE=$(SKIP_HOOK_MENUMANAGERSETSTATE) \
+  -DEXL_SKIP_HOOK_SETREADONLY=$(SKIP_HOOK_SETREADONLY)
 # 探针子开关（2026-09-13，用于二分定位探针包的启动故障）。`PROBE_BREAK=1` 时默认全开。
 #
 # `PROBE_BREAK_FILEIO=0` 关掉"启动路径上的文件 / IPC 写入探针"这一组：
@@ -390,6 +403,37 @@ RUNTIME_EXTRA_SOURCE_ROOTS := src/application/callback src/interfaces/lua
 endif
 HOST_PLUGIN_STAGE ?= $(DIAGNOSTIC_STAGE)
 
+# ---------------------------------------------------------------------------
+# 批次 071（2026-09-23）：『模组』那一行的美术 —— **构建期**落成真实文件。
+#
+# 为什么必须挂在构建里（而不是"记得手动跑一次工具"）：那一行原本是**从内存**交给引擎的
+# 贴图管理器、并登记在**我们自己编的缓存键**下的（`modrowg0.pcx` 这种名字），而关卡加载会
+# 把"没有磁盘文件背书的贴图"清掉 ⇒ 跑过几次对局之后那一行就变透明（2026-09-23 真机症状：
+# 绘制每帧照调、位置也对、对象非空，就是画不出来；重启才好）。
+#
+# 修法是"运行期改成引擎自己的**按路径加载** ANM2"（与引擎自己的行、所有模组同一条路），
+# 而那条路**必须有磁盘文件**才能工作 ⇒ 文件少一份的症状是"不报错、那一行不见了"——
+# 静默失败，最难查。⇒ 把生成步骤写进构建：只要包是从这里出来的，文件就一定在。
+#
+# 生成器只读仓库里的 `runtime/source/mod_row_generated.hpp`（由 `tools/gamemenu_mod_row.py`
+# 生成、有 `runtime/tests/test_gamemenu_mod_row.py` 逐字节钉住），输出全部落在部署树 `$(OUT)`。
+# ★ 这是**构建/部署期**写文件；**运行期绝不写 romfs 覆盖层**（写入纪律见 AGENTS.md）。
+#
+# `--also-english-root`：引擎挂载根到底是"当前语言目录"还是英文 `resources` 目前没有定论，
+# 真机探针会依次试多条候选逻辑路径 ⇒ 英文根下也要有同样的文件才能测到那条假设。
+MOD_ROW_LANGUAGES ?= all
+#: 游戏 dump 根（`--menu-row-layer` 要读里面的原版菜单动画与 PC 参考）。
+#: `auto`（默认）= 工具按通配自己找 —— **不要写死那个带空格/方括号/`#` 的目录名**：
+#: 2026-09-23 实测它在 Docker Desktop（VirtioFS）里**用字面量打不开**，而按 readdir 列出来
+#: 再拼（glob）完全正常。找不到 ⇒ 工具**大声提示并跳过**这一步（那一行会退回运行时自己的
+#: 兜底绘制，读数 [109] = 2，不会消失）；显式给了路径却读不到 ⇒ 工具当场报错。
+MOD_ROW_DUMP_ROOT ?= auto
+.PHONY: mod-row-art
+mod-row-art: $(BUILD)
+	@cd .. && $(PYTHON) tools/emit_mod_row_art.py --tree runtime/$(OUT) \
+	  --languages $(MOD_ROW_LANGUAGES) --also-english-root \
+	  --menu-row-layer --dump-root "$(MOD_ROW_DUMP_ROOT)"
+
 .PHONY: runtime_module host_plugin probe
 
 runtime_module:
@@ -487,6 +531,12 @@ ifneq ($(filter 102 104 108 109 110 112 127 128,$(DIAGNOSTIC_STAGE)),)
 else
 all: $(DEPLOY_RELAY_IPS)
 endif
+# 批次 071：『模组』那一行的美术（`.anm2` + 同名 `.pcx`）**必须在部署包里**。
+# 与 `$(DEPLOY_NPDM)` 同一条依赖线（都挂在 `$(BUILD)` 之后 —— `post-build.sh` 会先
+# `rm -rf $(OUT)` 清空部署树，挂在它之前的东西会被删掉）；规则本体在文件上半段。
+# 放在这一行是**故意**的：上面那四行是既有门禁（`test_runtime_constants` /
+# `test_startup_diagnostic`）逐字比对的串，不许被插进去的东西拆开。
+all: mod-row-art
 endif
 
 ifneq ($(filter 13,$(DIAGNOSTIC_STAGE)),)

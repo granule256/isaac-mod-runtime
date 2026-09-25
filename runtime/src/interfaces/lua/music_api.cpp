@@ -1,5 +1,6 @@
 #include "interfaces/lua/music_api.hpp"
 
+#include "infrastructure/call/engine_call_access.hpp"  // 引擎调用层（批次 110：调引擎只在这里转换签名）
 #include "interfaces/lua/owner_binding.hpp"
 #include "interfaces/lua/lua_integer_argument.hpp"
 
@@ -14,6 +15,9 @@
 extern "C" {
 #include <lauxlib.h>
 }
+
+//: 引擎调用层的短别名（批次 110）：本文件里"把已核对过的地址变成可调用签名"只走它。
+namespace engine_call = isaac::runtime::engine_call;
 
 namespace isaac::runtime {
 namespace {
@@ -92,7 +96,9 @@ int MusicGetCurrentMusicId(lua_State* state) {
         return luaL_error(state, "Music:GetCurrentMusicID native bindings are unavailable");
     }
     using GetCurrentMusicIdFn = int (*)(const void*);
-    lua_pushinteger(state, reinterpret_cast<GetCurrentMusicIdFn>(method)(reinterpret_cast<const void*>(music)));
+    lua_pushinteger(state,
+                    engine_call::AsFunction<GetCurrentMusicIdFn>(method)(
+                        engine_memory::AsObject(music)));
     return 1;
 }
 
@@ -110,7 +116,7 @@ int MusicPause(lua_State* state) {
     Stage48ArmMusicReplayProbe();
 #endif
     using PauseFn = void (*)(void*);
-    reinterpret_cast<PauseFn>(method)(reinterpret_cast<void*>(music));
+    engine_call::AsFunction<PauseFn>(method)(engine_memory::AsObject(music));
     return 0;
 }
 
@@ -125,7 +131,7 @@ int MusicResume(lua_State* state) {
         return luaL_error(state, "Music:Resume native bindings are unavailable");
     }
     using ResumeFn = void (*)(void*);
-    reinterpret_cast<ResumeFn>(method)(reinterpret_cast<void*>(music));
+    engine_call::AsFunction<ResumeFn>(method)(engine_memory::AsObject(music));
     return 0;
 }
 

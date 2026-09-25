@@ -21,6 +21,12 @@
     python3 tools/run_tests.py --list     # 只列出会跑的模块与分组
 
 退出码：全绿 0；有任何失败/错误 1；发现阶段就出错 2。
+
+★ 2026-09-24（批次 109）：**"有门禁模块导不进来"从"静默少跑一个"改成"响亮失败（退出码 2）"**。
+`unittest` 的发现器对导入失败是**吞掉**的（换成一个 `_FailedTest`、归到 `unittest.loader` 名下）
+⇒ 那个模块从列表里消失，`--only 它的名字` 打印 "Ran 0 tests, OK"、整套门禁照旧绿色。
+已实测（写一个 `def f(:` 的坏文件）：**一条永远绿的假证据**。判据见
+`runtime/tests/test_test_runner_discovery.py`。
 """
 
 from __future__ import annotations
@@ -120,22 +126,51 @@ def _call_name(func) -> str:
     return ""
 
 
-def discover_modules() -> tuple[list[str], list[str]]:
+class DiscoveryError(RuntimeError):
+    """发现阶段就出错：有门禁模块**导不进来**（语法错 / import 出错）。见 `discover_modules`。"""
+
+
+def discover_modules(tests_dir: Path = TESTS_DIR,
+                     root: Path = ROOT) -> tuple[list[str], list[str]]:
     """返回（并行批次, 独占批次）的模块全名列表。
 
     **用 `unittest` 自己的发现机制**，而不是自己 `glob("test_*.py")`：
     门禁的模块分布在 `runtime/tests/` 顶层以及 `unit/`、`integration/`、`contract/`
     三个子包里；自己扫目录很容易漏掉子包（第一版就漏了 19 个模块），
     而"漏跑模块"正是并行脚本最危险的失败方式 —— 它仍然会打印绿色。
+
+    ★ **导不进来的模块必须响亮失败**（2026-09-24 批次 109 补）：`unittest` 的发现器对
+    "模块导入失败"是**吞掉**的 —— 它把一个语法错的 `test_x.py` 换成一个 `_FailedTest`
+    （归到 `unittest.loader` 名下），真正的模块名从列表里消失。后果是**一条永远绿的假证据**：
+    `--only 那个名字` 打印 "Ran 0 tests, OK"、整套门禁也照旧全绿（已实测：写一个 `def f(:`
+    的坏文件 ⇒ `--only` 输出 `Ran 0 tests in 0.003s（0 个模块）OK`、退出码 0）。
+    ⇒ 这里把 `_FailedTest` 挑出来**抛错**，而不是让它静默少跑一个门禁。
+    （`_FailedTest` 只表示"失败"；导入期合法 `SkipTest` 走的是另一个类 `ModuleSkipped`，
+     不会被误判。判据由 `runtime/tests/test_test_runner_discovery.py` 钉住。）
+
+    参数可传入是为了让那条门禁能在**临时目录**里造一个坏模块来验，不要去污染 `runtime/tests/`。
     """
-    suite = unittest.TestLoader().discover(str(TESTS_DIR), top_level_dir=str(ROOT))
+    suite = unittest.TestLoader().discover(str(tests_dir), top_level_dir=str(root))
     seen: dict[str, Path | None] = {}
+    load_failures: list[str] = []
     for test in _flatten(suite):
+        if type(test).__name__ == "_FailedTest":
+            load_failures.append(str(getattr(test, "_exception", "导入失败（无异常信息）")))
+            continue
         module_name = test.__class__.__module__
         if module_name in seen:
             continue
         module = sys.modules.get(module_name)
         seen[module_name] = Path(module.__file__) if getattr(module, "__file__", None) else None
+
+    if load_failures:
+        raise DiscoveryError(
+            "有门禁模块**导不进来**（语法错 / import 出错）：\n"
+            + "\n".join(f"  - {item}" for item in load_failures)
+            + "\n\n★ 这必须是响亮失败，不能忽略：导入失败的模块**不会出现在模块列表里**"
+              "（unittest 把它换成一个 `_FailedTest`），于是 `--only 它的名字` 会打印"
+              "「Ran 0 tests, OK」、整套门禁也照旧打印绿色 —— **一个坏掉的门禁 = 一条永远绿的假证据**。"
+              "\n先修好那个文件的语法/导入，再跑门禁。")
 
     parallel: list[str] = []
     exclusive: list[str] = []
@@ -212,7 +247,13 @@ def main(argv: list[str] | None = None) -> int:
                         help="失败时打印该模块的完整输出（默认开）")
     args = parser.parse_args(argv)
 
-    parallel, exclusive = discover_modules()
+    try:
+        parallel, exclusive = discover_modules()
+    except DiscoveryError as error:
+        # 发现阶段就出错 ⇒ 退出码 2（见文件头"退出码"那段）。**不继续跑**：
+        # 少了一个模块的全绿会让人以为"都跑过了"。
+        print(str(error), file=sys.stderr)
+        return 2
     if args.fast:
         # 快速模式跳过的两类：
         #   * 独占批次（Ghidra 无头分析 + docker 容器）—— 它们验的是"引擎里那些结论还成立吗"，
