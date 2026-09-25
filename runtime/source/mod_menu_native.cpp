@@ -32,6 +32,7 @@
 #include "game_file_reader.hpp"
 #include "application/mod/content_mount_service.hpp"     // `SessionContentMountService()`（[24] 那一格）
 #include "domain/runtime/run_taint_marker.hpp"           // 批次 120：存档分区里那个"污染过"标记
+#include "infrastructure/console/console_bridge.hpp"      // 批次 124：控制台总开关（读值 + 拨动）
 #include "ports/save_file_port.hpp"                      // `SessionSaveFilePort()`（批次 120 的持久化）
 #include "infrastructure/call/engine_call_access.hpp"    // 引擎调用层（108 起本 TU 调引擎都走它）
 #include "infrastructure/memory/engine_field_access.hpp"  // 引擎内存访问层（105 起本 TU 的引擎读写都走它）
@@ -290,6 +291,39 @@ constexpr float kModRowArtTextHeight = 28.0F;
 //: 行高拿不到（守卫不过）时的兜底缩放。
 constexpr float kModRowTextScaleFallback = 2.0F;
 
+// ── 批次 124 / 126：模组页**第 1 行** = 「Console: ON/OFF」（控制台总开关）────────────
+//
+// 用户定案：PC 的控制台靠 `options.ini` 的 `EnableDebugConsole` 开，我们这边换成**模组菜单里的开关**。
+// 它**不是模组**：不进模组清单、不参与"启用模组数"与禁成就判据、也不占那 4 个加载名额。
+//
+// ★★ 批次 126（用户 2026-09-25 原话："你也别画在其他位置了，你就作为模组的一个写在第一个模组位置上吧，
+//    其他 mods 中的模组按顺序从 2 开始排"）：它就写在**模组列表的第 1 格**里。
+//    引擎给每行加的前缀是 `%d.`（从 1 起，见 `mod_page_entries.hpp` 顶部）⇒ 这一行显示成
+//    `1.Console: ON`，真正的模组顺延成 `2.`、`3.`…。
+//
+//    怎么做到的：这一页的**列表内容本来就是我们自己造的**（`TryPrepareModsVector` 把
+//    `BuildModPageEntries` 造好的条目写进引擎那个 vector，引擎只按行画）⇒ 把这一条造在
+//    **下标 0**、其余全部顺延即可。好处是光标、高亮、滚动**全部回到引擎的原生行为**：
+//    我们不再自己画字，也不再需要"往引擎的选中项里写负一哨兵"那一套（批次 124 的做法，
+//    它当年是为了绕开"我们那一行不在列表里"而生的）。
+//
+//    边界（两条，都是既有设计的自然结果，不是新限制）：
+//      * **一个模组都没发现时不写这张表**（保持"等发现结果"的时序逻辑，`DecideModPageSource`
+//        把"目录 0 条 + 还没到尝试上限"判成等）⇒ 那种情况下这一行也进不去；
+//      * 条目总容量 32 格（`kEntryCapacity`），本行占 1 格 ⇒ 留给"发现到的模组"的是 31 格。
+constexpr char kConsoleRowNameOn[] = "Console: ON";
+constexpr char kConsoleRowNameOff[] = "Console: OFF";
+//: 这一行在条目表里的下标：**0 = 第一个模组位置**，真正的模组都排在它后面。
+constexpr std::uint32_t kConsoleRowEntryIndex = 0;
+//: 这一行现在该写什么名字（跟着开关状态走）。
+//:
+//: 为什么要一个函数而不是"两处各写一遍"：条目里的 `std::string` 数据指针由
+//: `SyncConsoleRowName()` 每帧指向这两个常量之一（引擎的 `Render` 只把它当 `%s` 用）
+//: ⇒ 拨动开关**同一帧**名字就变，不必重建整张表（重建要重读所有 `metadata.xml`，几十次文件读）。
+const char* ConsoleRowName() {
+    return isaac::runtime::console::ConsoleSwitchEnabled() ? kConsoleRowNameOn : kConsoleRowNameOff;
+}
+
 // ── 模组页（引擎状态 16）──────────────────────────────────────────────────────
 //
 // **为什么是状态 16**：PC 上"选模组"就是让引擎切到状态 16；Switch 版只把这一格从
@@ -455,6 +489,12 @@ constexpr std::uint32_t kSettleFrames = 20;
 // 容量与"一次最多加载几个模组"**同一个数**：能加载却放不下那种情况没有人会想到去查，
 // 也不该出现（`mod_page_runtime_sources.hpp` 里的 `kModPageMaximumMods` 就是它）。
 constexpr std::uint32_t kEntryCapacity = isaac::runtime::kModPageMaximumMods;
+//: 留给"启动扫描发现到的模组"的格数 = 总容量让出 **1 格**（批次 126）。
+//:
+//: 为什么必须显式让：`CollectRuntimeModPageSources` 的 `capacity` 参数就是"装不下"的判定口
+//: —— 传总容量的话，发现到 32 个模组时正好占满，再加我们那一行（下标 0）就越界；
+//: 传 31 则"发现到 32 个"照旧走既有的"装不下 ⇒ 整体放弃"（页面空表，不写半截）。
+constexpr std::uint32_t kModSourceCapacity = kEntryCapacity - 1U;
 //: 名字缓冲要**两份**：来源侧一份（`CollectModPageSources` 往里写显示名），条目侧一份
 //: （`BuildModPageEntries` 把名字抄进去，条目里的 `std::string` 从此指向它）。
 //: 放不下时两条路都是**整体放弃**（绝不写出半截结构）。
@@ -947,19 +987,31 @@ bool TryPrepareModsVector() {
         ++g_Menu.prepareAttempts;
     }
     isaac::runtime::ModPageRuntimeStats stats{};
+    // ★ 批次 126：容量传 `kModSourceCapacity`（总容量 −1）—— 空出来的那一格给下标 0 的控制台开关行。
     const std::uint32_t found = isaac::runtime::CollectRuntimeModPageSources(
-        &g_Sources[0], kEntryCapacity, &ProvideDirectories, nullptr, &ProvideEnabled, nullptr,
+        &g_Sources[0], kModSourceCapacity, &ProvideDirectories, nullptr, &ProvideEnabled, nullptr,
         &CollectMetadataText, &g_Menu, g_SourceNameArena, sizeof(g_SourceNameArena),
         g_MetadataPath, g_MetadataScratch, &stats);
     std::size_t nameBytes = 0;
     std::uint32_t built = 0;
+    // 表的总行数 = 发现的模组数 + 1（我们自己那一行，见 `kConsoleRowEntryIndex`）。
+    // `found == 0` 时**不写表**：那正是"发现结果还没到"的正常时序，交给下面那个 switch 判"等"。
+    const std::uint32_t total = found + 1U;
     if (found != 0) {
+        // 把发现结果整体后移一格，空出下标 0 给自己那一行。
+        // （`g_Sources` 有 `kEntryCapacity` 格，而 `found ≤ kModSourceCapacity` ⇒ 不会越界。）
+        for (std::uint32_t index = found; index > 0; --index) {
+            g_Sources[index] = g_Sources[index - 1];
+        }
+        // 这一条**不是模组**：`enabled = true` 让引擎按"开着的行"那种颜色画它，
+        // `outdated = false`（它后面不会出现 `[Old]`）。
+        g_Sources[kConsoleRowEntryIndex] = {ConsoleRowName(), true, false};
         built = isaac::runtime::BuildModPageEntries(&g_Entries[0][0], &g_EntryPointers[0],
-                                                    g_EntryVector, found, &g_Sources[0],
+                                                    g_EntryVector, total, &g_Sources[0],
                                                     g_EntryNameArena, sizeof(g_EntryNameArena),
                                                     &nameBytes);
     }
-    const bool ready = built == found && found != 0;
+    const bool ready = built == total && found != 0;
     // 该等还是该退，由那个纯判定说了算（`DecideModPageSource`，宿主门禁逐条钉着）。
     switch (isaac::runtime::DecideModPageSource(ready, stats.directories, g_Menu.prepareAttempts,
                                                 kPrepareAttemptLimit)) {
@@ -972,7 +1024,7 @@ bool TryPrepareModsVector() {
         case isaac::runtime::ModPageSourceDecision::Fallback:
             // 真没有模组（或条目没造全）⇒ 写一张**空表**：页面照样进得去、只是 0 行。
             // 为什么不学探针退固定测试名：那会往玩家屏幕上写假名字（规格明令不搬）。
-            if (built != found) {
+            if (built != total) {
                 g_ModMenuState.failure = kFailureEntryBuild;
             }
             g_EntryVector[0] = 0;
@@ -1014,8 +1066,22 @@ bool TryPrepareModsVector() {
     }
     g_Menu.vectorWritten = 1;
     g_Menu.writtenDirectories = stats.directories;
-    g_ModMenuState.entryCount = static_cast<std::uint32_t>((built == found) ? found : 0);
+    // 如实报**表里实际有几行**（含下标 0 的自己那一行）—— 读数工具按"页面上该有几行"解释这一格。
+    g_ModMenuState.entryCount = (built == total) ? total : 0;
     return true;
+}
+
+//: 让条目表**下标 0** 那一条的名字跟着开关状态走（`Console: ON` ↔ `Console: OFF`）。
+//:
+//: 为什么是"每帧同步"而不是"造表时写一次、拨开关时再改一次"：这张表只在进页面时造一次
+//: （`vectorWritten` 只置一次），而它会因为换语言等原因**重建** —— 重建之后条目 0 的字符串
+//: 又指回名字缓冲里那份造表时的副本。每帧把指针写正，就不会出现"拨过开关之后名字又变回去"。
+//: 代价是 16 字节的两次 `memcpy`，只在模组页开着的那几帧跑，可以忽略。
+void SyncConsoleRowName() {
+    if (g_Menu.vectorWritten == 0) {
+        return;  // 表还没造过（含"一个模组都没发现 ⇒ 空表"那种）⇒ 别去碰 `g_Entries`
+    }
+    isaac::runtime::SetModPageEntryName(&g_Entries[kConsoleRowEntryIndex][0], ConsoleRowName());
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1139,6 +1205,17 @@ bool PageOrigin(std::uintptr_t page, float* out) {
     return true;
 }
 
+//: 引擎那份**中等字体对象**（`g_Manager` 里那个偏移指向的对象）。**只读**（078 撤掉了
+//: "往它里面装扩展字体换中文"那条路，门禁按"这个偏移在文件里只许出现两次"钉住它：
+//: 常量定义 + 这一个取用点）。两处画字（兜底那一行、模组页上我们自己那一行）都从这里取 ——
+//: 想再画一处就调这个函数，**不要**在别处再拼一次地址（那会让上面那条判据失效）。
+void* EngineFontObject() {
+    if (g_Menu.manager == 0) {
+        return nullptr;
+    }
+    return engine_memory::AsObject(g_Menu.manager + kManagerFontOffset);
+}
+
 //: 画我们那一行（**兜底**，只有"引擎那份动画里没有我们那一层"时才走）。
 //:
 //: ★ 与探针的唯一差别：探针这里有三条路（磁盘贴图 → 内存贴图 → 画字），生产版**只留画字**。
@@ -1151,7 +1228,7 @@ bool DrawRowLabel(std::uintptr_t page) {
     if (g_Menu.drawText == nullptr || g_Menu.manager == 0 || g_Menu.layout == nullptr) {
         return false;
     }
-    void* font = engine_memory::AsObject(g_Menu.manager + kManagerFontOffset);
+    void* font = EngineFontObject();
     float origin[2] = {0.0F, 0.0F};
     if (!PageOrigin(page, origin)) {
         return false;  // 原点拿不到 ⇒ 画出去会落在屏幕角上，宁可不画
@@ -1182,6 +1259,17 @@ bool DrawRowLabel(std::uintptr_t page) {
     g_Menu.drawText(font, kModRowLabel, x, y, scale, scale, kModRowTextColor, 0, false);
     return true;
 }
+
+// ── 批次 124 那套"自己另找位置画一行"在这里被删掉（批次 126，**别再照它做**）──────────────
+//
+// 124 的做法：这一行**不进条目表**，由我们用 `g_Menu.drawText` 在固定槽位上画，光标也自己画
+// （选中时前面多一个 `> `）—— 因为那时"选到它"在引擎那边表现为"没有哪一行高亮"。
+// 真机上为这一个位置试了四轮（-200 画到页面外 / +200 与 +125 被模组名盖住 /
+// -25 压在「模组」标题下方那条横线上 / -150 + 小字号落在左侧空白带才算能看），
+// 每挪一次都要用户重启主机验一轮。
+// ⇒ 用户 2026-09-25 定案改成"作为模组的一个写在第一个模组位置上"（见本文件上方那组常量）：
+//   它现在是**条目表里的下标 0**，引擎自己会把它画成 `1.Console: ON`，光标、高亮、滚动
+//   全部是引擎原生行为 ⇒ 这个函数（连同四个位置/字号常量与负一哨兵）没有必要存在。
 
 //: 定语言：调 `Manager::GetLanguageCode()`（两字符码），再按它挑一套生成的布局。
 //:
@@ -1512,13 +1600,22 @@ void ModsPageUpdate(const TargetModule& module, const ActionQueryFn query) {
     // 节奏与引擎同形（`mod_page_nav.hpp`）：**判断用的是上一帧的计时值**，所以刚按下的那一帧
     // 立刻走一格（那时 `hold` 还是 0），之后要过 50 帧、再每 10 帧一格。
     // 顺序很重要：引擎是 `Update` 先看、`UpdateKeyPress` 后加，我们照这个顺序。
+    // ★ 批次 126：**导航范围就是表里的行数** —— 下标 0 那一行（控制台开关）现在**真的在表里**，
+    //   所以批次 124 那个"模组条数 + 1"的补丁不再需要。
+    const std::uint32_t navCount = entryCount;
     if (upEdge || (up && isaac::runtime::ModPageHoldShouldMove(hold))) {
-        selected = isaac::runtime::ModPageAdvance(selected, entryCount, false);
+        selected = isaac::runtime::ModPageAdvance(selected, navCount, false);
     }
     if (downEdge || (down && isaac::runtime::ModPageHoldShouldMove(hold))) {
-        selected = isaac::runtime::ModPageAdvance(selected, entryCount, true);
+        selected = isaac::runtime::ModPageAdvance(selected, navCount, true);
     }
     hold = isaac::runtime::ModPageHoldNext(hold, up || down);
+    // ★ 写回引擎的选中项 = 行号**原样**（批次 126）。
+    //   它一定落在表的行号范围内（下标 0 = 控制台开关行）⇒ 引擎据此**高亮那一行**、
+    //   并按它算自己的滚动量（行数超过可见格数时那种原版行为）。
+    //   ★ 与批次 124 的差别：那时我们那一行不在表里，只能写**负一哨兵**
+    //     （既不高亮任何一行、也不让引擎重算滚动量）；现在写真实行号，光标/高亮/滚动
+    //     全部回到引擎的原生行为，我们也不再有"自己画光标"这回事。
     (void)engine_memory::WriteField(engine_memory::AddressOf(g_ModsObject),
                                     isaac::runtime::kModsSelectedElementOffset, selected,
                                     &engine_memory::EngineMemoryWritable, 0);
@@ -1527,8 +1624,19 @@ void ModsPageUpdate(const TargetModule& module, const ActionQueryFn query) {
                                     &engine_memory::EngineMemoryWritable, 0);
 
     // 确认 = 切换这一条的开关。**只改内存**（条目 `+0x138` 那一位），退出页面时才落盘。
+    // ★ 批次 126：我们那一行现在在**下标 0**（真的在表里）⇒ 按下标分派：
+    //   0 = 控制台开关，其余 = 模组（对应的发现清单下标要减掉我们那一行）。
     if (Edge(&g_PageLastConfirm, confirm)) {
-        if (entryCount > 0 && selected < entryCount) {
+        // `entryCount == 0` = 表是空的（含"一个模组都没发现"那种）⇒ 页面上根本没有我们那一行，
+        // 也就不该凭一个看不见的行去拨开关。
+        if (entryCount != 0 && selected == kConsoleRowEntryIndex) {
+            // 拨**控制台总开关**（对应 PC 的 `EnableDebugConsole`）。**当场生效**（内存值立刻改，
+            // 页面上的 ON/OFF 同一帧就变、名字由 `SyncConsoleRowName` 换）；落盘由控制台的每帧点
+            // 在下一帧做掉（`RequestConsoleSwitchWrite` 只挂一个"待写"，不在这里做 I/O）。
+            isaac::runtime::console::RequestConsoleSwitchWrite(
+                !isaac::runtime::console::ConsoleSwitchEnabled());
+        } else if (selected < entryCount) {
+            const std::uint32_t modIndex = selected - 1U;  // 减掉下标 0 那一行才是模组序号
             std::uintptr_t entry = 0;
             // `begin + 选中项*8` 是"表里第几个指针"的**算好的地址** ⇒ 用 `ReadAt`
             // （它不查对齐，与原实现的裸 memcpy 判据一致）。
@@ -1549,7 +1657,7 @@ void ModsPageUpdate(const TargetModule& module, const ActionQueryFn query) {
                                                 &engine_memory::EngineMemoryWritable, 0);
                 // 把这一下**同时**写进运行时既有的开关服务（只改内存、不落盘）。
                 // 页面上那一栏读的就是它（`ModMenuDiscoveredEnabled`），所以两边永远是同一份口径。
-                const char* directory = isaac::runtime::ModMenuDiscoveredDirectory(selected);
+                const char* directory = isaac::runtime::ModMenuDiscoveredDirectory(modIndex);
                 (void)isaac::runtime::ModMenuSetEnabled(directory, next != 0);
             }
         }
@@ -1561,6 +1669,9 @@ void ModsPageUpdate(const TargetModule& module, const ActionQueryFn query) {
         ApplyState(module, kGameMenuState);
         return;
     }
+    // 把下标 0 那一行的名字对齐到当前开关状态（**放在输入之后**：本帧刚拨过的开关，
+    // 本帧就要看到新名字）。
+    SyncConsoleRowName();
     g_ModMenuState.selectedEntry = selected;
     g_ModMenuState.failure = kFailureNone;
 }
@@ -1841,6 +1952,8 @@ extern "C" void EntryRelayMenuTitleRenderCallback(void* self) {
         return;
     }
     g_Menu.modsRender(g_ModsObject);
+    // ★ 批次 126：这里**不再**额外画任何东西 —— 控制台开关那一行现在是条目表里的下标 0，
+    //   引擎的 `Menu_Mods::Render` 会连它一起画（含它自己的选中高亮）。
 }
 
 //: `MenuManager::SetState`：**我们那一格的确认只归我们管**（保险）。

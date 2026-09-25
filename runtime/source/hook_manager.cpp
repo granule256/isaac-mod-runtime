@@ -25,6 +25,10 @@
 // `MenuManagerSetState`），本 TU 只负责"安装点记一次结果 + 每帧驱动一次"。
 #include "mod_menu_native.hpp"
 #include "runtime_constants.hpp"
+// 批次 121：游戏控制台（自己建一个 `Console` 实例、把命令喂给它）。这里只挂两个**每帧点**：
+// 更新那一路推进"按键 → 软键盘 → 执行"，渲染那一路画输出；本体都在这个头里，本 TU 不写业务。
+// （它在 `infrastructure/` 那一层：那一层就是"把每帧点接到引擎上"的适配器。）
+#include "infrastructure/console/console_session.hpp"
 #include "interfaces/lua/engine_frame_probe.hpp"
 // 批次 103：`ReadEntityIdentity`（读实体的 Type/Variant，内部带"读引擎字段前先判可读"那套判据）。
 #include "interfaces/lua/isaac_api.hpp"
@@ -1771,6 +1775,10 @@ HOOK_DEFINE_TRAMPOLINE(ManagerUpdateHook) {
         // 注释里出现也会红（批次 077 实测）。只改措辞、不放宽断言。
         isaac::runtime::modmenu::ModMenuNativeUpdate();
 #endif
+        // 批次 121：控制台的每帧点（按键诊断 / 组合键呼出软键盘 / 执行软键盘交回的命令）。
+        // **薄调用**：判据、对象、绘制都不在本 TU（见 `application/console/console_session.hpp`）。
+        // 位置与上面那个"每帧点"一致 —— 都在跑原函数之前，本帧就按新状态走。
+        isaac::runtime::console::SessionFrameUpdate();
         PersistenceTrace::Flush();
         ManagerUpdateHookAudit::Flush();
         Orig(self);
@@ -2192,6 +2200,10 @@ extern "C" void EntryRelayManagerUpdateCallback(void* self) {
 // 房间地面上。放到 `Present` 之前，图像在本帧入队、本帧 apply，并排在最后一个被画，这才是
 // PC 的 `MC_POST_RENDER` 覆盖层语义。
 void DispatchModPostRender(void* self) {
+    // 批次 121：控制台输出的绘制点。放在这里（而不是 Lua 派发里面）是因为它**不看有没有模组**：
+    // 控制台是运行时自己的能力，一个模组都没加载时也要能画。位置就是模组 `MC_POST_RENDER`
+    // 那一档 —— 引擎的绘制队列在这时还开着，`Font::DrawStringScaledUTF8` 才画得出来。
+    isaac::runtime::console::SessionRenderOverlay();
 #if !defined(EXL_DIAGNOSTIC_STAGE) || EXL_DIAGNOSTIC_STAGE == 15 || EXL_DIAGNOSTIC_STAGE == 16 || EXL_DIAGNOSTIC_STAGE == 17 || EXL_DIAGNOSTIC_STAGE == 45 || EXL_DIAGNOSTIC_STAGE == 48
 #if !defined(EXL_DIAGNOSTIC_STAGE)
     if (LuaRuntime::IsReady() && PrimeDefaultCallbacks(reinterpret_cast<uintptr_t>(self))) {

@@ -242,21 +242,28 @@ constexpr ApiDeviation kApiDeviations[] = {
      "判据：runtime/tests/test_lua_isaac_table.py（**睡 30 毫秒之后它至少涨 20** ——"
      "秒口径会得到 0，那条断言就是为此写的；另加单调不减）。"},
 
-    // 批次 017（2026-09-21）：`Isaac.ExecuteCommand` —— 第三条**平台降级**，理由同上面两条鼠标
-    // （此前只在 `api_catalog.cpp:843` 目录注释与 `isaac_api.cpp` 实现注释里承认过，本表漏收）。
+    // 批次 017（2026-09-21）：`Isaac.ExecuteCommand` 原记为**平台降级**（"Switch 没有控制台"）。
+    // ★ 批次 121（2026-09-25）改口径：那条前提**不成立** —— 控制台类与全部命令实现一直在镜像里
+    //   （`Console::RunCommand` 一个函数 0x6070 字节；引擎只是从不实例化它：构造/Init/Update/Render
+    //   的入边全是 0）。运行时现在自己建一个实例喂命令，**并返回控制台输出的字符串**。
+    //   剩下的偏离只剩两条我们自己的限制 ⇒ 性质从 `NotInEngine` 改成 `Partial`（只实现了 PC 语义的一部分）。
     {0x0E01002D,
-     ApiDeviationKind::NotInEngine,
+     ApiDeviationKind::Partial,
      "PC 契约：tools/pc_contract_docs/Isaac.md:106 「#### string ExecuteCommand ( string command )」"
-     "PC 的 `Isaac.ExecuteCommand(command)` 把一行命令交给**游戏内置的调试控制台**（`Isaac.md:108`）；"
-     "Switch 版没有控制台、也没有等价的命令通道 ⇒ 我们的处理器**什么都不做**（不抛错、不假装成功），"
-     "**返回值的类型也与 PC 不同**：PC 那一侧返回**控制台输出的字符串**（契约原文 `Isaac.md:106` 就写着"
-     "`string ExecuteCommand(string command)`），我们一个值都不返回（模组若拿它的返回值当字符串用，"
-     "在 Switch 侧会拿到 nil —— 目前没有模组这么用）。"
-     "偏离后果：需要控制台命令的功能在 Switch 上不生效 —— 已知实例是 GoodTrip 的 `TAB + R` 快速重开"
-     "（`scripts/control.lua:61` 的 `Isaac.ExecuteCommand(\"restart\")`）不会重开；要重开请用游戏自带方式。"
-     "性质：platform（平台固有）——理由：PC 上是「交给游戏内置控制台」，Switch 版没有控制台也没有等价的"
-     "命令通道（用户点名的平台固有例子）⇒ 只能什么都不做，做了也改不了这个事实。"
-     "判据：runtime/tests/test_goodtrip_batch_a.py（钉实现处必须写明「平台限制」与「不会重开」这条后果）；"
+     "PC 的 `Isaac.ExecuteCommand(command)` 把一行命令交给**游戏内置的调试控制台**（`Isaac.md:108`），"
+     "返回**控制台输出的字符串**。"
+     "★ 批次 121 起我们也是真实现：运行时自己构造 `IsaacRepentance::Console` 实例并调它的 `RunCommand`"
+     "（类与命令实现都在镜像里，只是引擎从不实例化它），返回值就是这一段新增的输出字符串。"
+     "残留两条限制：① 命令**超过 127 字节**会被拒绝（跨模块字符串走的是我们手工拼的经典布局，"
+     "长串的数据放在自己的静态缓冲里 —— 上限由缓冲定）；② **当前没有玩家**时拒绝执行。"
+     "偏离后果：上面两条限制下命令不生效、且返回空串（不是报错）—— ① 长命令（例如一口气带很多参数的"
+     "`spawn`）会静默不执行；② 标题画面/菜单里调用一律无效（PC 那一侧同样没有玩家，但它的控制台仍在跑）。"
+     "已知实例：GoodTrip 的 `TAB + R` 快速重开（`scripts/control.lua:61` 的"
+     "`Isaac.ExecuteCommand(\"restart\")`）在 041~120 期间必然无效，批次 121 起**应当**生效——"
+     "但真机尚未验证（验证判据见下面第一条）。"
+     "性质：debt（我们的欠账）——理由：两条限制都是**我们自己实现里**的（跨模块字符串布局的工作量、"
+     "以及「引擎在玩家为空时会读空指针」这条外部约束），不是平台缺件 ⇒ 至少第一条能还。"
+     "判据：runtime/tests/test_console_bridge.py（钉字符串布局与长度上限的行为、以及状态面字段数契约）；"
      "runtime/tests/test_stage85_instant_restart_pc_bindings.py（钉 PC 绑定表里确实有 `ExecuteCommand` "
      "这条注册 —— 即 PC 侧的对应物是真的存在的）。"},
 

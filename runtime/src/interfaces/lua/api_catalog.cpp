@@ -840,8 +840,12 @@ constexpr LuaApiDescriptor kDefaultApis[] = {
     // 批次 041（GoodTrip）：`Isaac.GetRoomEntities()`（id 0x002C）**真实现** —— 语义照 PC 文档
     //（`Isaac.md:382` "all entities in the room"），来源与 `Isaac.FindByType` 同一套三段扫描
     //（活表 + 玩家向量 + 效果表，去重）；缺它 GoodTrip 的 `scripts/trip.lua:38` 直接索引 nil。
-    // `Isaac.ExecuteCommand()`（id 0x002D）：**平台降级** —— Switch 没有控制台，处理器什么都不做
-    //（PC 的返回类型是 void，形状一致；差别是命令不生效，见实现处注释）。
+    // `Isaac.ExecuteCommand()`（id 0x002D）：批次 041~120 是**平台降级**（当时的结论是"Switch 没有
+    // 控制台"）；**批次 121 起是真实现** —— 运行时自己把游戏本体的 `IsaacRepentance::Console`
+    // 建起来、把命令喂给它（类与命令实现一直都在镜像里，只是引擎从不实例化它），并**返回控制台
+    // 输出的字符串**（PC 契约 `Isaac.md:106` 就是 `string ExecuteCommand(string command)`）。
+    // 残留的偏离只有两条：命令长度上限 127 字节、当前没有玩家时拒绝执行（返回空串）——
+    // 登记在 `api_deviation.cpp` 的 `0x0E01002D`，判据与取证见 `infrastructure/console/console_bridge.hpp`。
     {MakeId(ApiDomain::Isaac, 1, 0x002C), ApiDomain::Isaac, "Isaac", "GetRoomEntities", kV1, 0,
      ThreadAffinity::ManagedCallback, ApiMaturity::Experimental},
     {MakeId(ApiDomain::Isaac, 1, 0x002D), ApiDomain::Isaac, "Isaac", "ExecuteCommand", kV1, 0,

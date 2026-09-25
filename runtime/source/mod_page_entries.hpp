@@ -48,6 +48,27 @@ struct ModPageEntrySource {
     bool outdated;
 };
 
+//: 把一个条目的名字写成"libc++ 长串形态"（`Render` 读的那三处：标记位、长度、数据指针）。
+//:
+//: **为什么单独抽出来**（批次 126）：条目表只在进页面时造一次，而"控制台开关"那一行的名字
+//: **跟着开关状态走**（`Console: ON` / `Console: OFF`）⇒ 需要一个"事后换名字"的动作。
+//: 那个动作与"造条目"必须写**同一套字节**，否则两处任一处歪掉都会变成"页面上名字乱码"，
+//: 而真机上很难看出是哪一处 ⇒ 合成一个函数，只有这一个地方碰那几个偏移。
+//:
+//: `name` 必须是**静态存储**的 C 串：`Render` 直接把那个指针当 `%s` 用，指到临时缓冲上下一帧就悬垂。
+inline void SetModPageEntryName(std::uint8_t* entry, const char* name) noexcept {
+    if (entry == nullptr || name == nullptr || name[0] == '\0') {
+        return;  // 空名字会让页面上多一行空白；调用方给的常量不可能是空的，这里只兜"误传"
+    }
+    const std::size_t length = std::strlen(name);
+    // libc++ `std::string` 长串形态：bit0 = 1（`Render` 就是 `tbnz w10, #0`）。
+    entry[kModPageEntryStringOffset] = 0x01;
+    const std::uint64_t capacity = static_cast<std::uint64_t>(length);
+    std::memcpy(entry + kModPageEntryStringOffset + 0x08, &capacity, sizeof(capacity));
+    const auto data = reinterpret_cast<std::uintptr_t>(name);
+    std::memcpy(entry + kModPageEntryStringDataOffset, &data, sizeof(data));
+}
+
 //: 造好 `count` 个条目、写指针数组，并把 `begin/end/cap` 三个字写进 `vector`（= `g_Manager+0x36800`）。
 //:
 //: 返回实际写好的条目数；**空间不够时返回 0**（调用方据此放弃，绝不写半截 —— 半截的后果是
@@ -85,12 +106,7 @@ struct ModPageEntrySource {
         char* stored = nameArena + arenaCursor;
         std::memcpy(stored, name, length + 1);
         arenaCursor += length + 1;
-        // libc++ `std::string` 长串形态：bit0 = 1（`Render` 就是 `tbnz w10, #0`）。
-        entry[kModPageEntryStringOffset] = 0x01;
-        const std::uint64_t capacity = static_cast<std::uint64_t>(length);
-        std::memcpy(entry + kModPageEntryStringOffset + 0x08, &capacity, sizeof(capacity));
-        const auto data = reinterpret_cast<std::uintptr_t>(stored);
-        std::memcpy(entry + kModPageEntryStringDataOffset, &data, sizeof(data));
+        SetModPageEntryName(entry, stored);  // 字节写法只此一处（见上面那条注释）
         entry[kModPageEntryEnabledOffset] = sources[i].enabled ? 1 : 0;
         entry[kModPageEntryOldOffset] = sources[i].outdated ? 1 : 0;
         pointers[i] = reinterpret_cast<std::uintptr_t>(entry);

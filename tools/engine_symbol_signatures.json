@@ -1383,6 +1383,37 @@
   "kind": "field"
  },
  {
+  "constant": "kConsoleCtorOffset",
+  "offset": "0x3bc34",
+  "mangled": "_ZN15IsaacRepentance7ConsoleC1Ev",
+  "demangled": "IsaacRepentance::Console::Console()",
+  "parameters": [],
+  "parameter_count": 0,
+  "kind": "function"
+ },
+ {
+  "constant": "kConsoleInitOffset",
+  "offset": "0x3bde8",
+  "mangled": "_ZN15IsaacRepentance7Console4InitEv",
+  "demangled": "IsaacRepentance::Console::Init()",
+  "parameters": [],
+  "parameter_count": 0,
+  "kind": "function"
+ },
+ {
+  "constant": "kConsoleRunCommandOffset",
+  "offset": "0x3d740",
+  "mangled": "_ZN15IsaacRepentance7Console10RunCommandERKNSt3__112basic_stringIcNS1_11char_traitsIcEENS1_9allocatorIcEEEEPS7_PNS_13Entity_PlayerE",
+  "demangled": "IsaacRepentance::Console::RunCommand(std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char> > const&, std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char> >*, IsaacRepentance::Entity_Player*)",
+  "parameters": [
+   "std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char> > const&",
+   "std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char> >*",
+   "IsaacRepentance::Entity_Player*"
+  ],
+  "parameter_count": 3,
+  "kind": "function"
+ },
+ {
   "constant": "kEntityIsFlyingOffset",
   "offset": "0x5c744",
   "mangled": "_ZNK15IsaacRepentance6Entity8IsFlyingEv",
@@ -1408,6 +1439,15 @@
  {
   "constant": "kGameHudOffset",
   "offset": "0xe8468",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kIsaacManagerFontObjectOffset",
+  "offset": "0x117120",
   "mangled": null,
   "demangled": null,
   "parameters": null,
@@ -2793,6 +2833,27 @@
   "kind": "function"
  },
  {
+  "constant": "kKageVirtualKeyboardParamsCtorOffset",
+  "offset": "0x51a478",
+  "mangled": "_ZN4KAGE6System21VirtualKeyboardParamsC1Ev",
+  "demangled": "KAGE::System::VirtualKeyboardParams::VirtualKeyboardParams()",
+  "parameters": [],
+  "parameter_count": 0,
+  "kind": "function"
+ },
+ {
+  "constant": "kKageOpenVirtualKeyboardOffset",
+  "offset": "0x520180",
+  "mangled": "_ZN4KAGE6System7Manager19OpenVirtualKeyboardERKNS0_21VirtualKeyboardParamsEj",
+  "demangled": "KAGE::System::Manager::OpenVirtualKeyboard(KAGE::System::VirtualKeyboardParams const&, unsigned int)",
+  "parameters": [
+   "KAGE::System::VirtualKeyboardParams const&",
+   "unsigned int"
+  ],
+  "parameter_count": 2,
+  "kind": "function"
+ },
+ {
   "constant": "kGameOperatorDeleteOffset",
   "offset": "0x66fb10",
   "mangled": null,
@@ -3396,6 +3457,15 @@
   "kind": "field"
  },
  {
+  "constant": "kIsaacScreenWidthSlotOffset",
+  "offset": "0xaac650",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
   "constant": "kGameOwnerGlobalSlotOffset",
   "offset": "0xaac698",
   "mangled": null,
@@ -3416,6 +3486,15 @@
  {
   "constant": "kContentManagerSlotOffset",
   "offset": "0xaac748",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kKageSystemManagerSlotOffset",
+  "offset": "0xaac8c0",
   "mangled": null,
   "demangled": null,
   "parameters": null,

@@ -152,6 +152,11 @@ SYMS = _SymbolTable({
     'present_callsite_offset': 0x3F9B40,  # `Manager::Render` 体内那次 `bl Present`
     'present_got_slot': 0xA9E488,      # Present 的 GOT 槽（应等于 运行时基址 + present_got_intercept）
     'present_target': 0x4F3014,        # `Present` 本体（期望值比对用）
+    # ---- 游戏控制台（批次 121）----
+    # 控制台**自报一份**状态面（`runtime/src/infrastructure/console/console_bridge.hpp` 的
+    # `BridgeState`，18 个 u32）。没有兜底偏移：**只能靠 `--elf` 按符号名同步**，
+    # 同步不到就如实报"读不到"，绝不用别的地址凑。
+    'g_ConsoleState': 0x0,
 })
 #: 上表里"属于**我们运行时模块**"的那些键 → 它们在本地 ELF 里的**精确符号名**。
 #: 有这张表，偏移就不必再靠人手抄：`sync_syms_from_elf()` 每次读数前直接问 ELF。
@@ -357,6 +362,12 @@ SYM_ELF_NAMES = {
     #    符号是 `_ZN5isaac7runtime5probe26g_NativeModsMenuProbeStateE`。
     #    核对办法：`nm -C runtime/.gdbsym-artifacts/runtime.elf | grep g_ModMenuState`。
     'mod_menu_state': 'g_ModMenuState',
+    # ---- 游戏控制台（批次 121）----
+    # ★ 这一份是**改编名**（不是裸名）：它声明成命名空间内的普通 `inline` 变量
+    #   （`isaac::runtime::console::g_ConsoleState`），因为 `extern "C"` + 初始化列表会让
+    #   gcc 在 `-Werror` 下判红。**别照抄上面那两行的裸名写法**。
+    # 核对办法：`nm runtime/.gdbsym-artifacts/runtime.elf | grep -i consolestate`。
+    'g_ConsoleState': '_ZN5isaac7runtime7console14g_ConsoleStateE',
 }
 #: **只在探针构建里存在**的符号（批次 019 起）。为什么要跟主表分开：
 #: `runtime/tests/test_elf_syms.py` 钉住的是"主表里每一项都必须能在**当前生产 ELF** 里解析到"
@@ -977,6 +988,14 @@ def build_requests(base: int, game_base: int, plugin_base: int):
         # ★ 2026-09-25（批次 120）起是 **58 个 u32**（[56]..[57] = 存档分区里那个"污染过"标记
         #   我们认为它是几 / 读写失败几次 —— 用户裁定"比 PC 严"：跨重启也要保持）⇒ 232 字节 = **29 个字**。
         ('mod_menu_state', base + SYMS['mod_menu_state'], 29),
+        # 批次 121：游戏控制台自己的状态面（18 个 u32 = 72 字节 = **9 个字**）。
+        # ★ 2026-09-25（批次 122）起是 **19 个 u32**（[18] = "被按住过的动作号"累计位图 ——
+        #   [10] 只留最后一个，连打时会被顶掉，一次读数拿不到整张映射）⇒ 76 字节 = **10 个字**。
+        # ★ 2026-09-25（批次 124）起是 **22 个 u32**（[19]..[21] = 总开关三格：
+        #   开关值 / 被开关拒绝的命令次数 / 开关状态文件读写失败次数 —— 对应 PC 的
+        #   `EnableDebugConsole`，开关本体在模组页那一行）⇒ 88 字节 = **11 个字**。
+        # 加字段只能往后加 ⇒ 这里跟着改（与 `test_console_bridge.py` 一起钉住）。
+        ('console_state', base + SYMS['g_ConsoleState'], 11),
         # 2026-09-21：游戏开局中继的**两处调用点**与它的回调槽。
         # 为什么要固定读它们：`GameStart` 走 `RelaySlot` 后端，**必须**由
         # `atmosphere/nro_patches/isaac-repentance-lifecycle-relay` 的 IPS 把调用点改成
@@ -1831,6 +1850,64 @@ def print_probe_native_mods_menu(values: dict[str, list[int]]) -> None:
               + '　← 这一行就是"该用哪个手柄号去问输入"的答案')
 
 
+def print_console_state(values: dict[str, list[int]]) -> None:
+    """打印**游戏控制台**那一段（批次 121）。
+
+    这不是"某个模组"的功能，而是**运行时自己**把游戏本体的 `IsaacRepentance::Console` 建起来、
+    把命令喂进去（Switch 版把这个类"拆线"了：类与全部命令实现都在镜像里，但引擎从不实例化它）。
+
+    读的时候按这个次序看：
+      * `[0]` 必须 = 1（功能编进来了）；
+      * `[11]` 帧数（`frames`）必须一直涨 —— 恒 0 = 每帧点根本没跑到，别的格都别信；
+      * `[1]` 入口位图应当 = 31（0b11111 = 构造/Init/RunCommand/参数块/开键盘 全解析到）；
+      * `[4]` 最近结论码（0 成功 / 1 空命令 / 2 入口缺 / 3 没有玩家 / 4 命令太长 /
+        5 抓到越界写 / 6 输出缓冲满）；
+      * `[13]` 越界写**必须恒 0**；
+      * `[10]` 最近按下的动作号（0xFFFFFFFF = 还没学到）—— 组合键就是靠它定下来的；
+      * `[18]` **累计位图**（批次 122）：本会话里被按住过的**每一个**动作号 —— 连打时 `[10]`
+        会被顶掉，这一格不会。按几个键再读一次，整张"按键 ↔ 动作号"映射就齐了。
+    """
+    import struct as _struct
+    raw = words_to_bytes(values.get('console_state') or [])
+    print('=== 游戏控制台（批次 121：自己建 Console 实例 + `Isaac.ExecuteCommand` 真实现）===')
+    if len(raw) < 22 * 4:
+        print('  （读不到：这一版运行时不含它，或调试桩这次没 attach 上）')
+        return
+    f = _struct.unpack_from('<22I', raw, 0)
+    if f[0] != 1:
+        print(f'  （第 [0] 格 = {f[0]}，不是 1 ⇒ 这一版运行时没编进这套功能）')
+        return
+    bits = ''.join('★' if f[1] & (1 << bit) else '·' for bit in range(5))
+    status = {0: '成功', 1: '空命令', 2: '入口缺', 3: '没有玩家（没调引擎）', 4: '命令太长',
+              5: '抓到越界写 ⇒ 已停用', 6: '输出缓冲已满',
+              7: '★ 控制台已关（被总开关拒绝，没调引擎）'}
+    print(f'  入口解析 = {bits}（位图 {f[1]}；31 = 构造/Init/RunCommand/参数块/开键盘 全齐）'
+          f'｜实例已建 = {"是" if f[2] else "否"}')
+    print(f'  引擎真的被调 {f[3]} 次｜最近结论 = {status.get(f[4], f[4])}（{f[4]}）'
+          f'｜最近命令 {f[5]} 字节｜输出累计 {f[6]} 字节（最近新增 {f[7]}）')
+    print(f'  输出串已换引擎堆缓冲 = {"是" if f[12] else "否"}'
+          f'｜软键盘：请求 {f[8]} 次 / 交回 {f[9]} 次'
+          f'｜组合键按住 = {"是" if f[17] else "否"}｜输出还要显示 {f[16]} 帧')
+    print(f'  每帧点跑过 {f[11]} 帧（恒 0 = 打不到这个点）'
+          f'｜布局自检 {f[14]} 次 / 通过 = {"是" if f[15] else "否"}'
+          f'｜对象越界写 = {f[13]} 次（**必须恒 0**）')
+    print('  最近按下的动作号 = '
+          + ('（还没学到：这一版没被按过任何键）' if f[10] == 0xFFFFFFFF else f'{f[10]}'))
+    # [18] 累计位图（批次 122）：一次读数拿到整张"按键 ↔ 动作号"映射。
+    seen = [str(index) for index in range(32) if f[18] & (1 << index)]
+    print(f'  按过的动作号（累计位图 0x{f[18]:08x}）= '
+          + ('、'.join(seen) if seen else '（一个都没有 —— 按几个键再读一次就有了）'))
+    print(f'  呼出组合键 = 动作 {14}/{15} 需连续按住约 0.8 秒'
+          f'（现在按住 = {"是" if f[17] else "否"}）')
+    # [19]..[21] 总开关（批次 124）：对应 PC 的 `EnableDebugConsole`，开关本体在模组页那一行。
+    print(f'  ★ 总开关 [19] = ' + ('★ 1 ⇒ 控制台可用（默认）' if f[19]
+                                else '0 ⇒ **控制台已关**：不扫按键、不弹键盘、连 '
+                                     '`Isaac.ExecuteCommand` 也一律拒'))
+    print(f'  被开关拒绝的命令 [20] = {f[20]} 次'
+          f'｜开关状态文件读写失败 [21] = {f[21]} 次'
+          + ('　← 读失败**不改开关值**（回默认"开"），只计数' if f[21] else ''))
+
+
 def print_mod_menu_native(values: dict[str, list[int]]) -> None:
     """打印**生产版**的「模组那一行 + 模组页」那一段（批次 077）。
 
@@ -1878,7 +1955,11 @@ def print_mod_menu_native(values: dict[str, list[int]]) -> None:
           f'｜写回引擎的**行号** = {f[8]}（必须恒在 0..4）')
     print(f'  确认落在我们那一格 {f[9]} 次'
           f'｜模组页：进 {f[10]} 次 / 返回 {f[11]} 次 / 我们驱动了 {f[12]} 帧')
-    print(f'  条目 {f[13]} 条｜选中第 {f[14]} 条'
+    # 批次 126：表里**第 1 行（下标 0）是控制台总开关**（`Console: ON/OFF`），模组从第 2 行起
+    # ⇒ 条目数比模组数多 1；选中项 0 = 控制台开关那一行（批次 124 那种"选中项 = 模组条数"不再出现）。
+    console_hint = '（= 控制台开关那一行）' if (f[13] and f[14] == 0) else ''
+    print(f'  条目 {f[13]} 条（含第 1 行的控制台开关，模组从第 2 行起）'
+          f'｜选中第 {f[14]} 条{console_hint}'
           f'｜开关写回 = ' + {0: '没写过', 1: '★ 成功', 2: '失败'}.get(f[15], str(f[15])))
     print('  引擎字体对象 = ' + ('未改动（本批已撤掉换字体，恒 0）' if f[16] == 0 else
                                 f'⚠ 被我们改写 {f[16]} 次（本批不该发生）')
@@ -2731,6 +2812,8 @@ def report(values: dict[str, list[int]], base: int, game_base: int, plugin_base:
     print_probe_native_mods_menu(values)
     print()
     print_mod_menu_native(values)
+    print()
+    print_console_state(values)
 
     print()
     print('=== 游戏模块的两个入口字节（旧式 IPS 有没有改写它们）===')
