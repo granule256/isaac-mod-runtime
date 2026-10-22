@@ -172,6 +172,7 @@ DRIVER = r"""
 #include <cstdio>
 #include <cstring>
 #include <string_view>
+#include <string>
 #include <vector>
 
 // 假提供方：内存里的"存档分区"。它证明**任何 ISaveFilePort 实现都能被接上**，
@@ -182,7 +183,7 @@ public:
     bool exists = false;
     int writes = 0;
     int reads = 0;
-    std::string_view lastName{};
+    std::string lastName{};
 
     [[nodiscard]] isaac::runtime::Status Read(std::string_view name, char* out,
                                               std::size_t capacity,
@@ -295,9 +296,9 @@ int main() {
     Check(ModPersistence::SaveModData(kNamespace, kValue, kValueLength) ==
               ModPersistence::Result::Success, "save_succeeds_through_port");
     Check(store.writes == 1, "port_saw_exactly_one_whole_file_write");
-    Check(store.lastName == "isaac-mod-data.bin", "port_got_the_relative_file_name");
+    Check(store.lastName == "isaac-mod-1122334455667788-s0-a.bin", "port_got_the_relative_file_name");
     // 容器头由消费者自己构造（内容/落盘分离），端口只搬运字节。
-    Check(store.bytes.size() > 8 && std::memcmp(store.bytes.data(), "ISMODST2", 8) == 0,
+    Check(store.bytes.size() > 8 && std::memcmp(store.bytes.data(), "ISMODST3", 8) == 0,
           "container_header_written_by_consumer");
     has = false;
     Check(ModPersistence::HasModData(kNamespace, &has) == ModPersistence::Result::Success && has,
@@ -327,8 +328,8 @@ int main() {
     MemoryStore bounded;
     isaac::runtime::SetSessionSaveFilePort(&bounded);
     ModPersistence::ResetCacheForTesting();
-    std::vector<char> huge(ModPersistence::kMaximumFileSize, 'y');
-    Check(ModPersistence::SaveModData(kNamespace, huge.data(), huge.size()) ==
+    const char huge = 'y';
+    Check(ModPersistence::SaveModData(kNamespace, &huge, ModPersistence::kMaximumFileSize) ==
               ModPersistence::Result::TooLarge, "oversized_payload_is_rejected");
     Check(bounded.writes == 0, "oversized_payload_never_reaches_the_port");
 

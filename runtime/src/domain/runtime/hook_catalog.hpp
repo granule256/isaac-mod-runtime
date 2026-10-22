@@ -36,7 +36,7 @@ enum class HookId : std::uint8_t {
     GameExit,
     // 批次 103（第 2 期）：掉落物碰撞（`MC_PRE_PICKUP_COLLISION`）。
     PickupCollision,
-    // 批次 104（第 2 期）：房间生成实体（`MC_PRE_ROOM_ENTITY_SPAWN`）。
+    // 71精确挂在FixSpawnEntry内部预转换之后；用Internal，不再在Roomspawn入口通知。
     RoomEntitySpawn,
     // 贴图桥（2026-09-21）：`.pcx` 加载最后一站。走 `EntryRelay`（零占洞改入口 16 字节）。
     // 偏移与 16 字节守卫在 `runtime_constants.hpp`。标 `required = false`：装不上只让
@@ -70,6 +70,95 @@ enum class HookId : std::uint8_t {
     // 我们在它入口上按 PC 的规则把参数改成「引擎原参数 OR 该禁」⇒ 禁与不禁都交回引擎。
     // `required = false`：装不上只是"开模组时不再禁成就"（退回 Switch 原生行为），不影响游戏。
     PersistentGameDataSetReadOnly,
+    // 引擎那条"模组 content 加载"路的闸门（2026-09-26 批次 147）：`ModManager::LoadConfigs`
+    // 逐条读 `ModEntry + 0x139` 决定读不读这个模组的 `content/*.xml`（皮肤 `costumes2.xml`、
+    // 曲子 `music.xml`…）。我们在它入口按**存在存档分区里的**模组开关把这一字节改成该启用/该禁用，
+    // 再放行原函数 ⇒ 引擎用它自己的解析器把模组内容加载进来。
+    //
+    // 为什么必须由我们补这一步：引擎判"这个模组关掉了没"只看卡上覆盖层里的 `<目录>/disable.it`，
+    // 而我们的模组目录在 romfs 覆盖层里**不能写**（写它会触发"下次启动崩"，AGENTS 有整段记录）
+    // ⇒ 我们的开关只能存在存档分区，引擎看不见。挂在这里 = 时机用引擎的、状态用我们的。
+    //
+    // `required = false`：装不上只是"模组的皮肤/音乐又回到进不来"（即今天之前的行为），
+    // 不该因此让整个 Mod 加载失败。
+    ModManagerLoadConfigs,
+    // 批次 363（2026-10-04）：`ANM2::Load` 入口中继（见 `kHookCatalog` 里那一行的注释）。
+    Anm2Load,
+    // --- 批次 390（2026-10-07）：`MC_INPUT_ACTION` 的三处**引擎查询入口** -------------------
+    //
+    // 契约（`analysis/isaacdocs-snapshot/docs/enums/ModCallbacks.md:347-367`）：**引擎每次轮询某个
+    // `ButtonAction` 时**触发一次（官方"执行信息"栏写 **每秒约 1470 次**），且**返回值可以覆盖**
+    // 这次查询的结果（`nil` = 不覆盖）。语料 3 个消费者里**有 2 个靠这个覆盖**
+    // （MCM 开菜单时屏蔽玩家输入、InputHelper 强制某键按下）⇒ 只"观察"不"覆盖"做不完整。
+    // ★★ 只挂**引擎自己用的**那三处（`KAGE::Input::ManagerBase::*`）：`runtime_constants.hpp` 里
+    //   名字很像的 `kManager*Offset = 0x3F9B**` 是**引擎给 Lua 的胶水函数**，挂它们只能拦到 Lua 调用。
+    // 三条都 `required = false`：装不上只让这条回调静默不派发（与改造前一样）。
+    ManagerIsActionPressed,
+    ManagerIsActionTriggered,
+    ManagerGetActionValue,
+    // --- 批次 396（2026-10-07）：`MC_ENTITY_TAKE_DMG`(11) 的四条 + `MC_EVALUATE_CACHE`(8) ---
+    //
+    // 受伤为什么要四条：引擎里只有基类 `Entity::TakeDamage` 一份通用实现，而
+    // `Entity_Player` / `Entity_Pickup` / `Entity_Slot` 三个子类**不回跳基类**
+    // （全长反汇编核对，见 `runtime_constants.hpp` 那一段取证）⇒ 只挂基类会漏玩家受伤。
+    // 覆盖口径 = 基类（吃 NPC/跟班/其余实体）+ 这三个子类，**不重复**。
+    // 五条都 `required = false`：装不上只让对应回调静默不派发（与改造前一样）。
+    // ⚠️ 名字必须与读数工具 `read_device_state_via_gdb.py` 的 `HOOK_NAMES` 逐字一致。
+    EntityTakeDamage,
+    EntityPlayerTakeDamage,
+    EntityPickupTakeDamage,
+    EntitySlotTakeDamage,
+    // `Entity_Player::EvaluateItems()` —— 玩家属性重算的唯一总闸（入口不带 CacheFlag 实参，
+    // 由中继从 `+0x1958` 掩码解位，见 `runtime_constants.hpp`）。
+    EvaluateItems,
+    // --- 批次 397（2026-10-07）：补全回调（第 2 批）—— 三条 hookable 的新入口中继 ---
+    //
+    // 三条的靶点与语义依据见 `runtime_constants.hpp` 的「批次 397」那段：
+    //   * `Entity::Kill`：`MC_POST_ENTITY_KILL`（"death animation 被触发之前"）——
+    //     ★ 只挂基类一条即全覆盖（NPC/跟班两个覆写都回跳基类，逐条反汇编核对过）；
+    //   * `Entity_NPC::trigger_death_remove`：`MC_POST_NPC_DEATH`（"死亡动画播完之后"）；
+    //   * `Game::End`：`MC_POST_GAME_END`（`IsGameOver` 由 `eEnding` 推，见那边的两项证据）。
+    // 三条都 `required = false`：装不上只让对应回调静默不派发（与改造前一样）。
+    // ⚠️ 名字必须与读数工具 `read_device_state_via_gdb.py` 的 `HOOK_NAMES` 逐字一致。
+    EntityKill,
+    NpcDeathRemove,
+    GameEnd,
+    // `Entity_Player::FireTear(...)`：`MC_POST_FIRE_TEAR`（"玩家开火"，Incubus 那条路也汇入这里）。
+    // 靶点与整套 ABI 取证见 `runtime_constants.hpp` 的「批次 337」+「批次 397」两段。
+    FireTear,
+    FamiliarCollision,
+    NpcCollision,
+    PlayerCollision,
+    TearCollision,
+    ProjectileCollision,
+    KnifeCollision,
+    BombCollision,
+    NpcRender,
+    ItemPoolGetPill,
+    ItemPoolGetPillEffect,
+    GameDevolveEnemy,
+    NpcUpdateAi,
+    GameSpawnEx,
+    ItemPoolTrinketFirstRandom,
+    ItemPoolTrinketSelected,
+    RoomClearAward,
+    EntityRemovePointers,
+    EntityDestructorRemove,
+    LevelCurseFirstRandom,
+    LevelCurseEvaluation,
+    PickupSelection,
+    PickupSelectionSpecial,
+    ItemPoolGetCard,
+    ModManagerUnload,
+    ConsoleUnknownLength,
+    ConsoleUnknownCompare,
+    HudRender,
+    RoomConfigLoadStageBinary,
+    LevelLoadRoom,
+    ConsoleLifecycle,
+    PressurePlateAnimationWriter,
+    PressurePlateDestructor,
+    PressurePlateDeletingDestructor,
     Count,
 };
 
@@ -82,7 +171,7 @@ inline constexpr std::size_t kHookIdCount = static_cast<std::size_t>(HookId::Cou
 //   RelaySlot  —— 引擎侧的中继代码（由 IPS 放进游戏模块的代码洞）在"原调用返回之后"
 //                 从一个**回调槽**里取出函数指针来调用；本后端只负责把我们的回调指针
 //                 写进那个槽（同样零代码字节）。目前只有 `GameStart` 走这条路。
-enum class HookBackend : std::uint8_t { LegacyIps, EntryRelay, GotSlot, RelaySlot };
+enum class HookBackend : std::uint8_t { LegacyIps, EntryRelay, GotSlot, RelaySlot, Internal };
 
 struct HookDescriptor {
     HookId id;
@@ -104,7 +193,7 @@ inline constexpr std::array<HookDescriptor, kHookIdCount> kHookCatalog = {{
     {HookId::UsePill, "UsePill", HookBackend::EntryRelay, false},
     {HookId::GameExit, "GameExit", HookBackend::EntryRelay, false},
     {HookId::PickupCollision, "PickupCollision", HookBackend::EntryRelay, false},
-    {HookId::RoomEntitySpawn, "RoomEntitySpawn", HookBackend::EntryRelay, false},
+    {HookId::RoomEntitySpawn, "RoomEntitySpawn", HookBackend::Internal, false},
     {HookId::ImagePcxLoad, "ImagePcxLoad", HookBackend::EntryRelay, false},
     {HookId::ImageManagerLoadFile, "ImageManagerLoadFile", HookBackend::EntryRelay, false},
     {HookId::ContentGetMountedFilePath, "ContentGetMountedFilePath", HookBackend::EntryRelay, false},
@@ -115,6 +204,68 @@ inline constexpr std::array<HookDescriptor, kHookIdCount> kHookCatalog = {{
     {HookId::MenuManagerSetState, "MenuManagerSetState", HookBackend::EntryRelay, false},
     {HookId::PersistentGameDataSetReadOnly, "PersistentGameDataSetReadOnly", HookBackend::EntryRelay,
      false},
+    // 批次 147（2026-09-26）：模组 content 加载闸门。名字与读数工具 `read_device_state_via_gdb.py`
+    // 的 `HOOK_NAMES` 必须逐字一致（那张表按 HookId 顺序读 `g_hookCallbacks`）。
+    {HookId::ModManagerLoadConfigs, "ModManagerLoadConfigs", HookBackend::EntryRelay, false},
+    // 批次 363（2026-10-04）：模组覆盖本体资源的最后一环。靶点是 `ANM2::Load` 的入口
+    // （`0xC970`，16 字节守卫见 `runtime_constants.hpp` 那一段取证）。挂在这里是因为
+    // 引擎开机时自己就把 `gfx/ui/minimap1.anm2` 这类共享路径按"本体层"读进了动画缓存，
+    // 而缓存查找是"挂载点前缀 + 路径哈希、先命中先生效"⇒ 模组那份永远轮不到。
+    // 回调先问解析器这条路径现在归谁，答模组层且缓存里还有旧条目时用引擎自己的原语作废它。
+    // `required = false`：装不上只是"共享路径仍旧吃本体那份"（即今天之前的行为），
+    // 不该因此让整个 Mod 加载失败。
+    {HookId::Anm2Load, "Anm2Load", HookBackend::EntryRelay, false},
+    // 批次 390（2026-10-07）：`MC_INPUT_ACTION` 的三处查询入口。名字与读数工具
+    // `read_device_state_via_gdb.py` 的 `HOOK_NAMES` 必须逐字一致（它按 HookId 顺序读 `g_hookCallbacks`）。
+    // ⚠️ `IsActionPressed` 与 `IsActionTriggered` 的 16 字节守卫**逐字节相同** ⇒ 守卫挡不住"两者互换"。
+    {HookId::ManagerIsActionPressed, "ManagerIsActionPressed", HookBackend::EntryRelay, false},
+    {HookId::ManagerIsActionTriggered, "ManagerIsActionTriggered", HookBackend::EntryRelay, false},
+    {HookId::ManagerGetActionValue, "ManagerGetActionValue", HookBackend::EntryRelay, false},
+    // 批次 396（2026-10-07）：`MC_ENTITY_TAKE_DMG` 的四条入口中继 + `MC_EVALUATE_CACHE`。
+    // 名字与读数工具 `read_device_state_via_gdb.py` 的 `HOOK_NAMES` 必须逐字一致。
+    {HookId::EntityTakeDamage, "EntityTakeDamage", HookBackend::EntryRelay, false},
+    {HookId::EntityPlayerTakeDamage, "EntityPlayerTakeDamage", HookBackend::EntryRelay, false},
+    {HookId::EntityPickupTakeDamage, "EntityPickupTakeDamage", HookBackend::EntryRelay, false},
+    {HookId::EntitySlotTakeDamage, "EntitySlotTakeDamage", HookBackend::EntryRelay, false},
+    {HookId::EvaluateItems, "EvaluateItems", HookBackend::EntryRelay, false},
+    // 批次 397（2026-10-07）：补全回调（第 2 批）的三条。名字与读数工具的 `HOOK_NAMES` 逐字一致。
+    {HookId::EntityKill, "EntityKill", HookBackend::EntryRelay, false},
+    {HookId::NpcDeathRemove, "NpcDeathRemove", HookBackend::EntryRelay, false},
+    {HookId::GameEnd, "GameEnd", HookBackend::EntryRelay, false},
+    {HookId::FireTear, "FireTear", HookBackend::EntryRelay, false},
+    {HookId::FamiliarCollision, "FamiliarCollision", HookBackend::EntryRelay, false},
+    {HookId::NpcCollision, "NpcCollision", HookBackend::EntryRelay, false},
+    {HookId::PlayerCollision, "PlayerCollision", HookBackend::EntryRelay, false},
+    {HookId::TearCollision, "TearCollision", HookBackend::EntryRelay, false},
+    {HookId::ProjectileCollision, "ProjectileCollision", HookBackend::EntryRelay, false},
+    {HookId::KnifeCollision, "KnifeCollision", HookBackend::EntryRelay, false},
+    {HookId::BombCollision, "BombCollision", HookBackend::EntryRelay, false},
+    {HookId::NpcRender, "NpcRender", HookBackend::EntryRelay, false},
+    {HookId::ItemPoolGetPill, "ItemPoolGetPill", HookBackend::EntryRelay, false},
+    {HookId::ItemPoolGetPillEffect, "ItemPoolGetPillEffect", HookBackend::EntryRelay, false},
+    {HookId::GameDevolveEnemy, "GameDevolveEnemy", HookBackend::EntryRelay, false},
+    {HookId::NpcUpdateAi, "NpcUpdateAi", HookBackend::GotSlot, false},
+    {HookId::GameSpawnEx, "GameSpawnEx", HookBackend::EntryRelay, false},
+    {HookId::ItemPoolTrinketFirstRandom, "ItemPoolTrinketFirstRandom", HookBackend::Internal, false},
+    {HookId::ItemPoolTrinketSelected, "ItemPoolTrinketSelected", HookBackend::Internal, false},
+    {HookId::RoomClearAward, "RoomClearAward", HookBackend::Internal, false},
+    {HookId::EntityRemovePointers, "EntityRemovePointers", HookBackend::GotSlot, false},
+    {HookId::EntityDestructorRemove, "EntityDestructorRemove", HookBackend::Internal, false},
+    {HookId::LevelCurseFirstRandom, "LevelCurseFirstRandom", HookBackend::Internal, false},
+    {HookId::LevelCurseEvaluation, "LevelCurseEvaluation", HookBackend::Internal, false},
+    {HookId::PickupSelection, "PickupSelection", HookBackend::Internal, false},
+    {HookId::PickupSelectionSpecial, "PickupSelectionSpecial", HookBackend::Internal, false},
+    {HookId::ItemPoolGetCard, "ItemPoolGetCard", HookBackend::GotSlot, false},
+    {HookId::ModManagerUnload, "ModManagerUnload", HookBackend::GotSlot, false},
+    {HookId::ConsoleUnknownLength, "ConsoleUnknownLength", HookBackend::Internal, false},
+    {HookId::ConsoleUnknownCompare, "ConsoleUnknownCompare", HookBackend::Internal, false},
+    {HookId::HudRender, "HudRender", HookBackend::GotSlot, false},
+    {HookId::RoomConfigLoadStageBinary, "RoomConfigLoadStageBinary", HookBackend::GotSlot, false},
+    {HookId::LevelLoadRoom, "LevelLoadRoom", HookBackend::GotSlot, false},
+    {HookId::ConsoleLifecycle, "ConsoleLifecycle", HookBackend::GotSlot, false},
+    {HookId::PressurePlateAnimationWriter, "PressurePlateAnimationWriter", HookBackend::EntryRelay, false},
+    {HookId::PressurePlateDestructor, "PressurePlateDestructor", HookBackend::Internal, false},
+    {HookId::PressurePlateDeletingDestructor, "PressurePlateDeletingDestructor", HookBackend::Internal, false},
 }};
 
 // 取登记项。传入 `HookId::Count` 或越界值属于调用方错误，这里退化成第一个登记项

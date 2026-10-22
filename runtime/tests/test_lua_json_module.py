@@ -421,11 +421,32 @@ class LuaJsonModuleHostTests(unittest.TestCase):
         self.assertIn('extern "C" {\n#include <lua.h>\n#include <lauxlib.h>\n}', JSON_SOURCE.read_text(encoding="utf-8"))
 
     def test_module_does_not_register_into_the_api_catalog(self):
-        """`json` 是一个全局表，不是 owner/catalog 家族，两处都不应出现它。"""
+        """`json` 是一个全局表，不是 owner/catalog 家族，两处都不应出现它**作为模块的登记**。
+
+        ★ 2026-10-07（门禁修复：批次 347 之后的存量红）：
+          原断言是裸的 `assertNotIn("json", text.lower())`，本意是"目录里不许有 json 模块"。
+          但产品侧从批次 327（commit `8b251e9b`，2026-10-03，`docs/改动日志-20261003.md`
+          第 2101 行起）开始在 `api_catalog.cpp` 的注释里引用**布局数据文件名** ——
+          `room_descriptor.json` / `entity.json` / `tools/layout_tables/entity_npc.json` 等
+          （这些是 JSON 格式的取证数据表，登记在 `tools/layout_tables/`）。裸子串把它一起命中，
+          于是这条门禁变成误报。判据收紧为"独立出现的 json 单词才算登记"：
+          布局数据文件名一定是 `xxx.json`（`json` 紧跟一个 `.`），据此把文件名语境排除。
+
+        保护价值不变：任何把 json 模块登记进 owner/catalog 家族的改动 —— 目录行写成
+        `"json"` owner、引入 `JsonModule` 标识符、或加 `json.encode`/`json.decode` 条目 ——
+        都会命中下面的 `(?<!\\.)json` 或 `JsonModule`，仍然报红。
+        """
+        # 只有紧跟 `.` 之后的 `json` 才是布局数据文件名（`xxx.json`）；其余独立出现的
+        # json 一律视为对该模块的登记/引用，绝不允许出现在目录里。
+        registered_module_token = re.compile(r"(?<!\.)json", re.IGNORECASE)
         for path in (UNIT_ROOT / "interfaces/lua/api_catalog.cpp",
                      UNIT_ROOT / "interfaces/lua/api_catalog.hpp"):
             text = path.read_text(encoding="utf-8")
-            self.assertNotIn("json", text.lower(), f"{path.name} 不应登记 json 模块")
+            stray = registered_module_token.findall(text)
+            self.assertEqual(
+                stray, [],
+                f"{path.name} 不应登记 json 模块（出现非 `.json` 文件名的 json 单词）：{stray}",
+            )
             self.assertNotIn("JsonModule", text)
 
     def test_family_unit_joins_the_size_optimized_object_list(self):

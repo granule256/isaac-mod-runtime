@@ -221,6 +221,52 @@ int main() {
     Check(AdvanceSlot(3, true) == 4 && AdvanceSlot(3, false) == 2, "第 4 格（我们的）上下各走一格");
     Check(AdvanceSlot(99, true) == 1, "越界的当前值按第 1 格算（不许算出越界结果）");
 
+    // ---- 5) 引擎说"继续游戏不可选"时，导航必须跳过它（批次 159）------------------
+    //
+    // 这一条对应一条**真机 bug**（2026-09-27）：没有可继续的局时，引擎把"继续游戏"那一行
+    // 画成灰帧、并在它自己的导航里跳过它（`Menu_Game::Update` 读 `Manager+0x2B688` 两个字节，
+    // 两个都为 0 就跳过 index 1、还会把停在 1 上的选中项拨回 0）。而这一列是**我们**驱动光标的
+    // ⇒ 不照抄这条规则，光标就能停在灰项上；按下确认时引擎读到的正是我们每帧写回去的行号 1
+    // ⇒ 走"载入存档"那条路 ⇒ 没有存档 ⇒ **进局即死**。
+    Check(kContinueEngineRow == 1, "引擎那 5 项里第 1 项 = 继续游戏");
+    Check(!SlotSelectableByEngine(kContinueEngineRow, false), "引擎说不可选时，第 1 格不可选");
+    Check(SlotSelectableByEngine(kContinueEngineRow, true), "引擎说可选时，第 1 格可选");
+    Check(SlotSelectableByEngine(kModEntrySlot, false), "我们那一格不受它影响");
+    Check(SlotSelectableByEngine(0, false) && SlotSelectableByEngine(2, false),
+          "其余格子不受它影响（引擎只对 index 1 有这条判断）");
+    Check(AdvanceSlotSkipping(0, true, false) == 2, "不可选：从新游戏往下 ⇒ 直接到挑战（跳 1）");
+    Check(AdvanceSlotSkipping(2, false, false) == 0, "不可选：从挑战往上 ⇒ 直接到新游戏（跳 1）");
+    Check(AdvanceSlotSkipping(0, true, true) == 1, "可选：往下正常到继续游戏");
+    Check(AdvanceSlotSkipping(1, false, true) == 0, "可选：往上正常回新游戏");
+    Check(AdvanceSlotSkipping(1, true, true) == 2, "可选：往下正常到挑战");
+    {
+        // 整列绕两圈都不许停在不可选的那一格上（这条是"光标停在灰项上"的直接判据）。
+        std::uint32_t walk = 0;
+        for (std::uint32_t step = 0; step < kMenuGameEntryCount * 2; ++step) {
+            walk = AdvanceSlotSkipping(walk, true, false);
+            Check(walk != kContinueEngineRow, "不可选时整列绕圈都不许停在继续游戏上");
+        }
+        walk = 0;
+        for (std::uint32_t step = 0; step < kMenuGameEntryCount * 2; ++step) {
+            walk = AdvanceSlotSkipping(walk, false, false);
+            Check(walk != kContinueEngineRow, "不可选时反向绕圈也不许停在继续游戏上");
+        }
+    }
+    // 写回给引擎的行号：不可选时**绝不为 1**（引擎的确认分支读的就是它）。
+    Check(GuardContinueRowForWrite(kContinueEngineRow, false) != kContinueEngineRow,
+          "不可选时写回的行号不能是 1（否则引擎会去载入存档）");
+    Check(GuardContinueRowForWrite(kContinueEngineRow, true) == kContinueEngineRow,
+          "可选时写回的行号仍是 1（正常的「继续游戏」不许被这条修复挡住）");
+    Check(GuardContinueRowForWrite(EngineRowForSlot(kModEntrySlot), false) == 3
+              && GuardContinueRowForWrite(EngineRowForSlot(kModEntrySlot), true) == 3,
+          "我们那一格写回的行号与这条规则无关（恒 3）");
+    for (std::uint32_t slot = 0; slot < kMenuGameEntryCount; ++slot) {
+        const std::uint32_t written = GuardContinueRowForWrite(EngineRowForSlot(slot), false);
+        Check(written < kMenuGameEngineEntryCount, "写回给引擎的行号必须夹在 0..4");
+        Check(written != kContinueEngineRow || slot == kContinueEngineRow,
+              "只有「继续游戏」那一格才可能写回 1");
+    }
+
     if (failures != 0) { std::printf("MOD_MENU_ENTRY_ROW_CHECKS_FAILED %d\n", failures); return 1; }
     std::printf("MOD_MENU_ENTRY_ROW_CHECKS_PASSED\n");
     return 0;
@@ -247,6 +293,27 @@ class ModMenuEntryRowTests(unittest.TestCase):
             run = subprocess.run([str(binary)], text=True, capture_output=True)
             self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
             self.assertIn("MOD_MENU_ENTRY_ROW_CHECKS_PASSED", run.stdout)
+
+    def test_continue_skip_is_actually_wired_into_the_update(self):
+        """算术对了还不够：**调用点必须真的用上它**（批次 159）。
+
+        为什么单独钉：这一批的错法是"头文件里加了一条跳过规则、但 `ModRowUpdate` 还在用旧那条"
+        —— 编译得过、宿主门禁全绿，而真机上光标照样能停在灰掉的"继续游戏"上。
+        所以这里按**文本**核对三个点：读引擎那两格、推进走带跳过的那条、写回走带保险的那条。
+        """
+        cpp = (ROOT / "runtime" / "source" / "mod_menu_native.cpp").read_text(encoding="utf-8")
+        self.assertIn("kManagerContinueAvailableOffset = 0x2B688", cpp,
+                      "读「继续游戏可不可选」的偏移必须是 `Manager+0x2B688`（反汇编那两处）")
+        body = cpp.split("void ModRowUpdate(", 1)[1].split("\n}\n", 1)[0]
+        self.assertIn("ReadContinueAvailable(", body,
+                      "`ModRowUpdate` 必须每帧问一次引擎（不读就还是旧行为）")
+        self.assertIn("AdvanceSlotSkipping(", body, "推进必须走「跳过不可选项」那条")
+        self.assertIn("GuardContinueRowForWrite(", body, "写回引擎的行号必须过那道保险")
+        self.assertIn("EngineRowForSlot(g_Slot)", body, "写回给引擎的仍然必须是**行号**")
+        self.assertNotIn("AdvanceSlot(g_Slot, false);\n        }\n        if (Edge(&g_LastDown",
+                         body, "上键那条不许再退回旧的（不跳过的）推进")
+        self.assertIn("g_ModMenuState.continueAvailable", body, "引擎的判定要记进状态面（[62]）")
+        self.assertIn("g_ModMenuState.continueSkipped", body, "跳过次数要记进状态面（[63]）")
 
 
 if __name__ == "__main__":

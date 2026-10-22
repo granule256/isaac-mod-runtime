@@ -1,5 +1,15 @@
+#include "interfaces/lua/api700_grid.hpp"
+#include "interfaces/lua/api600_bindings.hpp"
+#include "interfaces/lua/api200_bindings.hpp"
+#include "interfaces/lua/entity_lifetime.hpp"
+#include "interfaces/lua/api100_bindings.hpp"
+#include "interfaces/lua/rplus_extended_fields.hpp"
+#include "interfaces/lua/vector_api.hpp"
+#include "interfaces/lua/engine_color_mod.hpp"
 #include "interfaces/lua/api_sequence_probe.hpp"
 #include "interfaces/lua/sprite_api.hpp"
+#include "infrastructure/call/engine_call_access.hpp"
+#include "interfaces/lua/engine_method_lookup.hpp"
 #include "interfaces/lua/runtime_perf.hpp"
 #include "infrastructure/memory/engine_field_access.hpp"
 #include "infrastructure/memory/engine_memory_guard.hpp"
@@ -25,6 +35,7 @@
 
 extern "C" {
 #include <lauxlib.h>
+#include "probe_gate.hpp"
 }
 
 namespace isaac::runtime {
@@ -34,6 +45,7 @@ using LuaRuntime::ColorHandle;
 using LuaRuntime::kColorMetatable;
 using LuaRuntime::kSpriteMetatable;
 using LuaRuntime::kSpriteSourceEngineEntity;
+using LuaRuntime::kSpriteSourceEngineGridEntity;
 using LuaRuntime::kSpriteSourceRuntimeOwned;
 using LuaRuntime::SpriteHandle;
 using LuaRuntime::VectorHandle;
@@ -94,14 +106,25 @@ void* ResolveSpriteObject(const SpriteHandle* handle) noexcept {
     if (handle == nullptr) {
         return nullptr;
     }
+    if(handle->source==LuaRuntime::kSpriteSourceEngineGridExtra)return ResolveApi700GridSprite(handle);
     if (handle->source == kSpriteSourceEngineEntity) {
         const std::uintptr_t owner = engine_memory::AddressOf(handle->owner);
         // "还活着"的判据只有一份实现（`isaac_api.cpp` 的 `ValidatedEntity` 用的那条）：
         // vptr 仍落在 `Entity` 家族区间内且地址可读。
-        if (!IsLiveEntityPointer(owner)) {
+        if (!EntityLifetimeAlive(handle->lifetime) || !IsLiveEntityPointer(owner)) {
             return nullptr;
         }
         return engine_memory::AsObject(owner + kEntitySpriteOffset);
+    }
+    // 批次 298：网格实体借出的 sprite（`GridEntity:GetSprite()`）。**同一个形状**，
+    // 只换存活判据与偏移 —— 网格实体随时可能被销毁（石头炸掉、换房间重建），
+    // 所以每次访问都要重新算 `owner + kGridEntitySpriteOffset`。
+    if (handle->source == kSpriteSourceEngineGridEntity) {
+        const std::uintptr_t owner = engine_memory::AddressOf(handle->owner);
+        if (!IsLiveGridEntityPointer(owner)) {
+            return nullptr;
+        }
+        return engine_memory::AsObject(owner + kGridEntitySpriteOffset);
     }
     return handle->sprite;
 }
@@ -110,12 +133,18 @@ void* ResolveSpriteObject(const SpriteHandle* handle) noexcept {
 // 所以我们**不**做无界 `strlen`：逐字节确认可读、遇到 0 或到达上限就停。
 constexpr std::size_t kAnimationNameCapacity = 64;
 
+//: **文件名**的字节上限（批次 309）。比动画名宽：模组可以给出很长的 `gfx/...` 路径
+//: （契约 `Sprite.md:79` 的例子是 `gfx/001.000_Player.anm2`，而模组自己的路径可能长得多）。
+//: ★ 超限**不截断**（见 `ReadLibcxxStringAt` 的长度校验）：宁可答空串，也不答一个"看着像真的"
+//:   被砍掉尾巴的文件名 —— 语料里 `customgrids.lua` 拿它当字典键，错键会静默走错分支。
+constexpr std::size_t kFilenameCapacity = 256;
+
 // --- `Sprite:GetTexel` 的探针（2026-09-12，动作一）-------------------------------
 //
 // 目的：`GetTexel` 是"EID 判赎罪线问号底座"的唯一依据，而它的调用约定（HFA 按值传）
 // 是本轮唯一有风险的改动。真机上一轮结束后要能回答三个问题：
 //   * 引擎入口到底被调到了几次（`calls`）；
-//   * 有多少次是"取不到入口/没有动画状态"的退回落值（`fallbacks`）；
+//   * 有多少次因入口缺失或对象不可读而报错（历史符号 `fallbacks` 保留）；
 //   * 最近一次真实读数长什么样（`lastWord` = 低 32 位 R、次 32 位 G，足以区分
 //     "全 0（引擎说这里是空像素）"和"非 0（真读到了贴图颜色）"）。
 std::atomic<std::uint32_t> g_SpriteGetTexelCalls{0};
@@ -123,25 +152,18 @@ std::atomic<std::uint32_t> g_SpriteGetTexelFallbacks{0};
 std::atomic<std::uint32_t> g_SpriteGetTexelLastReason{0};
 std::atomic<std::uint64_t> g_SpriteGetTexelLastWord{0};
 
-// 落值：与旧占位一致的不透明白色。`reason` 进探针：1 = 没有引擎入口，
-// 2 = sprite 地址不可读，3 = 没有当前动画状态（`ANM2+0x60` 为空）。
-int PushTexelFallback(lua_State* state, std::uint32_t reason) {
+// 保留失败次数与原因探针，但不再把失败伪装成白色像素。
+int SpriteTexelError(lua_State* state, std::uint32_t reason, const char* message) {
     g_SpriteGetTexelFallbacks.fetch_add(1, std::memory_order_relaxed);
     g_SpriteGetTexelLastReason.store(reason, std::memory_order_relaxed);
-    auto* color = static_cast<ColorHandle*>(lua_newuserdata(state, sizeof(ColorHandle)));
-    color->red = 1.0F;
-    color->green = 1.0F;
-    color->blue = 1.0F;
-    color->alpha = 1.0F;
-    color->offsetRed = 0.0F;
-    color->offsetGreen = 0.0F;
-    color->offsetBlue = 0.0F;
-    luaL_getmetatable(state, kColorMetatable);
-    lua_setmetatable(state, -2);
-    return 1;
+    return luaL_error(state, "Sprite:GetTexel %s", message);
 }
 
 void RecordSpriteGetTexelForProbe(float red, float green, bool enginePath) noexcept {
+    (void)red;  // 批次 232：生产构建里这段被编译掉 ⇒ 参数必然用不上
+    (void)green;  // 批次 232：生产构建里这段被编译掉 ⇒ 参数必然用不上
+    (void)enginePath;  // 批次 232：生产构建里这段被编译掉 ⇒ 参数必然用不上
+#if EXL_DIAGNOSTIC_PROBES  // 批次 232 探针总开关（口径见 probe_gate.hpp）
     if (enginePath) {
         g_SpriteGetTexelCalls.fetch_add(1, std::memory_order_relaxed);
         std::uint32_t redBits = 0;
@@ -151,18 +173,18 @@ void RecordSpriteGetTexelForProbe(float red, float green, bool enginePath) noexc
         g_SpriteGetTexelLastWord.store((static_cast<std::uint64_t>(greenBits) << 32) | redBits,
                                        std::memory_order_relaxed);
     }
+#endif  // EXL_DIAGNOSTIC_PROBES
 }
 
 // 读 `ANM2+0x38` 指向的"当前动画名"。返回 false 表示"没有当前动画或读不到"（调用方回空串）。
 //
 // 读法与引擎自己的 `ANM2::IsPlaying(char const*)`（`0xa454`）逐条一致：对象指针为 0 → 无动画；
 // 首字节最低位 = long 标志 → 长串取 `+0x10` 的数据指针、短串取 `+1` 的内联数据。
-bool ReadAnimationName(std::uintptr_t sprite, char* out, std::size_t capacity) noexcept {
-    if (sprite == 0 || out == nullptr || capacity == 0) {
-        return false;
-    }
-    std::uintptr_t nameObject = 0;
-    if (!ReadEngine(sprite + kSpriteAnimationNameOffset, &nameObject) || nameObject == 0) {
+// 批次 214：把"读一个 libc++ `std::string`（含 SSO）"抽成可复用的一处实现 ——
+// 中文版 MCM 要的 `Sprite:GetDefaultAnimationName()` 得读 **ANM2 动画表里某条记录的名字**，
+// 与 `Sprite:GetAnimation()` 读 `ANM2+0x38` 是同一件事（同一套常量、同一套判据）。
+bool ReadLibcxxStringAt(std::uintptr_t nameObject, char* out, std::size_t capacity) noexcept {
+    if (nameObject == 0 || out == nullptr || capacity == 0) {
         return false;
     }
     std::uint8_t firstByte = 0;
@@ -179,8 +201,27 @@ bool ReadAnimationName(std::uintptr_t sprite, char* out, std::size_t capacity) n
     } else {
         data = nameObject + kLibcxxStringShortDataOffset;
     }
-    const std::size_t limit = capacity - 1 < kAnimationNameCapacity ? capacity - 1
-                                                                    : kAnimationNameCapacity;
+    //: ★ 批次 309：先把 SSO 头里**声明的长度**读出来，再判"缓冲装得下吗" —— 装不下就**判读不到**
+    //: （调用方会答空串），**不做静默截断**。原先这里把上限再夹一次 `kAnimationNameCapacity`，
+    //: 于是"文件名比 63 字节长"会被静默砍尾巴，得到一个**看着像真的错值**（模组拿它当字典键
+    //: 会静默走错分支 —— 本项目点名的"看起来像真值的错值"那一类）。
+    //: ★ 口径与 `isaac_api.cpp` 的 `ResolveLibcxxString` 逐字一致：短串长度 = 首字节 >> 1、
+    //:   长串长度在 `+0x8`（那里同样用字面量 `8`，见该函数）。
+    std::size_t declared = 0;
+    if ((firstByte & kLibcxxStringLongFlag) != 0) {
+        std::uint64_t length = 0;
+        if (!ReadEngine(nameObject + 8, &length)) {
+            return false;
+        }
+        declared = static_cast<std::size_t>(length);
+    } else {
+        declared = static_cast<std::size_t>(firstByte >> 1);
+    }
+    if (declared == 0 || declared > capacity - 1) {
+        return false;
+    }
+    //: 上限**由调用方给**（`GetAnimation` 传 64 字节的缓冲、`GetFilename` 传 256 字节）。
+    const std::size_t limit = capacity - 1;
     std::size_t length = 0;
     while (length < limit) {
         char character = 0;
@@ -195,6 +236,17 @@ bool ReadAnimationName(std::uintptr_t sprite, char* out, std::size_t capacity) n
     }
     out[length] = '\0';
     return length != 0;
+}
+
+bool ReadAnimationName(std::uintptr_t sprite, char* out, std::size_t capacity) noexcept {
+    if (sprite == 0) {
+        return false;
+    }
+    std::uintptr_t nameObject = 0;
+    if (!ReadEngine(sprite + kSpriteAnimationNameOffset, &nameObject) || nameObject == 0) {
+        return false;
+    }
+    return ReadLibcxxStringAt(nameObject, out, capacity);
 }
 
 
@@ -231,6 +283,13 @@ int ResolveSprite(lua_State* state, const char* apiName, void** sprite) {
             return luaL_error(
                 state, "%s: the engine entity this Sprite belongs to is no longer alive", apiName);
         }
+        // 批次 298：网格实体那条同样把原因说清楚（否则真机日志会把"网格实体没了"
+        // 误读成"我们自己把 Sprite 释放了"）。
+        if (handle->source == kSpriteSourceEngineGridEntity) {
+            return luaL_error(
+                state, "%s: the engine grid entity this Sprite belongs to is no longer alive",
+                apiName);
+        }
         return luaL_error(state, "%s was called on a released Sprite", apiName);
     }
     *sprite = resolved;
@@ -240,7 +299,7 @@ int ResolveSprite(lua_State* state, const char* apiName, void** sprite) {
 // `Vector` 值类型（`KAGE::Math::Vector2`：8 字节 `{float X, float Y}`、无虚表）。三个渲染方法
 // 都按引用收它，所以这里把 Lua 值的内存直接当参数传 —— 与引擎期望的形式完全一致。
 VectorHandle* CheckVector(lua_State* state, int index) {
-    return static_cast<VectorHandle*>(luaL_checkudata(state, index, LuaRuntime::kVectorMetatable));
+    return RequireVectorArgument(state,index);
 }
 
 // --- 批次 3：可写属性（`Scale`/`Color`/`FlipX`）与字段读取 ----------------------
@@ -263,8 +322,8 @@ VectorHandle* CheckVector(lua_State* state, int index) {
 //
 // 写入内容与 PC 的对应关系：
 //   * `Scale` → `ANM2+0xDC` 的两个 float（`X@0xDC`、`Y@0xE0`）；
-//   * `Color` → `ANM2+0xE8` 的 `ColorMod` 头 4 个 float（tint 的 R/G/B/A）加 `+0x10..+0x18`
-//     的偏移量三元组（`Color` 的第 5/6/7 个分量）；
+//   * `Color` → `ANM2+0xE8` 的 `ColorMod` 头 4 个 float（tint 的 R/G/B/A）加 `+0x10..+0x1C`
+//     的染色四元组，+0x20..+0x28 是偏移量三元组（`Color` 的第 5/6/7 个分量）；
 //   * `FlipX` → `ANM2+0x140` 的一个字节（0/1）。
 //
 // 允许的字段就是 PC 的这三个（大小写与 PC 一致）；其它字段名报错，避免把"拼错的属性名"
@@ -274,8 +333,7 @@ constexpr char kSpriteColorField[] = "Color";
 constexpr char kSpriteFlipXField[] = "FlipX";
 
 bool ReadVectorPair(lua_State* state, int index, float* x, float* y) {
-    auto* vector = static_cast<VectorHandle*>(
-        luaL_testudata(state, index, LuaRuntime::kVectorMetatable));
+    auto* vector = TryVectorArgument(state,index);
     if (vector == nullptr) {
         return false;
     }
@@ -297,62 +355,72 @@ SpritePropertyApplyHostImplementation g_PropertyApplyHostImplementation = nullpt
 //
 // 写入失败（该页不可写、地址算错）不抛 Lua 错误：绘制路径上抛错会打断整条回调，而"颜色没
 // 画出来"比"描述整段消失"轻。失败只记一次拒绝计数（探针构建里可读）。
-void ApplyCachedSpriteProperties(void* sprite, const SpriteHandle* handle) noexcept {
+// 439 更正：上面的“绘制时无条件应用”和“写失败静默”是旧行为。现在只在赋值
+// 时写本次属性，失败返回Lua错误；Render不回写缓存。偏移是+0x20/+0x24/+0x28。
+enum class SpriteProperty { Scale, Color, FlipX };
+
+bool ApplyCachedSpriteProperties(void* sprite, const SpriteHandle* handle,
+                                 SpriteProperty property) noexcept {
     if (sprite == nullptr || handle == nullptr) {
-        return;
+        return false;
     }
+    const std::uintptr_t base = engine_memory::AddressOf(sprite);
+    if (handle->hasScale != 0 && property == SpriteProperty::Scale) {
+        return WriteEngine<float>(base + kSpriteScaleOffset, handle->scaleX) &&
+               WriteEngine<float>(base + kSpriteScaleOffset + sizeof(float), handle->scaleY);
+    }
+    if (handle->hasColor != 0 && property == SpriteProperty::Color) {
+        const ColorHandle color{handle->colorRed, handle->colorGreen, handle->colorBlue,
+                                handle->colorAlpha, handle->colorOffsetRed,
+                                handle->colorOffsetGreen, handle->colorOffsetBlue};
+        // PC setter@0x402370立即整44B覆盖；tint/colorize/shift布局由
+        // kColorModTintOffset / kColorModColorizeOffset / kColorModShiftOffset断言固定。
+        return WriteEngine<EngineColorMod>(base + kSpriteColorOffset,
+                                          EngineColorModFromHandle(color));
+    }
+    if (handle->hasFlipX != 0 && property == SpriteProperty::FlipX) {
+        return WriteEngine<std::uint8_t>(base + kSpriteFlipXOffset, handle->flipX);
+    }
+    return false;
+}
+
+// 保留宿主绘制观察入口；不把Lua视图缓存重新写回引擎。
+void ObserveSpriteProperties(void* sprite, const SpriteHandle* handle) noexcept {
 #if !defined(__SWITCH__)
-    // 宿主注入点：既有测试（`runtime/tests/test_lua_api_gap_batch3.py`）用它观察"渲染路径确实
-    // 读到了句柄里的值"。它只做观察，真正落盘的是下面的 `WriteEngine`，两边都跑。
     const SpritePropertyApplyHostImplementation apply = g_PropertyApplyHostImplementation;
     if (apply != nullptr) {
         apply(sprite, handle);
     }
+#else
+    static_cast<void>(sprite);
+    static_cast<void>(handle);
 #endif
-    const std::uintptr_t base = engine_memory::AddressOf(sprite);
-    if (handle->hasScale != 0) {
-        static_cast<void>(WriteEngine<float>(base + kSpriteScaleOffset, handle->scaleX));
-        static_cast<void>(WriteEngine<float>(base + kSpriteScaleOffset + sizeof(float), handle->scaleY));
-    }
-    if (handle->hasColor != 0) {
-        const std::uintptr_t tint = base + kSpriteColorOffset + kColorModTintOffset;
-        static_cast<void>(WriteEngine<float>(tint, handle->colorRed));
-        static_cast<void>(WriteEngine<float>(tint + sizeof(float), handle->colorGreen));
-        static_cast<void>(WriteEngine<float>(tint + 2 * sizeof(float), handle->colorBlue));
-        static_cast<void>(WriteEngine<float>(tint + 3 * sizeof(float), handle->colorAlpha));
-        const std::uintptr_t shift = base + kSpriteColorOffset + kColorModShiftOffset;
-        static_cast<void>(WriteEngine<float>(shift, handle->colorOffsetRed));
-        static_cast<void>(WriteEngine<float>(shift + sizeof(float), handle->colorOffsetGreen));
-        static_cast<void>(WriteEngine<float>(shift + 2 * sizeof(float), handle->colorOffsetBlue));
-    }
-    if (handle->hasFlipX != 0) {
-        static_cast<void>(WriteEngine<std::uint8_t>(base + kSpriteFlipXOffset, handle->flipX));
-    }
+
 }
 
 // 把缓存的 `Scale` 压成一张 `{X, Y}` 表？不：PC 的 `Sprite.Scale` 读出来就是 `Vector`，
 // 所以这里原样产出 `Vector` userdata（与 `EntityPlayer.Position` 同一做法：新对象，
 // 不共享同一块 userdata）。
 void PushCachedScale(lua_State* state, const SpriteHandle* handle) {
-    auto* vector = static_cast<VectorHandle*>(lua_newuserdata(state, sizeof(VectorHandle)));
-    vector->x = handle->scaleX;
-    vector->y = handle->scaleY;
-    luaL_getmetatable(state, LuaRuntime::kVectorMetatable);
-    lua_setmetatable(state, -2);
+    void* sprite = ResolveSpriteObject(handle);
+    VectorHandle value{};
+    if (sprite == nullptr || !ReadEngine(engine_memory::AddressOf(sprite) +
+                                         kSpriteScaleOffset, &value)) {
+        luaL_error(state, "Sprite.Scale requires a readable live sprite");
+        return;
+    }
+    PushLuaVector(state, value.x, value.y);
 }
 
 void PushCachedColor(lua_State* state, const SpriteHandle* handle) {
-    auto* color = static_cast<ColorHandle*>(lua_newuserdata(state, sizeof(ColorHandle)));
-    color->red = handle->colorRed;
-    color->green = handle->colorGreen;
-    color->blue = handle->colorBlue;
-    color->alpha = handle->colorAlpha;
-    // 颜色偏移随 tint 一起缓存（2026-09-16 起），读回来就是 Mod 写进去的那一份。
-    color->offsetRed = handle->colorOffsetRed;
-    color->offsetGreen = handle->colorOffsetGreen;
-    color->offsetBlue = handle->colorOffsetBlue;
-    luaL_getmetatable(state, kColorMetatable);
-    lua_setmetatable(state, -2);
+    void* sprite = ResolveSpriteObject(handle);
+    EngineColorMod value{};
+    if (sprite == nullptr || !ReadEngine(engine_memory::AddressOf(sprite) +
+                                         kSpriteColorOffset, &value)) {
+        luaL_error(state, "Sprite.Color requires a readable live sprite");
+        return;
+    }
+    PushLuaColorFromEngineColorMod(state, value);
 }
 
 // `Render(position, topLeftClamp = Vector.Zero, bottomRightClamp = Vector.Zero)`；缺失的 clamp
@@ -500,6 +568,9 @@ std::atomic<std::uint64_t> g_ReplaceSpritesheetNameHead{0};
 std::atomic<std::uint32_t> g_ReplaceSpritesheetCalls{0};
 
 void RecordSpriteReplaceSpritesheetForProbe(std::uint32_t length, const char* name) noexcept {
+    (void)length;  // 批次 232：生产构建里这段被编译掉 ⇒ 参数必然用不上
+    (void)name;  // 批次 232：生产构建里这段被编译掉 ⇒ 参数必然用不上
+#if EXL_DIAGNOSTIC_PROBES  // 批次 232 探针总开关（口径见 probe_gate.hpp）
     g_ReplaceSpritesheetCalls.fetch_add(1, std::memory_order_relaxed);
     g_ReplaceSpritesheetNameLength.store(length, std::memory_order_relaxed);
     std::uint64_t head = 0;
@@ -510,6 +581,52 @@ void RecordSpriteReplaceSpritesheetForProbe(std::uint32_t length, const char* na
         }
     }
     g_ReplaceSpritesheetNameHead.store(head, std::memory_order_relaxed);
+#endif  // EXL_DIAGNOSTIC_PROBES
+}
+
+// --- 批次 283：四条「按名字查询」共用的参数处理 ----------------------------------
+//
+// 这四条的引擎签名统一是 `bool ANM2::Xxx(std::string const&) const` ⇒ 参数必须是
+// **libc++ 的 24 字节 `std::string` 对象**（`BuildNativeString` 交出来的正是它）。
+// ★ 与 overlay 那三条的差别就在这里：那三条挑的是 `char const*` 重载，而这四条
+//   **dynsym 里只有 `std::string const&` 这一份**，没有可选的重载 ⇒ 桥是必需的，不是可选的。
+// ★ `allowEmpty = true`：空名字是合法输入（引擎会返回 `false`），**不抛错** —— 与
+//   `ReplaceSpritesheet` 对空串的口径一致，避免把调用方那条回调整条打断。
+//
+// ★★ `argumentOptional`（`IsOverlayPlaying` / `IsOverlayFinished` 专用）：
+//   PC 给这两条各写了**两个重载**（`tools/pc_contract_docs/Sprite.md` 第 133/135 行与
+//   140/142 行）：`(string AnimationName)` 与 `()`。省参数该怎么落，**不是猜的** ——
+//   引擎那条入口对**空名字**有专门分支，两条正好互补：
+//     * `IsOverlayPlaying`  @`0xAC04`：名字为空 ⇒ `mov w0, #1`（有 overlay 在播就为真）；
+//     * `IsOverlayFinished` @`0xACF0`：名字为空 ⇒ `mov w0, #1`（没有 overlay 在播就为真）。
+//   ⇒ 省参数时传空串，语义就是 PC 那个无参重载「当前有没有 overlay 在播」。
+//   ★ 与既有的 `IsPlaying` / `IsFinished` 是**同一条口径**（那条注释里写着"真实 Mod 有省参数的
+//     写法"，我们曾因为拒掉省参数而误伤过一个真机诊断）。
+template <typename ThunkType>
+int SpriteNameBooleanQuery(lua_State* state, const char* apiName, bool argumentOptional,
+                           ThunkType thunk) {
+    void* sprite = nullptr;
+    if (const int error = ResolveSprite(state, apiName, &sprite); error != 0) {
+        return error;
+    }
+    const int argumentCount = lua_gettop(state);
+    if (argumentCount > 2 || (argumentCount == 2 && lua_type(state, 2) != LUA_TSTRING)) {
+        return luaL_error(state, "%s accepts at most one name", apiName);
+    }
+    if (!argumentOptional && argumentCount != 2) {
+        return luaL_error(state, "%s needs a name", apiName);
+    }
+    const auto method = thunk();
+    if (method == 0) {
+        return luaL_error(state, "%s native binding is unavailable", apiName);
+    }
+    const char* text = argumentCount == 2 ? lua_tostring(state, 2) : "";
+    void* name = BuildNativeString(text, true);
+    if (name == nullptr) {
+        return luaL_error(state, "%s could not build a native name string", apiName);
+    }
+    lua_pushboolean(state, method(sprite, name) ? 1 : 0);
+    return 1;
 }
 
 // --- Handlers --------------------------------------------------------------
@@ -521,12 +638,22 @@ int SpritePlay(lua_State* state);
 int SpriteSetAnimation(lua_State* state);
 int SpriteSetFrame(lua_State* state);
 int SpriteGetFrame(lua_State* state);
+int SpriteGetOverlayFrame(lua_State* state);
 int SpriteSetLayerFrame(lua_State* state);
 int SpriteGetLayerFrame(lua_State* state);
 int SpriteUpdate(lua_State* state);
 int SpriteIsPlaying(lua_State* state);
 int SpriteIsFinished(lua_State* state);
 int SpritePlayRandom(lua_State* state);
+// 批次 279（2026-10-02）：overlay 三条（`PlayOverlay` 12 处 / `SetLastFrame` 6 处 / `SetOverlayFrame` 1 处）。
+// ★ 三条都走 `char const*` 重载，所以落在这张「只收 char const*/数值」的绑定表里（不需要 std::string 桥）。
+int SpritePlayOverlay(lua_State* state);
+int SpriteSetLastFrame(lua_State* state);
+int SpriteSetOverlayFrame(lua_State* state);
+// ★ 批次 280 的三条函数**定义在匿名命名空间之外**（那个 `}  // namespace` 在第 1139 行，
+//   而它们在第 1266 行往后）⇒ 声明必须放在 `sprite_api.hpp` 的命名空间作用域里，
+//   与 `SpriteGetAnimation` 同一条处理（在匿名命名空间里再声明一遍只会变成"另一个函数"、
+//   链接期报 `has internal linkage but is not defined`。本批真踩过一次）。
 int SpriteRender(lua_State* state);
 int SpriteRenderLayer(lua_State* state);
 int SpriteGetTexel(lua_State* state);
@@ -544,6 +671,7 @@ constexpr LuaHandlerBinding kSpriteHandlers[] = {
     // 所以这里只留一个入口，由它看参数类型分派（与 PC 绑定层的做法一致）。
     {0x0D010003, &SpriteSetFrame},
     {0x0D010004, &SpriteGetFrame},
+    {0x0D010020, &SpriteGetOverlayFrame},
     {0x0D010005, &SpriteSetLayerFrame},
     {0x0D010006, &SpriteGetLayerFrame},
     {0x0D010007, &SpriteUpdate},
@@ -558,6 +686,25 @@ constexpr LuaHandlerBinding kSpriteHandlers[] = {
     {0x0D01000D, &SpriteIsLoaded},
     // 批次 5：`Sprite:GetAnimation()`（纯读 `ANM2+0x38`，没有引擎调用）。
     {0x0D010011, &SpriteGetAnimation},
+    // 批次 214：中文版 MCM 的 `filepathhelper.lua` 要的三条（缺任一条都会打断调用方回调）。
+    {0x0D010013, &SpriteReset},
+    {0x0D010014, &SpriteGetLayerCount},
+    {0x0D010015, &SpriteGetDefaultAnimationName},
+    // 批次 279：overlay 三条（取号 = 域内下一个空号 0x16/0x17/0x18）。
+    {0x0D010016, &SpritePlayOverlay},
+    {0x0D010017, &SpriteSetLastFrame},
+    {0x0D010018, &SpriteSetOverlayFrame},
+    // 批次 280：`GetDefaultAnimation` / `Stop`（取号 = 域内下一个空号 0x19/0x1A）。
+    {0x0D010019, &SpriteGetDefaultAnimation},
+    {0x0D01001A, &SpriteStop},
+    // 批次 283：四条「按名字查询」（取号 = 域内下一个空号 0x1B/0x1C/0x1D/0x1E）。
+    // ★ 这四条走 libc++ `std::string` 桥（引擎没有 `char const*` 重载），与 `Load` 同一族。
+    {0x0D01001B, &SpriteIsOverlayPlaying},
+    {0x0D01001C, &SpriteIsOverlayFinished},
+    {0x0D01001D, &SpriteIsEventTriggered},
+    {0x0D01001E, &SpriteWasEventTriggered},
+    // 批次 309（2026-10-03）：`Sprite:GetFilename()`（取号 = 域内下一个空号 0x1F）。
+    {0x0D01001F, &SpriteGetFilename},
 };
 
 // PC: `void Load(string ANM2Path, boolean LoadGraphics)`；引擎侧是
@@ -691,6 +838,72 @@ int SpriteSetAnimation(lua_State* state) {
     return 1;
 }
 
+// `Sprite:PlayOverlay(string AnimationName, boolean Force)` —— PC 契约 `tools/pc_contract_docs/Sprite.md:236`，
+// 语料 **12 处**（IsaacOnTwitchReloaded 的进度条用它轮流播 overlay 动画；两种形状都出现：
+// `PlayOverlay("Anim0", false)` 与 `PlayOverlay("Anim" .. sector, true)`）。
+//
+// 引擎入口 `ANM2::PlayOverlay(char const*, bool)` @ `0xA9FC`。★ 同一族还有一个
+// `PlayOverlay(std::string const&, bool)` @ `0xA9E4` —— 我们**选 `char const*` 那个**，
+// 与这张绑定表既有的策略一致（第一步只收 `char const*`/数值，避开 libc++ `std::string` 的 ABI 桥）。
+int SpritePlayOverlay(lua_State* state) {
+    void* sprite = nullptr;
+    if (const int error = ResolveSprite(state, "Sprite:PlayOverlay", &sprite); error != 0) {
+        return error;
+    }
+    const int argumentCount = lua_gettop(state);
+    if (argumentCount != 3 || lua_type(state, 2) != LUA_TSTRING ||
+        lua_type(state, 3) != LUA_TBOOLEAN) {
+        return luaL_error(state, "Sprite:PlayOverlay accepts an animation name and a force flag");
+    }
+    const LuaRuntime::SpritePlayOverlayFn method = LuaRuntime::SpritePlayOverlayThunk();
+    if (method == 0) {
+        return luaL_error(state, "Sprite:PlayOverlay native binding is unavailable");
+    }
+    method(sprite, lua_tostring(state, 2), lua_toboolean(state, 3) != 0);
+    return 0;
+}
+
+// `Sprite:SetLastFrame()` —— 同页契约 `:376`，语料 6 处（把当前动画钉在最后一帧，常见于"播完就停"）。
+// 引擎入口 `ANM2::SetLastFrame()` @ `0xA908`（无参）。
+int SpriteSetLastFrame(lua_State* state) {
+    void* sprite = nullptr;
+    if (const int error = ResolveSprite(state, "Sprite:SetLastFrame", &sprite); error != 0) {
+        return error;
+    }
+    if (lua_gettop(state) != 1) {
+        return luaL_error(state, "Sprite:SetLastFrame accepts no arguments");
+    }
+    const LuaRuntime::SpriteSetLastFrameFn method = LuaRuntime::SpriteSetLastFrameThunk();
+    if (method == 0) {
+        return luaL_error(state, "Sprite:SetLastFrame native binding is unavailable");
+    }
+    method(sprite);
+    return 0;
+}
+
+// `Sprite:SetOverlayFrame(string AnimationName, int FrameNum)` —— 同页契约 `:396`，语料 1 处。
+// 引擎入口 `ANM2::SetOverlayFrame(char const*, int)` @ `0xAEF8`（同样避开 `std::string` 重载）。
+// ★ 帧号用 `IntegerArgumentAt`（接受 `3.0` 这类整值浮点）—— 与 `Sprite:SetFrame` 同一条理由：
+//   Lua 的 `/` 永远产生浮点，用"只认整数子类型"会比 PC 严（2026-09-18 真机踩过）。
+int SpriteSetOverlayFrame(lua_State* state) {
+    void* sprite = nullptr;
+    if (const int error = ResolveSprite(state, "Sprite:SetOverlayFrame", &sprite); error != 0) {
+        return error;
+    }
+    lua_Integer frameNumber = 0;
+    if (lua_gettop(state) != 3 || lua_type(state, 2) != LUA_TSTRING ||
+        !isaac::runtime::IntegerArgumentAt(state, 3, &frameNumber)) {
+        return luaL_error(state, "Sprite:SetOverlayFrame accepts an animation name and a frame number");
+    }
+    const LuaRuntime::SpriteSetOverlayFrameFn method = LuaRuntime::SpriteSetOverlayFrameThunk();
+    if (method == 0) {
+        return luaL_error(state, "Sprite:SetOverlayFrame native binding is unavailable");
+    }
+    method(sprite, lua_tostring(state, 2), static_cast<int>(frameNumber));
+    return 0;
+}
+
+
 // `Sprite:SetFrame(int)` 与 `Sprite:SetFrame(string, int)` 是 PC 的一对重载：按第二个参数的
 // 类型分派到各自的原生入口。
 int SpriteSetFrame(lua_State* state) {
@@ -728,6 +941,18 @@ int SpriteSetFrame(lua_State* state) {
                       "number (got %s, %s)",
                       argumentCount >= 2 ? luaL_typename(state, 2) : "nothing",
                       argumentCount >= 3 ? luaL_typename(state, 3) : "nothing");
+}
+
+using AgonyOverlayFrameFn = std::int32_t (*)(void*);
+int SpriteGetOverlayFrame(lua_State* state) {
+    void* sprite=nullptr;
+    if (const int error=ResolveSprite(state,"Sprite:GetOverlayFrame",&sprite); error!=0) return error;
+    const auto method=EngineOffsetAddress<IsEngineMemoryReadable>(kSpriteGetOverlayFrameOffset);
+    if (method==0 || !engine_call::VerifyEntryBytes(method,kSpriteGetOverlayFrameExpectedBytes.data(),
+        kSpriteGetOverlayFrameExpectedBytes.size(),&IsEngineMemoryReadable))
+        return luaL_error(state,"Sprite:GetOverlayFrame native bindings are unavailable");
+    lua_pushinteger(state,engine_call::AsFunction<AgonyOverlayFrameFn>(method)(sprite));
+    return 1;
 }
 
 int SpriteGetFrame(lua_State* state) {
@@ -883,7 +1108,7 @@ int SpriteRender(lua_State* state) {
     }
     // 绘制前先把 Mod 写的 Scale/Color/FlipX 交给应用入口（设备侧目前是空操作，
     // 见 `ApplyCachedSpriteProperties` 的注释）。
-    ApplyCachedSpriteProperties(sprite, handle);
+    ObserveSpriteProperties(sprite, handle);
     method(sprite, position, topLeft, bottomRight);
     return 0;
 }
@@ -907,11 +1132,10 @@ int SpriteRender(lua_State* state) {
 // （各 2 个 float）放进 `s0..s3`，`float alphaThreshold` 进 `s4`，`int layerId` 进 `w1`；
 // 返回值是 16 字节 `KColor`，走 **x8 间接结果寄存器**。证据：
 // `analysis/stage150-sprite-abi/<build>.json` 的 `records.sprite_get_texel`
-// （`confidence = verified`：符号、16 字节守卫、ABI 三重核对）。C++ 无法把"按值传的 HFA 结构"
-// 精确钉在 s0..s3 上（编译器可自由选择传参形态），所以用一小段内联汇编自己装参数。
-//
-// 取不到引擎入口、sprite 不可读、或还没有当前动画状态（`ANM2+0x60` 为空）时返回**不透明白色**，
-// 并把原因记进探针 —— 与旧占位行为一致，但不再是无条件的。
+// （`confidence = verified`：符号、16 字节守卫、ABI 三重核对）。
+// 2026-10-20 更正：用按值 HFA 和非平凡 Color 返回类型让编译器遵守 ABI，
+// 完整追踪调用者保存寄存器，替代遗漏 clobber 的旧内联汇编。
+// 状态是内嵌对象；无动画交给原生返回透明色，入口缺失或对象不可读则明确报错。
 int SpriteGetTexel(lua_State* state) {
     RecordApiSequence(50U);
     void* sprite = nullptr;
@@ -944,48 +1168,20 @@ int SpriteGetTexel(lua_State* state) {
     }
 
     const LuaRuntime::SpriteGetTexelFn method = LuaRuntime::SpriteGetTexelThunk();
-    if (method == 0) {
-        return PushTexelFallback(state, 1U);
+    if (method == nullptr) {
+        return SpriteTexelError(state, 1U, "native entry is unavailable");
     }
-    // `ANM2+0x60` 是 `AnimationState*`：引擎的 `ANM2::GetTexel` 第一件事就是
-    // `add x0, x0, #0x60`（`0xC098`）再 tail-call `AnimationState::GetTexel`（`0xC0B8`）。
-    // 状态为空说明还没 `Load`/`SetAnimation`，那时调下去就是空指针解引用。
+    // +0x60 overlay 与 +0x30 base 均是内嵌 AnimationState，不是待解引用指针。
+    // 整个 ANM2 必须可读；动画有无由原生 state+8 判断，不能拦截合法空动画。
     const std::uintptr_t spriteAddress = engine_memory::AddressOf(sprite);
-    std::uintptr_t animationState = 0;
-    if (spriteAddress == 0 ||
-        !ReadEngine(spriteAddress + kSpriteAnimationStateOffset, &animationState)) {
-        return PushTexelFallback(state, 2U);
+    if (!IsEngineMemoryReadable(spriteAddress, kSpriteObjectSize)) {
+        return SpriteTexelError(state, 2U, "sprite object is unreadable");
     }
-    if (animationState == 0) {
-        return PushTexelFallback(state, 3U);
-    }
-
-    struct EngineColor {
-        float red;
-        float green;
-        float blue;
-        float alpha;
-    };
-    EngineColor color{1.0F, 1.0F, 1.0F, 1.0F};
-    // x0 = ANM2*（引擎入口自己再 +0x60）、s0..s3 = 两个 Vector2、s4 = 阈值、w1 = 层号、
-    // x8 = 16 字节返回值缓冲。`memory` clobber 覆盖返回值缓冲与引擎内部可能的写入。
-    __asm__ volatile(
-        "mov x0, %[sprite]\n\t"
-        "ldp s0, s1, [%[sample]]\n\t"
-        "ldp s2, s3, [%[render]]\n\t"
-        "fmov s4, %w[threshold]\n\t"
-        "mov w1, %w[layer]\n\t"
-        "mov x8, %[out]\n\t"
-        "blr %[entry]\n\t"
-        :
-        : [sprite] "r"(spriteAddress), [sample] "r"(samplePos), [render] "r"(renderPos),
-          [threshold] "r"(alphaThreshold), [layer] "r"(layerId), [out] "r"(&color),
-          [entry] "r"(method)
-        : "x0", "x1", "x8", "x9", "x10", "x11", "x12", "x13", "x14", "x15", "x16", "x17",
-          "x30", "s0", "s1", "s2", "s3", "s4", "s5", "s6", "s7", "v8", "v9", "v10", "v11",
-          "v12", "v13", "v14", "v15", "memory", "cc");
+    const auto color = method(sprite, {samplePos->x, samplePos->y},
+                              {renderPos->x, renderPos->y}, alphaThreshold, layerId);
     RecordSpriteGetTexelForProbe(color.red, color.green, true);
     auto* handle = static_cast<ColorHandle*>(lua_newuserdata(state, sizeof(ColorHandle)));
+    *handle = {};
     handle->red = color.red;
     handle->green = color.green;
     handle->blue = color.blue;
@@ -1024,12 +1220,45 @@ int SpriteRenderLayer(lua_State* state) {
         return luaL_error(state, "Sprite:RenderLayer native binding is unavailable");
     }
     // 与 `Sprite:Render` 同一步：绘制前把 Mod 写的三个属性交给应用入口。
-    ApplyCachedSpriteProperties(sprite, handle);
+    ObserveSpriteProperties(sprite, handle);
     method(sprite, layerId, position, topLeft, bottomRight);
     return 0;
 }
 
 }  // namespace
+
+// --- 批次 283（2026-10-02）：`Sprite` 的四条「按名字查询」-------------------------------
+//
+// 引擎入口都在 `ANM2` 上，签名统一 `bool ANM2::Xxx(std::string const&) const`。
+// ★ 这四条以前在 `BOIStageAPI15` 里报 `attempt to call a nil value`（共 6 处）。
+//   它们的**接收者早就有**（`Sprite` 句柄与元表都在），缺的只是引擎入口本身 + libc++ 字符串那一跳。
+//
+// ★★ `IsOverlayPlaying` / `IsOverlayFinished` 与 `IsEventTriggered` / `WasEventTriggered`
+//   是**两对孪生函数**，前 16 字节守卫两两**逐字节完全相同**。证据链、以及"凭什么说它们是
+//   两个不同的函数"写在 `runtime_constants.hpp` 那一批常量上方 —— **那一段必须留着**：
+//   不留的话，后来者只看守卫会以为这里配错了（两条一样的守卫指向两个不同偏移）。
+int SpriteIsOverlayPlaying(lua_State* state) {
+    // 省参数 = PC 的 `IsOverlayPlaying()` 重载（空名字 ⇒ 引擎在 `0xAC04` 直接给 true）。
+    return SpriteNameBooleanQuery(state, "Sprite:IsOverlayPlaying", true,
+                                  &LuaRuntime::SpriteIsOverlayPlayingThunk);
+}
+
+int SpriteIsOverlayFinished(lua_State* state) {
+    return SpriteNameBooleanQuery(state, "Sprite:IsOverlayFinished", true,
+                                  &LuaRuntime::SpriteIsOverlayFinishedThunk);
+}
+
+int SpriteIsEventTriggered(lua_State* state) {
+    // ★ 这一条 PC **没有**无参重载（`Sprite.md` 只有 115 行那一份）⇒ 参数必给。
+    return SpriteNameBooleanQuery(state, "Sprite:IsEventTriggered", false,
+                                  &LuaRuntime::SpriteIsEventTriggeredThunk);
+}
+
+int SpriteWasEventTriggered(lua_State* state) {
+    // ★ 同 `IsEventTriggered`：PC 只有 418 行那一份，没有无参重载。
+    return SpriteNameBooleanQuery(state, "Sprite:WasEventTriggered", false,
+                                  &LuaRuntime::SpriteWasEventTriggeredThunk);
+}
 
 int SpriteIsLoaded(lua_State* state) {
     void* sprite = nullptr;
@@ -1058,12 +1287,49 @@ int PushEngineEntitySpriteHandle(lua_State* state, void* entity) {
     if (entity == nullptr) {
         return luaL_error(state, "Entity:GetSprite requires a live entity");
     }
+    auto* token=PushEntityLifetimeToken(state,engine_memory::AddressOf(entity));
+    const int tokenIndex=lua_gettop(state);
     auto* handle = static_cast<SpriteHandle*>(lua_newuserdata(state, sizeof(SpriteHandle)));
+    handle->lifetime=token;
+    lua_pushvalue(state,tokenIndex);lua_setuservalue(state,-2);
     handle->sprite = engine_memory::AsObject(engine_memory::AddressOf(entity) +
                                              kEntitySpriteOffset);
     handle->owner = entity;
     handle->source = kSpriteSourceEngineEntity;
     // 三个缓存属性的初值与 PC 的对象默认值一致（与 `CreateSpriteHandle` 同一套理由）。
+    handle->scaleX = 1.0F;
+    handle->scaleY = 1.0F;
+    handle->colorRed = 1.0F;
+    handle->colorGreen = 1.0F;
+    handle->colorBlue = 1.0F;
+    handle->colorAlpha = 1.0F;
+    handle->flipX = 0;
+    handle->hasScale = 0;
+    handle->hasColor = 0;
+    handle->hasFlipX = 0;
+    luaL_getmetatable(state, kSpriteMetatable);
+    lua_setmetatable(state, -2);
+    lua_remove(state,tokenIndex);
+    return 1;
+}
+
+// `GridEntity:GetSprite()` / `GridEntityRock:GetSprite()` 的句柄（批次 298）。
+// 与 `PushEngineEntitySpriteHandle` **逐字同形**，只有两处不同：
+//   * `kGridEntitySpriteOffset`（`0x48`，网格实体的内嵌 ANM2）；
+//   * `kSpriteSourceEngineGridEntity`（`ResolveSpriteObject` 据此换用网格实体的存活判据）。
+// ★ 调用方（`remaining_api.cpp` 的 `GridEntityGetSprite`）已经用 `IsLiveGridEntityPointer`
+//   校验过句柄。
+int PushEngineGridEntitySpriteHandle(lua_State* state, void* gridEntity) {
+    if (gridEntity == nullptr) {
+        return luaL_error(state, "GridEntity:GetSprite requires a live grid entity");
+    }
+    auto* handle = static_cast<SpriteHandle*>(lua_newuserdata(state, sizeof(SpriteHandle)));
+    handle->lifetime=nullptr;
+    handle->sprite = engine_memory::AsObject(engine_memory::AddressOf(gridEntity) +
+                                             kGridEntitySpriteOffset);
+    handle->owner = gridEntity;
+    handle->source = kSpriteSourceEngineGridEntity;
+    // 三个缓存属性的初值与 `Entity:GetSprite()` / `Sprite()` 同一套（PC 的对象默认值）。
     handle->scaleX = 1.0F;
     handle->scaleY = 1.0F;
     handle->colorRed = 1.0F;
@@ -1089,6 +1355,7 @@ int CreateSpriteHandle(lua_State* state) {
         return luaL_error(state, "Sprite native binding is unavailable");
     }
     auto* handle = static_cast<SpriteHandle*>(lua_newuserdata(state, sizeof(SpriteHandle)));
+    handle->lifetime=nullptr;
     handle->sprite = nullptr;
     // 三个缓存属性的初值与 PC 的对象默认值一致：Scale = (1,1)、Color = 白、
     // FlipX = false。`has*` 标志只用来区分"Mod 写过"与"没写过"（`__index` 据此决定
@@ -1141,8 +1408,174 @@ int SpriteGetAnimation(lua_State* state) {
     return 1;
 }
 
-// `__index`：先看三个缓存的属性，再落到元表 `__methods` 里的方法（与 `Vector` 同一形态：
+// `Sprite:GetFilename()` —— 契约 `tools/pc_contract_docs/Sprite.md:68/70`
+// （`#### string GetFilename ( )`；同页 `:79` 的例子逐字给出返回值形如 `gfx/001.000_Player.anm2`）。
+//
+// ★★ **它就是一个字段读**：文件名住在 `Sprite + kSpriteFilenameOffset`（`+0x08`）那个
+//    libc++ `std::string` 里 —— 两处具名证据见 `runtime_constants.hpp` 的同名常量段：
+//      ① `Sprite::LoadAnimationsFile(char const*, char const*) @ 0x4A48B4`：`add x0, x0, #0x8`
+//         + `bl std::string::assign(char const*)` ⇒ 传进来的路径**整串**落在 `+0x08`；
+//      ② 构造函数 `Sprite::Sprite() @ 0x4A4658` 的 `stp x8, xzr, [x0]` 把 `+0x08` 清成空串。
+// ★ 读法**复用**本文件里唯一那份 `ReadLibcxxStringAt`（libc++ SSO 口径只有一份），
+//   不另抄一遍短串/长串的判断。
+//
+// ★★ **读不到 / 没加载过 ⇒ 返回空串 `""`，不是 nil**：PC 的返回类型是 `string`，而语料里
+//   `customgrids.lua:547` 正是拿 `sprite:GetFilename() == ""` 判"这个 Sprite 还没加载"、
+//   `callbacks.lua:292` 拿它当**字典键**（`t[nil]` 会直接报错 ⇒ 整条回调被摘掉）。
+//   这与 `Sprite:GetAnimation()` 的降级口径**逐条相同**。
+int SpriteGetFilename(lua_State* state) {
+    void* sprite = nullptr;
+    if (const int error = ResolveSprite(state, "Sprite:GetFilename", &sprite); error != 0) {
+        return error;
+    }
+    if (lua_gettop(state) != 1) {
+        return luaL_error(state, "Sprite:GetFilename accepts no arguments");
+    }
+    std::array<char, kFilenameCapacity> name{};
+    if (!ReadLibcxxStringAt(engine_memory::AddressOf(sprite) + kSpriteFilenameOffset, name.data(),
+                            name.size())) {
+        lua_pushliteral(state, "");
+        return 1;
+    }
+    lua_pushstring(state, name.data());
+    return 1;
+}
+
+int SpriteGetDefaultAnimationName(lua_State* state) {
+    void* sprite = nullptr;
+    if (const int error = ResolveSprite(state, "Sprite:GetDefaultAnimationName", &sprite); error != 0) {
+        return error;
+    }
+    if (lua_gettop(state) != 1) {
+        return luaL_error(state, "Sprite:GetDefaultAnimationName accepts no arguments");
+    }
+    PushSpriteDefaultAnimationName(state, sprite);
+    return 1;
+}
+
+// `Sprite:GetDefaultAnimation()` —— PC 契约 `Sprite.md:36`，语料 **5 处**。
+// ★ 契约页在 `GetDefaultAnimationName` 那段里明说两者"seems to be the same"
+//   （原文见上面那个助手的注释）⇒ 这里**转调同一份读法**，不另写一遍。
+int SpriteGetDefaultAnimation(lua_State* state) {
+    void* sprite = nullptr;
+    if (const int error = ResolveSprite(state, "Sprite:GetDefaultAnimation", &sprite); error != 0) {
+        return error;
+    }
+    if (lua_gettop(state) != 1) {
+        return luaL_error(state, "Sprite:GetDefaultAnimation accepts no arguments");
+    }
+    PushSpriteDefaultAnimationName(state, sprite);
+    return 1;
+}
+
+// `Sprite:Stop()` —— PC 契约 `Sprite.md:406`，语料 1 处。
+// 引擎入口 `ANM2::Stop()` @ `0xA8E4`（无参）。同族的 overlay 停下是另一个入口
+// （`ANM2::StopOverlay()` @ `0xABA8`，本批不收 —— 它不在待办清单里）。
+int SpriteStop(lua_State* state) {
+    void* sprite = nullptr;
+    if (const int error = ResolveSprite(state, "Sprite:Stop", &sprite); error != 0) {
+        return error;
+    }
+    if (lua_gettop(state) != 1) {
+        return luaL_error(state, "Sprite:Stop accepts no arguments");
+    }
+    const LuaRuntime::SpriteStopFn method = LuaRuntime::SpriteStopThunk();
+    if (method == 0) {
+        return luaL_error(state, "Sprite:Stop native binding is unavailable");
+    }
+    method(sprite);
+    return 0;
+}
+
+// ---------------------------------------------------------------------------
+// 批次 214（2026-09-30）：中文版 MCM（`!!Mod Config Menu Chinese`，工坊 2494192799）要用的三条
+// ---------------------------------------------------------------------------
+//
+// 它新增的 `scripts/filepathhelper.lua` 用这三条判断"这条路径是不是一个真 anm2"
+// （`anm2Tester:GetDefaultAnimationName() ~= "" or anm2Tester:GetLayerCount() > 0`，
+//  紧接着 `anm2Tester:Reset()`）——它靠这个给**中文字体**找资源路径。
+// ★ 那三行**不在 `pcall` 里**（只有 `Load` 被包着）⇒ 缺任何一条都会抛错、把调用方整条回调打断
+//   （症状与"菜单画不出来"完全一样）。所以这三条必须齐。
+//
+// ★ 这三条 PC 的**文档里没有**（`mod_api_gap_report` 报 `PC 状态=unknown`）——
+//   它们是 **REPENTOGON** 一侧的 API。语义按引擎自己的实现取证（见各条注释）。
+
+// `Sprite:Reset()` = 引擎的 `ANM2::Reset()`（`0x4A4724`，守卫 16 字节）。
+int SpriteReset(lua_State* state) {
+    void* sprite = nullptr;
+    if (const int error = ResolveSprite(state, "Sprite:Reset", &sprite); error != 0) {
+        return error;
+    }
+    if (lua_gettop(state) != 1) {
+        return luaL_error(state, "Sprite:Reset accepts no arguments");
+    }
+    const LuaRuntime::SpriteResetFn reset = LuaRuntime::SpriteResetThunk();
+    if (reset == nullptr) {
+        // 绑定没发布（守卫不符 / 没有引擎映像）⇒ **不抛错、也不调**：
+        // 抛错会把调用方整条回调打断（这正是要避免的事），而"没重置"是可接受的降级。
+        return 0;
+    }
+    reset(sprite);
+    return 0;
+}
+
+// `Sprite:GetLayerCount()` —— 引擎自己判 layer 越界时读的那一格（`ANM2+0xB0`）：
+// `ANM2::GetLayerFrame @0xA96C` 就是 `ldr x9,[x19,#0x30]`（Sprite 里的 ANM2 指针）
+// 再 `ldr w9,[x9,#0xb0]` 与 layer 比较。没有 ANM2（没 Load 过）⇒ 0。
+int SpriteGetLayerCount(lua_State* state) {
+    void* sprite = nullptr;
+    if (const int error = ResolveSprite(state, "Sprite:GetLayerCount", &sprite); error != 0) {
+        return error;
+    }
+    if (lua_gettop(state) != 1) {
+        return luaL_error(state, "Sprite:GetLayerCount accepts no arguments");
+    }
+    const std::uintptr_t base = engine_memory::AddressOf(sprite);
+    std::uintptr_t anm2 = 0;
+    std::uint32_t layers = 0;
+    if (!ReadEngine(base + kSpriteAnm2Offset, &anm2) || anm2 == 0 ||
+        !ReadEngine(anm2 + kAnim2LayerCountOffset, &layers)) {
+        lua_pushinteger(state, 0);
+        return 1;
+    }
+    lua_pushinteger(state, static_cast<lua_Integer>(layers));
+    return 1;
+}
+
+// `Sprite:GetDefaultAnimationName()` —— REPENTOGON 语义：ANM2 的"默认动画"名字。
+// ★ 引擎里**没有**这条函数，也没有专门的"默认动画名"字段可用（`ANM2::SetAnimation` 找不到名字时
+//   只打日志、不回落）⇒ 我们按**动画表里第一条**（`ANM2+0x98` 数组、`+0xA0` 个数、步长 `0x150`，
+//   名字是该记录开头那个 libc++ `std::string`）回答，并在偏离台账里写明这条口径。
+//   对调用方（`filepathhelper` 只判"非空"）来说两者等价：能 Load 出动画表就非空。
+//: 读"当前 anm2 的默认动画名"（= 动画表**第一条**的名字）。批次 280 抽出来共用：
+//: 契约页 `Sprite.md:54-56` 在 `GetDefaultAnimationName` 下面直接写着
+//: 「Returns the `DefaultAnimation` value from the currently loaded anm2 file.」
+//: 「This function seems to be the same as `GetDefaultAnimation()`.」
+//: ⇒ `Sprite:GetDefaultAnimation()` 与它**是同一件东西**，两处必须用同一份读法（否则日后会漂开）。
+void PushSpriteDefaultAnimationName(lua_State* state, void* sprite) {
+    const std::uintptr_t base = engine_memory::AddressOf(sprite);
+    std::array<char, kAnimationNameCapacity> name{};
+    // 2026-10-15：上方“默认=第一条”的旧推断已被Load2/Preload2和真机读数否定。
+    // 原字段保留XML声明值；直接读取，不重读资源，也不受Play/SetFrame改变当前动画影响。
+    if (base == 0 || !ReadLibcxxStringAt(base + kSpriteDefaultAnimationNameOffset,
+                                      name.data(), name.size())) {
+        lua_pushliteral(state, "");
+        return;
+    }
+    lua_pushstring(state, name.data());
+    return;
+}
+
+// 439 更正：属性读取原生对象；下方保留的PushCached命名是历史名称。
+// `__index`：先读取三个属性，再落到元表 `__methods` 里的方法（与 `Vector` 同一形态：
 // `__index` 必须是函数才能同时服务字段与方法）。
+void* ResolveSpriteArgument(lua_State* state,int index) {
+    auto* handle=static_cast<SpriteHandle*>(luaL_checkudata(state,index,kSpriteMetatable));
+    void* sprite=ResolveSpriteObject(handle);
+    if(!sprite)luaL_error(state,"Sprite reference is no longer available");
+    return sprite;
+}
+
 int SpriteIndex(lua_State* state) {
     auto* handle = static_cast<SpriteHandle*>(luaL_checkudata(state, 1, kSpriteMetatable));
     if (lua_type(state, 2) != LUA_TSTRING) {
@@ -1150,6 +1583,13 @@ int SpriteIndex(lua_State* state) {
         return 1;
     }
     const char* field = lua_tostring(state, 2);
+    if(const int pushed=TryPushExtendedSpriteField(state,field))return pushed;
+    if(std::strcmp(field,"PlaybackSpeed")==0) {
+        void* sprite=ResolveSpriteObject(handle);float value{};
+        if(!sprite || !ReadEngine(engine_memory::AddressOf(sprite)+kSpritePlaybackSpeedOffset,&value))
+            return luaL_error(state,"Sprite.PlaybackSpeed requires a readable live sprite");
+        lua_pushnumber(state,value);return 1;
+    }
     if (std::strcmp(field, kSpriteScaleField) == 0) {
         PushCachedScale(state, handle);
         return 1;
@@ -1159,7 +1599,13 @@ int SpriteIndex(lua_State* state) {
         return 1;
     }
     if (std::strcmp(field, kSpriteFlipXField) == 0) {
-        lua_pushboolean(state, handle->flipX != 0 ? 1 : 0);
+        void* sprite = ResolveSpriteObject(handle);
+        std::uint8_t value = 0;
+        if (sprite == nullptr || !ReadEngine(engine_memory::AddressOf(sprite) +
+                                             kSpriteFlipXOffset, &value)) {
+            return luaL_error(state, "Sprite.FlipX requires a readable live sprite");
+        }
+        lua_pushboolean(state, value != 0);
         return 1;
     }
     if (luaL_getmetatable(state, kSpriteMetatable) != LUA_TTABLE) {
@@ -1189,6 +1635,14 @@ int SpriteNewIndex(lua_State* state) {
         return luaL_error(state, "Sprite fields are Scale, Color and FlipX");
     }
     const char* field = lua_tostring(state, 2);
+    if(TryWriteExtendedSpriteField(state,field))return 0;
+    if(std::strcmp(field,"PlaybackSpeed")==0) {
+        const float value=static_cast<float>(luaL_checknumber(state,3));
+        void* sprite=ResolveSpriteObject(handle);
+        if(!sprite || !WriteEngine(engine_memory::AddressOf(sprite)+kSpritePlaybackSpeedOffset,value))
+            return luaL_error(state,"Sprite.PlaybackSpeed requires a writable live sprite");
+        return 0;
+    }
     if (std::strcmp(field, kSpriteScaleField) == 0) {
         float x = 0.0F;
         float y = 0.0F;
@@ -1198,10 +1652,14 @@ int SpriteNewIndex(lua_State* state) {
         handle->scaleX = x;
         handle->scaleY = y;
         handle->hasScale = 1;
+        if (!ApplyCachedSpriteProperties(ResolveSpriteObject(handle), handle,
+                                          SpriteProperty::Scale)) {
+            return luaL_error(state, "Sprite.Scale requires a writable live sprite");
+        }
         return 0;
     }
     if (std::strcmp(field, kSpriteColorField) == 0) {
-        auto* color = static_cast<ColorHandle*>(luaL_testudata(state, 3, kColorMetatable));
+        auto* color = TryColorArgument(state, 3);
         if (color == nullptr) {
             return luaL_error(state, "Sprite.Color must be a KColor");
         }
@@ -1213,6 +1671,11 @@ int SpriteNewIndex(lua_State* state) {
         handle->colorOffsetGreen = color->offsetGreen;
         handle->colorOffsetBlue = color->offsetBlue;
         handle->hasColor = 1;
+        void* sprite=ResolveSpriteObject(handle);
+        if (!sprite || !WriteEngine(engine_memory::AddressOf(sprite)+kSpriteColorOffset,
+                                   EngineColorModFromHandle(*color))) {
+            return luaL_error(state, "Sprite.Color requires a writable live sprite");
+        }
         return 0;
     }
     if (std::strcmp(field, kSpriteFlipXField) == 0) {
@@ -1221,6 +1684,10 @@ int SpriteNewIndex(lua_State* state) {
         }
         handle->flipX = lua_toboolean(state, 3) != 0 ? 1 : 0;
         handle->hasFlipX = 1;
+        if (!ApplyCachedSpriteProperties(ResolveSpriteObject(handle), handle,
+                                          SpriteProperty::FlipX)) {
+            return luaL_error(state, "Sprite.FlipX requires a writable live sprite");
+        }
         return 0;
     }
     return luaL_error(state, "Sprite has no writable field named %s", field);
@@ -1243,7 +1710,9 @@ int DestroySpriteHandle(lua_State* state) {
     // 为什么"什么都不做"是对的：`__gc` 只在 Lua 已经无法再引用这个 userdata 时才跑，所以
     // "释放后句柄还能用"不会带来任何可观察行为；反过来，真实的实体 sprite 只能由引擎释放。
     // 这条分支就是所有权标记存在的唯一理由（去掉它 = 每次 GC 都踩一次引擎内存）。
-    if (handle->source == kSpriteSourceEngineEntity) {
+    if (handle->source == kSpriteSourceEngineEntity ||
+        handle->source == kSpriteSourceEngineGridEntity ||
+        handle->source == LuaRuntime::kSpriteSourceEngineGridExtra) {
         return 0;
     }
     if (handle->sprite == nullptr) {
@@ -1260,7 +1729,7 @@ int DestroySpriteHandle(lua_State* state) {
 }
 
 std::size_t AttachSpriteMethods(lua_State* state) noexcept {
-    return AttachOwnerMethods(state, kSpriteOwner, kSpriteHandlers,
+    return AttachApi600Methods(state,"Sprite") + AttachApi200Methods(state,"Sprite") + AttachApi100Methods(state,"Sprite") + AttachOwnerMethods(state, kSpriteOwner, kSpriteHandlers,
                               sizeof(kSpriteHandlers) / sizeof(kSpriteHandlers[0]));
 }
 

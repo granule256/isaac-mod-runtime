@@ -100,7 +100,7 @@ class EmbeddedLuaRuntimeBoundaryTests(unittest.TestCase):
         self.assertNotIn("struct CallbackRecord", runtime)
         self.assertNotIn("g_PostUpdateCallback", runtime)
         self.assertIn(
-            "lua_rawgeti(g_LuaState, LUA_REGISTRYINDEX, descriptor.modReference)",
+            "lua_rawgeti(state, LUA_REGISTRYINDEX, descriptor->modReference)",
             runtime,
         )
         # `POST_UPDATE` 仍然只收到 Mod 对象**一个**实参：`DispatchPostUpdate` 用
@@ -123,9 +123,9 @@ class EmbeddedLuaRuntimeBoundaryTests(unittest.TestCase):
         # 钉住（编组表算出的个数、`mod` 占的那 1 个），而"POST_UPDATE 的调用者不带额外实参"
         # 一个字没动。
         self.assertIn("LuaCallbackInvoker invoker{0, false, true};", runtime)
-        self.assertIn("const int argumentCount = 1 + static_cast<int>(arguments.count);", runtime)
+        self.assertIn("const int argumentCount = 1 + static_cast<int>(self->arguments.count);", runtime)
         self.assertIn(
-            "lua_pcallk(g_LuaState, argumentCount, collecting ? 1 : 0, 0, 0,",
+            "lua_pcallk(g_LuaState, 3, collecting ? 1 : 0, 0, 0,",
             runtime)
 
     def test_lua_runtime_is_included_by_the_program_source_module(self):

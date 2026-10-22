@@ -1,0 +1,44 @@
+F
+======================================================================
+FAIL: test_behavior (runtime.tests.test_mod_persistence_dynamic.DynamicPersistenceTests.test_behavior)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/kelinls/.codex/worktrees/dance-resource-repair/isaac mod/runtime/tests/test_mod_persistence_dynamic.py", line 20, in test_behavior
+    self.assertEqual(result.returncode, 0, result.stdout+result.stderr)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 1 != 0 : FAIL 25kb_save_succeeds
+FAIL roundtrip_exact
+FAIL roundtrip_exact
+FAIL two_mods_have_separate_files
+FAIL identical_save
+FAIL identical_save
+FAIL identical_save
+FAIL identical_save
+FAIL identical_save
+FAIL identical_save
+FAIL identical_save
+FAIL identical_save
+FAIL identical_save
+FAIL identical_save
+FAIL identical_save
+FAIL identical_save
+FAIL identical_save
+FAIL identical_save
+FAIL identical_save
+FAIL identical_save
+FAIL identical_save
+FAIL identical_save
+FAIL identical_save
+FAIL identical_save
+FAIL identical_save
+FAIL identical_save
+FAIL identical_save
+FAIL identical_save
+FAIL identical_save
+DEDUP_10000_US 2949 WRITES 1 FAILURES 10015
+
+
+----------------------------------------------------------------------
+Ran 1 test in 1.008s
+
+FAILED (failures=1)

@@ -191,6 +191,15 @@ template <typename Fn>
     return address == 0 ? nullptr : reinterpret_cast<Fn>(address);
 }
 
+// 回调/已验证原生绑定发布为地址时，反向转换也只在调用基础层完成。
+// 对象指针仍使用engine_memory::AddressOf；此接口拒绝混入对象指针。
+template <typename Fn>
+[[nodiscard]] inline std::uintptr_t AddressOfFunction(Fn function) noexcept {
+    static_assert(std::is_pointer_v<Fn> && std::is_function_v<std::remove_pointer_t<Fn>>,
+                  "Fn必须是函数指针，不能是对象指针");
+    return function == nullptr ? 0 : reinterpret_cast<std::uintptr_t>(function);
+}
+
 //: 一步到位：解析（含全部守卫）⇒ 转换成带签名的函数指针；任一条不成立 ⇒ `nullptr`。
 //:
 //: 这是调用点最常用的那个名字 —— 上面两个函数是它的两半（想只要地址不要签名时用前者）。

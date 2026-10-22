@@ -1206,7 +1206,7 @@ extern "C" __attribute__((visibility("hidden"))) void IsaacModRuntime_ProbeFsSte
     register std::uint64_t x12 __asm__("x12") = g_fsProbeDone;
     register std::uint64_t x13 __asm__("x13") =
         static_cast<std::uint64_t>(self_journal::g_threadTlsBlock[0]);
-    __asm__ volatile("svc 0x7f"
+    __asm__ volatile("svc 0x26"
                      :
                      : "r"(x0), "r"(x1), "r"(x2), "r"(x3), "r"(x4), "r"(x5), "r"(x6), "r"(x7),
                        "r"(x8), "r"(x9), "r"(x10), "r"(x11), "r"(x12), "r"(x13)
@@ -1317,7 +1317,7 @@ IsaacModRuntime_ProbeBreak(std::uint32_t marker) {
         ((static_cast<std::uint64_t>(g_nativeWriteAttempts) & 0xFFULL) << 24);
     register std::uint64_t x27 __asm__("x27") = g_nativeWriteWritten;
     register std::uint64_t x28 __asm__("x28") = g_nativeFopen;
-    __asm__ volatile("svc 0x7f"
+    __asm__ volatile("svc 0x26"
                      :
                      : "r"(x0), "r"(x1), "r"(x2), "r"(x3), "r"(x4), "r"(x5), "r"(x6), "r"(x7),
                        "r"(x8), "r"(x9), "r"(x10), "r"(x11), "r"(x12), "r"(x13), "r"(x14),
@@ -1407,7 +1407,7 @@ extern "C" __attribute__((visibility("hidden"))) void IsaacModRuntime_EngineProb
         pack32(snapshot.postRenderCount, snapshot.postUpdateCount);
     register std::uint64_t x25 __asm__("x25") =
         pack32(snapshot.eidRenderReason, snapshot.eidRenderCount);
-    __asm__ volatile("svc 0x7f"
+    __asm__ volatile("svc 0x26"
                      :
                      : "r"(x0), "r"(x1), "r"(x2), "r"(x3), "r"(x4), "r"(x5), "r"(x6), "r"(x7),
                        "r"(x8), "r"(x9), "r"(x10), "r"(x11), "r"(x12), "r"(x13), "r"(x14),

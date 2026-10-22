@@ -39,6 +39,18 @@ namespace {
 bool g_Paused = false;
 unsigned g_PauseCalls = 0;
 unsigned g_ResumeCalls = 0;
+// 批次 137（2026-09-26）：`MusicManager:UpdateVolume()` 的宿主实现。与 `Pause`/`Resume` 同一手法 ——
+// 用**本进程的真函数**当"引擎方法"，于是"到底有没有调到、x0 收到的是不是 Manager 派生的 Music
+// 对象"这两件事在宿主上也能被断言（真机上是 16 字节入口守卫后跳进引擎）。
+unsigned g_UpdateVolumeCalls = 0;
+std::uintptr_t g_LastUpdateVolumeMusic = 0;
+// 批次 138（2026-09-26）：`MusicManager:Play(ID, Volume)` 的宿主实现 —— 记下 **ID 与 Volume 是否
+// 原样到达**（`Play` 的第 2 个参数是浮点，走 `s0`，与整数参数各走各的寄存器：这条断言钉的就是
+// "我们没有把它当整数传"）。
+unsigned g_PlayCalls = 0;
+int g_PlayIds[4] = {0, 0, 0, 0};
+float g_PlayVolumes[4] = {0.0F, 0.0F, 0.0F, 0.0F};
+std::uintptr_t g_LastPlayMusic = 0;
 struct alignas(uintptr_t) Manager { unsigned char padding[0x36068]; int musicId; } g_Manager{};
 std::string g_ModRoot;
 
@@ -79,6 +91,18 @@ GameRoomObservation ReadCurrentGameRoomType(uintptr_t, std::uint32_t*) {
 int CurrentMusicId(const void* music) { return *reinterpret_cast<const int*>(music); }
 void PauseMusic(void*) { ++g_PauseCalls; }
 void ResumeMusic(void*) { ++g_ResumeCalls; }
+void UpdateVolumeMusic(void* music) {
+    ++g_UpdateVolumeCalls;
+    g_LastUpdateVolumeMusic = reinterpret_cast<std::uintptr_t>(music);
+}
+void PlayMusic(void* music, int id, float volume) {
+    if (g_PlayCalls < 4) {
+        g_PlayIds[g_PlayCalls] = id;
+        g_PlayVolumes[g_PlayCalls] = volume;
+    }
+    ++g_PlayCalls;
+    g_LastPlayMusic = reinterpret_cast<std::uintptr_t>(music);
+}
 
 namespace GameFileReader {
 TextReadResult ReadTextFile(const Bindings&, const char* path, u8* buffer,
@@ -109,10 +133,51 @@ int main(int argc, char** argv) {
     LuaRuntime::SetMusicBindings(reinterpret_cast<uintptr_t>(&CurrentMusicId),
                                  reinterpret_cast<uintptr_t>(&PauseMusic),
                                  reinterpret_cast<uintptr_t>(&ResumeMusic));
+    // 批次 137：`MusicManager:UpdateVolume()` 的单方法绑定（与上面那三条同一个发布形态）。
+    LuaRuntime::SetMusicUpdateVolumeBinding(reinterpret_cast<uintptr_t>(&UpdateVolumeMusic));
+    // 批次 138：`MusicManager:Play(ID, Volume)` 的单方法绑定（同上）。
+    LuaRuntime::SetMusicPlayBinding(reinterpret_cast<uintptr_t>(&PlayMusic));
     const char* script = nullptr;
     std::string realEntry;
     if (std::strcmp(argv[1], "outside") == 0) {
         script = "local music=MusicManager(); music:GetCurrentMusicID()";
+    } else if (std::strcmp(argv[1], "outside_update_volume") == 0) {
+        // 批次 137：托管回调之外调用 `UpdateVolume` 必须**报错**（原生绑定只在回调里可用），
+        // 与 `GetCurrentMusicID` 同口径 —— 绝不允许"静默假装成功"。
+        script = "local music=MusicManager(); music:UpdateVolume()";
+    } else if (std::strcmp(argv[1], "outside_play") == 0) {
+        // 批次 138：同样的口径，`Play(ID, Volume)` 在回调之外也必须报错。
+        script = "local music=MusicManager(); music:Play(7, 1)";
+    } else if (std::strcmp(argv[1], "play") == 0) {
+        // 批次 138：`Play(ID, Volume)` 的**消费者视角**判据 —— 照模组写法调两次：
+        // 一次省缺 Volume（PC 默认 1）、一次给 0.5。ID 与 Volume 都要原样到达引擎。
+        script = "local mod=RegisterMod('Play',1); local music=MusicManager(); "
+                 "mod:AddCallback(ModCallbacks.MC_POST_RENDER,function() "
+                 "music:Play(7); music:Play(9, 0.5); end)";
+    } else if (std::strcmp(argv[1], "play_type") == 0) {
+        // 批次 138：参数**类型**错必须报错并现拼方法名；`Play()`（少给 ID）也要报错。
+        script = "local mod=RegisterMod('PlayType',1); "
+                 "mod:AddCallback(ModCallbacks.MC_POST_UPDATE,function() end); "
+                 "local music=MusicManager(); "
+                 "local ok1,err1=pcall(function() return music:Play('x') end); "
+                 "if ok1 then error('Play(string) must be rejected') end; "
+                 "if not string.find(tostring(err1),'Music:Play accepts',1,true) "
+                 "then error('wrong message: '..tostring(err1)) end; "
+                 "local ok2=pcall(function() return music:Play(1,'x') end); "
+                 "if ok2 then error('Play(1, string) must be rejected') end; "
+                 "local ok3=pcall(function() return music:Play() end); "
+                 "if ok3 then error('Play() must be rejected') end";
+    } else if (std::strcmp(argv[1], "arity") == 0) {
+        // 批次 137：参数个数不对时必须报错、且消息里现拼出方法名（与手写时代逐字一致）。
+        // 脚本要登记一个 `MC_POST_UPDATE` 回调，否则运行时按设计判 `MissingPostUpdateCallback`
+        // （那与本次要验的事情无关，见 `LuaInitResult` 的最后一个枚举）。
+        script = "local mod=RegisterMod('Arity',1); "
+                 "mod:AddCallback(ModCallbacks.MC_POST_UPDATE,function() end); "
+                 "local music=MusicManager(); "
+                 "local ok,err=pcall(function() return music:UpdateVolume(1) end); "
+                 "if ok then error('UpdateVolume(1) must be rejected') end; "
+                 "if not string.find(tostring(err),'Music:UpdateVolume accepts no arguments',1,true) "
+                 "then error('wrong message: '..tostring(err)) end";
     } else if (std::strcmp(argv[1], "mod_fields") == 0) {
         script = "local mod=RegisterMod('Fields',1); function mod:run() return 7 end; "
                  "if type(mod.run)~='function' or mod:run()~=7 then error('mod field mismatch') end; "
@@ -128,7 +193,7 @@ int main(int argc, char** argv) {
                  "mod:AddCallback(ModCallbacks.MC_POST_RENDER,function() local isPaused=game:IsPaused(); "
                  "if isPaused and not wasPaused then storedTrack=music:GetCurrentMusicID(); music:Pause(); "
                  "elseif not isPaused and wasPaused then if storedTrack and storedTrack~=Music.MUSIC_NULL then music:Resume() end end; "
-                 "wasPaused=isPaused; RuntimeTest.MarkPostUpdate() end)";
+                 "wasPaused=isPaused; music:UpdateVolume(); RuntimeTest.MarkPostUpdate() end)";
     }
     LuaRuntime::LuaInitResult init = LuaRuntime::LuaInitResult::ScriptLoadFailed;
     if (realMod) {
@@ -140,12 +205,31 @@ int main(int argc, char** argv) {
     } else {
         init = LuaRuntime::InitializeFromBuffer(script, std::strlen(script), "@mute.lua");
     }
-    if (std::strcmp(argv[1], "outside") == 0) return init == LuaRuntime::LuaInitResult::ScriptRunFailed ? 0 : 1;
+    if (std::strcmp(argv[1], "outside") == 0 ||
+        std::strcmp(argv[1], "outside_update_volume") == 0 ||
+        std::strcmp(argv[1], "outside_play") == 0) {
+        return init == LuaRuntime::LuaInitResult::ScriptRunFailed ? 0 : 1;
+    }
     if (init != LuaRuntime::LuaInitResult::Success) {
         std::fprintf(stderr, "init=%u\n", static_cast<unsigned>(init));
         return 2;
     }
     if (std::strcmp(argv[1], "mod_fields") == 0) return 0;
+    if (std::strcmp(argv[1], "arity") == 0) return 0;
+    if (std::strcmp(argv[1], "play_type") == 0) return 0;
+    if (std::strcmp(argv[1], "play") == 0) {
+        // 批次 138：一帧里调两次（`Play(7)` 与 `Play(9, 0.5)`）。三条都要成立：
+        // ① 两次都到达引擎；② ID 原样；③ **Volume 走浮点寄存器**（省缺 ⇒ 1.0，给定 ⇒ 0.5）；
+        // ④ 接收者仍是 Manager 派生的那个 Music 对象。
+        const std::uintptr_t expectedMusic = reinterpret_cast<std::uintptr_t>(&g_Manager.musicId);
+        if (LuaRuntime::TakeCallbackError()) return 3;
+        LuaRuntime::DispatchPostRender(reinterpret_cast<uintptr_t>(&g_Manager));
+        if (LuaRuntime::TakeCallbackError()) return 4;
+        const bool ok = g_PlayCalls == 2 && g_PlayIds[0] == 7 && g_PlayVolumes[0] == 1.0F &&
+                        g_PlayIds[1] == 9 && g_PlayVolumes[1] == 0.5F &&
+                        g_LastPlayMusic == expectedMusic;
+        return ok ? 0 : 5;
+    }
     if (std::strcmp(argv[1], "separate") == 0) {
         LuaRuntime::DispatchPostUpdate();
         LuaRuntime::DispatchPostRender(reinterpret_cast<uintptr_t>(&g_Manager));
@@ -161,7 +245,17 @@ int main(int argc, char** argv) {
     }
     g_Paused = false;
     LuaRuntime::DispatchPostRender(reinterpret_cast<uintptr_t>(&g_Manager));
-    return g_PauseCalls == 1 && g_ResumeCalls == 1 && !LuaRuntime::TakeCallbackError() ? 0 : 4;
+    // 批次 137：`UpdateVolume` 每一帧都被调一次（回调里无条件调）⇒ 4 次；而且 x0 收到的必须是
+    // Manager 派生的那个 Music 对象（`manager + kManagerMusicOffset`，即 `&g_Manager.musicId`）
+    // —— 这两条一起证明"绑定真的接到了、接收者也没解错"。
+    // `realMod`（未改动的 MuteOnPause）不调 `UpdateVolume`，所以那两条只在内嵌脚本路径上核对。
+    const bool updateVolumeOk =
+        realMod || (g_UpdateVolumeCalls == 4 &&
+                    g_LastUpdateVolumeMusic == reinterpret_cast<std::uintptr_t>(&g_Manager.musicId));
+    return g_PauseCalls == 1 && g_ResumeCalls == 1 && updateVolumeOk &&
+                   !LuaRuntime::TakeCallbackError()
+               ? 0
+               : 4;
 }
 '''.lstrip()
         )
@@ -212,6 +306,32 @@ int main(int argc, char** argv) {
     def test_music_api_is_rejected_outside_a_managed_render_callback(self):
         self.run_harness("outside")
 
+    def test_update_volume_is_rejected_outside_a_managed_render_callback(self):
+        """★ 批次 137（2026-09-26）：`MusicManager:UpdateVolume()` 的消费者视角边界判据。
+
+        The Specialist for Good Items 的"捡到四级物品放歌"要在托管回调里调它：
+          * 回调里 ⇒ 真的到达引擎（宿主注入的真函数被调到，且 `x0` = Manager 派生的 Music 对象，
+            见 `test_music_manager_is_no_pointer_userdata_and_runs_mute_on_pause_edges`）；
+          * 回调外 ⇒ 必须**报错**（与 `GetCurrentMusicID` 同口径），不许静默假装成功；
+          * 参数个数不对 ⇒ 必须报错、消息里现拼出方法名。
+        """
+        self.run_harness("outside_update_volume")
+        self.run_harness("arity")
+
+    def test_play_reaches_the_engine_with_the_id_and_a_float_volume(self):
+        """★ 批次 138（2026-09-26）：`MusicManager:Play(ID, Volume = 1)` 的消费者视角边界判据。
+
+        The Specialist for Good Items 放歌走的就是这一条（`main.lua:483/489/494` 的
+        `MusicManager():Play(id, 1)`）：
+          * 回调里 ⇒ 两次调用都到达引擎，ID 原样、**Volume 走浮点寄存器**（省缺 1.0 / 给定 0.5），
+            接收者是 Manager 派生的那个 Music 对象；
+          * 回调外 ⇒ 必须报错（不许静默假装成功）；
+          * ID/Volume 类型错、少给 ID ⇒ 必须报错且消息里现拼出 `Music:Play accepts`。
+        """
+        self.run_harness("play")
+        self.run_harness("outside_play")
+        self.run_harness("play_type")
+
     def test_register_mod_supports_custom_method_fields(self):
         self.run_harness("mod_fields")
 
@@ -239,10 +359,16 @@ int main(int argc, char** argv) {
         self.assertIn("Music:GetCurrentMusicID native bindings are unavailable", music_api)
         self.assertIn("kManagerMusicOffset", legacy)
         self.assertIn("ValidateMusicMethod", legacy)
-        for accessor in ("ResolveMusicGetCurrentMusicId", "ResolveMusicPause", "ResolveMusicResume"):
+        for accessor in ("ResolveMusicGetCurrentMusicId", "ResolveMusicPause", "ResolveMusicResume",
+                         "ResolveMusicUpdateVolume", "ResolveMusicPlay"):
             with self.subTest(accessor=accessor):
                 self.assertIn(accessor, music_api)
                 self.assertIn(accessor, legacy)
+        # 批次 137/138：两条单方法发布点（与 `SetMusicBindings` 分开，见 `lua_runtime.hpp`）。
+        self.assertIn("MusicUpdateVolumeThunk", music_api)
+        self.assertIn("kMusicUpdateVolumeExpectedBytes", legacy)
+        self.assertIn("MusicPlayThunk", music_api)
+        self.assertIn("kMusicPlayExpectedBytes", legacy)
 
 
 if __name__ == "__main__":

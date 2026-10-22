@@ -9,6 +9,10 @@
 （2026-09-19 抬升：原值 `0x80000`/`0x100000` 是自设的失控增长闸门，当时只剩 272 字节
 可用额度；依据与当时用量见 `runtime/misc/link.ld` 的注释。）
 
+2026-10-14 用户决定：以上为历史口径，当前从runtime_layout_budget导入代码4MiB、
+代码与只读累计结束6MiB。32KiB保留线仍生效；每API成本是旧样本估算，复杂新接口
+需实际构建核定，不将本工具给出的条数当作已经验证的最终容量。
+
 **要紧的是代码段，不是只读段**：某次交接记录里写过"只读段超预算"，那是把布局测试
 **故意构造**的越限样例当成了真实产物（同一次输出里紧邻的一行 `ok=yes` 才是真实产物）。
 本工具因此把两个段的余量与实际产物一起打出来，避免再靠记忆判断。
@@ -98,7 +102,8 @@ def evaluate_policy(code_end: int, ro_end: int, *, apis: int = 0, kind: str = "e
                       code_limit=code_limit, ro_end_limit=ro_end_limit)
     per_api_code = result["code_per_api"]
     remaining_code = result["code_reserve"] - apis * per_api_code
-    remaining_rodata = result["rodata_reserve"] - apis * RODATA_BYTES_PER_API
+    # 只读结束上限包括前面的代码；新增代码会同样推后只读段，不能仅扣只读字节。
+    remaining_rodata = result["rodata_reserve"] - apis * result["combined_end_per_api"]
     floor = floor_kib * 1024
     problems: list[str] = []
     if not result["requested_fits"]:
@@ -111,7 +116,7 @@ def evaluate_policy(code_end: int, ro_end: int, *, apis: int = 0, kind: str = "e
         )
     if remaining_rodata < floor:
         problems.append(
-            f"做完这一批只读段只剩 {remaining_rodata / 1024:.1f} KiB，低于保留线 {floor_kib} KiB"
+            f"做完这一批代码与只读累计空间只剩 {remaining_rodata / 1024:.1f} KiB，低于保留线 {floor_kib} KiB"
         )
     return {
         **result,
@@ -131,11 +136,13 @@ def forecast(code_end: int, ro_end: int, *, apis: int, kind: str,
     code_reserve = code_limit - code_end
     ro_reserve = ro_end_limit - ro_end
     capacity_by_code = code_reserve // per_api_code
-    capacity_by_rodata = ro_reserve // RODATA_BYTES_PER_API
+    combined_end_per_api = per_api_code + RODATA_BYTES_PER_API
+    capacity_by_rodata = ro_reserve // combined_end_per_api
     return {
         'kind': kind,
         'code_per_api': per_api_code,
         'rodata_per_api': RODATA_BYTES_PER_API,
+        'combined_end_per_api': combined_end_per_api,
         'code_reserve': code_reserve,
         'rodata_reserve': ro_reserve,
         'capacity_by_code': capacity_by_code,
@@ -146,6 +153,7 @@ def forecast(code_end: int, ro_end: int, *, apis: int, kind: str,
         'requested_apis': apis,
         'requested_code': apis * per_api_code,
         'requested_rodata': apis * RODATA_BYTES_PER_API,
+        'requested_combined_read_only': apis * combined_end_per_api,
         'requested_fits': apis <= min(capacity_by_code, capacity_by_rodata),
     }
 
@@ -187,12 +195,12 @@ def main(argv: list[str] | None = None) -> int:
     print(f"产物：{args.elf}    布局判定：{'ok' if report['ok'] else '越限'}")
     print(f"  代码段 {layout.code_end:#x} / {args.code_limit:#x}"
           f"  余 {result['code_reserve'] / 1024:.1f} KiB")
-    print(f"  只读段 {layout.read_only_end:#x} / {args.ro_end_limit:#x}"
+    print(f"  代码与只读累计结束 {layout.read_only_end:#x} / {args.ro_end_limit:#x}"
           f"  余 {result['rodata_reserve'] / 1024:.1f} KiB")
     print(f"\n按每条约 {result['code_per_api']} B 代码 + {RODATA_BYTES_PER_API} B 只读"
           f"（{args.kind} 类）算：")
     print(f"  还能加约 {result['capacity_by_code']} 条（受代码段限制）")
-    print(f"  还能加约 {result['capacity_by_rodata']} 条（受只读段限制）")
+    print(f"  还能加约 {result['capacity_by_rodata']} 条（受代码与只读累计结束限制）")
     print(f"  ⇒ 上限 {result['capacity']} 条，先撞的是 **{result['binding_segment']}** 段")
     if args.apis:
         verdict = '放得下' if result['requested_fits'] else '放不下'
@@ -200,7 +208,7 @@ def main(argv: list[str] | None = None) -> int:
               f"（需要代码 {result['requested_code'] / 1024:.1f} KiB、"
               f"只读 {result['requested_rodata'] / 1024:.1f} KiB）")
         print(f"  做完之后：代码段剩 {result['remaining_code'] / 1024:.1f} KiB、"
-              f"只读段剩 {result['remaining_rodata'] / 1024:.1f} KiB"
+              f"代码与只读累计空间剩 {result['remaining_rodata'] / 1024:.1f} KiB"
               f"（保留线 {args.floor_kib} KiB）")
     if not result['ok'] or not report['ok']:
         print("\n预算闸门：不通过")

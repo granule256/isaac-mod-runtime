@@ -2,6 +2,12 @@
 
 #include "application/mod/mod_load_step.hpp"
 
+// 批次 235（2026-09-30）：只在诊断包里逐模组计时（正式包零代价、零符号）。
+#include "load_phase_probe.hpp"
+#if EXL_DIAGNOSTIC_PROBES
+#include "interfaces/lua/runtime_perf.hpp"
+#endif
+
 namespace isaac::runtime {
 namespace {
 
@@ -118,7 +124,20 @@ Status ModLoadService::LoadAll(const ResolvedManifestModBatch& batch,
         request.entryBuffer = entryBuffer;
         request.entryCapacity = entryCapacity;
         ModLoadFailure perModFailure{};
+#if EXL_DIAGNOSTIC_PROBES
+        // 批次 235：逐模组计时（"读入口脚本 + 执行它"这一段）。
+        const std::uint64_t modLoadStartTick = RuntimePerfTick();
+#endif
         const Result<ModLoadOutcome> loaded = Load(request, &perModFailure);
+#if EXL_DIAGNOSTIC_PROBES
+        {
+            const std::uint64_t per = RuntimePerfTicksPerSecond();
+            if (per != 0) {
+                IsaacRuntime_RecordModLoadMicros(static_cast<std::uint32_t>(
+                    (RuntimePerfTick() - modLoadStartTick) * 1000000ULL / per));
+            }
+        }
+#endif
         outcome->scripts[index] = loaded.ok() ? loaded.value() : ModLoadOutcome{};
         outcome->count = index + 1;
         if (!loaded.ok() && !outcome->anyFailure) {

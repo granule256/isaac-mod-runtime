@@ -65,6 +65,26 @@ def actual_dispatch_sites(text: str) -> set[str]:
     dispatched |= set(re.findall(r"DispatchFiltered\(isaac::runtime::" + _CALLBACK_NAME, text))
     dispatched |= set(re.findall(r"DispatchModifying\(isaac::runtime::" + _CALLBACK_NAME, text))
     dispatched |= set(re.findall(r"g_CallbackRegistry\.At\(isaac::runtime::" + _CALLBACK_NAME, text))
+    # 通用碰撞派发函数按调用方传入的id派发；核对其真实入口中继调用点。
+    if re.search(r"DispatchModifying\(callbackId,", text):
+        relay = (SOURCE / "hook_manager.cpp").read_text(encoding="utf-8")
+        dispatched |= set(re.findall(r"DispatchPreEntityCollision\(isaac::runtime::" + _CALLBACK_NAME, relay))
+    # 2026-10-13：21/22经PC _RunCallback，73经PC _UnloadMod；核对真实入口调用链。
+    for callback,function,caller in (
+        ("GetShaderParams","ShaderValuesProtected","FinishShaderFrame"),
+        ("ExecuteCmd","ExecuteCommandCallbackProtected","DispatchExecuteCommand"),
+    ):
+        if function in text and re.search(r"lua_pushinteger\(state,isaac::runtime::kCallback"+callback+r"\)",text):
+            if caller=="FinishShaderFrame":
+                pipeline=(SOURCE.parent/"src/application/shader/shader_pipeline.cpp").read_text()
+                relay=(SOURCE/"hook_manager.cpp").read_text()
+                if "g_State.values(p->view,p->vertices,manager)" in pipeline and "FinishShaderFrame(manager)" in relay:
+                    dispatched.add(callback)
+            elif "LuaRuntime::DispatchExecuteCommand(view)" in (SOURCE/"console_callback_hook.cpp").read_text():
+                dispatched.add(callback)
+    if "isaac::runtime::UnloadTrackedMods" in text and "PushModUnloader(state)" in (SOURCE.parent/"src/interfaces/lua/mod_lifecycle_api.cpp").read_text():
+        unload=(SOURCE.parent/"src/infrastructure/gotslot/mod_unload_pointer_hook.cpp").read_text()
+        if "LuaRuntime::UnloadManifestMods()" in unload:dispatched.add("PreModUnload")
     return dispatched
 
 
@@ -86,17 +106,39 @@ class CallbackDispatchSiteAgreementTests(unittest.TestCase):
             f"  代码多出（会触发但没报）：{sorted(actual - declared)}",
         )
 
-    def test_the_known_never_dispatched_kind_is_not_claimed(self):
-        """回归：`MC_INPUT_ACTION` 曾经被误报成"有派发点"，它必须留在名单之外。
+    def test_the_formerly_never_dispatched_kind_is_now_claimed(self):
+        """★ 2026-10-07（批次 390）：`MC_INPUT_ACTION` 从"**永远不派发**"变成**真派发** —— 断言翻向。
 
-        留一条针对性断言的原因：这条误报是通过**真机读数对不上**才发现的，
-        而上面那条集合相等断言在"名单和代码一起写错"时不会红。这一条把当时的
-        具体结论钉住，避免有人为了让某个统计好看而把它加回来。
+        这条原来叫 `test_the_known_never_dispatched_kind_is_not_claimed`，钉的是"它必须留在名单之外"。
+        留那条的理由是：当年那次误报是靠**真机读数对不上**才发现的，而上面那条集合相等断言
+        在"名单和代码一起写错"时**不会红**。
+
+        现在派发点**真的实现了**（三条 `KAGE::Input::ManagerBase::*` 查询入口中继 +
+        `LuaRuntime::DispatchInputAction`，见 `hook_catalog.hpp` 的 `ManagerIsAction*` 段），
+        所以把它**翻成正向断言**：
+          * 名单里必须能解析到 `InputAction`；
+          * 运行时代码里必须真有那处 `DispatchModifying(isaac::runtime::kCallbackInputAction …)`。
+        ⇒ "以后有人把派发点删掉、名单忘了删"仍然会红（保住原来那条回归的价值）。
         """
         declared = declared_dispatch_sites(self.mod_api)
-        self.assertNotIn(
+        self.assertIn(
             "InputAction",
             declared,
-            "`MC_INPUT_ACTION` 没有任何派发调用（见 HasDispatchSite 上方的注释）——"
-            "把它写进名单会让设备侧读数骗人。要真的支持它，先实现派发点再登记。",
+            "`MC_INPUT_ACTION` 的派发点（批次 390）不在名单里 —— 要么回退时漏了，要么有人删了派发调用。",
+        )
+        self.assertIn(
+            "DispatchModifying(isaac::runtime::kCallbackInputAction",
+            self.runtime,
+            "`MC_INPUT_ACTION` 的派发调用（批次 390）在 `lua_runtime.cpp` 里找不到。",
+        )
+        # ★★★ 2026-10-07（真机实证后的修复）：这条派发的**过滤器实参必须是 `inputHook`**。
+        # 背景：`MC_INPUT_ACTION` 的 Optional Args 就是 `InputHook`（= `AddCallback` 的第 3 个实参 = 过滤器）。
+        # 而 `CollectCallOrder` 的判据是"登记声明了过滤器 且 本次传 kNoCallbackFilter ⇒ 跳过"
+        # ⇒ 传 `kNoCallbackFilter` 会把**所有声明了过滤器**的登记整类跳过（minimapi 就是这么登记的，
+        # 真机表现为它的处理器一次都不跑、小地图永不放大）。
+        # 这条断言就是钉"以后别把它改回 kNoCallbackFilter"。
+        self.assertIn(
+            "static_cast<std::int64_t>(inputHook)",
+            self.runtime,
+            "`MC_INPUT_ACTION` 的派发又没把 `inputHook` 当过滤器传了（批次 390 的真机 bug 会复发）。",
         )

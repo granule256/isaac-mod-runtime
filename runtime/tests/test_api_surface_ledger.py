@@ -28,9 +28,14 @@ ROOT = Path(__file__).resolve().parents[2]
 #: 工具已泛化为"任意模组"（2026-09-19 改名）；旧名保留为转发壳，这里直接用新名。
 TOOL = ROOT / "tools" / "mod_api_gap_report.py"
 LEDGER = ROOT / "tools" / "api_surface_ledger.json"
+#: 语料模组的**范围声明**（2026-09-25，批次 131）：每个语料模组必须在这里出现。
+SCOPE = ROOT / "tools" / "mod_corpus_scope.json"
+CORPUS_DIR = ROOT / "analysis" / "mod-corpus"
 
 #: 台账里允许的处置。
 DISPOSITIONS = ("planned", "blocked", "wontfix")
+#: 范围声明里允许的取值（口径写在 `tools/mod_corpus_scope.json` 的 `statuses` 段）。
+SCOPE_STATUSES = ("target", "deferred")
 
 #: 账本数字（改动时必须同步在这里 +1 并写明原因，见 CONTRIBUTING.md 第二节）。
 #: 2026-09-16 初版 39 条；同日 `Quality` / `CraftingQuality` 实现后删两条（37）；
@@ -48,10 +53,37 @@ DISPOSITIONS = ("planned", "blocked", "wontfix")
 # owner 上（`PlayerTypesActiveItemDesc.VarData`，EID 的 `eid_modifiers.lua:437` 在读），
 # 那个我们**没有**实现。工具是按"字段名 + 载体"判的，分不出 owner；这条差别记在
 # `docs/改动日志-20260919.md` 的 078 一节里，等真的实现后再把 owner 那半也销账。
-LEDGER_ROWS = 10
-LEDGER_PLANNED = 0   # 批次 078：`VarData`（唯一一条 planned）关闭，见上面的说明
+# 10 → 11、planned 0 → 1（2026-09-25，批次 129 登记 / 批次 131 收编）：**新增** `EntityPickup.Wait`。
+# 它是 CyclingItemsAPI 报出来的"未登记字段缺口"（模组 `main.lua:394` 写 `entityPickup.Wait = 0`），
+# PC 文档明写在 `EntityPickup.md:133`（新生成 20、逐帧递减）。为什么是 `planned` 而不是 `wontfix`：
+# 这是**真缺口**，而且比"读不到"更糟 —— `EntityPickup` 的元表没有 `__newindex` ⇒ 那句赋值
+# **抛错**、整条回调被静默摘掉。要做实需要"定位偏移 + 加写通道"（理由逐字写在台账那一行里）。
+# 为什么批次 131 才收得进来：这一版之前，本门禁只拿**默认模组**核对"缺口↔台账"一一对应，
+# 给别的模组登记的字段会被判成"过期条目" ⇒ 收不进来。批次 131 把口径扩成多模组（见下面
+# `FieldSurfaceScopeTests`），这一条才合法落地。
+# ★ 注意这是"**加**一条"：这个账本的常态是**减**（实现一个字段就删一条），
+#   加条目等于承认"新发现一处没做完的"——数字变大是坏消息，别把它读成进展。
+# 11 → 10、wontfix 9 → 8（2026-09-29，批次 202）：**删** `RoomConfigSpawn.Entries`。
+# 它本来就是一条"假阳性"条目，理由写着"只出现在描述文件的注释里（`descriptions/rep/en_us.lua:750`）"
+# —— 而且台账里自己注明了工具该改（`V1` 那条写着"应该先剔除 Lua 注释再扫，本次未做，先登记"）。
+# 批次 202 给扫描加上了 Lua 注释剥离 ⇒ EID 那边读不到它了，多模组判定下**所有已声明模组都不再读它**
+# ⇒ `globally_stale` 非空、本门禁会红 ⇒ 按"过期条目要删"的口径删掉。**这是账本变健康，不是放松。**
+# ★ 2026-10-07（审查 minimapi 之后的收尾批）：**按最小模组的字段面把台账补全 + 销一条过期**。
+#   ① 新增 5 条 `planned`（`PickupSubtype` / `Subtype`(RoomConfigRoom) / `ChallengeDone` /
+#      `LeaveDoor` / `MapOpacity`）—— 逐条理由（底座有没有、要不要取证）写在台账那一行里；
+#   ② 新增 2 条 `wontfix`（`Slot` / `State`）—— **假阳性**：前者是模组自己图标表的表键
+#      `["Slot"]`、后者读的是 `StageAPI.TransitionAnimationData.State`；
+#   ③ **删**过期的 `Pathfinder`（`EntityNPC.Pathfinder` 自批次 344 起已实现 ⇒ 台账行过期，
+#      `globally_stale` 判得对）⇒ 台账 16 → **15**。
+LEDGER_ROWS = 15
+LEDGER_PLANNED = 6   # 批次 131：`EntityPickup.Wait`（见上）；+ 上面 5 条
 LEDGER_BLOCKED = 1
-LEDGER_WONTFIX = 9
+LEDGER_WONTFIX = 8   # 批次 341 的 7 条 + 上面 2 条
+# ★ 批次 341（2026-10-04）：11 → 10（批次 202）→ **9**；wontfix 8 → **7** —— **删** `MaxDistance`。
+# 它是条 wontfix（理由「假阳性：`EID.Config["MaxDistance"]`」）；本批把 `EntityLaser:SetMaxDistance(float)`
+# 真实现了（写 `Entity_Laser+0x4F8`，新建布局表 `tools/layout_tables/entity_laser.json` 且该行 `confirmed`）
+# ⇒ 门禁的 `load_implemented_fields()` 第 4 条（认 confirmed 的布局表行）把它算成"运行时已实现"
+# ⇒ `globally_stale` 非空 ⇒ 按"字段一旦实现就从台账删掉"的口径下线。**又是账本变健康，不是放松。**
 
 
 def load_tool():
@@ -276,17 +308,44 @@ class ApiSurfaceLedgerGateTests(unittest.TestCase):
                          "常量名不以 Field 结尾的字符串常量不算载体")
 
     def test_ledger_covers_every_gap_and_has_no_stale_rows(self):
-        """台账与缺口必须一一对应：有缺口没登记 ⇒ 红；登记了却已实现/不再用 ⇒ 也红。"""
-        mod = ROOT / self.tool.DEFAULT_MOD
-        if not mod.is_dir():
-            self.skipTest(f"缺少模组夹具：{mod}")
-        report = self.tool.audit_field_surface(mod)
+        """★ 批次 131 起（2026-09-25）：口径从"只看默认模组"扩到**多模组**。
+
+        旧版只拿默认模组核对"缺口 ↔ 台账"一一对应 ⇒ 给**别的**模组登记的字段会被判成"过期条目"，
+        于是语料模组的字段缺口**永远收不进台账**（`EntityPickup.Wait` 就是这么漏掉的 ——
+        而它还是个"写入即抛错、整条回调被摘"的真缺陷）。新口径三条，都不比原来松：
+
+        1. **默认模组 + 每个 `target` 模组**：未登记缺口必须为空（= 逐条分诊过）；
+        2. **每个 `deferred` 模组**：不要求逐条分诊，但必须先在 `tools/mod_corpus_scope.json`
+           里点名 + 写理由（"每个语料目录都必须出现"由 `FieldSurfaceScopeTests` 钉住）；
+        3. **台账条目**：只有"**所有**已声明模组都不再读、或都已实现"才算过期 ——
+           台账是按**字段名**建的、是全局的，而"模组不再读它"是**单个模组**的性质。
+        """
+        if not (ROOT / self.tool.DEFAULT_MOD).is_dir():
+            self.skipTest(f"缺少模组夹具：{ROOT / self.tool.DEFAULT_MOD}")
+        # ★ `analysis/` 是 **gitignore** 的（批次 111 的教训：契约源不在仓库里 = 这一类工作
+        # 对任何其他人都不可做）。只复制已跟踪文件的嵌套套件里它不存在 ⇒ "哪个模组在读这个字段"
+        # 算不出来，台账的过期判定无从谈起 —— 此时**跳过**，而不是把每个条目都误判成过期。
+        if not CORPUS_DIR.is_dir():
+            self.skipTest(f"缺少语料夹具：{CORPUS_DIR}（仓库里不含 analysis/）")
+        scope = self.tool.load_scope()
+        mods = self.tool.corpus_mod_paths() + [self.tool.DEFAULT_MOD]
+        multi = self.tool.audit_multi_mod_field_surface(mods)
+        must_triage = [name for name in mods
+                       if name == self.tool.DEFAULT_MOD
+                       or scope.get(name, {}).get("status") == "target"]
+        offenders = {
+            name: [row["name"] for row in multi["per_mod"][name]["unregistered"]]
+            for name in must_triage if multi["per_mod"][name]["unregistered"]
+        }
         self.assertEqual(
-            [row["name"] for row in report["unregistered"]], [],
-            "有字段缺口没有台账条目：请逐条分诊后写进 tools/api_surface_ledger.json")
+            offenders, {},
+            "这些模组（默认模组或 target）还有未被分诊的字段缺口：逐条写进 "
+            "tools/api_surface_ledger.json（处置 + 理由），或在 tools/mod_corpus_scope.json 里"
+            "把该模组改判 deferred 并说明为什么还没接")
         self.assertEqual(
-            [row["name"] for row in report["stale_ledger_rows"]], [],
-            "台账里有过期条目（已实现或模组不再读）：删掉它们并同步账本数字")
+            [row["name"] for row in multi["globally_stale"]], [],
+            "台账里有过期条目（**所有**已声明的模组都不再读它，或运行时已实现）："
+            "删掉它们并同步账本数字")
 
     def test_the_pc_variable_section_is_actually_parsed(self):
         """PC 契约的变量节必须真的解析出量来（防"分节格式变了导致全空"的静默失效）。"""
@@ -412,6 +471,69 @@ class ChainedCallEnumerationTests(unittest.TestCase):
             chained = self.tool.load_mod_chained_usage(mod)
         self.assertEqual(dict(chained), {},
                          "非游戏方法名（gsub / package / modifierFunction）不该进链式清单")
+
+
+class FieldSurfaceScopeTests(unittest.TestCase):
+    """★ 批次 131（2026-09-25）：语料模组的**范围声明**必须完整、合法、有理由。
+
+    ## 为什么要有它
+
+    字段面工具（`tools/mod_api_gap_report.py` 第 ⑤ 段）对**任何**模组都能报出"未登记字段缺口"，
+    而"要不要补、什么时候补"是人的判断。旧口径只覆盖**默认模组**（EID）⇒ 语料里其它模组的
+    缺口"会被打印、但没人被强迫分诊"：`EntityPickup.Wait` 就是这样漏了整整一轮，
+    而它还是个**真缺陷**（`EntityPickup` 元表没有 `__newindex` ⇒ 模组那句赋值抛错、
+    整条回调被静默摘掉）。
+
+    实测（2026-09-25）：16 个语料模组合计 **146** 处未登记字段缺口 ⇒ "每个模组都必须零缺口"
+    这种门禁当场装不上去。所以改成 **"每个模组必须被显式声明"**：
+
+      * `target`   —— 我们在接/已接它 ⇒ 缺口必须逐条进台账（由
+        `ApiSurfaceLedgerGateTests.test_ledger_covers_every_gap_and_has_no_stale_rows` 钉住）；
+      * `deferred` —— 还没接 ⇒ 只要求在这里点名 + 写理由。
+
+    **沉默就这样消失了**：要么分诊，要么写明"还没接"。而成本是一次性写十几行声明。
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tool = load_tool()
+        cls.scope = json.loads(SCOPE.read_text(encoding="utf-8"))
+        cls.declared = {str(row["path"]): row for row in cls.scope["mods"]}
+
+    def test_the_scope_schema_is_declared(self):
+        self.assertEqual(self.scope["schema"], "isaac-mod-corpus-scope/1")
+
+    def _require_corpus(self):
+        """`analysis/` 是 gitignore 的：嵌套套件（只复制已跟踪文件）里没有它 ⇒ 跳过而不是误判。"""
+        if not CORPUS_DIR.is_dir():
+            self.skipTest(f"缺少语料夹具：{CORPUS_DIR}（仓库里不含 analysis/）")
+
+    def test_every_corpus_mod_is_declared(self):
+        """语料目录里**每一个**模组都必须出现在声明里 —— 否则它的缺口就是"没人看过"。"""
+        self._require_corpus()
+        on_disk = set(self.tool.corpus_mod_paths())
+        self.assertGreater(len(on_disk), 5, "语料目录里没扫到模组 —— 这条判据失去意义")
+        self.assertEqual(
+            sorted(on_disk - set(self.declared)), [],
+            "这些语料模组没有在 tools/mod_corpus_scope.json 里声明：新拷进来的模组也要声明"
+            "（哪怕只是写一句「还没接」）")
+
+    def test_no_scope_row_points_at_a_missing_directory(self):
+        """声明的路径必须真的存在 —— 目录改名/删掉之后，声明不能悄悄变成空文。"""
+        self._require_corpus()
+        self.assertEqual(
+            sorted(set(self.declared) - set(self.tool.corpus_mod_paths())), [],
+            "tools/mod_corpus_scope.json 里有指向不存在目录的行")
+
+    def test_statuses_and_reasons_are_valid(self):
+        for path, row in sorted(self.declared.items()):
+            with self.subTest(path=path):
+                self.assertIn(row["status"], SCOPE_STATUSES,
+                              f"{path} 的 status {row['status']!r} 不在 {SCOPE_STATUSES}")
+                self.assertIn(row["status"], self.scope["statuses"],
+                              f"{path} 的 status 没在 statuses 段里写出口径")
+                self.assertGreaterEqual(len(str(row["why"])), 12,
+                                        f"{path} 的理由太短，说不清为什么是这个 status")
 
 
 if __name__ == "__main__":

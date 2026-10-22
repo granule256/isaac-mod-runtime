@@ -99,12 +99,13 @@ int main(int argc, char** argv) {
 
     const bool callbackFailed = LuaRuntime::TakeCallbackError();
     if (scenario == "unreadable") {
-        // 读不到 ⇒ 必须**报错**，而不是静默答 false（编 false 会让 EID 在镜像维度里反向行事）。
-        if (!callbackFailed) {
-            std::printf("MIRROR_FAIL an unreadable dimension must raise, not answer false\n");
+        // 批次 250：读不到 ⇒ 给**回退值 false**，不再"必须报错"（脚本已经断言了
+        // "返回值必须是 boolean 且等于 EXPECTED_MIRROR(false)"）。
+        if (callbackFailed) {
+            std::printf("MIRROR_FAIL an unreadable dimension must not raise\n");
             return 3;
         }
-        std::printf("MIRROR_OK unreadable=raised\n");
+        std::printf("MIRROR_OK unreadable=false\n");
         return 0;
     }
     if (callbackFailed) {
@@ -196,8 +197,13 @@ class RoomIsMirrorWorldTests(unittest.TestCase):
         self.assertIn("MIRROR_OK dimension=2 expected=false",
                       self.run_scenario("escape_dimension"))
 
-    def test_an_unreadable_dimension_raises_instead_of_answering_false(self):
-        self.assertIn("MIRROR_OK unreadable=raised", self.run_scenario("unreadable"))
+    def test_an_unreadable_dimension_answers_false_instead_of_raising(self):
+        """批次 250：口径反转 —— 读不到时给 `false`（**不报错**），与批次 098 的原断言相反。
+
+        原依据是"编 false 会让 EID 在镜像维度里反向行事"；但另一端更重：**抛错会摘掉整条回调**
+        （GoodTrip 的真机事故）。回退次数有探针兜底，不是"悄悄失真"。
+        """
+        self.assertIn("MIRROR_OK unreadable=false", self.run_scenario("unreadable"))
 
 
 if __name__ == "__main__":

@@ -105,6 +105,15 @@ def run_make(arguments: str, build_directories: Iterable[Path],
     has never been built. A CI or isolation copy has no `build*` directory, so
     the test creates one and removes it afterwards instead of depending on
     leftover artifacts.
+
+    ★ 2026-09-29（批次 197）：`build_directories` 必须把**这次调用真正会用到的每一个**
+    `$(BUILD)` 都列进来。踩过的坑：`runtime_module DIAGNOSTIC_STAGE=13` 这条调用，
+    外层 make 在清空 `DIAGNOSTIC_STAGE` 之前就已经把 `$(BUILD)` 算成
+    `build-diagnostic-stage13`，于是 `all: mod-row-art` → `mod-row-art: $(BUILD)`
+    要求那个目录存在；而老代码只预建了 `build` ⇒ 干净检出里报
+    `No rule to make target 'build-diagnostic-stage13', needed by 'mod-row-art'`
+    （真实工作区因为**恰好留着**一个未跟踪的历史目录 `runtime/build-diagnostic-stage13/`
+    才一直是绿的 —— 这就是那条"全量唯一红"的真因）。
     """
     created: list[Path] = []
     for directory in build_directories:
@@ -173,7 +182,7 @@ class ArchitectureLayoutTests(unittest.TestCase):
         # 且整个 dry run 不得出现探针构建目录或宿主插件产物名。
         result = run_make(
             "runtime_module DIAGNOSTIC_STAGE=13",
-            [RUNTIME / "build"],
+            [RUNTIME / "build", RUNTIME / "build-diagnostic-stage13"],
         )
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("-C build -f ../misc/mk/common.mk", result.stdout)
@@ -325,14 +334,49 @@ class ArchitectureLayoutTests(unittest.TestCase):
         self.assertNotRegex(code, r"/DISCARD/[^}]*\.eh_frame",
                             "展开表又被丢进 /DISCARD/ 了 —— 那会让任何穿过我们模块的 C++ 异常"
                             "变成无声卡死（批次 104 的根因）")
-        # MOD0 那对符号必须**框住** `.eh_frame_hdr` 输出段（顺序断言 = 真的非空区间；
-        # 写成"同一个地址"（长度 0）时加载器不会注册任何展开表）。
+        # MOD0 那对符号必须**框住** `.eh_frame_hdr` 输出段（顺序断言 = 真的非空区间）。
+        # ★ 2026-09-25（批次 134）更正：原来这里写"写成同一个地址时**加载器不会注册**展开表" ——
+        #   后半句是错的：**加载器不会替我们注册任何东西**（`_Unwind_Find_FDE` 只查本模块 .bss 里
+        #   那张私有链表）。登记由我们自己做，见 `test_the_module_registers_its_own_eh_frame`。
         start = code.index("HIDDEN(__eh_frame_hdr_start__ = .);")
         table = code.index("KEEP (*(.eh_frame_hdr")
         end = code.index("HIDDEN(__eh_frame_hdr_end__ = .);")
         self.assertLess(start, table, "`__eh_frame_hdr_start__` 必须在 `.eh_frame_hdr` 段之前")
-        self.assertLess(table, end, "`__eh_frame_hdr_end__` 必须在 `.eh_frame_hdr` 段之后"
-                                    "（两者同址 = 空区间 = 加载器不注册展开表）")
+        self.assertLess(table, end, "`__eh_frame_hdr_end__` 必须在 `.eh_frame_hdr` 段之后")
+
+    def test_the_module_registers_its_own_eh_frame(self):
+        """★ 2026-09-25（批次 134）：展开表**必须由我们自己登记**给展开器。
+
+        为什么单独立一条：**"有表"不等于"展开器找得到"**。libgcc 的 `_Unwind_Find_FDE` 只查本模块
+        `.bss` 里那张"已登记对象"链表（反汇编证据：`pthread_mutex_lock(&object_mutex)` →
+        `search_object`），而本模块 `-nostartfiles` ⇒ 负责登记的 crtbegin `frame_dummy` 缺席
+        ⇒ 没人登记时，任何穿过本模块的 C++ 异常仍然 `abort()` + `_exit` 自旋
+        （2026-09-21 / 09-24 / 09-25 三次真机"画面卡死、音乐还在、无崩溃报告"）。
+        现场与复核命令：`dist/freeze-20260925/`；结论：`docs/问题记录-画面卡死-20260924.md` §11。
+        """
+        script = re.sub(r"/\*.*?\*/", "",
+                        (RUNTIME / "misc" / "link.ld").read_text(encoding="utf-8"))
+        start = script.index("HIDDEN(__eh_frame_start__ = .);")
+        table = script.index("KEEP (*(.eh_frame .eh_frame.*))")
+        terminator = script.index("LONG(0);")
+        end = script.index("HIDDEN(__eh_frame_end__ = .);")
+        self.assertLess(start, table, "`__eh_frame_start__` 必须在 `.eh_frame` 段之前")
+        self.assertLess(table, terminator,
+                        "`.eh_frame` 段里缺 crtend 那个**零长终止符**（`LONG(0)`）。"
+                        "展开器是按长度逐个走、遇到零长条目才停的：没有它，链会一直往后读，"
+                        "直到把整个对象判成空（libgcc 的 `classify_object_over_fdes` 返回 −1）——"
+                        "2026-09-25 真机就是这样「登记成功但查不到 FDE」。"
+                        "理由见 `misc/link.ld` 那段注释。")
+        self.assertLess(terminator, end, "`__eh_frame_end__` 必须在终止符之后")
+        registration = (RUNTIME / "source" / "eh_frame_registration.cpp").read_text(encoding="utf-8")
+        self.assertIn("__register_frame_info_bases", registration,
+                      "登记实现不见了 —— 无声卡死会回来")
+        self.assertIn("constructor(101)", registration,
+                      "登记必须带优先级（默认 65535 的构造项比它早跑，那些构造项自己就可能抛异常）")
+        makefile = re.sub(r"#[^\n]*", "",
+                          (RUNTIME / "misc" / "mk" / "common.mk").read_text(encoding="utf-8"))
+        self.assertIn("CPPFILES += eh_frame_registration.cpp", makefile,
+                      "`source/` 根目录的 TU 不会被 wildcard 收 ⇒ 不显式登记它等于没写")
 
     def test_unwind_tables_are_not_compiled_out(self):
         """展开表还得**真的被编译出来**：链接脚本留着、编译开关却关掉，等于白留。

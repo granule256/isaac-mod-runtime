@@ -1,4 +1,6 @@
 #pragma once
+#include "domain/console/console_controls.hpp"
+#include "infrastructure/console/console_panel_storage.hpp"
 
 // 游戏控制台 `IsaacRepentance::Console` 的**引擎桥**：把"我们自己的一个 Console 实例"接起来。
 //
@@ -18,8 +20,9 @@
 //    存放用**静态 POD 缓冲**（不是 `operator new`）——顺带避开"在钩子里手工配对 new/delete"那条红线。
 // 2. **绝不把 `std::string` 交给对方再自己释放**：本模块**自带一份 libc++**（导入表里没有任何
 //    分配器符号），游戏模块则从进程导入 `_Znwm`/`_ZdlPv` ⇒ 跨模块 free 会崩。所以：
-//      * **命令串**：按游戏那份 libc++ 的**经典短串布局**手工拼 24 字节（首字节 = 长度<<1、
-//        数据从 +1 开始；长度上限 22 ⇒ 永远落在内联存储里，**根本不涉及分配器**）；
+//      * **命令串**：每次调用独立拼经典布局 24 字节串头；≤22 字节内联，长串借用输入指针，
+//        仅在同步 `RunCommand` 期间有效。引擎先复制到自己的 stringstream，再分词，
+//        不保留输入、不释放借用串头或输入，**根本不涉及我方分配器**；
 //      * **输出串**：给引擎一块**全零的 24 字节缓冲**（在老布局里就是"空短串"），引擎自己 append
 //        （短串就地、长串换成它自己的堆），**我们只按那一套布局读、从不 clear/析构**。
 //      ⇒ 这条比"用我们自己的 std::string"安全得多：**不必假设两边的 libc++ 版本一致**。
@@ -37,6 +40,7 @@
 #include "domain/console/console_switch.hpp"
 #include "domain/console/console_text.hpp"
 #include "infrastructure/call/engine_call_access.hpp"
+#include "infrastructure/console/rewind_command.hpp"
 #include "infrastructure/memory/engine_field_access.hpp"
 #include "ports/save_file_port.hpp"
 #include "runtime_constants.hpp"
@@ -54,7 +58,7 @@ enum class ExecStatus : std::uint32_t {
     kEmptyCommand = 1,   // 空命令（不调引擎）
     kEntriesMissing = 2, // 入口没解析出来（守卫不符 / 基址没发布）
     kNoPlayer = 3,       // 没有玩家 ⇒ **不调**（见下面"玩家"那段：传 null 时引擎会读空指针）
-    kTooLong = 4,        // 命令超过内联串上限
+    kTooLong = 4,        // 命令长度加结尾 NUL 无法表示（保留历史状态码，已无 127 字节上限）
     kFenceBroken = 5,    // 发现对象缓冲越界写 ⇒ 停用（不再调引擎）
     kOutputFenced = 6,   // 输出串超过上限 ⇒ 拒绝新命令（不 free、不 clear）
     kDisabledBySwitch = 7,  // 总开关关着 ⇒ **一律拒绝**（这是 PC 的 `EnableDebugConsole=0` 语义）
@@ -63,9 +67,9 @@ enum class ExecStatus : std::uint32_t {
 //: 命令串的**内联**上限：老布局里短串数据在 `+1`，最后一个字节要留给 `\0` ⇒ 22。
 //: （游戏自己也这么判：`Console::VirtualKeyboardFinished` 里 `cmp x0,#0x17` ⇒ ≥23 就走堆串。）
 inline constexpr std::size_t kCommandInlineCapacity = 22;
-//: 命令串的**总长度**上限（超出的走长布局，数据放我们自己的静态缓冲；缓冲要留一个结尾 `\0`）。
+//: 老的有界复制助手所用缓冲（布局自检仍用）；不是 ExecuteCommand 的长度上限。
 inline constexpr std::size_t kCommandBufferCapacity = 128;
-//: 一条命令最多多少字节（= 缓冲容量 − 结尾 `\0`）。
+//: 老有界复制助手最多多少字节（= 缓冲容量 − 结尾 `\0`），公共执行入口不使用它。
 inline constexpr std::size_t kCommandLengthLimit = kCommandBufferCapacity - 1;
 //: 输出累计字节上限。超了就**拒绝新命令**（既不 free 也不 clear —— 那块内存是游戏分配的）。
 inline constexpr std::size_t kOutputByteLimit = 64 * 1024;
@@ -163,6 +167,14 @@ struct VirtualKeyboardParams {
 static_assert(sizeof(VirtualKeyboardParams) == 0x30,
               "VirtualKeyboardParams 必须与引擎那份逐字节同形（0x30 字节）");
 
+// Core保留0x30读数前缀；原生ctor与Open还访问+0x30的guide，真实块为0x38。
+struct NativeVirtualKeyboardParams { VirtualKeyboardParams prefix{}; const char* guide{}; };
+static_assert(sizeof(NativeVirtualKeyboardParams)==0x38);
+inline NativeVirtualKeyboardParams& NativeKeyboardParamsStorage() noexcept {
+    static NativeVirtualKeyboardParams native{};
+    return native;
+}
+
 // ============================================================================
 // 游戏那份 libc++ 的字符串布局（**经典**布局）—— 手工拼 / 只读解码
 // ============================================================================
@@ -200,7 +212,7 @@ inline constexpr std::size_t kEngineStringBytes = 24;
         std::memcpy(header + 1, command, length);
         return true;  // 结尾的 `\0` 由上面的 memset 提供（长度 ≤ 22 ⇒ 一定在缓冲内）
     }
-    if (length + 1 > bufferCapacity) {
+    if (length >= bufferCapacity) {
         return false;
     }
     std::memcpy(buffer, command, length);
@@ -214,6 +226,30 @@ inline constexpr std::size_t kEngineStringBytes = 24;
     return true;
 }
 
+//: 同步执行专用：调用方保证 command 的 length 字节和结尾 NUL 在 RunCommand 返回前有效。
+//: 长串只借指针，不复制、不分配、不析构；短串仍内联。不得存进 Core 或交给异步消费者。
+//: 固定 NRO：RunCommand 0x3D76C/0x3D77C 立即交给 split，0x35D1C 再交给
+//: basic_stringbuf::str(const&)；0x39864 的复制赋值生成引擎自己的串，输入没有被保留。
+[[nodiscard]] inline bool BuildBorrowedCommandString(const char* command, std::size_t length,
+                                                     unsigned char* header) noexcept {
+    if (header == nullptr || command == nullptr || length == SIZE_MAX) {
+        return false;  // 先拒绝 length + 1 回绕，不读输入。
+    }
+    std::memset(header, 0, kEngineStringBytes);
+    if (length <= kCommandInlineCapacity) {
+        header[0] = static_cast<unsigned char>(length << 1);
+        std::memcpy(header + 1, command, length);
+        return true;
+    }
+    // 消费者只读长串标志、size、pointer，不读取输入容量，也不对输入做 resize/free。
+    const std::uint64_t capacity = static_cast<std::uint64_t>(length + 1) | 1ULL;
+    const std::uint64_t size = static_cast<std::uint64_t>(length);
+    const std::uintptr_t data = engine_memory::AddressOf(command);
+    std::memcpy(header + 0x00, &capacity, sizeof(capacity));
+    std::memcpy(header + 0x08, &size, sizeof(size));
+    std::memcpy(header + 0x10, &data, sizeof(data));
+    return true;
+}
 
 
 //: 输出串是不是已经换成引擎的堆缓冲（首字节低 1 位 = 1）。
@@ -307,6 +343,9 @@ struct Core {
     bool switchReadPending{true};   // 开局第一帧读一次文件（那时已在游戏线程上）
     bool switchWritePending{false}; // 用户在模组页拨过开关 ⇒ 写一次
     bool switchWriteValue{false};
+    isaac::runtime::ConsoleControls controls{};
+    std::uint32_t controlsWriteDelay{};
+    std::uint32_t controlsReadDelay{};
 };
 
 [[nodiscard]] inline Core& Storage() noexcept {
@@ -331,6 +370,31 @@ struct Core {
     return Storage().switchEnabled;
 }
 
+inline bool RequestConsoleControlsWrite(isaac::runtime::ConsoleControls value) noexcept {
+    if (!isaac::runtime::ValidConsoleControls(value)) return false;
+    auto& core = Storage();
+    if (isaac::runtime::SameConsoleControls(core.controls, value)) return true;
+    core.controls = value;
+    core.comboHeldFrames = 0;
+    core.comboFired = true;  // 修改后必须松开，再开始新一轮计时。
+    core.switchWritePending = true;
+    core.switchWriteValue = core.switchEnabled;
+    core.controlsWriteDelay = 30;  // 连调选项合并到停止调整0.5秒后提交。
+    return true;
+}
+
+inline const char* ConsoleControlRowName() noexcept {
+    static char text[80]{};
+    static isaac::runtime::ConsoleControls previous{};
+    static bool enabled{}, ready{};
+    const auto& core = Storage();
+    if (!ready || enabled != core.switchEnabled || !isaac::runtime::SameConsoleControls(previous, core.controls)) {
+        isaac::runtime::FormatConsoleControlRow(core.switchEnabled, core.controls, text, sizeof(text));
+        previous = core.controls; enabled = core.switchEnabled; ready = true;
+    }
+    return text;
+}
+
 //: 拨动开关（模组页那一行调）。**当场生效**（页面上的显示立刻变），只挂一个"待写"；
 //: 真正落盘由 `ConsoleSwitchTick()` 在每帧点里做。写失败不回滚内存值（见 `.hpp` 的 fail-open 那段），
 //: 但会记一次失败 ⇒ 读数里 `[21]` 会涨，不会静默。
@@ -339,6 +403,7 @@ inline void RequestConsoleSwitchWrite(bool enabled) noexcept {
     core.switchEnabled = enabled;
     core.switchWriteValue = enabled;
     core.switchWritePending = true;
+    core.controlsWriteDelay = 0;  // 原生总开关保留即时保存。
     State().switchEnabled = enabled ? 1U : 0U;
 }
 
@@ -347,16 +412,19 @@ inline void RequestConsoleSwitchWrite(bool enabled) noexcept {
 inline void ConsoleSwitchTick() noexcept {
     Core& core = Storage();
     isaac::runtime::ISaveFilePort* storage = isaac::runtime::SessionSaveFilePort();
-    if (core.switchReadPending) {
-        core.switchReadPending = false;
-        if (storage == nullptr) {
-            ++State().switchFileFailures;  // 端口还没接上：如实记，不静默（开关停在默认值）
-        } else {
-            std::array<char, isaac::runtime::kConsoleSwitchMaximumBytes + 64> text{};
+    if (core.switchReadPending && core.controlsReadDelay != 0) {
+        --core.controlsReadDelay;
+    } else if (core.switchReadPending && storage != nullptr) {
+        {
+            std::array<char, isaac::runtime::kConsoleSwitchMaximumBytes + 128> text{};
             std::size_t bytes = 0;
             const Status status = storage->Read(isaac::runtime::kConsoleSwitchFileName,
                                                 text.data(), text.size(), &bytes);
-            if (status.code() == StatusCode::NotFound) {
+            // Manager首次更新早于存档适配器就绪；能力未就绪不是“读过了”。
+            core.switchReadPending = status.code() == StatusCode::Unsupported;
+            if (core.switchReadPending) {
+                core.controlsReadDelay = 30;  // 等待期最多每半秒询问一次，不逐帧碰文件系统。
+            } else if (status.code() == StatusCode::NotFound) {
                 // 第一次运行就是这样 ⇒ 默认值（开），**不算失败**。
                 core.switchEnabled = isaac::runtime::kConsoleSwitchDefaultEnabled;
             } else if (!status.ok() || bytes > text.size()) {
@@ -364,17 +432,23 @@ inline void ConsoleSwitchTick() noexcept {
             } else {
                 core.switchEnabled =
                     isaac::runtime::ParseConsoleSwitch(std::string_view(text.data(), bytes));
+                core.controls = isaac::runtime::ParseConsoleControls(std::string_view(text.data(), bytes));
             }
         }
     }
-    if (core.switchWritePending) {
+    if (core.switchWritePending && core.controlsWriteDelay != 0) {
+        --core.controlsWriteDelay;
+    } else if (core.switchWritePending) {
         core.switchWritePending = false;
         if (storage == nullptr) {
             ++State().switchFileFailures;
         } else {
-            std::array<char, isaac::runtime::kConsoleSwitchMaximumBytes> text{};
-            const std::size_t length = isaac::runtime::SerializeConsoleSwitch(
+            std::array<char, isaac::runtime::kConsoleSwitchMaximumBytes + 128> text{};
+            const std::size_t prefix = isaac::runtime::SerializeConsoleSwitch(
                 core.switchWriteValue, text.data(), text.size());
+            const std::size_t suffix = isaac::runtime::SerializeConsoleControls(
+                core.controls, text.data() + prefix, text.size() - prefix);
+            const std::size_t length = prefix && suffix ? prefix + suffix : 0;
             if (length == 0) {
                 ++State().switchFileFailures;  // 放不下 ⇒ 不写半截
             } else if (!storage->Write(isaac::runtime::kConsoleSwitchFileName,
@@ -533,7 +607,7 @@ struct ExecutionOutcome {
         State().lastStatus = static_cast<std::uint32_t>(outcome.status);
         return outcome;
     }
-    if (length > kCommandLengthLimit) {
+    if (length == SIZE_MAX) {
         outcome.status = ExecStatus::kTooLong;
         State().lastCommandLength = static_cast<std::uint32_t>(length);
         State().lastStatus = static_cast<std::uint32_t>(outcome.status);
@@ -570,12 +644,8 @@ struct ExecutionOutcome {
         return outcome;
     }
 
-    if (!core.commandReady) {
-        std::memset(core.commandString, 0, sizeof(core.commandString));
-        core.commandReady = true;
-    }
-    if (!BuildCommandString(command, length, core.commandString, core.commandBuffer,
-                            sizeof(core.commandBuffer))) {
+    alignas(8) unsigned char commandString[kEngineStringBytes]{};
+    if (!BuildBorrowedCommandString(command, length, commandString)) {
         outcome.status = ExecStatus::kTooLong;
         State().lastStatus = static_cast<std::uint32_t>(outcome.status);
         return outcome;
@@ -586,7 +656,25 @@ struct ExecutionOutcome {
     }
 
     const std::size_t before = EngineStringSize(core.outputString);
-    entries.runCommand(core.consoleObject, core.commandString, core.outputString, nullptr);
+    if (IsRewindCommand(command, length)) {
+        // 446：Switch的原生RunCommand没有rewind分支，按PC原版调用链补接。
+        const std::uintptr_t managerVariable = LoadPointerField(base, kGameManagerGlobalSlotOffset);
+        const std::uintptr_t manager = managerVariable != 0 ? LoadPointerField(managerVariable, 0) : 0;
+        if (!ExecuteRewind(ResolveRewindEntries(base), ResolveGame(base), manager)) {
+            outcome.status = ExecStatus::kEntriesMissing;
+            State().lastStatus = static_cast<std::uint32_t>(outcome.status);
+            core.lastOutputLength = 0;
+            State().lastOutputBytes = 0;
+            return outcome;
+        }
+    } else {
+        // Lua控制台命令可同步再次ExecuteCommand；原生RunCommand返回会清掉+0x150，
+        // 必须恢复外层重定向，否则外层后续print会漏出返回串。
+        std::uintptr_t previousOutput{};
+        std::memcpy(&previousOutput,core.consoleObject+0x150,sizeof(previousOutput));
+        entries.runCommand(core.consoleObject, commandString, core.outputString, nullptr);
+        std::memcpy(core.consoleObject+0x150,&previousOutput,sizeof(previousOutput));
+    }
     const std::size_t after = EngineStringSize(core.outputString);
 
     const bool isLong = EngineStringIsLong(core.outputString);
@@ -627,7 +715,11 @@ struct ExecutionOutcome {
         return false;
     }
     *text = core.lastOutput;
+    // 固定PC ExecuteCommand@80C6BD只删恰好一个末LF，显示日志原文保持。
     *length = core.lastOutputLength;
+    if (core.lastOutput[*length - 1] == '\n') {
+        --*length;
+    }
     return true;
 }
 
@@ -651,27 +743,37 @@ inline void KeyboardFinishedCallback(const std::uint32_t* text, void* /*userData
         core.pendingReady = true;
     }
     State().keyboardResults += 1;
+    auto& panel=Panel();
+    if (panel.keyboardOpen) {
+        panel.completedLength=static_cast<std::uint32_t>(Utf32ToUtf8(text,kPanelTextCapacity,panel.completedUtf8,sizeof(panel.completedUtf8)));
+    }
+    panel.keyboardFinished = true;
 }
 
 //: 请求弹出系统软键盘。`this` 用引擎自己的 `KAGE::System::g_Manager` ⇒ 不必自己开 applet 会话。
 [[nodiscard]] inline bool RequestKeyboard(const EngineEntries& entries,
-                                         std::uintptr_t kageManager) noexcept {
+                                         std::uintptr_t kageManager,
+                                         VirtualKeyboardFinishedFn changed = nullptr,
+                                         std::uint32_t* initial = nullptr) noexcept {
     if (entries.openKeyboard == nullptr || entries.paramsCtor == nullptr || kageManager == 0) {
         return false;
     }
     Core& core = Storage();
-    std::memset(&core.keyboardParams, 0, sizeof(core.keyboardParams));
-    entries.paramsCtor(&core.keyboardParams);
-    std::memset(core.keyboardText, 0, sizeof(core.keyboardText));
-    core.keyboardParams.text = core.keyboardText;
-    core.keyboardParams.limit = static_cast<std::uint32_t>(kVirtualKeyboardTextCapacity);
-    core.keyboardParams.textChanged = nullptr;
-    core.keyboardParams.finished = &KeyboardFinishedCallback;
-    core.keyboardParams.userData = nullptr;
+    auto& native=NativeKeyboardParamsStorage();
+    native={};
+    entries.paramsCtor(&native);
+    auto& params=native.prefix;
+    std::memset(core.keyboardText,0,sizeof(core.keyboardText));
+    params.text=initial?initial:core.keyboardText;
+    params.limit=static_cast<std::uint32_t>(initial?kPanelTextCapacity-1:kVirtualKeyboardTextCapacity);
+    params.textChanged=changed;
+    params.finished=&KeyboardFinishedCallback;
+    params.userData=nullptr;
+    core.keyboardParams=params; // 保留诊断前缀；原生调用必须拿完整块。
     core.pendingReady = false;
     core.pendingLength = 0;
     State().keyboardRequests += 1;
-    entries.openKeyboard(kageManager, &core.keyboardParams, 0xFFFFFFFFU);
+    entries.openKeyboard(kageManager, &native, 0xFFFFFFFFU);
     return true;
 }
 

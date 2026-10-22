@@ -66,6 +66,7 @@ HARNESS = r'''
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <atomic>
 #include <string>
 #include <vector>
 
@@ -96,6 +97,12 @@ namespace GameFileReader {
 TextReadResult ReadTextFile(const Bindings&, const char*, u8*, std::size_t, std::size_t*) {
     return TextReadResult::OpenFailed;
 }
+}
+
+// 批次 214：`Seeds:AddSeedEffect`/`RemoveSeedEffect` 的探针。定义在 `game_api.cpp` 的
+// **匿名命名空间之外**（内部链接会让 `tools/read_device_state_via_gdb.py` 的符号表查不到它）。
+namespace isaac::runtime {
+extern std::atomic<std::uint32_t> g_SeedsEffectWriteAttempts;
 }
 
 namespace {
@@ -178,6 +185,27 @@ void PublishPlayers(std::size_t count) {
 
 void PublishFrameCount(std::uint32_t frames) {
     WriteAt<std::uint32_t>(g_GameBytes, kGameFrameCountOffset, frames);
+}
+
+// --- 批次 214：伪造 `Seeds` 里那棵 `std::set<eSeedEffect>`（libc++ `__tree`）--------------
+//
+// 布局按 `runtime_constants.hpp` 的常量走（`Seeds + kSeedsEffectTreeOffset` 起）：
+//   树 + 0x00 = `__begin_node_`（最左结点）；树 + 0x08 = `__end_node.__left_` = **根**；
+//   结点 + 0x00 左孩子、+ 0x08 右孩子、+ kLibcxxTreeNodeKeyOffset 键。
+// 造两棵结点：root(key=5, 右→node1)、node1(key=9)。查找路径覆盖
+// "命中根" / "走右孩子命中" / "走右孩子后向左落空" / "向左直接落空" 四种。
+constexpr std::size_t kFakeSeedNodeStride = 0x40;
+std::vector<unsigned char> g_SeedNodes;
+
+void PublishSeedEffectTree() {
+    g_SeedNodes.assign(2 * kFakeSeedNodeStride, 0);
+    const std::uintptr_t root = AddressOf(g_SeedNodes);
+    const std::uintptr_t second = root + kFakeSeedNodeStride;
+    WriteAt<std::int32_t>(g_SeedNodes, kLibcxxTreeNodeKeyOffset, 5);
+    WriteWord(g_SeedNodes, kLibcxxTreeNodeRightOffset, second);
+    WriteAt<std::int32_t>(g_SeedNodes, kFakeSeedNodeStride + kLibcxxTreeNodeKeyOffset, 9);
+    WriteWord(g_GameBytes, kGameSeedsObjectOffset + kSeedsEffectTreeOffset + sizeof(std::uint64_t),
+              root);
 }
 
 // --- 假的原生 Sprite（`ANM2`）---------------------------------------------
@@ -311,6 +339,8 @@ int main(int argc, char** argv) {
         WriteWord(g_OwnerSlotBytes, 0, AddressOf(g_GameBytes));
         PublishPlayers(scenario == "two_players" ? 2 : 1);
         PublishFrameCount(kFirstFrameCount);
+        // 批次 214：`Seeds:HasSeedEffect` 要查的那棵红黑树。
+        PublishSeedEffectTree();
     }
 
     LuaRuntime::LuaSpriteBindings bindings{};
@@ -395,6 +425,20 @@ int main(int argc, char** argv) {
     // 判据是直接读那块伪造 `ANM2` 的字节 —— 与设备上 `GetDestQuad` 读的是同一批偏移。
     if (!ExpectSpriteBytes(g_Applied.sprite)) {
         return 1;
+    }
+
+    // 批次 214：`Seeds:AddSeedEffect` / `RemoveSeedEffect` 是"**按设计不生效**的空实现"
+    // ⇒ 真机上唯一能证明"模组真的调了、我们真的接住了、而没抛错"的就是这个计数。
+    // 脚本各调一次 ⇒ 恰好 2。★ 顺带钉住"探针有外部链接"（放在匿名命名空间里读数工具就查不到）。
+    if (scenario != "no_base") {
+        const std::uint32_t attempts =
+            isaac::runtime::g_SeedsEffectWriteAttempts.load(std::memory_order_relaxed);
+        if (attempts != 2) {
+            std::printf("GAP_FAIL: Seeds:AddSeedEffect/RemoveSeedEffect must be counted once each, "
+                        "got %u\n",
+                        static_cast<unsigned>(attempts));
+            return 1;
+        }
     }
 
     std::printf("API_GAP_BATCH3_OK scenario=%s apply_calls=%d sprite=%llx\n", scenario.c_str(),
@@ -577,6 +621,12 @@ local function verifyEngineReads()
   -- —— `GetSeeds()` 以前返回 nil，于是"调 nil 的方法"直接抛错、整条 update 回调被派发器
   -- 静默摘除（屏幕全空、游戏不崩）。这三条断言盯的就是那条链：对象非 nil、方法可调、
   -- 返回值类型对。数值语义（挑战/种子局判定）需要引擎字段偏移，成熟度仍是 `Experimental`。
+  --
+  -- ★ 批次 195（2026-09-29）：偏移**已经定位**（`Game+0x26FD50` 胜利圈、`Seeds` 内嵌在
+  -- `Game+0x25D40`、`GetStartSeed` = `+0x25D44`）⇒ 这两条现在是真读数。本夹具的伪造 `Game`
+  -- 块只盖到 `kGameFrameCountOffset`（0x24F99C），**不包含** 0x25D40/0x26FD50 ⇒ 这里读的
+  -- 仍是"读不到 ⇒ 0/false"那一档；**取值那一档**（两个场景各读一次、`GetStartSeed` 按 int32
+  -- 呈现）在 `runtime/tests/test_lua_entity_rng_and_fields.py` 里有专门的夹具与断言。
   local seeds = game:GetSeeds()
   check(seeds ~= nil, 'Game:GetSeeds must not return nil')
   check(type(seeds) == 'userdata', 'Game:GetSeeds must return a Seeds object, got ' .. describe(seeds))
@@ -586,6 +636,37 @@ local function verifyEngineReads()
   local seedOk, startSeed = pcall(function() return seeds:GetStartSeed() end)
   check(seedOk, 'Seeds:GetStartSeed must not raise')
   check(type(startSeed) == 'number', 'Seeds:GetStartSeed must return a number, got ' .. describe(startSeed))
+
+  -- 批次 214：`Seeds:HasSeedEffect` / `AddSeedEffect` / `RemoveSeedEffect`。
+  -- 谁在用：MCM 的 `OpenConfigMenu()` 里 `seeds:AddSeedEffect(SeedEffect.SEED_NO_HUD)`、
+  -- `CloseConfigMenu()` 里 `RemoveSeedEffect(...)`；**都不在 pcall 里** ⇒ 少一条就把开菜单那条路打断。
+  --
+  -- 夹具在 `Game+0x25D40+0x58` 放了一棵两结点红黑树（root 键 5、右孩子键 9）⇒ 四条查找路径
+  -- （命中根 / 走右命中 / 走右后向左落空 / 向左直接落空）都要走一遍：树查找写反了不报错，
+  -- 只会让"某条种子效果到底在不在"永远答错，那种错只能靠这四条断言抓。
+  check(seeds:HasSeedEffect(5) == true, 'HasSeedEffect must find the root key')
+  check(seeds:HasSeedEffect(9) == true, 'HasSeedEffect must walk to the right child')
+  check(seeds:HasSeedEffect(7) == false,
+        'HasSeedEffect must miss when the left child is missing, got ' .. describe(seeds:HasSeedEffect(7)))
+  check(seeds:HasSeedEffect(4) == false,
+        'HasSeedEffect must miss when the key is smaller than the root, got '
+        .. describe(seeds:HasSeedEffect(4)))
+  -- Add/Remove **按设计不生效**（引擎唯一入口吃"名字字符串"，我们拿不到枚举→名字那条路；
+  -- 取证与取舍写在 `game_api.cpp` 那段与 `api_deviation.cpp` 的台账里）——
+  -- 但它们的**唯一硬要求**是"绝不抛错"：抛错会打断调用方整条回调。
+  check(pcall(function() seeds:AddSeedEffect(1) end), 'Seeds:AddSeedEffect must never raise')
+  check(pcall(function() seeds:RemoveSeedEffect(1) end), 'Seeds:RemoveSeedEffect must never raise')
+  -- 参数形状仍要严（与其它成员同一口径）：不给、给两个、给非整数都要报错。
+  check(not pcall(function() return seeds:HasSeedEffect() end),
+        'HasSeedEffect must require exactly one argument')
+  check(not pcall(function() return seeds:HasSeedEffect(1, 2) end),
+        'HasSeedEffect must reject a second argument')
+  check(not pcall(function() return seeds:AddSeedEffect() end),
+        'AddSeedEffect must require exactly one argument')
+  check(not pcall(function() return seeds:RemoveSeedEffect(1, 2) end),
+        'RemoveSeedEffect must take exactly one argument')
+  check(not pcall(function() return seeds:HasSeedEffect('x') end),
+        'HasSeedEffect must reject a non-integer seed effect')
   -- `GetVictoryLap` 在 EID 里都是 `> 0` 判断，非胜利圈时必须是数字 0。
   local lapOk, lap = pcall(function() return game:GetVictoryLap() end)
   check(lapOk, 'Game:GetVictoryLap must not raise')

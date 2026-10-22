@@ -42,6 +42,7 @@ DRIVER = r"""
 
 #include <cstdint>
 #include <cstdio>
+#include <cstring>
 
 
 // 假引擎方法观察到的参数（volatile 防止被优化掉）。
@@ -83,6 +84,40 @@ __attribute__((noinline)) double FakeDouble(std::uint64_t self, std::int32_t a, 
     g_floats[0] = f;
     g_calls = g_calls + 1;
     return f * 2.0 + static_cast<double>(a);
+}
+
+//: ★★ 批次 338（2026-10-04）新加的两个"**按 f32** 的假引擎方法"。
+//:
+//: 为什么必须加：以前这里只测过 **`double`** 形参（`FakeMixed` / `FakeDouble`），于是
+//: 「共享处理器把 Lua 数值 `static_cast<double>` 塞进槽、跳板整 8 字节装进 `d0`」这条**错的**
+//: 实现一路绿灯 —— 而引擎里浮点形参的 mangled 末位是 **`f` = `float`**，
+//: AAPCS64 下它占 `sN` = `dN` 的**低 32 位** ⇒ 引擎读到的是那个 double 的**低半**（常见就是 0）。
+static volatile float g_float_arg;
+
+__attribute__((noinline)) void FakeFloatArg(std::uint64_t self, std::int32_t a, float f,
+                                            std::uint64_t p) {
+    g_self = self;
+    g_ints[0] = static_cast<std::uint64_t>(static_cast<std::int64_t>(a));
+    g_ints[1] = p;
+    g_float_arg = f;
+    g_calls = g_calls + 1;
+}
+
+__attribute__((noinline)) float FakeFloatRet(std::uint64_t self) {
+    g_self = self;
+    g_calls = g_calls + 1;
+    return 6.25F;
+}
+
+//: 往跳板的浮点槽里装一个 **f32**（低 32 位 = f32 位型、高 32 位 0）——
+//: 这就是 `isaac_api.cpp` 的 `EngineFloatArgument()` 做的事。
+static double AsFloatSlot(float value) {
+    std::uint32_t bits = 0;
+    std::memcpy(&bits, &value, sizeof(bits));
+    const std::uint64_t wide = bits;
+    double storage = 0.0;
+    std::memcpy(&storage, &wide, sizeof(storage));
+    return storage;
 }
 
 // 敌意被调函数：**故意不保存**就写坏 x19/x20（真实引擎函数不会这么干，
@@ -146,6 +181,35 @@ int main() {
     std::printf("double_ret=%.3f\n", dr);
     std::printf("seen_a=%lld\n", (long long)g_ints[0]);
     std::printf("seen_f=%.3f\n", g_floats[0]);
+
+    // 6) ★★ 批次 338：**`float` 形参** —— 槽里必须是 f32 位型（低 32 位），整数参数继续走 x1..x3。
+    g_calls = 0;
+    ints[0] = 0x5000;                 // 接收者
+    ints[1] = 11;                     // a
+    ints[2] = 0x7100CAFE;             // p
+    floats[0] = AsFloatSlot(12.5F);   // f（**按 f32 装**）
+    EngineCallTrampoline(reinterpret_cast<std::uintptr_t>(&FakeFloatArg), ints, floats, &xr, &dr);
+    std::printf("floatarg_self=%llx\n", (unsigned long long)g_self);
+    std::printf("floatarg_a=%lld\n", (long long)g_ints[0]);
+    std::printf("floatarg_p=%llx\n", (unsigned long long)g_ints[1]);
+    std::printf("floatarg_seen=%.4f\n", static_cast<double>(g_float_arg));
+
+    // 7) ★★ 批次 338：**`float` 返回值** —— 引擎在 `s0` 回，我们读 `d0` 的**低 32 位**。
+    g_calls = 0;
+    xr = 0;
+    dr = 0;
+    ints[0] = 0x6000;
+    EngineCallTrampoline(reinterpret_cast<std::uintptr_t>(&FakeFloatRet), ints, floats, &xr, &dr);
+    {
+        // ★ 必须用 memcpy 取**位型**：`static_cast<std::uint64_t>(dr)` 取的是**数值**
+        //   （而 `dr` 里装的是位型拼出来的极小 double ⇒ 转出来是 0）—— 这正是本条要防的那类错误。
+        std::uint64_t wide = 0;
+        std::memcpy(&wide, &dr, sizeof(wide));
+        const std::uint32_t bits = static_cast<std::uint32_t>(wide);
+        float asFloat = 0.0F;
+        std::memcpy(&asFloat, &bits, sizeof(asFloat));
+        std::printf("floatret_raw_low32=%.4f\n", static_cast<double>(asFloat));
+    }
 
     // 5) 寄存器纪律：被调函数把 x19/x20 写坏，跳板仍要把结果写回调用方给的地址。
     g_calls = 0;
@@ -231,6 +295,22 @@ class EngineCallTrampolineTests(unittest.TestCase):
         self.assertEqual(self.values["double_ret"], "7.500")
         self.assertEqual(self.values["seen_a"], "3")
         self.assertEqual(self.values["seen_f"], "2.250")
+
+    def test_float_arguments_land_in_the_low_32_bits_of_d(self):
+        """★★ 批次 338 的核心判据：**`float` 形参看的是 `d0` 的低 32 位**。
+
+        槽里放 f32 位型时，引擎（假方法）读到的就是那个 `float`。
+        ★ 这条以前不存在 —— 本文件只测过 `double`，于是"把 Lua 数值 `static_cast<double>`
+        塞进槽"这个错实现一直是绿的（`0.0f` 会被当成"没传参"）。
+        """
+        self.assertEqual(self.values["floatarg_self"], "5000")
+        self.assertEqual(self.values["floatarg_a"], "11")
+        self.assertEqual(self.values["floatarg_p"], "7100cafe")
+        self.assertEqual(self.values["floatarg_seen"], "12.5000")
+
+    def test_float_result_is_read_from_the_low_32_bits(self):
+        """★★ 返回侧同理：引擎在 `s0` 回 `float` ⇒ 我们读 `d0` 的低 32 位。"""
+        self.assertEqual(self.values["floatret_raw_low32"], "6.2500")
 
     def test_trampoline_survives_a_callee_that_wrecks_callee_saved_registers(self):
         """假方法不保存就写坏 `x19/x20`：跳板必须已经把这两个回填指针存在自己的栈帧上。"""

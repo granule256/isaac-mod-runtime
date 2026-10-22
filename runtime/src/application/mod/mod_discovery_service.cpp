@@ -45,14 +45,71 @@ bool IsUsableDirectoryName(const char* name) noexcept {
     return true;
 }
 
-// 按名字升序插入排序（模组数量是个位数，插入排序最简单且不引入算法依赖）。
-// 顺序必须确定：两个模组的回调派发顺序会影响游戏行为，而"引擎给的顺序"没有保证。
+// 模组配置菜单**必须最先加载**（2026-10-01）。
+//
+// 为什么：GoodTrip / TheSpecialist 这类模组是在**加载那一刻**用全局 `ModConfigMenu` 判断
+// "要不要注册自己的设置页"的（它们的 main.lua 里就是 `if ModConfigMenu then include(...) end`）。
+// 菜单排在它们后面 ⇒ 那一刻全局还不存在 ⇒ **设置页永不注册**
+// （真机现象：模组页里能看到这个模组、可它的设置页在菜单里怎么也找不到）。
+//
+// 清单时代这个顺序由清单写死（第一条就是菜单模组）；改用"扫目录"之后是**名字升序**，
+// `mod_config_menu_cn` 会落到第 4 位（前面还有 `external item descriptions…` / `goodtripfixed` /
+// `infinite-coins`）⇒ 必须在这里把它提回最前。
+//
+// 识别口径 = "去掉分隔符、转小写之后含 `configmenu`"（见下面的 `IsModConfigMenuDirectory`）：
+// 中英文两份的目录名 `mod_config_menu_cn` 与 `isaac-mod-config-menu` 都命中；
+// 不写死整名，免得换个语言/后缀就失效。
+// 只看"去掉分隔符、转小写之后的名字里有没有 configmenu"。
+// 这样 `mod_config_menu_cn`（中文版）与 `isaac-mod-config-menu`（英文版）都命中，
+// 不必为每种写法的分隔符（下划线 / 连字符 / 驼峰）各列一条
+// —— 第一版只写了下划线，被判据当场抓出英文版漏判（见 `test_multi_mod_manifest`）。
+bool IsModConfigMenuDirectory(const char* name) noexcept {
+    constexpr char kNeedle[] = "configmenu";
+    std::size_t matched = 0;
+    for (const char* cursor = name; *cursor != '\0'; ++cursor) {
+        char lower = *cursor;
+        if (lower >= 'A' && lower <= 'Z') {
+            lower = static_cast<char>(lower - 'A' + 'a');
+        }
+        if (lower == '_' || lower == '-' || lower == ' ') {
+            continue;   // 分隔符不参与比较
+        }
+        if (lower == kNeedle[matched]) {
+            ++matched;
+            if (kNeedle[matched] == '\0') {
+                return true;
+            }
+        } else {
+            matched = (lower == kNeedle[0]) ? 1U : 0U;
+        }
+    }
+    return false;
+}
+
+std::size_t ModPriorityRank(const char* name) noexcept {
+    if (name == nullptr) {
+        return 1;
+    }
+    return IsModConfigMenuDirectory(name) ? 0 : 1;
+}
+
+// 排序键：**先比优先级，再比名字**（升序）。顺序必须确定：两个模组的回调派发顺序会影响游戏行为，
+// 而"引擎给的顺序"没有保证。
+bool RanksBefore(const ModDirectoryEntry& left, const ModDirectoryEntry& right) noexcept {
+    const std::size_t leftRank = ModPriorityRank(left.name.data());
+    const std::size_t rightRank = ModPriorityRank(right.name.data());
+    if (leftRank != rightRank) {
+        return leftRank < rightRank;
+    }
+    return std::strcmp(left.name.data(), right.name.data()) < 0;
+}
+
+// 按上面的排序键插入排序（模组数量是个位数，插入排序最简单且不引入算法依赖）。
 void SortNames(ModDirectoryEntry* entries, std::size_t count) noexcept {
     for (std::size_t index = 1; index < count; ++index) {
         ModDirectoryEntry current = entries[index];
         std::size_t position = index;
-        while (position > 0 &&
-               std::strcmp(entries[position - 1].name.data(), current.name.data()) > 0) {
+        while (position > 0 && RanksBefore(current, entries[position - 1])) {
             entries[position] = entries[position - 1];
             --position;
         }

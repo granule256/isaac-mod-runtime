@@ -1,0 +1,68 @@
+{
+  "schema": "isaac-layout-table/1",
+  "build_id": "91C73FDD575061318D68886316AFEAC72388B2AB",
+  "struct": "SoundEffects.SoundEffect",
+  "source_table": "sound_effect",
+  "note": [
+    "`SoundEffects::SoundEffect`（`SoundEffects + 0x00` 那张 `std::vector<SoundEffect>` 的**元素**，",
+    "步长 `0x1F0`）上的字段。消费者是 `tools/api_definition_of_done.json` 里",
+    "`Isaac:GetSoundIdByName` 的 `provenance.field`（`engine_field` 要求这一行 `confirmed`）。",
+    "",
+    "为什么单开一张表：`runtime_constants.hpp` 里既有的音效常量只登记了**单例地址**",
+    "（`kManagerSoundEffectsOffset`）与**容器边界**（`kSoundEffectVectorBeginOffset`/`EndOffset`/",
+    "`kSoundEffectSize`），元素的**内部字段**从来没登记过 —— 与 `music_entry.json` 同一条处置。",
+    "",
+    "★ 本表**没有生成的头文件**（`sound_effect_layout.hpp` 不存在）：消费者是台账，不是 C++ 代码",
+    "（与 `music_entry.json` / `item_config_item.json` 同一条）。",
+    "门禁：`runtime/tests/test_layout_table_sound_effect.py`。",
+    "",
+    "## 证据形态的说明（与 `music_entry.json` 的第一版错误对照）",
+    "",
+    "这两行的锚点都是**写侧属性分派**（`SoundEffects::LoadConfig` 里 `strcmp(属性名, …)` → 目标槽），",
+    "而不是「读路径排除法」。后者在曲目表上被真机否掉过一次（见 `music_entry.json` 的 note）：",
+    "排除法给出的「唯一自洽位置」可能是**别的东西**。所以本表一开始就用强证据。"
+  ],
+  "rows": [
+    {
+      "name": "Id",
+      "kind": "scalar",
+      "offset": 468,
+      "width": 4,
+      "confidence": "confirmed",
+      "semantic": "这条音效自己的**编号**（`int32`）。`sounds.xml` 里**没有** `id` 属性（语料三个模组的 `content/sounds.xml` 逐个数过：`id=` 出现 0 次），所以这个值是引擎自己填的；`SoundEffects::Play(eSoundEffect, …) @ 0x4A2FD0` 拿参数**当下标**去索引这张表（`(end−begin)/0x1F0` 之后紧跟着 `cmp w8, w22`）⇒「编号 = 表内下标」。",
+      "evidence": [
+        {
+          "kind": "access",
+          "function": "_ZN15IsaacRepentance12SoundEffects10LoadConfigEPKcb",
+          "address": "0x004a2684",
+          "offset": 468,
+          "why": "写侧属性表登记：这条 `add x8, x26, #0x1d4`（`x26` = 元素基址）把 `+0x1D4` 取出来，紧跟着 `0x4a2694 stp x25, x8, [sp, #0xb8]` 把 `+0x1D8`（x25，见 Name 行）与它**成对**登记进属性表；`+0x1D4` 就是与 `name` 配对的那个槽，而 `strcmp(属性名, \"id\")` 那一支 `0x4a2828 bl atoi` 的结果最终落在这里。"
+        },
+        {
+          "kind": "access",
+          "function": "_ZN15IsaacRepentance12SoundEffects4PlayENS_12eSoundEffectEfibff",
+          "address": "0x004a303c",
+          "offset": 0,
+          "why": "「编号 = 下标」的直接证据：`cmp w8, w22` —— `w8` 是上一条 `mul w8, w8, w9` 算出来的元素条数（`(end−begin)` 右移 4 位再乘 `0xbdef7bdf` ⇒ 除以 `0x1F0`），`w22` 是第 1 个形参 `eSoundEffect` ⇒ **引擎自己把 id 当下标**去索引这张表（元素连续）。"
+        }
+      ]
+    },
+    {
+      "name": "Name",
+      "kind": "string",
+      "offset": 472,
+      "width": 24,
+      "confidence": "confirmed",
+      "semantic": "音效名：一段 24 字节的 libc++ `std::string`，内容是模组 `content/sounds.xml` 里 `<sound name=\"…\">` 的 `name` 属性原样（`SoundEffects::LoadConfig` 把那一支 `basic_string::assign(const char*)` 进这个字段，不做任何归一化）。`Isaac:GetSoundIdByName(name)` 就是拿它逐字节比对，命中返回**下标**（编号 = 下标，见 `Id` 行的第 2 条证据）。",
+      "evidence": [
+        {
+          "kind": "access",
+          "function": "_ZN15IsaacRepentance12SoundEffects10LoadConfigEPKcb",
+          "address": "0x004a2648",
+          "offset": 472,
+          "why": "这条 `add x25, x26, #0x1d8`（`x26` = 元素基址）把 `+0x1D8` 存进 `x25`；随后 `0x4a27f8` 取字面量 `\"name\"`（`add x1, x1, #0x51e`）、`0x4a27fc bl strcmp`，命中后 `0x4a2810 mov x0, x25` + `0x4a2814 bl std::string::assign(char const*)` ⇒ **`name` 属性写进元素 `+0x1D8`**（24 字节的 libc++ 串，宽度取自 `kMusicEntrySize` 那种同族的 `std::string` 口径）。"
+        }
+      ]
+    }
+  ]
+}

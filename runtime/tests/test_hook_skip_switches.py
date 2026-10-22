@@ -103,6 +103,59 @@ class HookSkipSwitchTests(unittest.TestCase):
             # 批次 098 的成就闸门（入口中继；092 挂 TryUnlock、096 补开关、098 挪到 SetReadOnly）：
             # 摘掉它 ⇒ 引擎按自己的判据走（退回 Switch 原生行为），用来判断"某个成就现象是不是我们造成的"。
             "PersistentGameDataSetReadOnly": "SETREADONLY",
+            # 批次 147（2026-09-26）的模组 content 加载闸门（入口中继）。
+            # 摘掉它 ⇒ 引擎按它自己那份 `ModEntry + 0x139` 走（= 今天之前的行为）。
+            "ModManagerLoadConfigs": "MODLOADCONFIGS",
+            # 批次 363（2026-10-04）的 `ANM2::Load` 入口中继（让"模组覆盖本体资源"生效）。
+            # 摘掉它 ⇒ 缓存里的本体旧条目不再被作废，共享路径退回"仍吃本体那份"。
+            "Anm2Load": "ANM2LOAD",
+            # 批次 390（2026-10-07）的三条 `MC_INPUT_ACTION` 查询中继（`KAGE::Input::ManagerBase`）。
+            # 摘掉对应那条 ⇒ 模组对**那一种查询**（按住/刚按下/模拟量）的覆盖失效，引擎照原样答。
+            "ManagerIsActionPressed": "INPUTACTIONPRESSED",
+            "ManagerIsActionTriggered": "INPUTACTIONTRIGGERED",
+            "ManagerGetActionValue": "INPUTACTIONVALUE",
+            # 批次 396（2026-10-07）：`MC_ENTITY_TAKE_DMG` 的四条（基类 + 玩家/掉落物/槽位）
+            # 与 `MC_EVALUATE_CACHE`。逐条可摘，用来二分"某个受伤/属性现象是不是我们造成的"。
+            "EntityTakeDamage": "ENTITYTAKEDAMAGE",
+            "EntityPlayerTakeDamage": "ENTITYPLAYERTAKEDAMAGE",
+            "EntityPickupTakeDamage": "ENTITYPICKUPTAKEDAMAGE",
+            "EntitySlotTakeDamage": "ENTITYSLOTTAKEDAMAGE",
+            "EvaluateItems": "EVALUATEITEMS",
+            # 批次 397（2026-10-07）：补全回调（第 2 批）的三条 hookable。
+            "EntityKill": "ENTITYKILL",
+            "NpcDeathRemove": "NPCDEATHREMOVE",
+            "GameEnd": "GAMEEND",
+            "FireTear": "FIRETEAR",
+            "FamiliarCollision": "FAMILIARCOLLISION",
+            "NpcCollision": "NPCCOLLISION",
+            "PlayerCollision": "PLAYERCOLLISION",
+            "TearCollision": "TEARCOLLISION",
+            "ProjectileCollision": "PROJECTILECOLLISION",
+            "KnifeCollision": "KNIFECOLLISION",
+            "BombCollision": "BOMBCOLLISION",
+            "GameSpawnEx": "GAMESPAWNEX",
+            "NpcRender": "NPCRENDER",
+            "NpcUpdateAi": "NPCUPDATEAI",
+            "HudRender": "HUDRENDER",
+            "RoomConfigLoadStageBinary": "ROOMSTB",
+            "LevelLoadRoom": "LEVELLOADROOM",
+            "ConsoleLifecycle": "CONSOLELIFECYCLE",
+            "ItemPoolGetCard": "GETCARD",
+            "ModManagerUnload": "MODUNLOAD",
+            "ConsoleUnknownLength": "CONSOLEUNKNOWN",
+            "ConsoleUnknownCompare": "CONSOLEUNKNOWN",
+            "ItemPoolGetPill": "ITEMPOOLGETPILL",
+            "ItemPoolGetPillEffect": "ITEMPOOLGETPILLEFFECT",
+            "GameDevolveEnemy": "GAMEDEVOLVEENEMY",
+            "ItemPoolTrinketFirstRandom": "TRINKETFIRST",
+            "ItemPoolTrinketSelected": "TRINKETSELECTED",
+            "RoomClearAward": "CLEARAWARD",
+            "EntityRemovePointers": "ENTITYREMOVE",
+            "EntityDestructorRemove": "ENTITYDESTRUCTORREMOVE",
+            "LevelCurseFirstRandom": "CURSEFIRST",
+            "LevelCurseEvaluation": "CURSEEVAL",
+            "PickupSelection": "PICKUPSELECTION",
+            "PickupSelectionSpecial": "PICKUPSELECTIONSPECIAL",
         }
         makefile = MAKEFILE.read_text(encoding="utf-8")
         source = HOOK_MANAGER.read_text(encoding="utf-8")

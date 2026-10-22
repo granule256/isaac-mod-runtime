@@ -30,13 +30,90 @@ def layered_lua_runtime_sources(source_root: Path) -> list[Path]:
     unit_root = runtime_root / "src"
     return [
         source_root / "lua_runtime.cpp",
+        source_root / "console_callback_hook.cpp",
+        unit_root / "interfaces" / "lua" / "entity_lifetime.cpp",
+        # 批次 207（2026-09-29）：`Isaac.GetEntityTypeByName`/`GetEntityVariantByName` 查的
+        # 静态名字表（由 `tools/generate_entity_name_table.py` 生成，真实现就在 `program/` 下、
+        # 设备构建按普通 TU 编译）。宿主 harness 是**显式清单**，漏了它就是
+        # `Undefined symbols … EntityNameBlob()/EntityNameEntries()`。
+        # ★ 它与 `program/lua_runtime.cpp`（薄包装）不同：这一份是**真实现**，不是包装。
+        source_root / "program" / "entity_name_table.cpp",
+        # 批次 241（2026-09-30）：批次 240 那一族名字表 API（`Isaac.GetItemIdByName` /
+        # `GetCardIdByName` / `GetPillEffectByName` / `GetPlayerTypeByName` / `GetChallengeIdByName`）
+        # 的实现体（`LookupIsaacName`）在 `program/isaac_name_tables.cpp`。它**当时没进这份显式清单**
+        # ⇒ 所有宿主夹具在链接期报 `Undefined symbols … LookupIsaacName(…)`
+        # （本批跑 `test_lua_item_config` 时撞上；与上一条同因，同一个坑第二次）。
+        # ★ 判据：任何"被 `isaac_api.cpp` 直接调用"的 `program/*.cpp` 都必须列在这里。
+        source_root / "program" / "isaac_name_tables.cpp",
+        # 批次 401（2026-10-07）：`Isaac.GetPlayerTypeByName` 的**运行时追加层**
+        # （模组 `content/players.xml` 声明的角色；`isaac_api.cpp` 在静态表未命中时查它）。
+        # 同上一条：不列在这里 ⇒ 所有宿主夹具在链接期报 `Undefined symbols … LookupModPlayerTypeName`。
+        source_root / "program" / "mod_player_names.cpp",
+        # 批次 404（2026-10-07）：收藏品 / 饰品 / 卡牌 的**运行时追加层**
+        # （模组 `content/items.xml` / `content/pocketitems.xml` 声明的自定义条目；
+        # `isaac_api.cpp` 的三条 `Get*ByName` 在静态表未命中时查它）。
+        # 同上一条：不列在这里 ⇒ 所有宿主夹具在链接期报 `Undefined symbols … LookupModContentName`。
+        source_root / "program" / "mod_content_names.cpp",
         unit_root / "application" / "callback" / "callback_registry.cpp",
         unit_root / "application" / "callback" / "callback_dispatcher.cpp",
         unit_root / "interfaces" / "lua" / "api_catalog.cpp",
         unit_root / "interfaces" / "lua" / "owner_binding.cpp",
         unit_root / "interfaces" / "lua" / "mod_api.cpp",
+        unit_root / "interfaces" / "lua" / "callback_table_api.cpp",
+        unit_root / "interfaces" / "lua" / "mod_lifecycle_api.cpp",
         unit_root / "interfaces" / "lua" / "game_api.cpp",
+        unit_root / "interfaces" / "lua" / "seed_effects_api.cpp",
         unit_root / "interfaces" / "lua" / "isaac_api.cpp",
+        unit_root / "interfaces" / "lua" / "rplus_player_api.cpp",
+        unit_root / "interfaces" / "lua" / "api100_player.cpp",
+        unit_root / "interfaces" / "lua" / "api100_scalar.cpp",
+        unit_root / "interfaces" / "lua" / "api100_core.cpp",
+        unit_root / "interfaces" / "lua" / "api100_entities.cpp",
+        unit_root / "interfaces" / "lua" / "api100_values.cpp",
+        unit_root / "interfaces" / "lua" / "api100_strings.cpp",
+        unit_root / "interfaces" / "lua" / "api100_bindings.cpp",
+        unit_root / "interfaces" / "lua" / "api200_bindings.cpp",
+        unit_root / "interfaces" / "lua" / "api200_player.cpp",
+        unit_root / "interfaces" / "lua" / "api200_game.cpp",
+        unit_root / "interfaces" / "lua" / "api300_game_room.cpp",
+        unit_root / "interfaces" / "lua" / "api300_world.cpp",
+        unit_root / "interfaces" / "lua" / "api400_params.cpp",
+        unit_root / "interfaces" / "lua" / "api400_fields.cpp",
+        unit_root / "interfaces" / "lua" / "api500_config.cpp",
+        unit_root / "interfaces" / "lua" / "api500_entities.cpp",
+        unit_root / "interfaces" / "lua" / "api500_world.cpp",
+        unit_root / "interfaces" / "lua" / "api700_options.cpp",
+        unit_root / "interfaces" / "lua" / "api700_bindings.cpp",
+        unit_root / "interfaces" / "lua" / "api700_world.cpp",
+        unit_root / "interfaces" / "lua" / "api700_string.cpp",
+        unit_root / "interfaces" / "lua" / "api700_player.cpp",
+        unit_root / "interfaces" / "lua" / "api700_containers.cpp",
+        unit_root / "interfaces" / "lua" / "api700_grid.cpp",
+        unit_root / "interfaces" / "lua" / "api600_fields.cpp",
+        unit_root / "interfaces" / "lua" / "api600_world.cpp",
+        unit_root / "interfaces" / "lua" / "api600_values.cpp",
+        unit_root / "interfaces" / "lua" / "api600_room_state.cpp",
+        unit_root / "interfaces" / "lua" / "api600_grid_methods.cpp",
+        unit_root / "interfaces" / "lua" / "api600_game.cpp",
+        unit_root / "interfaces" / "lua" / "api600_containers.cpp",
+        unit_root / "interfaces" / "lua" / "api600_entityptr.cpp",
+        unit_root / "interfaces" / "lua" / "api600_bindings.cpp",
+        unit_root / "interfaces" / "lua" / "api600_player.cpp",
+        unit_root / "interfaces" / "lua" / "api400_seeds.cpp",
+        unit_root / "interfaces" / "lua" / "api400_entities.cpp",
+        unit_root / "interfaces" / "lua" / "api400_bindings.cpp",
+        unit_root / "interfaces" / "lua" / "api300_player.cpp",
+        unit_root / "interfaces" / "lua" / "api300_bindings.cpp",
+        unit_root / "interfaces" / "lua" / "api200_main.cpp",
+        unit_root / "interfaces" / "lua" / "api100_native.cpp",
+        unit_root / "interfaces" / "lua" / "rplus_health_api.cpp",
+        unit_root / "interfaces" / "lua" / "rplus_methods_api.cpp",
+        unit_root / "interfaces" / "lua" / "rplus_method_bindings.cpp",
+        unit_root / "interfaces" / "lua" / "rplus_entity_fields.cpp",
+        unit_root / "interfaces" / "lua" / "rplus_content_names.cpp",
+        unit_root / "application" / "shader" / "shader_pipeline.cpp",
+        unit_root / "interfaces" / "lua" / "rplus_extended_fields.cpp",
+        unit_root / "interfaces" / "lua" / "rplus_options.cpp",
         # 批次 065：`EntityRef`（GoodTrip 的诅咒房过路费要用：`EntityRef(player)` + `TakeDamage`）。
         unit_root / "interfaces" / "lua" / "entity_ref_api.cpp",
         # 批次 055：`EngineMethodHandler` 通过它调引擎方法（通用跳板）。真实现是
@@ -46,6 +123,7 @@ def layered_lua_runtime_sources(source_root: Path) -> list[Path]:
         unit_root / "interfaces" / "lua" / "remaining_api.cpp",
         unit_root / "interfaces" / "lua" / "music_api.cpp",
         unit_root / "interfaces" / "lua" / "rng_api.cpp",
+        unit_root / "interfaces" / "lua" / "bitset128_api.cpp",
         unit_root / "interfaces" / "lua" / "input_api.cpp",
         unit_root / "interfaces" / "lua" / "font_api.cpp",
         unit_root / "interfaces" / "lua" / "color_api.cpp",

@@ -46,7 +46,55 @@ CONTRACT_DOCS = ROOT / "tools" / "pc_enum_docs"
 #: 这个全局是 nil 时整块 main.lua 就在第 84 行中止（后面所有回调都注册不上）。
 #: 它同时是"优先级真排序"那条改动的**输入**：模组用 `CallbackPriority.EARLY/LATE` 表达顺序。
 EXPECTED_TABLES = ("RoomShape", "DoorVariant", "Direction", "StageType", "DamageFlag",
-                   "RoomDescriptor", "CallbackPriority")
+                   "RoomDescriptor", "CallbackPriority", "ProjectileFlags", "EntityFlag",
+                   # 批次 212（2026-09-30）：MCM 的声音路径要它 —— 缺表时
+                   # `modconfig.lua:2950` 抛 `attempt to index a nil value (global 'SoundEffect')`
+                   # ⇒ **整条回调**当场中断（不只是"没声音"）。
+                   "SoundEffect",
+                   # 批次 217（2026-09-30）：`SeedEffect` —— **第三次同形状**，这次卡的是中文版 MCM
+                   # **"开菜单"本行**：`modconfig.lua:3616` 的
+                   # `seeds:AddSeedEffect(SeedEffect.SEED_NO_HUD)`（`HideHudInMenu` 打开时必经）
+                   # 抛 `attempt to index a nil value (global 'SeedEffect')`
+                   # ⇒ 紧跟其后的 `ModConfigMenu.IsVisible = true` 永远执行不到
+                   # ⇒ 症状是"按右摇杆菜单打不开"（真机读数 `dist/gdb-read-20260930-1411-…`）。
+                   "SeedEffect",
+                   # 批次 269（2026-10-02）：`RenderMode` —— **第四次同形状**，这次拦的是
+                   # BOIStageAPI15 `scripts/stageapi/grid/customdoors.lua:415`
+                   # （`== RenderMode.RENDER_NORMAL` 没被 pcall 包住）。
+                   "RenderMode",
+                   # 批次 292（2026-10-02）：`BackdropType` —— 与本批新落的
+                   # `Room:GetBackdropType()` 是**同一件事的两半**（与 269 那批的
+                   # `RenderMode` + `Room:GetRenderMode()` 逐字同形）：模组拿返回值
+                   # **以枚举值为键**建表（`MusicModCallback/.../repentance.lua:431` 起
+                   # `[BackdropType.BASEMENT] = Music.MUSIC_BASEMENT`），表是 nil 时那些键
+                   # 全成 nil ⇒ 选曲**静默**错；`BOIStageAPI15` 的 `customFloorGen.lua:874`
+                   # 也拿它与自定义楼层的 `Backdrop` 比。
+                   "BackdropType",
+                   # 批次 297（2026-10-03）：`GameStateFlag` / `LevelStateFlag` —— 与本批的
+                   # `Game:GetStateFlag(int Flag)` / `Level:GetStateFlag(int Flag)` 是**同一件事
+                   # 的两半**（第五次同形状）。模组**拿枚举常量当实参**：
+                   # `ChallengeAPI/.../stage_transition.lua:34` 的
+                   # `Game():SetStateFlag(GameStateFlag.STATE_BACKWARDS_PATH_INIT, true)`
+                   # 与多处 `GetStateFlag(GameStateFlag.STATE_*)` / `GetStateFlag(LevelStateFlag.STATE_*)`
+                   # （`MinimapAPI` 的小地图四条、`MusicModCallback`/`BOIStageAPI15` 等）
+                   # ⇒ 表是 nil 时那一行直接抛错、整条回调被摘。
+                   # ★ 两张表是**两个不同的枚举**（`GameStateFlag` 在 `Game` 上、
+                   #   `LevelStateFlag` 在 `Level` 上），模组哪一边都可能用 ⇒ 都要发。
+                   "GameStateFlag", "LevelStateFlag",
+                   # 批次 301（2026-10-03）：`CacheFlag` —— 与本批新落的
+                   # `EntityPlayer:AddCacheFlags(CacheFlag)` 是**同一件事的两半**
+                   # （第六次同形状）。模组**拿枚举常量当实参**：
+                   # `Trinity/main.lua:754` 的
+                   # `player:AddCacheFlags(CacheFlag.CACHE_DAMAGE | CacheFlag.CACHE_FIREDELAY)`、
+                   # `RepentancePlus/.../main.lua:758` 的 `CacheFlag.CACHE_LUCK`、
+                   # `IsaacOnTwitchReloaded` 各脚本的 `CACHE_ALL` / `CACHE_SPEED` /
+                   # `CACHE_FLYING`（`main.lua:700` 还把值存进自己的表
+                   # `IOTR.Items.Passive[key].cacheFlag`）⇒ 表是 nil 时那一行直接抛错、
+                   # 整条回调被摘（与 `RoomShape` 那次同一形状）。
+                   # ★ 值与本批的 Switch 取证**逐位对上**（都打在 `Entity_Player+0x1958` 上）：
+                   #   1<<0/1/2/3/4 = `EvaluateItems` 的 `tbnz #0/#1/#3/#4` + `tbz #0x2`、
+                   #   1<<10 = `DonateLuck` 的 `orr #0x400`、1<<8 = `tbz #0x8`。
+                   "CacheFlag")
 
 #: 每张表的条目数（文档快照被改动时，这里会红 —— 那时要人工确认改了什么）。
 EXPECTED_ENTRY_COUNTS = {
@@ -57,6 +105,34 @@ EXPECTED_ENTRY_COUNTS = {
     "DamageFlag": 33,
     "RoomDescriptor": 24,
     "CallbackPriority": 4,
+    # 批次 207（2026-09-29）：两张**按位**表，成员全部来自文档页。
+    "ProjectileFlags": 58,
+    "EntityFlag": 62,
+    # 批次 212：981 条（`SOUND_NULL`=0 … `SOUND_UNBORN_WARP`=1090，外加 `NUM_SOUND_EFFECTS`）。
+    "SoundEffect": 981,
+    # 批次 217：**71** 条（`SEED_NORMAL`=0 … `NUM_SEEDS`=80；值域里有 10 个空号 ⇒ 81-10 = 71）。
+    # ★ 这一页**没有重复键**（`NUM_SEEDS` 只出现一次）⇒ 不需要进生成器的 `DUPLICATE_LAST_WINS`。
+    "SeedEffect": 71,
+    # 批次 269：**6** 条（`RENDER_NULL`=0 … `RENDER_WATER_REFLECT`=5；值域连续、无空号、
+    # 也没有重复键）。
+    "RenderMode": 6,
+    # 批次 292：**64** 条（`BACKDROP_NULL`=0 … `LIL_PORTAL`=62 与 `NUM_BACKDROPS`=63）。
+    # ★ 这一页**有重复键** `NUM_BACKDROPS`（`.abrep` 档 61 / `.repplus` 档 63）⇒ 已按规程
+    #   登记进生成器的 `DUPLICATE_LAST_WINS`（与 `SoundEffect.NUM_SOUND_EFFECTS` 同口径：
+    #   取最后一处 = 目标版本 Rep+ / 1.7.9b 的值 63）。
+    "BackdropType": 64,
+    # 批次 297：**55** 条（值 0..53；`NUM_STATE_FLAGS` 在页里出现两次 —— `.rep` 档 49 /
+    # `.repplus` 档 53 —— 已按规程登记进 `DUPLICATE_LAST_WINS` 取 53；另有**同值两名**
+    # `STATE_SISTERS_VIS_SELECTED` / `STATE_MAX_COINS_OBTAINED` 都 = 43，两者都保留）。
+    "GameStateFlag": 55,
+    # 批次 297：**25** 条（`STATE_BUM_KILLED`=0 … `STATE_MIRROR_BROKEN`=23 + `NUM_STATE_FLAGS`=24；
+    # 值域连续、无空号、**没有重复键**）。
+    "LevelStateFlag": 25,
+    # 批次 301（2026-10-03）：**16** 条（`CACHE_DAMAGE`=1<<0 … `CACHE_PICKUP_VISION`=1<<13，
+    # 外加 `CACHE_ALL`=(1<<16)-1 与 `CACHE_TWIN_SYNC`=1<<31）。
+    # ★ 值域**有跳跃**（bit14/bit15 没有名字 —— 文档页里就没有），`CACHE_ALL` 是**求和式**
+    #   （`(1 << 16) - 1`，生成器的表达式白名单支持括号与减法）；**没有重复键**。
+    "CacheFlag": 16,
 }
 
 #: GoodTrip 在真机上真正读过的常量（值来自文档快照）。
@@ -66,6 +142,16 @@ EXPECTED_VALUES = {
     ("RoomShape", "ROOMSHAPE_LBL"): 11,
     ("RoomShape", "ROOMSHAPE_LBR"): 12,
     ("RoomShape", "ROOMSHAPE_IIH"): 7,
+    # 批次 297（2026-10-03）：**本批的取证直接依赖这几个值** —— 它们的"值 → Switch 位点位"
+    # 对应关系写在 `runtime_constants.hpp` 的批次 297 段（`Level::IsBackwardsPath` /
+    # `Level::CanSpawnDevilRoom` / `SetRedHeartDamage` / `ApplyCompassEffect`）。
+    # 上游文档若改了这些值，本批的基址结论就必须重做 ⇒ 钉在这里让门禁先红。
+    ("GameStateFlag", "STATE_BACKWARDS_PATH"): 48,
+    ("GameStateFlag", "STATE_BACKWARDS_PATH_INIT"): 47,
+    ("GameStateFlag", "NUM_STATE_FLAGS"): 53,
+    ("LevelStateFlag", "STATE_REDHEART_DAMAGED"): 2,
+    ("LevelStateFlag", "STATE_COMPASS_EFFECT"): 7,
+    ("LevelStateFlag", "NUM_STATE_FLAGS"): 24,
     ("DoorVariant", "DOOR_HIDDEN"): 7,
     ("Direction", "NO_DIRECTION"): -1,
     ("StageType", "STAGETYPE_REPENTANCE"): 4,
@@ -76,6 +162,52 @@ EXPECTED_VALUES = {
     ("CallbackPriority", "EARLY"): -100,
     ("CallbackPriority", "DEFAULT"): 0,
     ("CallbackPriority", "LATE"): 100,
+    # 批次 207：MCM 真正读过的两个常量。
+    #   * `ProjectileFlags.CANT_HIT_PLAYER` —— 与引擎 `.data` 里的
+    #     `Entity_Projectile::CANT_HIT_PLAYER = 0x80000000` **逐位吻合**，
+    #     也是我们 `Entity_Projectile::CanShutDoors()` 反汇编读 `+0x428` 后取 bit31 的那一位
+    #     （见 `runtime_constants.hpp` 的 `kEntityProjectileFlagsOffset`）；
+    #   * `EntityFlag.FLAG_NO_QUERY` —— bit46，`Entity:HasEntityFlags` 的实参来源。
+    ("ProjectileFlags", "CANT_HIT_PLAYER"): 1 << 31,
+    ("EntityFlag", "FLAG_NO_QUERY"): 1 << 46,
+    # 批次 212：MCM 真正用到的那个声音常量（`modconfig.lua:2950`），以及**那个重复键的裁决**：
+    # 文档里 `NUM_SOUND_EFFECTS` 每个 DLC 档各一行（`.rep` = 833、`.repplus` = 1091），
+    # 生成器按登记在案的规则取**最后一处** = 1091（目标版本 Rep+ / 1.7.9b）。
+    ("SoundEffect", "SOUND_BOSS2INTRO_ERRORBUZZ"): 187,
+    ("SoundEffect", "NUM_SOUND_EFFECTS"): 1091,
+    # ★ 中文版 MCM 走的就是这一个：`SeedEffect.SEED_NO_HUD` 必须是 10（用错了就静默按别的效果走）。
+    ("SeedEffect", "SEED_NO_HUD"): 10,
+    ("SeedEffect", "SEED_NORMAL"): 0,
+    ("SeedEffect", "NUM_SEEDS"): 80,
+    # 批次 269：`Room:GetRenderMode()` 给的那个常量必须与这张表**同值** ——
+    # 它们是"同一件事的两半"（模组写 `GetRenderMode() == RenderMode.RENDER_NORMAL`），
+    # 两边错开就会变成"永远不相等"这种最隐蔽的失效。
+    ("RenderMode", "RENDER_NORMAL"): 1,
+    ("RenderMode", "RENDER_NULL"): 0,
+    ("RenderMode", "RENDER_WATER_REFLECT"): 5,
+    # 批次 292：三个**有独立锚点**的值。
+    #   * `MINES = 32` —— 与 Switch 侧**同值对照**：`Room::pre_render_pits @ 0x47F03C` 读
+    #     `Room+0x21B0`（本批新做的那个字段）后 `cmp w8,#0x20` ⇒ "这是矿层"，
+    #     之后才看 `Flags` bit5 决定画不画水坑 ⇒ 引擎里的 0x20 就是这张表的 32。
+    #     ★ 这一条同时是"`Room:GetBackdropType()` 的返回值能直接与 `BackdropType.*` 比"
+    #     的判据（两边错开就会变成"永远不相等"这种最隐蔽的失效）。
+    #   * `BASEMENT = 1` / `NUM_BACKDROPS = 63`（后者是重复键的裁决结果）。
+    ("BackdropType", "MINES"): 32,
+    ("BackdropType", "BASEMENT"): 1,
+    ("BackdropType", "NUM_BACKDROPS"): 63,
+    # 批次 301（2026-10-03）：**本批的取证直接依赖这几个位** —— 它们的"值 → Switch 位号"
+    # 对应关系写在 `runtime_constants.hpp` 的批次 301 段（`Entity_Player::EvaluateItems`
+    # 里 `tbnz w8,#0/#1/#3/#4` + `tbz w8,#0x2`/`#0x8`，以及 `DonateLuck` 的 `orr #0x400`）。
+    # 上游文档若改了这些值，本批的位号结论（以及 `CacheFlag` 表本身）就必须重做 ⇒ 钉在这里。
+    ("CacheFlag", "CACHE_DAMAGE"): 1 << 0,
+    ("CacheFlag", "CACHE_FIREDELAY"): 1 << 1,
+    ("CacheFlag", "CACHE_SHOTSPEED"): 1 << 2,
+    ("CacheFlag", "CACHE_RANGE"): 1 << 3,
+    ("CacheFlag", "CACHE_SPEED"): 1 << 4,
+    ("CacheFlag", "CACHE_WEAPON"): 1 << 8,
+    ("CacheFlag", "CACHE_LUCK"): 1 << 10,
+    ("CacheFlag", "CACHE_ALL"): (1 << 16) - 1,
+    ("CacheFlag", "CACHE_TWIN_SYNC"): 1 << 31,
 }
 
 #: 超出 32 位的那些：一旦有人把生成器的值类型改回 32 位，这几条会立刻红。
@@ -83,6 +215,10 @@ WIDE_VALUES = {
     ("DamageFlag", "DAMAGE_CURSED_DOOR"): 1 << 16,
     ("DamageFlag", "DAMAGE_NO_PENALTIES"): 1 << 28,
     ("DamageFlag", "DAMAGE_SPAWN_RUNE"): 1 << 32,
+    # 批次 207：这两张表把"必须 64 位"这件事推得更远 —— `ProjectileFlags` 到 `1 << 57`、
+    # `EntityFlag` 到 `1 << 59`，32 位容器会直接变成 0。
+    ("ProjectileFlags", "CHANGE_VELOCITY_AFTER_TIMEOUT"): 1 << 33,
+    ("EntityFlag", "FLAG_NO_QUERY"): 1 << 46,
 }
 
 
@@ -216,6 +352,16 @@ class DocEnumTableGateTests(unittest.TestCase):
             "DamageFlag.md": 4607,
             "RoomDescriptor.md": 3487,
             "CallbackPriority.md": 380,
+            # 批次 207（2026-09-29）：MCM 的两张按位表。
+            "ProjectileFlags.md": 5761,
+            "EntityFlag.md": 9093,
+            # 批次 292（2026-10-02）：`BackdropType`（与 `Room:GetBackdropType()` 同一批）。
+            "BackdropType.md": 4828,
+            # 批次 297（2026-10-03）：两张状态标志表（与 `GetStateFlag` 同一批）。
+            "GameStateFlag.md": 6321,
+            "LevelStateFlag.md": 2304,
+            # 批次 301（2026-10-03）：`CacheFlag`（与 `AddCacheFlags` 同一批）。
+            "CacheFlag.md": 1582,
         }
         for name, size in expected.items():
             with self.subTest(name):

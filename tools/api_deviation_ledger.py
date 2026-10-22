@@ -97,8 +97,42 @@ NATURE_REASON_MARKER = "——理由："
 #: 属于**欠账**：条数被门禁钉住，只能降不能升。
 NO_JUDGEMENT_PREFIX = "暂无"
 
+#: ---- 形状两栏（2026-09-27 批次 161）------------------------------------------
+#
+# 由来（一次**真机事故**，可复核）：`EntityPlayer:GetMainTwin()` 曾被写成**恒 nil**，而 PC 文档正文
+# 明写"其它任何角色 → 该角色自己" ⇒ EID 写 `player:GetMainTwin():GetPlayerType()` 时在 nil 上取方法
+# ⇒ 抛 `attempt to index a nil value` ⇒ **派发器把整条 `MC_POST_RENDER` 回调摘掉**（用户看到的是
+# "站在长子名分旁边 EID 不显示信息"）。更糟的是批次 128 恰好把这个错误行为用 `value == nil` 钉死了。
+#
+# ⇒ 纪律（AGENTS.md 同条）：**把"我们返回什么形状"和"PC 返回什么形状"分开写**；形状只要与 PC 不同，
+# 就要写明"模组链式调用会不会抛错"，判据要照真实模组那样**链一次**。
+#
+# 本模块负责这条纪律在**台账侧**的那一半：正文写「恒 nil」的条目必须写清两侧形状；
+# `PC 形状` 不是 nil、而我们是 nil 的条目，后果里必须点名 `链式调用会抛错`。
+PC_SHAPE_MARKER = "PC 形状："
+OUR_SHAPE_MARKER = "我们形状："
+#: 允许的形状取值（与 AGENTS.md 里那一行逐字一致）。
+SHAPES = ("nil", "对象", "数字", "布尔", "字符串")
+#: `PC 形状` 不是 nil、而我们给 nil 时，后果段里必须出现的字样（门禁按它判，不靠关键词顺带命中）。
+CHAINING_MARKER = "链式调用会抛错"
+
+# 条目正文只能是C++相邻字符串字面量，字符串里的 }, 不是条目末尾。
 ENTRY_PATTERN = re.compile(
-    r"\{\s*(0x[0-9A-Fa-f]+)\s*,\s*ApiDeviationKind::(\w+)\s*,(.*?)\}\s*,", re.S)
+    r'\{\s*(0x[0-9A-Fa-f]+)\s*,\s*ApiDeviationKind::(\w+)\s*,\s*'
+    r'((?:"(?:[^"\\]|\\.)*"\s*)+)\}\s*,', re.S)
+COMMENT_OR_LITERAL = re.compile(
+    r'"(?:[^"\\]|\\.)*"|\'(?:[^\'\\]|\\.)*\'|//[^\n]*|/\*.*?\*/', re.S)
+
+
+def strip_cpp_comments(text: str) -> str:
+    """只剥真正注释，保留字符串中的URL/注释符号及换行。"""
+    def replace(match: re.Match[str]) -> str:
+        token = match.group()
+        if token.startswith(("//", "/*")):
+            return " " + "\n" * token.count("\n")
+        return token
+    return COMMENT_OR_LITERAL.sub(replace, text)
+
 STRING_PATTERN = re.compile(r'"((?:[^"\\]|\\.)*)"')
 JUDGEMENT_PATH_PATTERN = re.compile(r"(?:runtime/)?tests/[A-Za-z0-9_./-]+\.py")
 NATURE_TOKEN_PATTERN = re.compile(r"性质：([^\s（(]+)")
@@ -193,6 +227,56 @@ class DeviationEntry:
         """性质取值合法（门禁判"不许有未归类条目"用的就是它）。"""
         return self.nature in NATURES
 
+    # ---- 形状两栏（批次 161）------------------------------------------------
+
+    def _shape(self, marker: str) -> str:
+        """取 `marker` 之后那个形状词（没写返回空串；词表校验由门禁做）。"""
+        index = self.text.find(marker)
+        if index < 0:
+            return ""
+        tail = self.text[index + len(marker):].lstrip()
+        for stop in (" ", "　", "（", "(", "，", ",", "。", "；", ";", "\n", "）", ")"):
+            cut = tail.find(stop)
+            if cut >= 0:
+                tail = tail[:cut]
+        return tail.strip("`").strip()
+
+    @property
+    def pc_shape(self) -> str:
+        """`PC 形状：<nil|对象|数字|布尔|字符串>` 里那个词（没写返回空串）。"""
+        return self._shape(PC_SHAPE_MARKER)
+
+    @property
+    def our_shape(self) -> str:
+        """`我们形状：<…>` 里那个词（没写返回空串）。"""
+        return self._shape(OUR_SHAPE_MARKER)
+
+    @property
+    def has_pc_shape(self) -> bool:
+        return PC_SHAPE_MARKER in self.text
+
+    @property
+    def has_our_shape(self) -> bool:
+        return OUR_SHAPE_MARKER in self.text
+
+    @property
+    def mentions_nil_return(self) -> bool:
+        """正文自己说"我们恒 nil"（门禁据此要求写清两侧形状）。"""
+        return "恒 nil" in self.text
+
+    @property
+    def needs_chaining_warning(self) -> bool:
+        """PC 给的不是 nil、而我们给 nil ⇒ 后果里必须交代"链式调用会抛错"。
+
+        ★ 判据用**我们自己写的形状两栏**，不猜正文：`PC 形状` 合法且不是 nil、
+        `我们形状` 恰好是 nil —— 这一对就是"模组会链到 nil 上"的机械形态。
+        """
+        return (
+            self.pc_shape in SHAPES
+            and self.pc_shape != "nil"
+            and self.our_shape == "nil"
+        )
+
 
 def _unescape(literal: str) -> str:
     """C++ 字面量里的转义还原（**只处理我们真会用到的那几个**）。
@@ -200,16 +284,14 @@ def _unescape(literal: str) -> str:
     不能用 `unicode_escape`：那会把中文按 latin-1 拆坏。台账正文里出现的转义只有
     `\\"`（判据里引用的接口名）与 `\\\\` 两种，逐个替换即可。
     """
-    return literal.replace('\\"', '"').replace("\\n", "\n").replace("\\\\", "\\")
+    escapes = {'"': '"', "\\": "\\", "n": "\n", "r": "\r", "t": "\t"}
+    return re.sub(r'\\([\\"nrt])', lambda match: escapes[match[1]], literal)
 
 
 def load_entries(path: Path | None = None) -> list[DeviationEntry]:
     """解析整张台账。表体从第一个 `{0x` 开始 —— 之前的注释不属于条目。"""
-    text = (path or DEVIATIONS).read_text(encoding="utf-8")
-    start = text.find("{0x")
-    if start < 0:
-        raise ValueError(f"{path or DEVIATIONS} 里找不到任何条目（表体应当以 `{{0x` 开始）")
-    body = text[start:]
+    text = strip_cpp_comments((path or DEVIATIONS).read_text(encoding="utf-8"))
+    body = text
     entries: list[DeviationEntry] = []
     for match in ENTRY_PATTERN.finditer(body):
         identifier, kind, rest = match.groups()
@@ -217,6 +299,8 @@ def load_entries(path: Path | None = None) -> list[DeviationEntry]:
         if not literal:
             continue
         entries.append(DeviationEntry(identifier=int(identifier, 16), kind=kind, text=literal))
+    if not entries:
+        raise ValueError(f"{path or DEVIATIONS} 里找不到任何有效条目")
     return entries
 
 
@@ -279,6 +363,9 @@ def dump_json(entries: list[DeviationEntry]) -> str:
                     "nature_reason": entry.nature_reason,
                     "consequence": entry.consequence,
                     "judgement": entry.judgement,
+                    "pc_shape": entry.pc_shape,
+                    "our_shape": entry.our_shape,
+                    "needs_chaining_warning": entry.needs_chaining_warning,
                 }
                 for entry in entries
             ],
@@ -305,6 +392,11 @@ def print_grouped(entries: list[DeviationEntry]) -> None:
         for entry in groups[nature]:
             print(f"  · 0x{entry.identifier:08X} [{entry.kind}]")
             print(f"      理由：{entry.nature_reason or '**缺理由：……**（门禁会红）'}")
+            if entry.has_pc_shape or entry.has_our_shape:
+                print(f"      形状：PC = {entry.pc_shape or '**缺**'} / "
+                      f"我们 = {entry.our_shape or '**缺**'}"
+                      + ("　← ★ 模组链式调用会抛错（后果里必须写明）"
+                         if entry.needs_chaining_warning else ""))
             print(f"      后果：{entry.consequence[:120] or '**缺 偏离后果：（门禁会红）**'}")
             print(f"      判据：{entry.judgement[:120] or '**缺判据：……**（门禁会红）'}")
     stats = summarise(entries)

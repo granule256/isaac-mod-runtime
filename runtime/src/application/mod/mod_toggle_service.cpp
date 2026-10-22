@@ -4,6 +4,12 @@
 #include <cstring>
 
 namespace isaac::runtime {
+
+// ★★ 批次 427：两个读数（见头文件里的说明）。写在 `namespace {` **之外** ⇒ 外部链接 ⇒
+//    读数工具能按符号名读（本项目在"探针写进匿名命名空间"上栽过 5 次）。
+std::atomic<std::uint32_t> g_ModTogglePrunedEntries{0};
+std::atomic<std::uint32_t> g_ModToggleCapacityRejections{0};
+
 namespace {
 
 // 用户手工标记文件的名字（放在模组目录里）。卡上的覆盖层是只读的，所以这条路径只能**读**：
@@ -73,6 +79,22 @@ std::size_t ModToggleService::ApplyToBatch(ResolvedManifestModBatch* batch) noex
     if (batch == nullptr) {
         return 0;
     }
+    // ★★ 批次 427：**先把名单里"这次扫描没看到的目录"清掉**（模组被删/改名留下的死条目）。
+    //   ★ 必须在过滤**之前**做：否则"确实存在、只是被关掉"的那些也会被当死条目丢掉。
+    //   为什么非有不可：427 之前**没有任何清理逻辑** ⇒ 从卡上删一个模组就永久占掉一格，
+    //   很快把名单吃满 ⇒ 用户看到的"后面那些模组怎么关都关不掉"。
+    const std::size_t pruned = state_.PruneMissing([batch](std::string_view directory) noexcept {
+        for (std::size_t index = 0; index < batch->count; ++index) {
+            const ResolvedManifestMod& mod = batch->mods[index];
+            const char* root = mod.modRoot == nullptr ? "" : mod.modRoot;
+            if (LeafName(root) == directory) {
+                return true;
+            }
+        }
+        return false;
+    });
+    g_ModTogglePrunedEntries.fetch_add(static_cast<std::uint32_t>(pruned),
+                                       std::memory_order_relaxed);
     std::size_t kept = 0;
     std::size_t removed = 0;
     for (std::size_t index = 0; index < batch->count; ++index) {

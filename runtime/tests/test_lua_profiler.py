@@ -344,6 +344,12 @@ class LuaProfiler(unittest.TestCase):
         source = (SOURCE / "lua_runtime.cpp").read_text(encoding="utf-8")
         self.assertIn("lua_setallocf(state, IsaacRuntime_CountingAlloc, nullptr);", source,
                       "必须用 lua_setallocf 换分配器（自己 lua_newstate 会丢掉 luaL_newstate 的 panic 处理器）")
+        # ★ 批次 262（A2 性能）：换分配器**只在诊断包里**做。正式包每帧约 1.5 万次分配 ×2，
+        #   每次都要多走一遍计数分支；分配器本体与四个计数器都还留着 ⇒ 诊断包照旧能读分配账。
+        #   这条断言钉住"那道门真的盖住了这次调用"（门与调用之间不许出现 `#endif`）。
+        self._assert_gated_by_diagnostic_probes(source,
+                                                "lua_setallocf(state, IsaacRuntime_CountingAlloc, nullptr);",
+                                                "分配账的换分配器")
         self.assertNotIn("lua_newstate(", source, "不要自己建状态：`luaL_newstate` 那套语义要原样保留")
         allocator = source[source.index("IsaacRuntime_CountingAlloc"):]
         allocator = allocator[:allocator.index("\n}\n")]
@@ -355,18 +361,43 @@ class LuaProfiler(unittest.TestCase):
             self.assertIn(counter, allocator, f"分配器里少了计数 {counter}")
             self.assertIn(counter, TOOL.read_text(encoding="utf-8"), f"读数工具没读 {counter}")
 
+    def _assert_gated_by_diagnostic_probes(self, source, call, what):
+        """钉住"这次调用被 `EXL_DIAGNOSTIC_PROBES` 那道门盖住"（批次 262）。
+
+        为什么要有这条：这两处**都是每帧/每次分配付钱**的诊断设施（计数钩子、计数分配器），
+        而它们的门原来只有"设备构建"（`ISAAC_RUNTIME_PERF_TIMING`）——**正式包里也成立**
+        ⇒ 用户每次游玩都在为采样剖析付费。批次 262 把它们收进 `EXL_DIAGNOSTIC_PROBES`，
+        这条断言保证这个门不会被后面的人无意删掉（删了就红，并会提示代价与实测数字）。
+        """
+        index = source.index(call)
+        gate = source.rfind("#if defined(ISAAC_RUNTIME_PERF_TIMING) && EXL_DIAGNOSTIC_PROBES",
+                            0, index)
+        self.assertNotEqual(
+            gate, -1,
+            f"{what}必须同时受『设备构建』与『诊断包』两道门约束（批次 262）："
+            "装了 LUA_MASKCOUNT 钩子之后 Lua 的 VM 每条指令都要过一次 luaG_traceexec，"
+            "本机实测让 Lua 慢 13%~58%（重分配型负载 / 紧凑数值循环）")
+        self.assertNotIn("#endif", source[gate:index],
+                         f"{what}的那道门与调用之间出现了 #endif ⇒ 门没盖住它")
+
     def test_hook_is_count_based_and_only_allocates_nothing(self):
-        """钩子必须是**计数型**（`LUA_MASKCOUNT`），且只在设备构建里自动挂。
+        """钩子必须是**计数型**（`LUA_MASKCOUNT`），且只在"设备构建 + 诊断包"里自动挂。
 
         计数型是这套做法的前提：`LUA_MASKLINE`/`LUA_MASKCALL` 会按"每次调用/每行"触发，
         在大循环里比计数型贵一到两个数量级。
+
+        ★★ 批次 262（2026-10-01，A1 性能）：门从"只在设备构建"**收紧成"设备构建 + 诊断包"**。
+        原因是量出来的：装了计数钩子之后，Lua 5.3 的 VM 在**每条指令**上都要走一次
+        `vmfetch` 里那句 `Protect(luaG_traceexec(L))`（跨 TU 的真实函数调用），
+        本机同一份负载实测 —— 重分配型（仿 EID 每帧的活）**+13%**、紧凑数值循环 **+58%**。
+        正式包不该常年付这笔税；钩子与采样桶全部保留，诊断包照旧可用。
         """
         source = (SOURCE / "lua_runtime.cpp").read_text(encoding="utf-8")
         self.assertIn("lua_sethook(state, IsaacRuntime_ProfileHook, LUA_MASKCOUNT,", source)
         self.assertNotIn("LUA_MASKLINE", source)
         self.assertNotIn("LUA_MASKCALL", source)
-        self.assertRegex(source, r"#if defined\(ISAAC_RUNTIME_PERF_TIMING\)\s*\n\s*ResetRuntimePerfProfile\(\);",
-                         "自动挂载必须只在设备构建里（宿主套件不需要为此变慢）")
+        self._assert_gated_by_diagnostic_probes(
+            source, "lua_sethook(state, IsaacRuntime_ProfileHook, LUA_MASKCOUNT,", "采样剖析钩子")
         # 钩子本体的"不许分配"是纪律，代码层面能钉的是：它只调用 `lua_getinfo`。
         hook = source[source.index("void ReadProfileFrameText"):source.index("void ResetRuntimePerfProfile")]
         lua_calls = set(re.findall(r"\blua_[a-z_]+", hook))

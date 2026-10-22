@@ -1,63 +1,49 @@
 #pragma once
-
 #include "ports/save_file_port.hpp"
-
-#include <array>
-#include <atomic>
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
 #include <cstring>
+#include <limits>
+#include <memory>
+#include <new>
 #include <string_view>
 
 namespace ModPersistence {
-
-enum class Result {
-    Success,
-    Missing,
-    Unavailable,
-    Corrupt,
-    TooLarge,
-    IoFailure,
-};
-
+enum class Result { Success, Missing, Unavailable, Corrupt, TooLarge, IoFailure };
+// 仅旧ISMODST2容器的格式上限；新独立文件按实际长度申请，不再共用这个额度。
 constexpr std::size_t kMaximumFileSize = 16 * 1024;
 constexpr std::size_t kMaximumRecordCount = 256;
-
 namespace detail {
-
-constexpr char kMagic[] = "ISMODST2";
-constexpr std::uint16_t kVersion = 2;
-constexpr std::size_t kHeaderSize = 32;
-constexpr std::size_t kRecordHeaderSize = 24;
-constexpr std::uint8_t kStringType = 1;
-//: 模组数据容器的文件名，**相对于游戏存档分区根**（旧值是一条 `sdmc:/SaltySD/...` 的绝对路径，
-//: 那条依赖外部插件提供文件能力，2026-09-17 起废弃）。
 constexpr char kStateName[] = "isaac-mod-data.bin";
-constexpr std::uint64_t kModDataKey = 0x6D6F642D64617461ULL; // "mod-data"
-
-// 文件能力**只有一条路**（2026-09-17 用户指令）：`isaac::runtime::SessionSaveFilePort()`
-// —— 默认实现就是"游戏存档分区"（`EngineSaveFileAdapter`，直连 `nn::fs`）。
-//
-// 为什么不再保留"宿主插件注册 4 个裸函数"那条路：生产包里插件是关的（`SALTYNX_PLUGIN=0`），
-// 那条路等于永远没有提供方 ⇒ `Mod:SaveData/LoadData` 与 `Isaac.SaveModData/LoadModData`
-// 一直返回"不可用"（真机可见后果：EID 的设置读不回来）。**统一到一个端口**之后，
-// 消费者不必再判"哪条路可用"，线程纪律也由端口实现统一负责（见 `EngineSaveFileAdapter` 的硬闸）。
-//
-// `Unavailable` 仍是一等状态：端口没接上时所有操作如实返回它，不静默失败。
-inline bool HasFileApi() {
-    return isaac::runtime::SessionSaveFilePort() != nullptr;
-}
-
+constexpr std::uint64_t kModDataKey = 0x6D6F642D64617461ULL;
+constexpr std::uint8_t kStringType = 1;
+constexpr std::size_t kRecordHeaderSize = 24;
+constexpr std::size_t kHeaderSize = 48;
+constexpr char kMagic[] = "ISMODST3";
+inline bool HasFileApi() { return isaac::runtime::SessionSaveFilePort() != nullptr; }
+struct Buffer {
+    std::unique_ptr<std::uint8_t[]> bytes{};
+    std::size_t length = 0;
+};
 struct Cache {
-    std::array<std::uint8_t, kMaximumFileSize> payload{};
-    std::size_t payloadLength = 0;
+    Cache* next = nullptr;
+    std::uint64_t namespaceId = 0;
+    unsigned slot = 0;
+    Buffer encoded{};
     std::uint64_t generation = 0;
+    int bank = -1;
     bool loaded = false;
     bool exists = false;
 };
-
-inline Cache g_cache{};
-
+// 常量初始化：运行时使用-nostartfiles，不能依赖全局容器动态初始化。
+inline Cache* g_cache = nullptr;
+inline Buffer* g_legacy = nullptr;
+inline bool g_legacyLoaded = false;
+inline Result g_legacyResult = Result::Missing;
+inline isaac::runtime::ISaveFilePort* g_cacheProvider = nullptr;
+inline std::uint64_t g_SkippedIdenticalWrites = 0;
+inline std::uint64_t g_SkippedIdenticalBytes = 0;
 inline void WriteU16(std::uint8_t* target, std::uint16_t value) {
     target[0] = static_cast<std::uint8_t>(value);
     target[1] = static_cast<std::uint8_t>(value >> 8);
@@ -105,8 +91,6 @@ inline std::uint32_t Checksum(const std::uint8_t* bytes, std::size_t length) {
     return value;
 }
 
-// 端口的状态码 → 本模块的结果码。`Unsupported`（没有提供方）单独映射成 `Unavailable`：
-// 这是"能力缺失"，与"操作失败"必须能分开，调用方（含 Lua 侧）据此报不同的错。
 inline Result MapStatus(isaac::runtime::Status status) {
     switch (status.code()) {
         case isaac::runtime::StatusCode::Ok:
@@ -148,166 +132,178 @@ inline bool RecordAt(const std::uint8_t* payload, std::size_t payloadLength,
     return true;
 }
 
-inline Result LoadCache() {
-    if (g_cache.loaded) {
-        return Result::Success;
+inline void ClearCache() {
+    while (g_cache != nullptr) {
+        Cache* old = g_cache;
+        g_cache = old->next;
+        delete old;
     }
-    isaac::runtime::ISaveFilePort* storage = isaac::runtime::SessionSaveFilePort();
-    if (storage == nullptr) {
-        return Result::Unavailable;
+    g_cacheProvider = nullptr;
+    delete g_legacy; g_legacy = nullptr;
+    g_legacyLoaded = false; g_legacyResult = Result::Missing;
+}
+inline void FileName(std::uint64_t ns, unsigned slot, int bank, char (&name)[64]) {
+    std::snprintf(name, sizeof(name), "isaac-mod-%016llx-s%u-%c.bin",
+                  static_cast<unsigned long long>(ns), slot, bank == 0 ? 'a' : 'b');
+}
+inline Result ReadFile(std::string_view name, Buffer* output) {
+    auto* storage = isaac::runtime::SessionSaveFilePort();
+    if (storage == nullptr) return Result::Unavailable;
+    std::size_t capacity = 0;
+    auto status = storage->GetSize(name, &capacity);
+    if (status.code() == isaac::runtime::StatusCode::NotFound) return Result::Missing;
+    if (status.code() == isaac::runtime::StatusCode::Unsupported) capacity = kMaximumFileSize;
+    else if (!status.ok()) return MapStatus(status);
+    if (capacity > std::numeric_limits<std::uint32_t>::max()) return Result::TooLarge;
+    Buffer file;
+    file.bytes.reset(new (std::nothrow) std::uint8_t[capacity == 0 ? 1 : capacity]);
+    if (!file.bytes) return Result::IoFailure;
+    std::size_t actual = 0;
+    status = storage->Read(name, reinterpret_cast<char*>(file.bytes.get()), capacity, &actual);
+    if (status.code() == isaac::runtime::StatusCode::CapacityExceeded && actual > capacity) {
+        if (actual > std::numeric_limits<std::uint32_t>::max()) return Result::TooLarge;
+        capacity = actual;
+        file.bytes.reset(new (std::nothrow) std::uint8_t[capacity]);
+        if (!file.bytes) return Result::IoFailure;
+        status = storage->Read(name, reinterpret_cast<char*>(file.bytes.get()), capacity, &actual);
     }
-
-    std::array<std::uint8_t, kMaximumFileSize> encoded{};
-    std::size_t bytes = 0;
-    // 整文件读：名字**相对存档根**（旧的 `sdmc:/SaltySD/...` 路径不再使用 —— 游戏嘴里的
-    // `sdmc:` 本来就是它自己的存档分区，见 `ports/save_file_port.hpp` 的说明）。
-    const isaac::runtime::Status readStatus =
-        storage->Read(kStateName, reinterpret_cast<char*>(encoded.data()), encoded.size(), &bytes);
-    if (readStatus.code() == isaac::runtime::StatusCode::NotFound) {
-        // 还没有数据：历史语义就是"成功 + exists=false"（第一次保存前就是这样），保持不动。
-        g_cache.loaded = true;
-        g_cache.exists = false;
-        return Result::Success;
-    }
-    if (!readStatus.ok()) {
-        return MapStatus(readStatus);
-    }
-    if (bytes < kHeaderSize || std::memcmp(encoded.data(), kMagic, sizeof(kMagic) - 1) != 0 ||
-        ReadU16(encoded.data() + 8) != kVersion || ReadU16(encoded.data() + 10) != kHeaderSize) {
-        return Result::Corrupt;
-    }
-
-    const std::uint32_t count = ReadU32(encoded.data() + 20);
-    const std::size_t payloadLength = ReadU32(encoded.data() + 24);
-    if (count > kMaximumRecordCount || payloadLength > kMaximumFileSize - kHeaderSize ||
-        payloadLength != bytes - kHeaderSize ||
-        ReadU32(encoded.data() + 28) != Checksum(encoded.data() + kHeaderSize, payloadLength)) {
-        return Result::Corrupt;
-    }
-
-    std::size_t offset = 0;
-    for (std::uint32_t index = 0; index < count; ++index) {
-        std::size_t recordLength = 0;
-        std::size_t valueLength = 0;
-        std::uint64_t namespaceId = 0;
-        std::uint64_t key = 0;
-        std::uint8_t type = 0;
-        if (!RecordAt(encoded.data() + kHeaderSize, payloadLength, offset, &recordLength,
-                      &namespaceId, &key, &type, &valueLength)) {
-            return Result::Corrupt;
-        }
-        offset += recordLength;
-    }
-    if (offset != payloadLength) {
-        return Result::Corrupt;
-    }
-
-    std::memcpy(g_cache.payload.data(), encoded.data() + kHeaderSize, payloadLength);
-    g_cache.payloadLength = payloadLength;
-    g_cache.generation = ReadU64(encoded.data() + 12);
-    g_cache.exists = true;
-    g_cache.loaded = true;
+    if (!status.ok()) return MapStatus(status);
+    if (actual > capacity) return Result::Corrupt;
+    file.length = actual;
+    *output = std::move(file);
     return Result::Success;
 }
-
-inline Result WriteCache(const std::uint8_t* payload, std::size_t payloadLength,
-                         std::uint32_t recordCount) {
-    if (payloadLength > kMaximumFileSize - kHeaderSize || recordCount > kMaximumRecordCount) {
-        return Result::TooLarge;
-    }
-    std::array<std::uint8_t, kMaximumFileSize> encoded{};
-    std::memcpy(encoded.data(), kMagic, sizeof(kMagic) - 1);
-    WriteU16(encoded.data() + 8, kVersion);
-    WriteU16(encoded.data() + 10, kHeaderSize);
-    WriteU64(encoded.data() + 12, g_cache.generation + 1);
-    WriteU32(encoded.data() + 20, recordCount);
-    WriteU32(encoded.data() + 24, static_cast<std::uint32_t>(payloadLength));
-    if (payloadLength != 0) {
-        std::memcpy(encoded.data() + kHeaderSize, payload, payloadLength);
-    }
-    WriteU32(encoded.data() + 28, Checksum(encoded.data() + kHeaderSize, payloadLength));
-
-    isaac::runtime::ISaveFilePort* storage = isaac::runtime::SessionSaveFilePort();
-    if (storage == nullptr) {
-        return Result::Unavailable;
-    }
-    const std::size_t totalLength = kHeaderSize + payloadLength;
-    // 整文件写：适配器内部会 CreateFile / SetFileSize / Flush / **CommitSaveData**，
-    // 所以"一次写 = 一次提交"，不存在写一半的中间状态。
-    const isaac::runtime::Status writeStatus = storage->Write(
-        kStateName, std::string_view(reinterpret_cast<const char*>(encoded.data()), totalLength));
-    if (!writeStatus.ok()) {
-        return MapStatus(writeStatus);
-    }
-
-    std::memcpy(g_cache.payload.data(), payload, payloadLength);
-    g_cache.payloadLength = payloadLength;
-    g_cache.generation += 1;
-    g_cache.exists = true;
-    g_cache.loaded = true;
+inline bool ValidateFile(const Buffer& file, std::uint64_t ns, unsigned slot) {
+    const auto* p = file.bytes.get();
+    return file.length >= kHeaderSize && std::memcmp(p, kMagic, 8) == 0 &&
+           ReadU16(p+8) == 3 && ReadU16(p+10) == kHeaderSize &&
+           ReadU64(p+20) == ns && ReadU32(p+28) == file.length-kHeaderSize &&
+           ReadU32(p+32) <= 1 && ReadU32(p+36) == slot &&
+           ReadU32(p+40) == Checksum(p+kHeaderSize,file.length-kHeaderSize) &&
+           ReadU32(p+44) == Checksum(p,44) &&
+           (ReadU32(p+32) == 0 || file.length == kHeaderSize);
+}
+inline Result ReadLegacy() {
+    if(g_legacyLoaded) return g_legacyResult;
+    Buffer legacy;
+    const Result result=ReadFile(kStateName,&legacy);
+    if(result==Result::Missing) {g_legacyLoaded=true;return g_legacyResult=Result::Missing;}
+    if(result!=Result::Success) return result;
+    const auto* p=legacy.bytes.get();
+    if (legacy.length < 32 || legacy.length > kMaximumFileSize ||
+        std::memcmp(p,"ISMODST2",8)!=0 || ReadU16(p+8)!=2 || ReadU16(p+10)!=32 ||
+        ReadU32(p+20)>kMaximumRecordCount || ReadU32(p+24)!=legacy.length-32 ||
+        ReadU32(p+28)!=Checksum(p+32,legacy.length-32)) return Result::Corrupt;
+    g_legacy=new (std::nothrow) Buffer;
+    if(!g_legacy) return Result::IoFailure;
+    *g_legacy=std::move(legacy);g_legacyLoaded=true;g_legacyResult=Result::Success;
     return Result::Success;
 }
-
-inline Result Rewrite(std::uint64_t namespaceId, const char* value, std::size_t valueLength,
-                      bool remove) {
-    const Result loaded = LoadCache();
-    if (loaded != Result::Success) {
-        return loaded;
-    }
-    std::array<std::uint8_t, kMaximumFileSize> rewritten{};
-    std::size_t rewrittenLength = 0;
-    std::uint32_t rewrittenCount = 0;
-    bool matched = false;
-    for (std::size_t offset = 0; offset < g_cache.payloadLength;) {
-        std::size_t recordLength = 0;
-        std::size_t existingValueLength = 0;
-        std::uint64_t existingNamespace = 0;
-        std::uint64_t existingKey = 0;
-        std::uint8_t type = 0;
-        if (!RecordAt(g_cache.payload.data(), g_cache.payloadLength, offset, &recordLength,
-                      &existingNamespace, &existingKey, &type, &existingValueLength)) {
-            return Result::Corrupt;
+inline Result ImportLegacy(Cache* cache) {
+    const Result result = ReadLegacy();
+    if (result == Result::Missing) {cache->loaded=true;return Result::Success;}
+    if (result != Result::Success) return result;
+    const Buffer& legacy=*g_legacy;
+    const auto* p=legacy.bytes.get();
+    // 全部记录先验证，不能看到目标记录就提前信任后面可能截断的容器。
+    std::size_t offset=0, valueOffset=0, valueLength=0;
+    bool found=false;
+    const auto payloadLength=legacy.length-32;
+    for (std::uint32_t i=0;i<ReadU32(p+20);++i) {
+        std::size_t recordLength=0,len=0;std::uint64_t ns=0,key=0;std::uint8_t type=0;
+        if (!RecordAt(p+32,payloadLength,offset,&recordLength,&ns,&key,&type,&len)) return Result::Corrupt;
+        if(ns==cache->namespaceId && key==kModDataKey && type==kStringType) {
+            found=true;valueOffset=32+offset+kRecordHeaderSize;valueLength=len;
         }
-        const bool replace = existingNamespace == namespaceId && existingKey == kModDataKey &&
-                             type == kStringType;
-        matched = matched || replace;
-        if (!replace) {
-            if (recordLength > rewritten.size() - rewrittenLength) {
-                return Result::TooLarge;
-            }
-            std::memcpy(rewritten.data() + rewrittenLength, g_cache.payload.data() + offset,
-                        recordLength);
-            rewrittenLength += recordLength;
-            ++rewrittenCount;
-        }
-        offset += recordLength;
+        offset+=recordLength;
     }
-    if (remove && !matched) {
-        return Result::Success;
+    if(offset!=payloadLength) return Result::Corrupt;
+    if(found) {
+        cache->encoded.bytes.reset(new (std::nothrow) std::uint8_t[kHeaderSize+valueLength]);
+        if(!cache->encoded.bytes) return Result::IoFailure;
+        cache->encoded.length=kHeaderSize+valueLength;
+        if(valueLength) std::memcpy(cache->encoded.bytes.get()+kHeaderSize,p+valueOffset,valueLength);
+        cache->exists=true;
     }
-    if (!remove) {
-        if (value == nullptr || rewrittenLength > rewritten.size() - kRecordHeaderSize ||
-            valueLength > rewritten.size() - rewrittenLength - kRecordHeaderSize ||
-            rewrittenCount == kMaximumRecordCount) {
-            return Result::TooLarge;
-        }
-        std::uint8_t* record = rewritten.data() + rewrittenLength;
-        WriteU64(record, namespaceId);
-        WriteU64(record + 8, kModDataKey);
-        record[16] = kStringType;
-        record[17] = record[18] = record[19] = 0;
-        WriteU32(record + 20, static_cast<std::uint32_t>(valueLength));
-        if (valueLength != 0) {
-            std::memcpy(record + kRecordHeaderSize, value, valueLength);
-        }
-        rewrittenLength += kRecordHeaderSize + valueLength;
-        ++rewrittenCount;
-    }
-    return WriteCache(rewritten.data(), rewrittenLength, rewrittenCount);
+    cache->loaded=true;
+    // 旧容器没有槽信息。仅作为只读历史源；新保存带真实槽名，不覆盖旧容器。
+    return Result::Success;
 }
-
+inline Result LoadCache(Cache* cache) {
+    if(cache->loaded) return Result::Success;
+    Buffer banks[2]; Result results[2];
+    for(int i=0;i<2;++i) {
+        char name[64];FileName(cache->namespaceId,cache->slot,i,name);
+        results[i]=ReadFile(name,&banks[i]);
+        if(results[i]==Result::Success && !ValidateFile(banks[i],cache->namespaceId,cache->slot)) results[i]=Result::Corrupt;
+        if(results[i]!=Result::Success && results[i]!=Result::Missing && results[i]!=Result::Corrupt) return results[i];
+    }
+    int bank=-1;
+    if(results[0]==Result::Success) bank=0;
+    if(results[1]==Result::Success && (bank<0 || ReadU64(banks[1].bytes.get()+12)>ReadU64(banks[0].bytes.get()+12))) bank=1;
+    if(bank<0) {
+        const auto result=ImportLegacy(cache);
+        if((results[0]==Result::Corrupt || results[1]==Result::Corrupt) &&
+           result==Result::Success && !cache->exists) {
+            cache->loaded=false;return Result::Corrupt;
+        }
+        return result;
+    }
+    cache->generation=ReadU64(banks[bank].bytes.get()+12);
+    cache->exists=ReadU32(banks[bank].bytes.get()+32)==0;
+    cache->encoded=std::move(banks[bank]);cache->bank=bank;cache->loaded=true;
+    return Result::Success;
+}
+inline Result GetCache(std::uint64_t namespaceId, Cache** output) {
+    auto* storage=isaac::runtime::SessionSaveFilePort();
+    if(storage==nullptr) return Result::Unavailable;
+    if(g_cacheProvider!=storage) {ClearCache();g_cacheProvider=storage;}
+    unsigned slot=0;
+    const auto status=storage->GetSaveSlot(&slot);
+    if(!status.ok()) return MapStatus(status);
+    if(slot>3) return Result::IoFailure;
+    Cache* cache=g_cache;
+    while(cache && (cache->namespaceId!=namespaceId || cache->slot!=slot)) cache=cache->next;
+    if(!cache) {
+        cache=new (std::nothrow) Cache;
+        if(!cache) return Result::IoFailure;
+        cache->namespaceId=namespaceId;cache->slot=slot;cache->next=g_cache;g_cache=cache;
+    }
+    const Result loaded=LoadCache(cache);
+    if(loaded==Result::Success) *output=cache;
+    return loaded;
+}
+inline Result Rewrite(std::uint64_t namespaceId,const char* data,std::size_t length,bool remove) {
+    if((data==nullptr && length!=0) || length>std::numeric_limits<std::uint32_t>::max()-kHeaderSize) return Result::TooLarge;
+    Cache* cache=nullptr;const auto loaded=GetCache(namespaceId,&cache);
+    if(loaded!=Result::Success) return loaded;
+    if(remove && !cache->exists) return Result::Success;
+    if(!remove && cache->exists && length==cache->encoded.length-kHeaderSize &&
+        (length==0 || std::memcmp(cache->encoded.bytes.get()+kHeaderSize,data,length)==0)) {
+        ++g_SkippedIdenticalWrites;g_SkippedIdenticalBytes+=length;return Result::Success;
+    }
+    if(cache->generation==std::numeric_limits<std::uint64_t>::max()) return Result::IoFailure;
+    Buffer encoded;encoded.length=kHeaderSize+(remove?0:length);
+    encoded.bytes.reset(new (std::nothrow) std::uint8_t[encoded.length]);
+    if(!encoded.bytes) return Result::IoFailure;
+    auto* p=encoded.bytes.get();std::memset(p,0,kHeaderSize);
+    std::memcpy(p,kMagic,8);WriteU16(p+8,3);WriteU16(p+10,kHeaderSize);
+    WriteU64(p+12,cache->generation+1);WriteU64(p+20,namespaceId);
+    WriteU32(p+28,remove?0:static_cast<std::uint32_t>(length));WriteU32(p+32,remove?1:0);
+    WriteU32(p+36,cache->slot);
+    if(!remove && length) std::memcpy(p+kHeaderSize,data,length);
+    WriteU32(p+40,Checksum(p+kHeaderSize,encoded.length-kHeaderSize));WriteU32(p+44,Checksum(p,44));
+    const int bank=cache->bank==0?1:0;
+    char name[64];FileName(namespaceId,cache->slot,bank,name);
+    auto* storage=isaac::runtime::SessionSaveFilePort();
+    if(storage==nullptr) return Result::Unavailable;
+    // 覆盖旧的非当前代次，写入/flush/commit失败时不更新内存；当前成功代次始终保留。
+    const auto status=storage->Write(name,std::string_view(reinterpret_cast<const char*>(p),encoded.length));
+    if(!status.ok()) return MapStatus(status);
+    cache->encoded=std::move(encoded);cache->generation+=1;cache->bank=bank;
+    cache->exists=!remove;return Result::Success;
+}
 } // namespace detail
-
 inline std::uint64_t HashModNamespace(const char* name, std::size_t length) {
     std::uint64_t value = 14695981039346656037ULL;
     for (std::size_t index = 0; index < length; ++index) {
@@ -317,75 +313,28 @@ inline std::uint64_t HashModNamespace(const char* name, std::size_t length) {
     return value;
 }
 
-// 文件能力的**唯一注入点**现在在端口那一层：`isaac::runtime::SetSessionSaveFilePort()`。
-// 本模块不再自己持有提供方指针 —— 这就是"解耦合"的具体含义：
-//   * 消费者只问 `SessionSaveFilePort()`；
-//   * 谁提供（存档分区适配器 / 测试用的假端口）由注入点决定，消费者无感。
-// 传 nullptr = 明确撤销提供方（此后所有操作返回 `Unavailable`，是一等状态而不是沉默失败）。
-inline bool IsFileApiReady() {
-    return detail::HasFileApi();
+inline bool IsFileApiReady() { return detail::HasFileApi(); }
+inline void ResetCacheForTesting() { detail::ClearCache(); }
+inline Result SaveModData(std::uint64_t ns,const char* data,std::size_t length) {
+    return detail::Rewrite(ns,data,length,false);
 }
-
-inline void ResetCacheForTesting() {
-    detail::g_cache = {};
+inline Result LoadModData(std::uint64_t ns,const char** data,std::size_t* length) {
+    if(data==nullptr || length==nullptr) return Result::IoFailure;
+    *data=nullptr;*length=0;
+    detail::Cache* cache=nullptr;const auto result=detail::GetCache(ns,&cache);
+    if(result!=Result::Success) return result;
+    if(!cache->exists) return Result::Missing;
+    *data=reinterpret_cast<const char*>(cache->encoded.bytes.get()+detail::kHeaderSize);
+    *length=cache->encoded.length-detail::kHeaderSize;
+    return Result::Success;
 }
-
-inline Result SaveModData(std::uint64_t namespaceId, const char* data, std::size_t length) {
-    return detail::Rewrite(namespaceId, data, length, false);
-}
-
-inline Result LoadModData(std::uint64_t namespaceId, const char** data, std::size_t* length) {
-    if (data == nullptr || length == nullptr) {
-        return Result::IoFailure;
-    }
-    const Result loaded = detail::LoadCache();
-    if (loaded != Result::Success) {
-        return loaded;
-    }
-    for (std::size_t offset = 0; offset < detail::g_cache.payloadLength;) {
-        std::size_t recordLength = 0;
-        std::size_t valueLength = 0;
-        std::uint64_t recordNamespace = 0;
-        std::uint64_t key = 0;
-        std::uint8_t type = 0;
-        if (!detail::RecordAt(detail::g_cache.payload.data(), detail::g_cache.payloadLength, offset,
-                              &recordLength, &recordNamespace, &key, &type, &valueLength)) {
-            return Result::Corrupt;
-        }
-        if (recordNamespace == namespaceId && key == detail::kModDataKey &&
-            type == detail::kStringType) {
-            *data = reinterpret_cast<const char*>(detail::g_cache.payload.data() + offset +
-                                                  detail::kRecordHeaderSize);
-            *length = valueLength;
-            return Result::Success;
-        }
-        offset += recordLength;
-    }
-    *data = nullptr;
-    *length = 0;
-    return Result::Missing;
-}
-
-inline Result HasModData(std::uint64_t namespaceId, bool* has) {
-    if (has == nullptr) {
-        return Result::IoFailure;
-    }
-    const char* data = nullptr;
-    std::size_t length = 0;
-    const Result result = LoadModData(namespaceId, &data, &length);
-    if (result == Result::Success) {
-        *has = true;
-        return Result::Success;
-    }
-    if (result == Result::Missing) {
-        *has = false;
-        return Result::Success;
-    }
+inline Result HasModData(std::uint64_t ns,bool* has) {
+    if(has==nullptr) return Result::IoFailure;
+    const char* data=nullptr;std::size_t length=0;
+    const auto result=LoadModData(ns,&data,&length);
+    if(result==Result::Success) {*has=true;return Result::Success;}
+    if(result==Result::Missing) {*has = false;return Result::Success;}
     return result;
 }
-
-inline Result RemoveModData(std::uint64_t namespaceId) {
-    return detail::Rewrite(namespaceId, nullptr, 0, true);
-}
-
+inline Result RemoveModData(std::uint64_t ns) {return detail::Rewrite(ns,nullptr,0,true);}
 } // namespace ModPersistence

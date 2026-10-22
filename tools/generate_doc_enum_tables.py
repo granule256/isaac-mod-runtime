@@ -65,10 +65,115 @@ TABLES = (
     #   后面所有回调一个都注册不上（"小地图不出现"就是这么来的）。
     #   值：IMPORTANT=-200 / EARLY=-100 / DEFAULT=0 / LATE=100（**数值越小越早执行**）。
     "CallbackPriority",
+    # 2026-09-29 批次 207：`ProjectileFlags` / `EntityFlag` —— MCM（Mod Config Menu）的两处**加载期
+    # 与按键路径**消费者：
+    #   * `ProjectileFlags.CANT_HIT_PLAYER`（`1 << 31`）：`modconfig.lua:220` 判"这发子弹会不会打到
+    #     玩家"（`entity:ToProjectile().ProjectileFlags & ProjectileFlags.CANT_HIT_PLAYER`）；
+    #   * `EntityFlag.FLAG_NO_QUERY` / 活表那几位：`Entity:HasEntityFlags(int)` 的实参来源。
+    # 这两张表的**成员**由 `Entity:HasEntityFlags` / `EntityProjectile.ProjectileFlags` 两条 API 承接，
+    # 所以"表 nil"会让模组拿到 nil 再按位与 ⇒ 整条回调报错被摘（与 RoomShape 那次同一形状）。
+    # ★ 这两张表的值**超过 32 位**（`ProjectileFlags` 到 `1 << 48`）—— 正是本工具用 `int64` 的理由；
+    #   文档里的 `.reporplus` 徽章本工具**不过滤**（与既有 7 张表同一口径：整表发出去，
+    #   免得模组读别的常量时又拿到 nil）。
+    "ProjectileFlags",
+    "EntityFlag",
+    # 2026-09-30 批次 212：`SoundEffect` —— **又一条"模组读不到就把整条回调掐死"的实例**，
+    #   而且这次掐的是 MCM 的**声音**路径（`modconfig.lua:2950` 起
+    #   `sfx:Play(SoundEffect.SOUND_BOSS2INTRO_ERRORBUZZ, …)`）：`SoundEffect` 是 nil 时
+    #   这一行抛 `attempt to index a nil value (global 'SoundEffect')` ⇒ 那条回调当场中断
+    #   （不只是"没声音"：它后面要做的事一件都做不成）。
+    #   证据：真机读数 `dist/gdb-read-20260930-005757.txt` 的"最近 2 条 Lua 错误"第 2 条。
+    "SoundEffect",
+    # 2026-09-30 批次 217：`SeedEffect` —— **第三次同形状**（`RoomShape` → `SoundEffect` → 这一次），
+    #   而且这次卡的是**中文版 MCM 的"开菜单"本行**：
+    #   `modconfig.lua:3616` 在"显示菜单"那段里 `seeds:AddSeedEffect(SeedEffect.SEED_NO_HUD)`
+    #   （`HideHudInMenu` 打开时必经），`SeedEffect` 是 nil ⇒
+    #   `attempt to index a nil value (global 'SeedEffect')` ⇒ 那句之后的
+    #   `ModConfigMenu.IsVisible = true` **永远执行不到** ⇒ 症状是"按右摇杆菜单打不开"
+    #   （用户实测，且与输入链无关）。
+    #   证据：真机读数 `dist/gdb-read-20260930-1411-cn-menu-broken.txt`（修 `RegisterMod` 之后仍报的那条）
+    #   与修复后的 `dist/gdb-read-20260930-14xx-cn-seedeffect.txt`。
+    #   值：`SEED_NO_HUD = 10`、`NUM_SEEDS = 80`（叶尾，**没有重复键**，不需要进 DUPLICATE_LAST_WINS）。
+    "SeedEffect",
+    # 2026-10-02 批次 269：`RenderMode` —— **第四次同形状**（RoomShape → SoundEffect → SeedEffect
+    #   → 这一次），拦路虎在 BOIStageAPI15：
+    #   `scripts/stageapi/grid/customdoors.lua:415` 无条件写
+    #   `if shared.Room:GetRenderMode() == RenderMode.RENDER_NORMAL then …`，
+    #   而 `RenderMode` 是 nil 时报 `attempt to index a nil value (global 'RenderMode')`
+    #   ⇒ 那句之后的 `OverlaySprite:Render(...)` 永远执行不到（自定义门的高亮不出现），
+    #   而且整条 `MC_POST_EFFECT_RENDER` 回调在那里中断。
+    #   值：RENDER_NULL=0 / RENDER_NORMAL=1 / RENDER_SKIP=2 / RENDER_WATER_ABOVE=3 /
+    #   RENDER_WATER_REFRACT=4 / RENDER_WATER_REFLECT=5（本页**没有重复键**）。
+    #   ★ 与本批同时落地的 `Room:GetRenderMode()`（catalog 0x04010024）是**同一件事的两半**：
+    #     少了这张表，那条 API 的返回值也仍然用不上。
+    "RenderMode",
+    # 2026-10-02 批次 292：`BackdropType` —— 与本批的 `Room:GetBackdropType()` 是**同一件事的两半**
+    #   （与 269 那批的 `RenderMode` + `Room:GetRenderMode()` 逐字同形）：少了这张表，
+    #   `Room:GetBackdropType()` 的返回值**也用不上**。
+    #   消费者的证据：`MusicModCallback/scripts/mmc/repentance.lua:431` 起用
+    #   `[BackdropType.BASEMENT] = Music.MUSIC_BASEMENT` 一类**整张以枚举值为键的映射表**
+    #   （`BackdropType` 是 nil 时那些键全成 nil ⇒ 选曲静默错），同一文件的 `:467` 又正是
+    #   `Game():GetRoom():GetBackdropType()` 的调用点；`BOIStageAPI15` 的
+    #   `customFloorGen.lua:874` 拿它跟自定义楼层的 `Backdrop` 比。
+    #   ★ 页里**没有 `BACKDROP_WATER`** —— 32 是 `MINES`（`Room::pre_render_pits` 里的
+    #     `cmp w8,#0x20` 判的就是"矿层"，之后才看 `Flags` bit5 决定画不画水坑）。
+    "BackdropType",
+    # 2026-10-03 批次 297：`GameStateFlag` / `LevelStateFlag` —— 与本批落地的
+    #   `Game:GetStateFlag(int Flag)` / `Level:GetStateFlag(int Flag)` 是**同一件事的两半**
+    #   （第五次同形状：`RenderMode` → `BackdropType` → 这一次一对）。
+    #   消费者证据：模组是**拿枚举常量当实参**的，缺表就是那一行直接抛错：
+    #     * `ChallengeAPI/.../stage_transition.lua:34`
+    #       `Game():SetStateFlag(GameStateFlag.STATE_BACKWARDS_PATH_INIT, true)`；
+    #     * `ChallengeAPI` / `BOIStageAPI15` / `MusicModCallback` 多处
+    #       `GetStateFlag(GameStateFlag.STATE_*)`（`STATE_BACKWARDS_PATH` / `STATE_MAUSOLEUM_HEART_KILLED`）；
+    #     * `MinimapAPI` / `MusicModCallback` / `BOIStageAPI15` 多处
+    #       `GetStateFlag(LevelStateFlag.STATE_MAP_EFFECT / STATE_COMPASS_EFFECT /
+    #        STATE_MINESHAFT_ESCAPE / STATE_LEVEL_START_TRIGGERED)`。
+    #   ★ 两张表**都要**：`GameStateFlag` 与 `LevelStateFlag` 是**两个不同的枚举**
+    #     （前者在 `Game` 上、后者在 `Level` 上），模组哪一边都可能用。
+    #   ★ `GameStateFlag.NUM_STATE_FLAGS` 在页里出现**两次**（`.rep` 档 49 / `.repplus` 档 53）
+    #     ⇒ 已按规程登记进 `DUPLICATE_LAST_WINS`（取 53，与 `SoundEffect` / `BackdropType` 同口径）。
+    #     `LevelStateFlag` **没有**重复键（`NUM_STATE_FLAGS` 只在末尾出现一次，值 24）。
+    "GameStateFlag",
+    "LevelStateFlag",
+    # 2026-10-03 批次 301：`CacheFlag` —— 与本批落地的
+    #   `EntityPlayer:AddCacheFlags(CacheFlag)`（34 处 / 4 个模组）是**同一件事的两半**
+    #   （第六次同形状：`RenderMode` → `BackdropType` → `GameStateFlag`/`LevelStateFlag` → 这一次）。
+    #   消费者证据：模组是**拿枚举常量当实参**的，缺表就是那一行直接抛错、整条回调被摘：
+    #     * `Trinity/main.lua:754`
+    #       `player:AddCacheFlags(CacheFlag.CACHE_DAMAGE | CacheFlag.CACHE_FIREDELAY)`；
+    #     * `RepentancePlus/.../main.lua:758/1441` 的 `CacheFlag.CACHE_LUCK`、
+    #       `:1139/1144` 的 `CACHE_DAMAGE` / `CACHE_FIREDELAY`、`:1534` 的 `CACHE_SHOTSPEED`；
+    #     * `IsaacOnTwitchReloaded/scripts/{mechanics,callbacks,passiveItems,events,trinkets}.lua`
+    #       与 `BOIStageAPI15/scripts/stageapi/stage/transitions.lua` 的
+    #       `CACHE_ALL` / `CACHE_SPEED` / `CACHE_FLYING`；
+    #     * `IsaacOnTwitchReloaded/main.lua:700` 甚至把值存在自己的表里
+    #       （`IOTR.Items.Passive[key].cacheFlag`）⇒ 表是 nil 时**静默变成 nil 掩码**。
+    #   ★ 那些值与本批的 Switch 侧取证**逐位对上**（打在同一个字 `Entity_Player+0x1958` 上）：
+    #     `CACHE_DAMAGE=1<<0` / `CACHE_FIREDELAY=1<<1` / `CACHE_SHOTSPEED=1<<2` / `CACHE_RANGE=1<<3` /
+    #     `CACHE_SPEED=1<<4` 正好是 `EvaluateItems` 里 `tbnz w8,#0/#1/#3/#4` + `tbz w8,#0x2` 的位号，
+    #     `CACHE_LUCK=1<<10` 正是 `DonateLuck` 往里 OR 的 `0x400`，`CACHE_WEAPON=1<<8` 是 `tbz w8,#0x8`。
+    #   ★ 本页**没有重复键** ⇒ 不需要进 `DUPLICATE_LAST_WINS`。
+    "CacheFlag",
 )
 
 #: 与 `pc_lua_enum_data.cpp` 的表名列表比对用的对方文件。
 FROZEN_TABLE_IMPLEMENTATION = ROOT / "runtime" / "source" / "program" / "pc_lua_enum_data.cpp"
+
+#: **登记在案**的"同一个枚举名在文档里合法地出现两次、且值不同"的键（口径见解析处的注释）。
+#: 这些页按"值升序 + DLC 档递增"排 ⇒ 取**最后一处** = 目标版本（Rep+ / 1.7.9b）的值。
+#: 例：`SoundEffect.NUM_SOUND_EFFECTS`（`.rep` = 833、`.repplus` = **1091**）。
+#: 没登记的重复键一律判错（保持"有歧义就红"）。
+DUPLICATE_LAST_WINS = frozenset({
+    "SoundEffect.NUM_SOUND_EFFECTS",
+    # 批次 292（2026-10-02）：`BackdropType.NUM_BACKDROPS` —— 页里出现两次，
+    # `.abrep` 徽章那一行是 **61**、`.repplus` 徽章那一行是 **63**（另有 `DEATHMATCH = 61`、
+    # `LIL_PORTAL = 62` 只有 Rep+ 才有）⇒ 目标版本取 63（与 `SoundEffect` 同口径）。
+    "BackdropType.NUM_BACKDROPS",
+    # 批次 297（2026-10-03）：`GameStateFlag.NUM_STATE_FLAGS` —— 页里出现两次
+    # （`.rep` 徽章那一行是 **49**、`.repplus` 徽章那一行是 **53**）⇒ 目标版本取 53。
+    "GameStateFlag.NUM_STATE_FLAGS",
+})
 
 HEADER_PATH = ROOT / "runtime" / "source" / "program" / "doc_lua_enum_data.hpp"
 IMPLEMENTATION_PATH = ROOT / "runtime" / "source" / "program" / "doc_lua_enum_data.cpp"
@@ -133,7 +238,22 @@ def parse_table(table: str, source: pathlib.Path) -> list[tuple[str, int]]:
         value = _evaluate_expression(raw_value, table, raw_key)
         if raw_key in seen:
             if seen[raw_key] != value:
-                raise DocEnumError(f"{table}.{raw_key} 出现两次且值不同（{seen[raw_key]} / {value}）")
+                # ★ 2026-09-30 批次 212：文档里同一个枚举名**合法地**出现两次的情况 ——
+                #   "计数常量"每个 DLC 档各一行（例：`SoundEffect.NUM_SOUND_EFFECTS`
+                #   `.rep` 档 = 833、`.repplus` 档 = 1091）。这些页是按"值升序 + DLC 档递增"排的
+                #   ⇒ **最后一行就是本任务目标版本（Rep+ / 1.7.9b）的值**。
+                #   ★ 只有**登记在案**的键允许"取最后一处"；其余重复仍然判错 ——
+                #     这不是"静默取一个"，而是"有歧义就红，除非明确登记了怎么解"。
+                if f"{table}.{raw_key}" not in DUPLICATE_LAST_WINS:
+                    raise DocEnumError(
+                        f"{table}.{raw_key} 出现两次且值不同（{seen[raw_key]} / {value}）"
+                        f"—— 要么修文档，要么把它登记进 DUPLICATE_LAST_WINS 并写明理由")
+                seen[raw_key] = value
+                for index, (key, _old) in enumerate(entries):
+                    if key == raw_key:
+                        entries[index] = (raw_key, value)
+                        break
+                continue
             continue                      # 同值重复：保留第一次
         seen[raw_key] = value
         entries.append((raw_key, value))
@@ -178,7 +298,11 @@ def render_header(digest: str) -> str:
         "// Generated by tools/generate_doc_enum_tables.py; do not edit manually.",
         f"// docs snapshot SHA-256: {digest}",
         "//",
-        "// 这些表来自 `analysis/isaacdocs-snapshot/docs/enums/`（仓库自带的 PC 文档快照），",
+        # ★ 批次 292（2026-10-02）修正：这里原先写的是 `analysis/isaacdocs-snapshot/docs/enums/`
+        #   —— 那正是本工具**刻意不读**的目录（`analysis/` 被 gitignore）。真值源是
+        #   `DOC_DIR`（`tools/pc_enum_docs/`）里那批**逐字节 vendor 进仓库**的页，
+        #   生成物头部的凭据 `docs snapshot SHA-256` 指的也是它们。
+        "// 这些表来自 `tools/pc_enum_docs/`（逐字节 vendor 进仓库的 PC 文档枚举页），",
         "// 是 `pc_lua_enum_data` 那 20 张之外的**补充** —— 值用 `std::int64_t`，",
         "// 因为 `DamageFlag.DAMAGE_SPAWN_RUNE` 这类是 `1 << 32`，用 32 位会静默回绕成 0。",
         "#pragma once",

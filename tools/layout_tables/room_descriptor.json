@@ -10,7 +10,8 @@
     "  confirmed —— 语义有独立锚点（例如函数名就说明了它要判断什么），且指令形态吻合；",
     "  candidate —— 偏移与形态确定，但**名字**只有间接依据（不可用于对外 API，只作登记）；",
     "  structural —— 只说明结构（哪里是指针/容器、标量区到哪里为止），不声称字段名。",
-    "真机读数（dist/room-probe-*.json）也是证据：生成器的 --verify 会把表里引用的观察到的那几个值重新读一遍（离线，不需要设备）。"
+    "真机读数（dist/room-probe-*.json）也是证据：生成器的 --verify 会把表里引用的观察到的那几个值重新读一遍（离线，不需要设备）。",
+    "2026-10-13追加：社区1.60恢复的真实字段；PC/NS原件与消费者见dist/callback-rplus-20261013/methods-api、health-api。"
   ],
   "rows": [
     {
@@ -93,6 +94,55 @@
           "address": "0x003d0e8c",
           "immediate": 34,
           "why": "与常量 0x22 比较；字段名未定 ⇒ 只登记、不进 API"
+        }
+      ]
+    },
+    {
+      "name": "Data.Doors",
+      "kind": "nested_bitset",
+      "offset": 64,
+      "width": 8,
+      "nested_in": "Data",
+      "confidence": "confirmed",
+      "semantic": "房间定义里的**门位掩码**（PC 侧 `RoomConfig::Room.Doors`：`DoorSlotFlag` 的 `LEFT0 = 1 << DoorSlot.LEFT0` … `DOWN1 = 1 << DoorSlot.DOWN1`，见 `analysis/isaacdocs-snapshot/docs/RoomConfig_Room.md:29`）。★ 与同一张表里描述符 `+0x20` 的 `AllowedDoors`（**运行时**那一份，由 `Level::precalc_allowed_doors` 现算）**不是同一格**：这一格是 XML 定义里『哪些门位合法』，与门此刻在不在无关 ⇒ `Room:IsDoorSlotAllowed(Slot)` 读的就是它（PC 在 `Data+0x38`，Switch 在 `Data+0x40`，**不许平移**）",
+      "evidence": [
+        {
+          "kind": "access",
+          "function": "_ZN15IsaacRepentance5Level21precalc_allowed_doorsERNS_14RoomDescriptorE",
+          "address": "0x003d6a14",
+          "offset": 64,
+          "width": 8,
+          "why": "x9 = [x20+0x10] = Data（0x3D6A08）；本条 `ldr x9,[x9,#0x40]` 之后 0x3D6A18 `tst x9,x8`、x8 = `1 << 门位`（0x3D6A0C `lsl x8,x12,x24`，x24 走 0..7）⇒ 引擎自己就是按门位逐位测这张掩码"
+        },
+        {
+          "kind": "access",
+          "function": "_ZN15IsaacRepentance5Level21get_room_neighbor_posEiNS_9eDoorSlotE",
+          "address": "0x003d8254",
+          "offset": 64,
+          "width": 8,
+          "why": "x9 = [x0+0x10] = Data（0x3D824C，x0 是 `Level::GetRoomByIdx` 的返回值）；0x3D8258 `lsr x8,x8,x19`（x19 = 门位）→ 0x3D825C `tbz w8,#0x0` ⇒ 函数名即语义：『这个方向有没有门』。x9 真是 Data 的旁证 = 同函数 0x3D8288 `ldr w11,[x9,#0x5c]` 读的是本表已确认的 `Data.Shape`"
+        },
+        {
+          "kind": "access",
+          "function": "_ZN15IsaacRepentance4Room18TrySpawnSecretExitEbb",
+          "address": "0x00464d44",
+          "offset": 64,
+          "width": 8,
+          "why": "先 0x464D40 `ldr x9,[x8,#0x10]`（描述符 x8 → Data）再本条；0x464D48 `tst x9,x10`（x10 = `1 << 门位`，门位由 0x464D28 `mov w1,#0x8` 之后的 `RNG::Random(8)` 抽）通过之后，才在 0x464D60 去测描述符 `+0x20` 的**运行时**掩码 ⇒ 这一处把两格的先后关系写死了"
+        },
+        {
+          "kind": "semantic",
+          "function": "_ZN15IsaacRepentance5Level21get_room_neighbor_posEiNS_9eDoorSlotE",
+          "address": "0x003d825c",
+          "immediate": 0,
+          "why": "把掩码按门位右移之后**单独测第 0 位** ⇒ 这一格里每一位各自对应一个门位（不是计数、不是枚举）"
+        },
+        {
+          "kind": "semantic",
+          "function": "_ZN15IsaacRepentance4Room18TrySpawnSecretExitEbb",
+          "address": "0x00464d38",
+          "immediate": 1,
+          "why": "在它上面构造 `1 << 门位`（0x464D38 `mov w10,#0x1` → 0x464D3C `lsl x10,x10,x22`）再 `tst` ⇒ 它是位掩码而不是标量"
         }
       ]
     },
@@ -380,6 +430,29 @@
           "address": "0x0046ac70",
           "immediate": 65536,
           "why": "★ 第二个取值锚点：参数为真时 `orr w8, w8, #0x10000` 置 **bit16**，为假时 0x46AC78 `and w8, w8, #0xfffeffff` 清它，再 0x46AC7C `str w8, [x0, #0x50]` 写回 —— `1<<16` 更不可能是布尔"
+        },
+        {
+          "kind": "access",
+          "function": "_ZN15IsaacRepentance4Room15pre_render_pitsEv",
+          "address": "0x0047f044",
+          "offset": 80,
+          "width": 4,
+          "why": "★ 批次 291（2026-10-02）补的**第三处独立读者**：`ldr x8, [x0, #0x8]`（本对象里的描述符指针）+ 本条 `ldrb w8, [x8, #0x50]` —— 同一函数在 0x47F030 先读 `[x0, #0x21b0]`（内嵌 `Backdrop` 的 `eBackdrop`）与 `0x20`（= `BACKDROP_WATER`）比较，两条合起来就是『这是水层房间、且这一位置着』才走水坑渲染"
+        },
+        {
+          "kind": "semantic",
+          "function": "_ZN15IsaacRepentance4Room15pre_render_pitsEv",
+          "address": "0x0047f048",
+          "immediate": 5,
+          "why": "★ **第三个取值锚点（bit5 = `HAS_WATER`）**：本条 `tbz w8, #0x5` —— 位没置就直接跳到函数尾、**不渲染水坑**。函数名（`pre_render_pits` = 画坑之前）与这条判据一起把『这间房的坑里有没有水』钉在 bit5 上"
+        },
+        {
+          "kind": "access",
+          "function": "_ZN15IsaacRepentance4Room16pre_render_waterEv",
+          "address": "0x0047f6c4",
+          "offset": 80,
+          "width": 4,
+          "why": "★ 第四处独立读者（与 `pre_render_pits` **逐字同形**的写法）：`ldr x8, [x21, #0x8]`（描述符）+ 本条 `ldrb w8, [x8, #0x50]`，紧接着 0x47F6C8 `tbz w8, #0x5` 位没置就不渲染水面 ⇒ 两个不同函数、同一个位、同一个语义"
         }
       ]
     },
@@ -422,9 +495,138 @@
           "address": "0x0045f980",
           "immediate": 9,
           "why": "★ 取值锚点：读到之后 `sub w8, w8, #0x9` + `cmp w8, #0x3` + `b.hi`（不命中就跳过一整段特判）⇒ 只有 **9..12** 四个取值走 L 形房间的特判，与 PC 的 `RoomShape`（9..12 正好是四个 L 形）逐值吻合 ⇒ 这一格是形状枚举"
+        },
+        {
+          "kind": "access",
+          "function": "_ZNK15IsaacRepentance4Room13IsLShapedRoomEv",
+          "address": "0x00484544",
+          "offset": 92,
+          "width": 4,
+          "why": "★ 批次 290（2026-10-02）补的**具名读者**：整个函数（0x48453C..0x484557，28 字节）就是 `ldr x8,[x0,#0x8]` → `ldr x8,[x8,#0x10]` → `ldr w8,[x8,#0x5c]` 三跳 + `sub #0x9` + `cmp #0x4` + `cset w0,lo` + `ret` —— 函数名即语义（『这个房间是不是 L 形』），而 L 形正好是形状枚举的 9..12 ⇒ 这两跳+这一格就是 `Room:GetRoomShape()` 要读的东西（PC 侧的 `Room:GetRoomShape @ 0x444C30` 是 `[ecx+0x4]` → `[eax+0x10]` → `[eax+0x48]`，同一形状、同一跳数）"
+        },
+        {
+          "kind": "semantic",
+          "function": "_ZNK15IsaacRepentance4Room13IsLShapedRoomEv",
+          "address": "0x00484548",
+          "immediate": 9,
+          "why": "★ 取值锚点（第二条独立锚点）：`sub w8, w8, #0x9` 之后 `cmp w8, #0x4` + `cset w0, lo` ⇒ 真值当且仅当形状 ∈ **9..12**，与 `RoomShape` 的 `ROOMSHAPE_LTL/LTR/LBL/LBR`（9/10/11/12）四个 L 形逐值相等"
+        },
+        {
+          "kind": "access",
+          "function": "_ZNK15IsaacRepentance4Room16GetLRoomAreaDescEv",
+          "address": "0x00484590",
+          "offset": 92,
+          "width": 4,
+          "why": "★ 第三个具名读者（同一函数在 0x484584/0x48458C 走同一条两跳链）：`ldr w8, [x8, #0x5c]` 取到形状后拿去索引一张 `lsl #5`（32 字节一项）的静态表算 L 形房间的分区描述"
+        },
+        {
+          "kind": "semantic",
+          "function": "_ZNK15IsaacRepentance4Room16GetLRoomAreaDescEv",
+          "address": "0x00484594",
+          "immediate": 9,
+          "why": "★ 同一锚点的另一半：`sub w9, w8, #0x9` + `cmp w9, #0x3` + `b.hi`（越界直接走非 L 形分支）⇒ 形状的**有效区间是 9..12**，与 `IsLShapedRoom` 那条逐值一致"
+        }
+      ]
+    },
+    {
+      "name": "DecorationSeed",
+      "kind": "u32",
+      "offset": 100,
+      "width": 4,
+      "confidence": "confirmed",
+      "semantic": "**这间房的「装饰种子」**：引擎用它驱动房间的**背景/装饰**生成（地板花纹、墙面细节一类）。PC 侧 `Room:GetDecorationSeed()` 读的就是这一格（PC 在 `descriptor+0x58`）。★★ 最硬的证据是 `Room::LoadBackdropGraphics`：同一段里先 `ldr x8,[x20,#0x8]` 把**描述符**取进 x8，紧接着 `ldr w1,[x8,#0x64]` 再 `bl Backdrop::SetSeed` —— 这一格就是喂给**背景对象**的种子。★ `Room::Init` 还用它建了两个 `RNG(seed, 用途)`（用途 6 与 35）；★ `GameState::write_Room` 把它**序列化**进存档（种子必须持久：读档后同一间房要长回原样）。★ PC 的绑定本体（`0x4977F0`）是 `mov eax,[ecx+4]`（描述符）→ **为空则直接返回 0** → `mov eax,[eax+0x58]` ⇒ 降级值 0 有据。",
+      "evidence": [
+        {
+          "kind": "access",
+          "function": "_ZN15IsaacRepentance4Room20LoadBackdropGraphicsEv",
+          "address": "0x0045abf4",
+          "offset": 100,
+          "width": 4,
+          "why": "★★ **决定性读者**：0x45ABEC `ldr x8,[x20,#0x8]`（描述符）→ `ldr w1,[x8,#0x64]` → 0x45AC04 `bl Backdrop::SetSeed` ⇒ 这一格是**背景（装饰）的种子**；基址在同一段里就定死了，不靠推测"
+        },
+        {
+          "kind": "access",
+          "function": "_ZN15IsaacRepentance4Room4InitEPKNS_10RoomConfig4RoomEPNS_14RoomDescriptorE",
+          "address": "0x0045ccdc",
+          "offset": 100,
+          "width": 4,
+          "why": "**第二处读者**：`Room::Init` 用它建 `RNG(seed, 35)`（同一函数里还读 `[x20,#0x50]`/`[x20,#0x51]` = 描述符的 `Flags` ⇒ x20 就是描述符，基址确定）"
+        },
+        {
+          "kind": "access",
+          "function": "_ZN15IsaacRepentance9GameState10write_RoomERNS_19GameStateRoomConfigERKNS_14RoomDescriptorERNS_11GameStateIOE",
+          "address": "0x003689a0",
+          "offset": 100,
+          "width": 4,
+          "why": "**序列化读者**：`GameState::write_Room` 逐个 `ldr w8,[x19,#偏移]` 后交给 `GameStateIO` —— 这一格在**会存档**的字段表里（`0x0/0x4/0x8/0xC/0x48/0x4C/0x50/0x58/0x60/0x64/0x68/0x6C/0x70`）⇒ 它必须持久（种子要能在读档后重现同一间房）"
+        },
+        {
+          "kind": "semantic",
+          "function": "_ZN15IsaacRepentance4Room4InitEPKNS_10RoomConfig4RoomEPNS_14RoomDescriptorE",
+          "address": "0x0045cce0",
+          "immediate": 35,
+          "why": "★ **取值锚点**：`mov w2, #0x23`（35）—— `RNG::RNG(seed, 用途)` 的第二个实参（这一格专用于这一族用途），把它与「随机一个用途无关的数」区分开"
+        }
+      ]
+    },
+    {
+      "name": "SpawnSeed",
+      "kind": "u32",
+      "offset": 104,
+      "width": 4,
+      "confidence": "confirmed",
+      "semantic": "**这间房的「出怪种子」**：引擎用它驱动房间的**内容生成/随机挑格子**（`Room::Init` 里用它建 RNG 后挑一个房间内随机下标，**抽签次数还按 `Game::IsHardMode()` 加一** —— 硬核模式影响出怪，这一条本身就是「出怪侧」的语义证据）。PC 侧 `Room:GetSpawnSeed()` 读的就是这一格（PC 在 `descriptor+0x5C`）。★ 它与相邻的 `DecorationSeed`（`+0x64`）构成**种子对**，顺序与 PC 一致（装饰在前、出怪在后）。★ `GameState::write_Room` 也把它**序列化**（必须持久）。★ PC 的绑定本体（`0x4276D0`）同样是「描述符为空 ⇒ 返回 0」⇒ 降级值 0 有据。",
+      "evidence": [
+        {
+          "kind": "access",
+          "function": "_ZN15IsaacRepentance4Room4InitEPKNS_10RoomConfig4RoomEPNS_14RoomDescriptorE",
+          "address": "0x0045cfb0",
+          "offset": 104,
+          "width": 4,
+          "why": "**具名读者**：`Room::Init` 里 `ldr w1,[x8,#0x68]` + `mov w2,#0x11`（17）建 RNG，紧接着 0x45CFC4 `bl Game::IsHardMode()`、按结果决定抽 1 次还是 2 次，再 `RNG::Next` + `Room::GetRandomTileIndex` 挑一个房间内随机下标存进房间字段 ⇒ 出怪侧"
+        },
+        {
+          "kind": "access",
+          "function": "_ZN15IsaacRepentance4Room4InitEPKNS_10RoomConfig4RoomEPNS_14RoomDescriptorE",
+          "address": "0x0045d280",
+          "offset": 104,
+          "width": 4,
+          "why": "**同一函数的第二处**：同样的 `ldr w1,[x8,#0x68]`（用途 61）—— 两处都拿它当种子，说明这一格是「这一族随机数的源头」"
+        },
+        {
+          "kind": "access",
+          "function": "_ZN15IsaacRepentance9GameState10write_RoomERNS_19GameStateRoomConfigERKNS_14RoomDescriptorERNS_11GameStateIOE",
+          "address": "0x003689d4",
+          "offset": 104,
+          "width": 4,
+          "why": "**序列化读者**：与 `DecorationSeed` 同一张「会存档的字段表」里（相邻的两条 `ldr`）"
+        },
+        {
+          "kind": "semantic",
+          "function": "_ZN15IsaacRepentance4Room4InitEPKNS_10RoomConfig4RoomEPNS_14RoomDescriptorE",
+          "address": "0x0045cfb4",
+          "immediate": 17,
+          "why": "★ **取值锚点**：`mov w2, #0x11`（17）—— 这一格专用的 RNG 用途号"
+        }
+      ]
+    },
+    {
+      "name": "AwardSeed",
+      "kind": "i32",
+      "offset": 108,
+      "width": 4,
+      "confidence": "confirmed",
+      "semantic": "固定PC getter与NS原生独立消费者确认；寄存器锚点及完整反汇编保存在本批证据。",
+      "evidence": [
+        {
+          "kind": "access",
+          "function": "_ZN15IsaacRepentance4Room15SpawnClearAwardEv",
+          "address": "0x00456844",
+          "offset": 108,
+          "width": 4,
+          "why": "固定PC getter与NS原生独立消费者确认；寄存器锚点及完整反汇编保存在本批证据。"
         }
       ]
     }
-  ],
-  "source_table": "room_descriptor"
+  ]
 }

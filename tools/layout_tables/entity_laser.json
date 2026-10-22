@@ -1,0 +1,60 @@
+{
+  "schema": "isaac-layout-table/1",
+  "build_id": "91C73FDD575061318D68886316AFEAC72388B2AB",
+  "struct": "Entity_Laser",
+  "source_table": "entity_laser",
+  "note": [
+    "`Entity_Laser` 的**最大射程**：`+0x4F8`（float）。`0` = 关闭裁剪（照射程打满）。",
+    "",
+    "为什么单开一张表：`runtime_constants.hpp` 里这个常量是批次 341 新加的，`Entity` 那张表只登记",
+    "  `Entity` 基类的字段（`Entity_Laser` 是子类），所以按 `entity_npc.json` / `grid_entity_door.json`",
+    "  的先例另起一张，服务的是台账（`api_definition_of_done.json` 里 `provenance.field` =",
+    "  `Entity_Laser.MaxDistance`）与复核。",
+    "★ 与那两张同一条处置：**本表不生成头文件**（C++ 侧用 `runtime_constants.hpp` 的常量），",
+    "  复核命令是 `python3 tools/build_layout_table.py --table tools/layout_tables/entity_laser.json --verify`。",
+    "",
+    "★ 三格的证据都是**具名函数**（不是「某处有个 float」）：两条消费者 `Entity_Laser::update_laser` /",
+    "  `init_laser` 的「裁剪射程」，一条写入方 `Weapon_Laser::shoot` 把「两控制点距离」写进来。",
+    "★ 语义由契约散文钉住：`tools/pc_contract_docs/EntityLaser.md:126`",
+    "  「Used to trim brimstone for Azazel (0 - off)」—— 与两条消费者里的 `fcmp s0, #0.0` + `b.le`",
+    "  （≤0 就不裁剪）逐字对应。",
+    "★ PC 的对应格在 `Entity_Laser + 0x420`（绑定本体 `0x4275B0` = `movss xmm0,[ebp+8];",
+    "  movss [ecx+0x420],xmm0; ret 4`）—— 两边偏移数值**完全不同，不许平移**。"
+  ],
+  "rows": [
+    {
+      "name": "MaxDistance",
+      "kind": "float",
+      "offset": 1272,
+      "width": 4,
+      "confidence": "confirmed",
+      "semantic": "**激光的最大射程**（float，单位与 `Vector2::Length` 同；`0` = 不裁剪）。PC 侧 `EntityLaser:SetMaxDistance(float)` 写的就是这一格（PC 在 `Entity_Laser+0x420`；★ 数值不许平移）。★ 为什么能定案：① 契约散文 `EntityLaser.md:126`「Used to trim brimstone for Azazel (0 - off)」；② 两条具名消费者 `Entity_Laser::update_laser` / `init_laser` 都在读它之后 `fcmp s0,#0.0; b.le`（≤0 跳过裁剪）、否则把端点 `Vector2::Resized` 夹到「起点 + 方向 × 本格」；③ 一条具名写入方 `Weapon_Laser::shoot` 用 `Vector2::Length` 算出「两控制点距离」后 `str s0,[x28,#0x4f8]`。",
+      "evidence": [
+        {
+          "kind": "access",
+          "function": "_ZN15IsaacRepentance12Entity_Laser12update_laserEv",
+          "address": "0x000f9cb8",
+          "offset": 1272,
+          "width": 4,
+          "why": "**具名消费者（函数名即语义）**：`ldr s0, [x19, #0x4f8]` 紧跟 `fcmp s0,#0.0` + `b.le`（≤0 直接跳过裁剪）⇒ 它决定「要不要裁剪射程」；后续与 `Vector2::DistanceSquared` 比、超了就用 `Vector2::Resized` 把端点夹回本格限定的长度"
+        },
+        {
+          "kind": "access",
+          "function": "_ZN15IsaacRepentance12Entity_Laser10init_laserEv",
+          "address": "0x000f8718",
+          "offset": 1272,
+          "width": 4,
+          "why": "**第二处独立消费者**：`Entity_Laser::init_laser()` 里同款 `ldr s0, [x19, #0x4f8]` + `fcmp s0,#0.0` + `b.le` —— 初始化时走同一套裁剪"
+        },
+        {
+          "kind": "access",
+          "function": "_ZN15IsaacRepentance12Weapon_Laser5shootERKN4KAGE4Math7Vector2ES5_jfPNS_6Weapon15MultiShotParamsEiRNSt3__16vectorIPNS_12Entity_LaserENS9_9allocatorISC_EEEE",
+          "address": "0x004b8724",
+          "offset": 1272,
+          "width": 4,
+          "why": "**具名写入方**：`Weapon_Laser::shoot` 里 `bl Vector2::Length`（`0x4B8718`）算完长度，`str s0, [x28, #0x4f8]` 把它写进本格 ⇒ 「发射时按两控制点的实际距离设定最大射程」"
+        }
+      ]
+    }
+  ]
+}

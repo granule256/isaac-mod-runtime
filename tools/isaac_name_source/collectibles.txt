@@ -1,0 +1,723 @@
+# 由 tools/generate_isaac_name_tables.py --import-xml 从游戏 dump 提取。
+# 来源：rp_patch/resources/items.xml（编号+键，权威） + resources/items.xml（补英文原文）
+#       + rp_patch/resources/stringtable.sta（键 → 英文；★ 语言位置要剔除 `Key` 伪语言那一档，见 `parse_stringtable` 的注释）。
+# 格式：名字<TAB>编号[<TAB>堕落编号]，按名字升序。用途：Isaac.GetItemIdByName（PC 契约 tools/pc_contract_docs/Isaac.md:274）。
+# 第三列只有角色表有（`players.xml` 的 id 21..40 是堕落角色、名字与本体重复）。
+# 名字里的反斜杠/制表符/换行/回车/问号已转义（`\\` / `\t` / `\n` / `\r` / `\?`）。
+120 Volt	559
+1up!	11
+20/20	245
+2Spooky	554
+3 Dollar Bill	191
+4.5 Volt	647
+7 Seals	526
+8 Inch Nails	359
+9 Volt	116
+<3	15
+\?\?\?'s Only Friend	320
+A Bar of Soap	564
+A Dollar	18
+A Lump of Coal	132
+A Pony	130
+A Pound of Flesh	672
+A Quarter	74
+A Snack	346
+Abaddon	230
+Abel	188
+Abyss	706
+Acid Baby	491
+Act of Contrition	601
+Adrenaline	493
+Akeldama	641
+Alabaster Box	585
+Almond Milk	561
+Analog Stick	465
+Anarchist Cookbook	65
+Anemic	214
+Angelic Prism	528
+Angry Fly	511
+Anima Sola	722
+Ankh	161
+Anti-Gravity	222
+Apple!	443
+Aquarius	308
+Aries	300
+Astral Projection	677
+Athame	408
+Azazel's Rage	699
+BBF	272
+BFFS!	247
+BOGO Bombs	250
+BackStabber	506
+Bag of Crafting	710
+Ball of Bandages	207
+Ball of Tar	231
+Battery Pack	603
+Belly Button	458
+Belly Jelly	690
+Berserk!	704
+Best Bud	274
+Best Friend	136
+Betrayal	391
+Big Chubby	473
+Big Fan	279
+Binge Eater	664
+Binky	438
+Bird Cage	610
+Bird's Eye	616
+Birthright	619
+Black Candle	260
+Black Hole	512
+Black Lotus	226
+Black Powder	420
+Blank Card	286
+Blanket	535
+Blood Bag	119
+Blood Bombs	614
+Blood Clot	254
+Blood Oath	569
+Blood Puppy	565
+Blood Rights	186
+Blood of the Martyr	7
+Bloodshot Eye	509
+Bloody Gust	695
+Bloody Lust	157
+Blue Cap	342
+Blue Map	246
+Bob's Brain	273
+Bob's Curse	140
+Bob's Rotten Head	42
+Bobby-Bomb	125
+Boiled Baby	607
+Bomb Bag	131
+Bomber Boy	353
+Bone Spurs	683
+Book of Revelations	78
+Book of Secrets	287
+Book of Shadows	58
+Book of Virtues	584
+Book of the Dead	545
+Boom!	19
+Booster Pack	624
+Bot Fly	629
+Box	198
+Box of Friends	357
+Box of Spiders	288
+Bozo	513
+Breakfast	25
+Breath of Life	326
+Brimstone	118
+Brimstone Bombs	646
+Brittle Bones	549
+Broken Modem	514
+Broken Shovel	550
+Broken Watch	337
+Brother Bobby	8
+Brown Nugget	504
+Bucket of Lard	129
+Buddy in a Box	518
+Bum Friend	144
+Bumbo	385
+Bursting Sack	377
+Butt Bombs	209
+Butter Bean	294
+C Section	678
+Caffeine Pill	340
+Cain's Other Eye	319
+Cambion Conception	412
+Camo Undies	497
+Cancer	301
+Candy Heart	671
+Capricorn	307
+Car Battery	356
+Card Reading	660
+Cat-o-nine-tails	165
+Celtic Cross	162
+Censer	387
+Ceremonial Robes	216
+Champion Belt	208
+Chaos	402
+Charged Baby	372
+Charm of the Vampire	62
+Chemical Peel	154
+Chocolate Milk	69
+Circle of Protection	423
+Clear Rune	263
+Clicker	482
+Compost	480
+Compound Fracture	453
+Cone Head	457
+Consolation Prize	644
+Contagion	466
+Continuum	369
+Contract from Below	241
+Converter	296
+Coupon	521
+Crack Jacks	354
+Crack the Sky	160
+Cracked Orb	675
+Cricket's Body	224
+Cricket's Head	4
+Crooked Penny	485
+Crown Of Light	415
+Crystal Ball	158
+Cube Baby	652
+Cube of Meat	73
+Cupid's Arrow	48
+Curse of the Tower	371
+Cursed Eye	316
+D infinity	489
+D1	476
+D10	285
+D100	283
+D12	386
+D20	166
+D4	284
+D7	437
+D8	406
+Dad's Key	175
+Dad's Lost Coin	455
+Dad's Note	668
+Dad's Ring	546
+Daddy Longlegs	170
+Damocles	577
+Dark Arts	705
+Dark Bum	278
+Dark Matter	259
+Dark Princes Crown	442
+Dataminer	481
+Dead Bird	117
+Dead Cat	81
+Dead Dove	185
+Dead Eye	373
+Dead Onion	336
+Dead Sea Scrolls	124
+Dead Tooth	446
+Death Certificate	628
+Death's List	530
+Death's Touch	237
+Decap Attack	729
+Deck of Cards	85
+Deep Pockets	416
+Delirious	510
+Demon Baby	113
+Depression	469
+Dessert	24
+Dinner	23
+Diplopia	347
+Dirty Mind	576
+Distant Admiration	57
+Divine Intervention	568
+Divorce Papers	547
+Doctor's Remote	47
+Dog Tooth	445
+Dogma	633
+Dr. Fetus	52
+Dream Catcher	566
+Dry Baby	265
+Duality	498
+Dull Razor	486
+E. Coli	236
+Echo Chamber	700
+Eden's Blessing	381
+Eden's Soul	490
+Empty Heart	676
+Empty Vessel	409
+Epic Fetus	168
+Epiphora	368
+Eraser	638
+Esau Jr.	703
+Eternal D6	609
+Eucharist	499
+Euthanasia	496
+Eve's Mascara	310
+Everything Jar	720
+Evil Charm	632
+Evil Eye	410
+Experimental Treatment	240
+Explosivo	401
+Eye Drops	600
+Eye Sore	558
+Eye of Belial	462
+Eye of Greed	450
+Eye of the Occult	572
+False PHD	654
+Fanny Pack	204
+Farting Baby	404
+Fast Bombs	517
+Fate	179
+Fate's Reward	361
+Finger!	467
+Fire Mind	257
+Flat Stone	540
+Flip	711
+Flush!	291
+Forever alone	128
+Forget Me Now	127
+Fortune Cookie	557
+Free Lemonade	578
+Freezer Baby	608
+Friend Finder	687
+Friend Zone	364
+Friendly Ball	382
+Fruit Cake	418
+Fruity Plum	649
+GB Bug	405
+Gello	728
+Gemini	318
+Genesis	622
+Ghost Baby	163
+Ghost Bombs	727
+Ghost Pepper	495
+Giant Cell	658
+Gimpy	225
+Glass Cannon	352
+Glass Eye	730
+Glaucoma	460
+Glitched Crown	689
+Glitter Bombs	432
+Glowing Hour Glass	422
+Glyph of Balance	464
+Gnawed Leaf	210
+Goat Head	215
+God's Flesh	398
+Godhead	331
+Golden Razor	555
+Greed's Gullet	501
+Growth Hormones	70
+Guardian Angel	112
+Guillotine	206
+Guppy's Collar	212
+Guppy's Eye	665
+Guppy's Hairball	187
+Guppy's Head	145
+Guppy's Paw	133
+Guppy's Tail	134
+Habit	156
+Haemolacria	531
+Hallowed Ground	543
+Halo of Flies	10
+Harlequin Baby	167
+Head of Krampus	293
+Head of the Keeper	429
+Headless Baby	269
+Heartbreak	694
+Hemoptysis	726
+Hive Mind	248
+Hold	715
+Holy Grail	184
+Holy Light	374
+Holy Mantle	313
+Holy Water	178
+Host Hat	375
+Hot Bombs	256
+How to Jump	282
+Humbleing Bundle	203
+Hungry Soul	684
+Hushy	470
+Hypercoagulation	724
+IBS	725
+IV Bag	135
+Immaculate Conception	413
+Immaculate Heart	573
+Incubus	360
+Infamy	242
+Infestation	148
+Infestation 2	234
+Inner Child	688
+Ipecac	149
+Iron Bar	201
+Isaac's Heart	276
+Isaac's Tears	323
+Isaac's Tomb	701
+It Hurts	560
+Jacob's Ladder	494
+Jar of Flies	434
+Jar of Wisps	685
+Jaw Bone	548
+Jesus Juice	197
+Judas' Shadow	311
+Juicy Sack	266
+Jumper Cables	520
+Jupiter	594
+Kamikaze!	40
+Keeper's Box	719
+Keeper's Kin	717
+Keeper's Sack	716
+Key Bum	388
+Key Piece 1	238
+Key Piece 2	239
+Kidney Bean	421
+Kidney Stone	440
+King Baby	472
+Knife Piece 1	626
+Knife Piece 2	627
+Knockout Drops	637
+Lachryphagy	532
+Large Zit	502
+Larynx	611
+Latch Key	343
+Lazarus' Rags	332
+Lead Pencil	444
+Leech	270
+Lemegeton	712
+Lemon Mishap	56
+Leo	302
+Leprosy	525
+Libra	304
+Lil Abaddon	679
+Lil Brimstone	275
+Lil Chest	362
+Lil Delirium	519
+Lil Dumpy	615
+Lil Gurdy	384
+Lil Haunt	277
+Lil Loki	435
+Lil Monstro	471
+Lil Portal	681
+Lil Spewer	537
+Linger Bean	447
+Little Baggy	252
+Little C.H.A.D.	96
+Little Chubby	88
+Little Gish	99
+Little Horn	503
+Little Steven	100
+Lodestone	617
+Loki's Horns	87
+Lord of the Pit	82
+Lost Contact	213
+Lost Fly	365
+Lost Soul	612
+Lucky Foot	46
+Luna	589
+Lunch	22
+Lusty Blood	411
+MEAT!	193
+Maggy's Bow	312
+Magic 8 Ball	194
+Magic Fingers	295
+Magic Mushroom	12
+Magic Scab	253
+Magic Skin	642
+Magneto	53
+Mama Mega!	483
+Marbles	538
+Marked	394
+Marrow	541
+Mars	593
+Match Book	344
+Maw Of The Void	399
+Meat Cleaver	631
+Mega Bean	351
+Mega Blast	441
+Mega Mush	625
+Member Card	602
+Mercurius	590
+Metal Plate	449
+Metronome	488
+Midas' Touch	202
+Milk!	436
+Mine Crafter	427
+Mini Mush	71
+Missing No.	258
+Missing Page 2	262
+Mitre	173
+Moldy Bread	456
+Mom's Bottle of Pills	102
+Mom's Box	439
+Mom's Bra	39
+Mom's Bracelet	604
+Mom's Coin Purse	195
+Mom's Contacts	110
+Mom's Eye	55
+Mom's Eyeshadow	200
+Mom's Heels	30
+Mom's Key	199
+Mom's Knife	114
+Mom's Lipstick	31
+Mom's Pad	41
+Mom's Pearls	355
+Mom's Perfume	228
+Mom's Purse	139
+Mom's Razor	508
+Mom's Ring	732
+Mom's Shovel	552
+Mom's Underwear	29
+Mom's Wig	217
+Money = Power	109
+Mongo Baby	322
+Monster Manual	123
+Monstrance	574
+Monstro's Lung	229
+Monstro's Tooth	86
+Montezuma's Revenge	680
+More Options	414
+Moving Box	523
+Mr. Boom	37
+Mr. Dolly	370
+Mr. ME!	527
+Mr. Mega	106
+Mucormycosis	553
+Multidimensional Baby	431
+Mutant Spider	153
+My Little Unicorn	77
+My Reflection	5
+My Shadow	433
+Mysterious Liquid	317
+Mystery Egg	539
+Mystery Gift	515
+Mystery Sack	271
+Nancy Bombs	563
+Neptunus	597
+Night Light	425
+No. 2	378
+Notched Axe	147
+Number One	6
+Obsessed Fan	426
+Ocular Rift	606
+Odd Mushroom	120
+Old Bandage	219
+Options\?	670
+Orphan Socks	571
+Ouija Board	115
+PHD	75
+PJs	428
+Pageant Boy	141
+Pandora's Box	297
+Papa Fly	430
+Parasitoid	461
+Paschal Candle	567
+Pause	478
+Pay To Play	380
+Pentagram	51
+Piggy Bank	227
+Pisces	309
+Placebo	348
+Placenta	218
+Plan C	475
+Playdough Cookie	570
+Plum Flute	650
+Pluto	598
+Pointy Rib	544
+Poke Go	505
+Polydactyly	454
+Polyphemus	169
+Pop!	529
+Portable Slot	177
+Potato Peeler	487
+Prayer Card	146
+Proptosis	261
+Psy Fly	581
+Punching Bag	281
+Pupula Duplex	379
+Purgatory	634
+Purity	407
+Pyro	190
+Pyromaniac	223
+Quints	661
+R Key	636
+Rainbow Baby	174
+Raw Liver	16
+Razor Blade	126
+Recall	714
+Red Candle	289
+Red Key	580
+Red Stew	621
+Redemption	673
+Remote Detonator	137
+Restock	376
+Revelation	643
+Robo-Baby	95
+Robo-Baby 2.0	267
+Rock Bottom	562
+Rocket in a Jar	583
+Roid Rage	14
+Rosary	72
+Rotten Baby	268
+Rotten Meat	26
+Rotten Tomato	618
+Rubber Cement	221
+Rune Bag	389
+SMB Super Fan	189
+Sack Head	424
+Sack of Pennies	94
+Sack of Sacks	500
+Sacred Heart	182
+Sacred Orb	691
+Sacrificial Altar	536
+Sacrificial Dagger	172
+Sad Bombs	220
+Safety Pin	339
+Sagittarius	306
+Salvation	696
+Samson's Chains	321
+Sanguine Bond	692
+Satanic Bible	292
+Saturnus	595
+Sausage	669
+Scapular	142
+Scatter Bombs	366
+Schoolbag	534
+Scissors	325
+Scorpio	305
+Screw	255
+Seraphim	390
+Serpent's Kiss	393
+Shade	468
+Shard of Glass	448
+Sharp Key	623
+Sharp Plug	205
+Sharp Straw	507
+Shoop da Whoop!	49
+Sinus Infection	459
+Sissy Longlegs	280
+Sister Maggy	67
+Skatole	9
+Skeleton Key	17
+Slipped Rib	542
+Smart Fly	264
+Smelter	479
+Sol	588
+Soul Locket	686
+Soy Milk	330
+Spear Of Destiny	400
+Speed Ball	143
+Spelunker Hat	91
+Spider Bite	89
+Spider Butt	171
+Spider Mod	403
+Spiderbaby	211
+Spin to Win	655
+Spindown Dice	723
+Spirit Shackles	674
+Spirit Sword	579
+Spirit of the Night	159
+Spoon Bender	3
+Sprinkler	516
+Squeezy	196
+Stapler	708
+Star of Bethlehem	651
+Starter Deck	251
+Steam Sale	64
+Stem Cells	176
+Steven	50
+Sticky Bombs	367
+Stigmata	138
+Stitches	635
+Stop Watch	232
+Strange Attractor	315
+Strawman	667
+Stye	731
+Succubus	417
+Sulfur	556
+Sulfuric Acid	463
+Sumptorium	713
+Super Bandage	92
+Suplex!	709
+Supper	707
+Sworn Protector	363
+Synthoil	345
+TMTRAINER	721
+Tammy's Head	38
+Tarot Cloth	451
+Taurus	299
+Tear Detonator	383
+Tech X	395
+Tech.5	244
+Technology	68
+Technology 2	152
+Technology Zero	524
+Telekinesis	522
+Telepathy For Dummies	192
+Teleport 2.0	419
+Teleport!	44
+Terra	592
+The Battery	63
+The Bean	111
+The Belt	28
+The Bible	33
+The Black Bean	180
+The Body	334
+The Book of Belial	34
+The Book of Sin	97
+The Boomerang	338
+The Candle	164
+The Common Cold	103
+The Compass	21
+The D6	105
+The Gamekid	93
+The Halo	101
+The Hourglass	66
+The Inner Eye	2
+The Intruder	575
+The Jar	290
+The Ladder	60
+The Ludovico Technique	329
+The Mark	79
+The Mind	333
+The Mulligan	151
+The Nail	83
+The Necronomicon	35
+The Negative	328
+The Pact	80
+The Parasite	104
+The Peeper	155
+The Pinking Shears	107
+The Polaroid	327
+The Poop	36
+The Relic	98
+The Sad Onion	1
+The Scooper	605
+The Small Rock	90
+The Soul	335
+The Stairway	586
+The Swarm	693
+The Virus	13
+The Wafer	108
+The Wiz	358
+There's Options	249
+Thunder Thighs	314
+Tiny Planet	233
+Tinytoma	645
+Tonsil	474
+Tooth Picks	183
+Tooth and Nail	663
+Torn Photo	341
+Tough Love	150
+Toxic Shock	350
+Tractor Beam	397
+Transcendence	20
+Treasure Map	54
+Trinity Shield	243
+Trisagion	533
+Tropicamide	659
+Twisted Pair	698
+Undefined	324
+Unicorn Stump	298
+Uranus	596
+Urn of Souls	640
+Vade Retro	653
+Vanishing Twin	697
+Varicose Veins	452
+Vasculitis	657
+Vengeful Spirit	702
+Ventricle Razor	396
+Venus	591
+Virgo	303
+Void	477
+Voodoo Head	599
+Wait What\?	484
+Wavy Cap	582
+We Need To Go Deeper!	84
+White Pony	181
+Whore of Babylon	122
+Wire Coat Hanger	32
+Wooden Nickel	349
+Wooden Spoon	27
+Worm Friend	682
+X-Ray Vision	76
+YO LISTEN!	492
+Yuck Heart	639
+Yum Heart	45
+Zodiac	392

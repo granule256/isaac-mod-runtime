@@ -1,0 +1,49 @@
+{
+  "schema": "isaac-layout-table/1",
+  "build_id": "91C73FDD575061318D68886316AFEAC72388B2AB",
+  "struct": "ItemConfig_Item",
+  "source_table": "item_config_item",
+  "note": [
+    "`ItemConfig_Item`（`ItemConfig` 六个向量的**元素**）上、**null 服装**专用的字段。",
+    "为什么单开一张表、而不是并进 `item.json`：`item.json` 登记的是 `ItemConfig` 的**容器边界**（六个 `std::vector<Item*>` 的 begin/end），",
+    "  它自己的门禁把『每行宽度必须是 8』钉死了（`test_layout_table_item.py` 的 `assertEqual(8, row[\"width\"])`）；",
+    "  而本行是元素**内部**的一个 24 字节 libc++ `std::string` ⇒ 塞进那张表会当场判红，也会把语义搞混。",
+    "消费者：`tools/api_definition_of_done.json` 里 `Isaac:GetCostumeIdByPath` 的 `provenance.field`（`engine_field` 要求这一行 `confirmed`）。",
+    "★ 本表**目前没有生成的头文件**（`item_config_item_layout.hpp` 不存在）：它的消费者是台账，不是 C++ 代码。",
+    "  将来若要把实现切到生成常量，再补『生成头 + `--check`』那一半（与 `item_layout.hpp` 同一套做法）——别半途生成。",
+    "门禁：`runtime/tests/test_layout_table_item_config_item.py`（复核证据 + 与手写常量对账 + 与台账对账）。"
+  ],
+  "rows": [
+    {
+      "name": "NullCostumePath",
+      "kind": "string",
+      "offset": 136,
+      "width": 24,
+      "confidence": "confirmed",
+      "semantic": "null 服装（`costumes2.xml` 里 `type=\"none\"` 的那些 `<costume>`）的 anm2 路径：一个 24 字节 libc++ `std::string`，内容是 `<costumes anm2root=\"…\">` 的值与条目自己的 `anm2path` 值**拼接**后的整串（例如 `the/specialist_isaac.anm2`）。`Entity_Player::AddCostume` 就是读它去加载/绘制这套服装；`Isaac:GetCostumeIdByPath(path)` 反过来用它按路径找 id。",
+      "evidence": [
+        {
+          "kind": "access",
+          "function": "_ZN15IsaacRepentance10ItemConfig12LoadCostumesEPKcPNS_8ModEntryE",
+          "address": "0x003ba064",
+          "offset": 136,
+          "why": "写入侧：`add x0, x19, #0x88` —— `x19` 是刚 `operator new(0xF8)` 出来的 null 条目、`x24` 是拼好的整串（`0x3B99A0` `memcpy` 上 anm2root 的值 + `0x3B99C0` `std::string::append` 接上 anm2path 的值），紧接着 `0x3BA070 bl std::basic_string::operator=(basic_string const&)` 把这串写进 `条目+0x88`。函数的属性分派链在 `0x3B97C4` 用 `strcmp` 匹配 xml 键 `\"anm2path\"`。⚠️ 本条只证明『这块字节被当作路径写进去』；『它是 24 字节 libc++ 串』由下面那条读取侧证据（同一个偏移上的 SSO 判定）与本仓库既有的 `PushLibcxxString` 口径共同支撑。"
+        },
+        {
+          "kind": "access",
+          "function": "_ZN15IsaacRepentance13Entity_Player10AddCostumeEPKNS_10ItemConfig4ItemEb",
+          "address": "0x00290d7c",
+          "offset": 136,
+          "why": "读取侧互证（**另一个函数、同一个偏移**）：`ldrb w8, [x23, #0x88]!` 前索引寻址拿到 `条目+0x88` 的首字节，随后 `tbnz w8, #0x0` 判长串、`lsr x8, x8, #1` 取短串长度、空串直接 `b 0x2914b0` 返回 —— 这正是 libc++ `std::string` 的 SSO 头口径（与 `runtime/src/interfaces/lua/isaac_api.cpp` 的 `ResolveLibcxxString` 逐行相同）。两个不同函数各自把同一个偏移当『服装路径』，是这条偏移最硬的证据。"
+        },
+        {
+          "kind": "access",
+          "function": "_ZN15IsaacRepentance10ItemConfig12LoadCostumesEPKcPNS_8ModEntryE",
+          "address": "0x003ba06c",
+          "offset": 128,
+          "why": "同一块里紧跟的一条：`str w8, [x19, #0x80]` —— 引擎把『当前 null 向量里已有多少元素』（即本条目的 id）另存一份到 `条目+0x80`（=128），与 `0x3B9FFC str w8, [x9, #0x4]` 写的 `+0x04` 恒等；`ItemConfig::GetNullItem(int)` 是**纯下标取值**（`0x3C0CCC` 的 `sub`/`lsr #3`/`0x3C0CDC` 的 `ldr x0,[x8, w1, uxtw #3]`）⇒ 条目 `+0x04` ≡ 它在 null 向量里的下标。本条证据登记的是 `+0x80` 那一格（所以 `offset` 写 128），用来解释『为什么实现返回 `+0x04` 就等于索引』（`+0x04` 本身用的是既有的 `kItemConfigItemIdOffset`，它在 `runtime_constants.hpp` 里已有解析器级证据）。"
+        }
+      ]
+    }
+  ]
+}

@@ -202,7 +202,7 @@ int main(int argc, char** argv) {
         // 批次 3 起 `debug` 存在，但**只**有只读的 `debug.getinfo`（EID 的
         // `GetCurrentModPath` 用它取真实 mod 路径）。能改写运行时状态的那些入口
         // （`sethook`/`setlocal`/`setupvalue`/`setmetatable`/`getregistry`）必须一个都没有；
-        // `package`/`io`/`loadfile`/`dofile` 仍然为 nil。
+        // `io`/`loadfile`/`dofile`仍为nil；package.loaded公开真实模块缓存。
         //
         // ★ 2026-09-18（批次 034）**设计变更**：`load`/`loadstring` 从"必须为 nil"改成
         // **必须存在且形状与 PC 一致** —— PC 是 LuaJIT 5.1，两个都有；卡上的可调用性探针
@@ -215,7 +215,8 @@ int main(int argc, char** argv) {
         // 没有 `os` 就直接抛错、整包加载死在 200 行；PC 上两样都有）。策略因此变成
         // "给只读子集，但不给会写文件系统或结束进程的入口"。
         entry =
-            "if package~=nil or io~=nil or loadfile~=nil or dofile~=nil then error('unsafe global') end "
+            "if io~=nil or loadfile~=nil or dofile~=nil then error('unsafe global') end "
+            "if type(package)~='table' or package.loaded._G~=_G then error('package.loaded must share standard library cache') end "
             "if type(load)~='function' or type(loadstring)~='function' then error('load/loadstring must exist (PC has both)') end "
             "if loadstring('return 6*7')()~=42 then error('loadstring does not compile') end "
             "local bad,msg=loadstring('this is not lua'); if bad~=nil or type(msg)~='string' then error('loadstring failure shape') end "
@@ -247,7 +248,7 @@ int main(int argc, char** argv) {
     } else if (std::strcmp(g_Scenario, "depth") == 0) {
         entry = "require('m0')";
     } else if (std::strcmp(g_Scenario, "wrong_callback") == 0) {
-        entry = "local mod=RegisterMod('Wrong callback',1); mod:AddCallback(0,function() end)";
+        entry = "local mod=RegisterMod('Wrong callback',1); mod:AddCallback(nil,function() end)";
     } else if (std::strcmp(g_Scenario, "not_found_text") == 0) {
         // 批次 3：`require` 失败文本必须是 PC 的形状，而且**第二条** `no file '…lua'` 正好是
         // 本 Runtime 实际尝试的模块路径 —— 因为 EID 的 `EID:GetCurrentModPath()`

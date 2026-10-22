@@ -21,6 +21,8 @@ namespace isaac::runtime {
 // `CreateFontHandle` builds one `Font` userdata; `RegisterFontApi` in the legacy translation
 // unit installs the metatable and the global constructor, exactly like the other families.
 int CreateFontHandle(lua_State* state);
+std::uint32_t FontStorageAllocationCount() noexcept;
+std::uint32_t FontStorageDestructionCount() noexcept;
 
 // Destroy hook installed as the metatable's `__gc`. Idempotent: a second collection of the same
 // userdata finds the handle already cleared and does nothing.
@@ -42,6 +44,19 @@ int DestroyFontHandle(lua_State* state);
                                                  std::size_t length, float x, float y, float scaleX,
                                                  float scaleY, float red, float green, float blue,
                                                  float alpha);
+
+// `Isaac.GetTextWidth(str)`（PC 文档 `Isaac.md:439`）的**量文字宽度**本体。
+//
+// 契约（`Isaac.md:441` 正文）：「Returns the width of the given string in pixels based on the
+// "terminus8" font (same font as used in Isaac.RenderText())」⇒ 与 `RenderText`/`RenderScaledText`
+// **必须是同一个字体对象**，所以这个助手与上面那个共用同一份"运行时默认字体"（`PushDefaultScreenFont`），
+// 而不是各加载一份。
+//
+// 契约（与绘制那份相同）：**调用前栈必须是空的**；成功返回 true 并保持空栈、把宽度写进 `width`；
+// 返回 false 表示没有可用字体（调用方据此报错或降级，**不要**编一个 0 —— 0 是"这段文字宽 0 像素"
+// 这个有意义的答案）。
+[[nodiscard]] bool MeasureTextWithDefaultFont(lua_State* state, const char* text, std::size_t length,
+                                              int* width);
 
 // Registers the `Font` owner methods (Load / Unload / IsLoaded / GetStringWidth /
 // GetStringWidthUTF8 / GetLineHeight / GetBaselineHeight / GetCharacterWidth /
@@ -90,4 +105,18 @@ struct FontChainProbe {
 [[nodiscard]] std::string_view NormalizeModResourcePathForProbe(const char* path,
                                                               std::string& storage) noexcept;
 
+//: ★★ 批次 425（2026-10-10）：Font 块**当前活着**的块数（`g_FontStorageLive` 的只读壳）。
+//:
+//: 为什么需要壳、而不是让调用方直接读那个 `std::atomic`：它定义在 `font_api.cpp` 的
+//: `isaac::runtime` 命名空间里（外部链接），把 `std::atomic<std::uint32_t>` 这个类型
+//: 铺到每个消费者头上没必要；而且**只留这一个出口**，将来换口径只改一处。
+//: ★ 用途（425）：Lua 的 GC **看不见**这笔内存 —— 那 128 KiB 的块走的是 `lua_getallocf`
+//:   拿到的**裸 `frealloc`**，绕过了 `luaM_realloc_` 里的 `g->GCdebt` 记账 ⇒
+//:   GC 的触发判断永远看不到它 ⇒ 模组每帧一个 Font 会攒到 500+ 块（63 MB）才被顺手收掉。
+//:   由我们把这个数**补报**给 GC：见 `lua_runtime_state.hpp` 的
+//:   `NudgeLuaGcIfFontBlocksHigh()`。
+[[nodiscard]] std::uint32_t FontStorageLiveBlocks() noexcept;
+
 } // namespace isaac::runtime
+
+namespace isaac::runtime {int PushBorrowedGameFont(lua_State*,std::uintptr_t game,std::uintptr_t offset);}

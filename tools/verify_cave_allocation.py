@@ -54,6 +54,16 @@ RUNTIME_CONSTANTS = ROOT / "runtime" / "source" / "runtime_constants.hpp"
 # `runtime_constants.hpp` 里的家族名与 IPS 侧家族名的对应关系——同一个中继的两侧视图。
 # 只在"两侧确实指同一段地址"时登记；改动任一侧的地址都会让"两侧一致"检查失败。
 RELAY_ALIASES: dict[str, str] = {
+    "runtime:kConsoleUnknownLengthRelay": "ConsoleUnknownLengthRelay",
+    "patches:POST_CONSOLE_UNKNOWN_LENGTH_RELAY": "ConsoleUnknownLengthRelay",
+    "runtime:kConsoleUnknownCompareRelay": "ConsoleUnknownCompareRelay",
+    "patches:POST_CONSOLE_UNKNOWN_COMPARE_RELAY": "ConsoleUnknownCompareRelay",
+    "runtime:kPickupSelectionSpecialRelay": "PickupSelectionSpecialRelay",
+    "patches:POST_PICKUP_SPECIAL_RELAY": "PickupSelectionSpecialRelay",
+    "runtime:kLevelCurseStaticRelay": "LevelCurseStaticRelay",
+    "patches:POST_CURSE_RELAY": "LevelCurseStaticRelay",
+    "runtime:kPickupSelectionStaticRelay": "PickupSelectionStaticRelay",
+    "patches:POST_PICKUP_SELECTION_RELAY": "PickupSelectionStaticRelay",
     "runtime:kManagerRelay": "ManagerUpdateRelay",
     "patches:RELAY": "ManagerUpdateRelay",
     "runtime:kManagerRenderRelay": "ManagerRenderRelay",
@@ -109,6 +119,23 @@ class ExclusiveGroup:
 
 # 允许互相重叠的中继。每条都必须写明"为什么可以共用"。
 EXCLUSIVE_GROUPS: tuple[ExclusiveGroup, ...] = (
+    ExclusiveGroup(reason="压力板析构绝对近桩使用生产cold拾取中继尾部空区，与冻结game-ispaused-render诊断包互斥。",relays=frozenset({"runtime:kPressurePlateDtorVeneer","GameIsPausedRenderObserverRelay"})),
+    ExclusiveGroup(reason="压力板析构绝对近桩使用生产cold拾取中继尾部空区，与冻结game-ispaused-render诊断包互斥。",relays=frozenset({"runtime:kPressurePlateDeletingVeneer","GameIsPausedRenderObserverRelay"})),
+    ExclusiveGroup(reason="生产Literal8指针槽位于console冷中继尾部空隙，与DIAGNOSTIC_STAGE=48旧MusicPlay整段互斥；生产包不发布stage48。",relays=frozenset({"runtime:kClearAwardPointer","Stage48MusicPlayRelay"})),
+    ExclusiveGroup(reason="生产Literal8指针槽位于console冷中继尾部空隙，与DIAGNOSTIC_STAGE=48旧MusicPlay整段互斥；生产包不发布stage48。",relays=frozenset({"runtime:kLevelCurseFirstPointer","Stage48MusicPlayRelay"})),
+    ExclusiveGroup(reason="生产Literal8指针槽位于console冷中继尾部空隙，与DIAGNOSTIC_STAGE=48旧MusicPlay整段互斥；生产包不发布stage48。",relays=frozenset({"runtime:kEntityDestructorPointer","Stage48MusicPlayRelay"})),
+    ExclusiveGroup(reason="GameUpdateObserver是显式单独生成的冻结诊断替代包，默认Make不发布它；不得与常驻GameStartNew生命周期IPS手工叠加，旧截短曾漏报80B范围。",relays=frozenset({"GameStartNewRelay","GameUpdateObserverRelay"})),
+    ExclusiveGroup(reason="restart109仅该诊断包发布；Present前中继仅生产发布，Make不把109与render-present配套。",relays=frozenset({"GameRestartRelay","ManagerPresentRelay"})),
+    ExclusiveGroup(reason="save127仅该诊断包发布；Present前中继仅生产发布，Make不把127与render-present配套。",relays=frozenset({"SaveLoadRelay","ManagerPresentRelay"})),
+    ExclusiveGroup(reason="save128仅该诊断包发布；Present前中继仅生产发布，Make不把128与render-present配套。",relays=frozenset({"SaveDataManagerRelay","ManagerPresentRelay"})),
+    ExclusiveGroup(reason="未知命令冷中继只在生产Make发布；stage48音频诊断IPS仅DIAGNOSTIC_STAGE=48发布，与生产cold IPS互斥。",relays=frozenset({"ConsoleUnknownLengthRelay","Stage48MusicPlayRelay"})),
+    ExclusiveGroup(reason="未知命令冷中继只在生产Make发布；stage48音频诊断IPS仅DIAGNOSTIC_STAGE=48发布，与生产cold IPS互斥。",relays=frozenset({"ConsoleUnknownCompareRelay","Stage48SoundActorPlayRelay"})),
+    ExclusiveGroup(reason="奖杯路径cold生产IPS与冻结game-ispaused-render诊断观察包互斥，观察入口无生产调用，Make生产/诊断形状分别发布。",relays=frozenset({"PickupSelectionSpecialRelay","GameIsPausedRenderObserverRelay"})),
+    # 原LevelCurseStaticRelay/GameObserverRelay互斥已随2026-10-13迁址撤销，原文件逐字存于本轮before归档。
+    ExclusiveGroup(reason="生产cold回调与stage48 Pause音频诊断包互斥；Make生产/DIAGNOSTIC_STAGE48分别发布。",relays=frozenset({"LevelCurseStaticRelay","Stage48SoundActorPauseRelay"})),
+    # 原PickupSelectionStaticRelay/GameUpdateObserverRelay互斥已随迁址撤销。
+    ExclusiveGroup(reason="生产cold回调与stage48 Pause音频诊断包互斥；Make生产/DIAGNOSTIC_STAGE48分别发布。",relays=frozenset({"PickupSelectionStaticRelay","Stage48SoundActorPauseRelay"})),
+    ExclusiveGroup(reason="实体析构8B近桩仅生产内部回调安装；与stage48 Play诊断包互斥，Make两类包分别发布。",relays=frozenset({"runtime:kEntityDestructorVeneer","Stage48SoundActorPlayRelay"})),
     ExclusiveGroup(
         reason=(
             "stage108（lifecycle-relay）/ stage109（restart-relay）/ stage127（save-load 观察）/ "
@@ -231,6 +258,9 @@ def assign_ranges(relays: dict[str, Relay]) -> dict[str, list[tuple[int, int, st
     `min(起点 + 长度, 下一个起点)`；没有显式长度的家族（例如 `GAME_START_SAVED_RELAY` 的长度
     写在 `GAME_START_RELAY_LENGTH` 名下）直接用下一个分配起点封顶 —— 这样既不猜长度，也不会
     把一个洞摊到邻居头上。
+
+    ★ 2026-10-13更正：上述显式长度截短逻辑掩盖了开局有效代码被cold回调覆盖的问题；
+    现保留完整声明长度，只有未声明长度才按边界推断，并解析运行时完整ExpectedBytes长度。
     """
     next_start: dict[int, int] = {}
     all_starts = sorted({start for relay in relays.values() for start in relay.own_starts()})
@@ -245,7 +275,8 @@ def assign_ranges(relays: dict[str, Relay]) -> dict[str, list[tuple[int, int, st
         for start in relay.cave_starts():
             boundary = next_start.get(start)
             end = start + length if length is not None else (boundary or start + DEFAULT_CAVE_LENGTH)
-            if boundary is not None:
+            # 内部近桩Bytes已精确声明；不能用后来者的起点截短它来掩盖实际覆盖。
+            if boundary is not None and length is None:
                 end = min(end, boundary)
             if end <= start:
                 end = boundary if boundary is not None else start + DEFAULT_CAVE_LENGTH
@@ -366,8 +397,23 @@ def parse_runtime_views(source: Path) -> list[RelayView]:
         view = RelayView(
             f"runtime:{family}", caves=sorted(caves.get(family, [])), slot=slots.get(family)
         )
+        length=re.search(r"inline constexpr std::array<[^,]+,\s*(\d+)>\s*"+re.escape(family)+r"ExpectedBytes\s*=",text)
+        if length is not None:view.cave_length=int(length.group(1))
         # 只有槽、没有洞常量的家族（例如 kGameStartRelay）只用于校验槽，不占洞区间。
         views.append(view)
+    # 4B内部挂点的近桩也占NRO text；旧解析器只认Relay，曾完全漏掉71/66。
+    for name, value in re.findall(
+        r"(?m)^inline constexpr (?:std::)?uintptr_t (k[A-Za-z0-9]*Veneer)Offset\s*=\s*(0[xX][0-9A-Fa-f]+);", text
+    ):
+        size = re.search(r"inline constexpr (?:std::)?size_t " + re.escape(name) +
+                         r"Bytes\s*=\s*(\d+);", text)
+        if size is None:
+            raise SourceError(f"{name}缺少精确Bytes声明")
+        views.append(RelayView(f"runtime:{name}", caves=[int(value,16)], cave_length=int(size.group(1))))
+    # Literal8指针池只占独立8B数据槽，也必须参与全局代码洞冲突检查。
+    for name,value in re.findall(
+        r"(?m)^inline constexpr uintptr_t (k[A-Za-z0-9]*Pointer)SlotOffset\s*=\s*(0[xX][0-9A-Fa-f]+);",text):
+        views.append(RelayView(f"runtime:{name}",slot=int(value,16)))
     if not views:
         # 解析不到任何中继槽时不能"静默通过"——多半是文件改了形状而正则失配。
         raise SourceError(f"{source} 里没有解析到任何中继槽常量")

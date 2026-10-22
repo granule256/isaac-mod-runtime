@@ -1,6 +1,11 @@
 #include "infrastructure/gotslot/got_slot_hook_adapter.hpp"
 
 #include "hook_manager.hpp"
+#include "entity_remove_hook.hpp"
+#include "mod_unload_hook.hpp"
+#include "card_hook.hpp"
+#include "mod_room_hook.hpp"
+#include "console_lifecycle_hook.hpp"
 
 #include <algorithm>
 #include <cstring>
@@ -30,12 +35,47 @@ Status GotSlotHookAdapter::Install(HookId id, const HookTarget& target) noexcept
     if (installed_[index]) {
         return Status{StatusCode::InvalidState};
     }
-    // 本后端只实现 `Present` 那一处；别的挂点由路由表交给各自的适配器。
+    // Present、原生HUD与NPC内部AI等数据槽；别的挂点由路由表交给各自的适配器。
     // 走到这里的其它 `HookId` 是配置错误，**响亮失败**而不是静默成功。
-    if (id != HookId::ManagerPresent) {
+    if (id == HookId::ConsoleLifecycle) {
+        const auto result=InstallConsoleLifecycleHook(target);
+        if(result.ok())installed_[index]=true;
+        return result;
+    }
+    if (id == HookId::LevelLoadRoom) {
+        const auto result=InstallLevelRoomPointerHook(target);
+        if(result.ok())installed_[index]=true;
+        return result;
+    }
+    if (id == HookId::RoomConfigLoadStageBinary) {
+        const auto result=InstallModRoomPointerHook(target);
+        if(result.ok())installed_[index]=true;
+        return result;
+    }
+    if (id == HookId::ItemPoolGetCard) {
+        const auto result=InstallCardPointerHook(target);
+        if(result.ok())installed_[index]=true;
+        return result;
+    }
+    if (id == HookId::ModManagerUnload) {
+        const auto result=InstallModUnloadPointerHook(target);
+        if(result.ok())installed_[index]=true;
+        return result;
+    }
+    if (id == HookId::EntityRemovePointers) {
+        const auto result = InstallEntityRemovePointerHooks(target);
+        if (result.ok()) installed_[index] = true;
+        return result;
+    }
+    if (id != HookId::ManagerPresent && id != HookId::NpcUpdateAi && id != HookId::HudRender) {
         return Status{StatusCode::Rejected};
     }
-    if (TryInstallManagerPresentGotSlot(ModuleOf(target)) !=
+    const auto result = id == HookId::HudRender
+        ? TryInstallHudRenderGotSlot(ModuleOf(target))
+        : id == HookId::NpcUpdateAi
+        ? TryInstallNpcUpdateAiGotSlot(ModuleOf(target))
+        : TryInstallManagerPresentGotSlot(ModuleOf(target));
+    if (result !=
         RenderPresentRelayInstallResult::Success) {
         return Status{StatusCode::Rejected};
     }

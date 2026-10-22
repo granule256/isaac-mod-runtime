@@ -102,6 +102,20 @@ RenderPresentRelayInstallResult TryInstallManagerPresentGotSlot(const TargetModu
     return g_stubResult;
 }
 
+RenderPresentRelayInstallResult TryInstallNpcUpdateAiGotSlot(const TargetModule& module) {
+    ++g_stubCalls; g_stubBase = module.base; return g_stubResult;
+}
+RenderPresentRelayInstallResult TryInstallHudRenderGotSlot(const TargetModule& module) {
+    ++g_stubCalls; g_stubBase = module.base; return g_stubResult;
+}
+namespace isaac::runtime {
+Status InstallConsoleLifecycleHook(const HookTarget&) noexcept { return Status::Ok(); }
+Status InstallCardPointerHook(const HookTarget&) noexcept { return Status::Ok(); }
+Status InstallLevelRoomPointerHook(const HookTarget&) noexcept { return Status::Ok(); }
+Status InstallModRoomPointerHook(const HookTarget&) noexcept { return Status::Ok(); }
+Status InstallModUnloadPointerHook(const HookTarget&) noexcept { return Status::Ok(); }
+Status InstallEntityRemovePointerHooks(const HookTarget&) noexcept { return Status::Ok(); }
+}
 static int g_failures = 0;
 static void Check(bool condition, const char* label) {
     if (!condition) {
@@ -136,6 +150,22 @@ int main() {
           "安装器失败必须被拒绝");
     Check(!failing.IsInstalled(HookId::ManagerPresent), "失败后不得报告已安装");
 
+    GotSlotHookAdapter ai;
+    g_stubResult = RenderPresentRelayInstallResult::Success;
+    Check(ai.Install(HookId::NpcUpdateAi, target).ok(), "AI槽安装");
+    Check(ai.IsInstalled(HookId::NpcUpdateAi), "AI安装状态");
+    GotSlotHookAdapter hud;
+    GotSlotHookAdapter rooms;
+    Check(rooms.Install(HookId::RoomConfigLoadStageBinary, target).ok(), "STB合并槽安装");
+    Check(rooms.IsInstalled(HookId::RoomConfigLoadStageBinary), "STB合并安装状态");
+    Check(rooms.Install(HookId::RoomConfigLoadStageBinary, target).code() == StatusCode::InvalidState, "STB不能重复安装");
+    Check(hud.Install(HookId::HudRender, target).ok(), "HUD槽安装");
+    Check(hud.IsInstalled(HookId::HudRender), "HUD安装状态");
+    Check(hud.Install(HookId::HudRender, target).code() == StatusCode::InvalidState, "HUD不能重复安装");
+    GotSlotHookAdapter hudFail;
+    g_stubResult = RenderPresentRelayInstallResult::GotSlotTargetMismatch;
+    Check(hudFail.Install(HookId::HudRender, target).code() == StatusCode::Rejected, "HUD安装守卫失败必须拒绝");
+    Check(!hudFail.IsInstalled(HookId::HudRender), "失败不能宣称HUD安装成功");
     // 其它挂点不走这个后端（响亮失败，不静默成功）。
     GotSlotHookAdapter other;
     g_stubCalls = 0;

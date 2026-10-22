@@ -50,6 +50,7 @@ agreement rate is reported.
 from __future__ import annotations
 
 import argparse
+from pathlib import Path
 import collections
 import datetime
 import json
@@ -769,17 +770,23 @@ def load_switch_symbols(nro_path: str, verify_path: str | None) -> dict:
     }
 
 
-def build_symbol_index(records: list[dict]) -> tuple[dict, dict, dict]:
+def build_symbol_index(records: list[dict]) -> tuple[dict, dict, dict, dict]:
     by_class_method: dict[tuple[str, str], list[dict]] = collections.defaultdict(list)
     by_method: dict[str, list[dict]] = collections.defaultdict(list)
     by_free: dict[str, list[dict]] = collections.defaultdict(list)
+    #: ★ 批次 329（2026-10-03）：**按"归一化方法名"的索引** —— 引擎里两种命名**并存**
+    #: （`Entity_NPC::GetShootingInput` 与 `Entity_Player::get_shooting_input`），
+    #: 而上面那个 `by_class_method` 用的是**原始**方法名当键 ⇒ 文档里的 `GetShootingInput`
+    #: 永远查不到 `get_shooting_input`。这个索引只作**兜底**，用法见 `classify()` 里那一段。
+    by_class_method_norm: dict[tuple[str, str], list[dict]] = collections.defaultdict(list)
     for record in records:
         by_method[record["method"]].append(record)
         if record["class"] is None:
             by_free[record["method"]].append(record)
         else:
             by_class_method[(record["class"], record["method"])].append(record)
-    return by_class_method, by_method, by_free
+            by_class_method_norm[(record["class"], normalize_name(record["method"]))].append(record)
+    return by_class_method, by_method, by_free, by_class_method_norm
 
 
 def verify_guard_offsets(records: list[dict]) -> dict:
@@ -819,7 +826,7 @@ HANDLER_ENTRY = re.compile(
     r"\{\s*(?P<id>0x[0-9A-Fa-f]{8}),\s*&(?P<fn>\w+)\s*\}"
 )
 HANDLER_TABLE = re.compile(
-    r"constexpr\s+LuaHandlerBinding\s+(?P<table>k\w+Handlers)\[\]\s*=\s*\{(?P<body>.*?)\n\};",
+    r"constexpr\s+LuaHandlerBinding\s+(?P<table>k\w+)\[\]\s*=\s*\{(?P<body>.*?)\};",
     re.S,
 )
 
@@ -828,6 +835,12 @@ def load_runtime_implemented() -> dict:
     with open(CATALOG_CPP, encoding="utf-8") as handle:
         catalog_text = handle.read()
 
+    # 2026-10-14：域值从真实枚举取得；旧手写表漏Font..Hud，会把实体ID误写成Global。
+    descriptor = Path(os.path.join(REPO_ROOT,"runtime/src/interfaces/lua/api_descriptor.hpp")).read_text()
+    enum = re.search(r"enum class ApiDomain[^\{]*\{(.*?)\n\};",descriptor,re.S)
+    if not enum: raise ValueError("ApiDomain authority is missing")
+    body = re.sub(r"//[^\n]*","",enum[1])
+    domain_codes = {name:int(value,0) for name,value in re.findall(r"(\w+)\s*=\s*(0x[0-9A-Fa-f]+|\d+)",body)}
     entries = []
     for match in CATALOG_ENTRY.finditer(catalog_text):
         domain = match.group("domain")
@@ -836,12 +849,8 @@ def load_runtime_implemented() -> dict:
         # ApiDomain enum order from runtime/src/interfaces/lua/api_descriptor.hpp:
         # Global=0, Mod=1, Game=2, Level=3, Room=4, ItemPool=5, Music=6,
         # Rng=7, Persistence=8, Input=9, Diagnostic=10.
-        domain_codes = {
-            "Global": 0, "Mod": 1, "Game": 2, "Level": 3, "Room": 4, "ItemPool": 5,
-            "Music": 6, "Rng": 7, "Persistence": 8, "Input": 9, "Diagnostic": 10,
-        }
         group_code = int(group) if group.isdigit() else 1
-        api_id = (domain_codes.get(domain, 0) << 24) | (group_code << 16) | sequence
+        api_id = (domain_codes[domain] << 24) | (group_code << 16) | sequence
         entries.append({
             "domain": domain,
             "owner": match.group("owner"),
@@ -870,7 +879,7 @@ def load_runtime_implemented() -> dict:
     bound = set()
     for values in handlers.values():
         bound.update(values)
-    unbound = [e for e in entries if e["id"] not in bound and e["domain"] != "Global"]
+    unbound = [e for e in entries if e["id"].upper() not in bound and e["domain"] != "Global"]
 
     return {
         "catalog_path": os.path.relpath(CATALOG_CPP, REPO_ROOT),
@@ -1000,7 +1009,7 @@ def near_candidates(api: dict, by_class_method, limit: int = 4) -> list[dict]:
     return out
 
 
-def classify(api: dict, by_class_method, by_method, by_free, implemented,
+def classify(api: dict, by_class_method, by_class_method_norm, by_method, by_free, implemented,
              known_classes: set[str]) -> dict:
     owner = api["owner"]
     name = api["name"]
@@ -1061,6 +1070,30 @@ def classify(api: dict, by_class_method, by_method, by_free, implemented,
             for base in BASE_CLASS_CHAIN.get(candidate, []):
                 for record in by_class_method.get((base, name), []):
                     hits.append((record, "base_class"))
+
+    if not hits:
+        # ★★ 批次 329（2026-10-03）：**归一化方法名兜底**。
+        #
+        # 引擎里两套命名**并存**：既有 CamelCase（`Entity_NPC::GetShootingInput(float)`），
+        # 也有 snake_case（`Entity_Player::get_shooting_input()`）。而上面那些查找**全都用
+        # 原始方法名当键** ⇒ 文档里的 `GetShootingInput` 永远查不到引擎的 `get_shooting_input`。
+        #
+        # 后果是实打实的：`EntityPlayer:GetShootingInput`（**14 处**、当时全清单最大的一块）
+        # 被判成 `no_symbol`、塞进"要先反汇编定性"那一桶 —— 其实它**有名字可调**。
+        # 同一次修正还捞出 `Entity_Familiar::follow_parent` / `add_to_followers` /
+        # `follow_position` 等（都在清单里被标成 `no_symbol`）。
+        #
+        # 三条纪律：① 只做**兜底**（上面那些精确查找都没命中才走）；② `match_kind` 单列一档
+        # `normalized_method` ⇒ 置信度落 `medium`（见下面的 `confidence`），
+        # 不把"只是大小写/下划线不同"混进"精确同名"；③ 候选**只认同一批候选类**（含基类链），
+        # 不会跨类乱认（`EntityPlayer` 的候选里没有 `Entity_NPC`）。
+        # ★ 注意**别名不会因此被误认**：`fire_projectile` 与引擎的 `fire_projectiles`
+        #   归一化后仍不同（差一个 s）⇒ 这条兜底**不会**把它拉进来。
+        normalized = normalize_name(name)
+        for candidate, _match_kind in owner_switch_candidates(owner):
+            for cls in (candidate, *BASE_CLASS_CHAIN.get(candidate, [])):
+                for record in by_class_method_norm.get((cls, normalized), []):
+                    hits.append((record, "normalized_method"))
 
     if hits:
         # Rank overloads the way the docs describe the call: prefer a symbol whose
@@ -1985,7 +2018,7 @@ def main(argv: list[str] | None = None) -> int:
             continue
         implemented_index[(entry["owner"], entry["name"])] = entry
 
-    by_class_method, by_method, by_free = build_symbol_index(switch["records"])
+    by_class_method, by_method, by_free, by_class_method_norm = build_symbol_index(switch["records"])
     known_classes = {r["class"] for r in switch["records"] if r["class"]}
 
     apis = []
@@ -1999,8 +2032,8 @@ def main(argv: list[str] | None = None) -> int:
             "doc_files": entry["doc_files"],
             "arg_types": entry["arg_types"],
         }
-        result = classify(api, by_class_method, by_method, by_free, implemented_index,
-                          known_classes)
+        result = classify(api, by_class_method, by_class_method_norm, by_method, by_free,
+                          implemented_index, known_classes)
         entry.update(result)
         apis.append(entry)
     apis.sort(key=lambda a: (a["category"], a["owner"], a["name"]))

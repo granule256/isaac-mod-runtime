@@ -23,9 +23,22 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 DIST = ROOT / "dist"
 
-DIR_REFERENCE_RE = re.compile(r"change-archive-(\d{8})/(\d{3}-[A-Za-z0-9_-]+)")
+DIR_REFERENCE_RE = re.compile(r"change-archive-(\d{8})/([^/\s`]+)")
 BINARY_SUFFIXES = (".lua", ".npdm", ".on")
 BINARY_PREFIXES = ("subsdk9", "main.npdm", "no-lua.on")
+
+
+def _plausible_archive_name(name: str) -> bool:
+    """过滤"完整路径"里明显是占位/示例/文件的尾巴（批次 433）。
+
+    放宽完整路径收集（让 `jit-432-card-state`、`DIAG1-api-attribution` 这类**非"NNN-"起的
+    合法目录名**也能被收）之后，文本里的"示例"尾巴也会被正则吃到 —— 实测被吃到的有：
+    `NNN-主题`（占位）、`014-…` / `185-...`（省略号）、`152~157`（范围）、`<编号>-<主题>`、
+    `change-archive-20260930/.gitattributes`（文件）。用"名字字符集"把这些剔掉：
+    只接受 `[A-Za-z0-9_-]`、首尾不为 `-` 的非空名（占位里的中文/`…`/`~`/`<`/`.` 自然出局）。
+    """
+    return bool(name) and name[0] != '-' and name[-1] != '-' and all(
+        c.isascii() and (c.isalnum() or c in '_-') for c in name)
 
 
 def archive_roots() -> list[Path]:
@@ -38,9 +51,17 @@ def referenced_dirs(log_text: str, date: str) -> set[str]:
     两种引用形态都认（09-16 那天用过"裸名字"写法）：
       * `dist/change-archive-<日期>/<NNN-主题>/`（带完整路径）
       * `<NNN-主题>/`（只写子目录名，例如 "（存档 `025-no-lua-state-isolation/`）"）
+
+    ★ 批次 433（2026-10-11）：裸名字收集**之前**先把"完整路径"形态整体抹掉 ——
+      否则 `dist/change-archive-20261008/416-heap-256mib/` 的**尾巴**也会被裸名字正则
+      收进"当天引用"，要求它存在于**另一天**的存档目录下（20261010 的日志撞过这个误报）。
+      完整路径引用仍由上面的 `DIR_REFERENCE_RE` 按**它自己的日期**登记与校验，
+      检查没有被弱化（跨日期引用照旧要指向真实存在的目录）。
     """
-    referenced = {name for stamp, name in DIR_REFERENCE_RE.findall(log_text) if stamp == date}
-    for name in re.findall(r"\b(\d{3}-[A-Za-z0-9_-]+)/", log_text):
+    referenced = {name for stamp, name in DIR_REFERENCE_RE.findall(log_text)
+                  if stamp == date and _plausible_archive_name(name)}
+    stripped = DIR_REFERENCE_RE.sub("", log_text)
+    for name in re.findall(r"\b(\d{3}-[A-Za-z0-9_-]+)/", stripped):
         referenced.add(name)
     return referenced
 

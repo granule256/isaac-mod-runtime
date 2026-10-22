@@ -1,0 +1,50 @@
+# 由 tools/generate_isaac_name_tables.py --import-xml 从游戏 dump 提取。
+# 来源：rp_patch/resources/challenges.xml（编号+键，权威） + resources/challenges.xml（补英文原文）
+#       + rp_patch/resources/stringtable.sta（键 → 英文；★ 语言位置要剔除 `Key` 伪语言那一档，见 `parse_stringtable` 的注释）。
+# 格式：名字<TAB>编号[<TAB>堕落编号]，按名字升序。用途：Isaac.GetChallengeIdByName（PC 契约 tools/pc_contract_docs/Isaac.md:176）。
+# 第三列只有角色表有（`players.xml` 的 id 21..40 是堕落角色、名字与本体重复）。
+# 名字里的反斜杠/制表符/换行/回车/问号已转义（`\\` / `\t` / `\n` / `\r` / `\?`）。
+Aprils fool	32
+BEANS!	13
+BRAINS!	27
+Backasswards	31
+Baptism by Fire	38
+Bloody Mary	37
+Blue Bomber	23
+Cantripped!	43
+Cat Got Your Tongue	8
+Computer Savy	16
+Cursed!	10
+Darkness Falls	4
+Demo Man	9
+Glass Cannon	11
+Have a heart	25
+Head Trauma	3
+High Brow	2
+Hot Potato	42
+I RULE!	26
+Isaac's Awakening	39
+Its In The Cards	14
+Onan's Streak	29
+PAY TO PLAY	24
+PONG	35
+PRIDE DAY!	28
+Pica Run	41
+Pitch Black	1
+Pokey mans	33
+Purist	20
+Red Redemption	44
+SPEED!	22
+Scat Man	36
+Seeing Double	40
+Slow Roll	15
+Solar System	6
+Suicide King	7
+The Family Man	19
+The Guardian	30
+The Host	18
+The Tank	5
+Ultra hard	34
+WAKA WAKA	17
+When Life Gives You Lemons	12
+XXXXXXXXL	21

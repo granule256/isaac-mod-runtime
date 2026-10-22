@@ -11,6 +11,7 @@
 #include "game_file_reader.hpp"
 #include "infrastructure/relay/entry_relay_binding.hpp"  // `Original<>`（挂点记下的原函数入口）
 #include "interfaces/lua/mod_menu_api.hpp"
+#include "infrastructure/call/engine_call_access.hpp"
 // 本批（072）用的是引擎的**按文件名**版 `LoadImage(char const* path, ...)`：它收的是
 // `const char*`，所以**不需要** libc++ 字符串桥（上一批为 `ANM2::Load` 做过的那一处已在
 // 本批回退）。
@@ -878,6 +879,12 @@ std::uintptr_t g_MenuModsRender = 0;
 //: ★ 为什么它必须**在这里**声明：`ApplyState`（下面几百行）要用它来判断"该走中继还是走守卫直调"，
 //: 而中继装好之后入口 16 字节已被改写 ⇒ 逐字节守卫必然对不上（批次 060 的 bug 就是这么来的）。
 std::uintptr_t g_SetStateRelayOriginal = 0;
+bool PublishProbeOriginal(std::uintptr_t original,void* opaque) noexcept {
+    auto* slot=static_cast<std::uintptr_t*>(opaque);
+    __atomic_store_n(slot,original,__ATOMIC_RELEASE);
+    return true;
+}
+
 //: 批次 063：模组页"位置只定一次、之后跟着画布走"用的小状态机。
 //: 见 `NativeModsMenuProbeUpdate` 里那段位置的注释（为什么两个方向都跟着走、为什么第二帧才定）。
 std::uint32_t g_ModsPagePositionSet = 0;
@@ -1100,9 +1107,9 @@ void ApplyState(const TargetModule& module, std::uint32_t state) {
     //
     // 正确做法：装了中继就直接调中继给的**回退入口**（它内部先回放原序言、再跳回原函数第 5 条指令，
     // 与另外两个 Render 中继的用法完全一样）；没装中继才走"守卫 + 直接调"的老路。
-    if (g_SetStateRelayOriginal != 0) {
+    if (__atomic_load_n(&g_SetStateRelayOriginal,__ATOMIC_ACQUIRE) != 0) {
         ++g_NativeModsMenuProbeState.applyStateCalls;
-        reinterpret_cast<SetStateFn>(g_SetStateRelayOriginal)(reinterpret_cast<void*>(manager),
+        isaac::runtime::engine_call::AsFunction<SetStateFn>(__atomic_load_n(&g_SetStateRelayOriginal,__ATOMIC_ACQUIRE))(reinterpret_cast<void*>(manager),
                                                              static_cast<std::int32_t>(state));
         g_NativeModsMenuProbeState.lastFailure = kFailureNone;
         return;
@@ -2191,7 +2198,7 @@ bool ModRowHasNativeLayer(std::uintptr_t anm2) {
 //:   5) 只有在"引擎那份动画里没有我们那一层"时，才由我们兜底画（见 `ModRowHasNativeLayer`）。
 extern "C" void ModRowMenuGameRenderRelayCallback(void* self) {
     using RenderFn = void (*)(void*);
-    const auto original = reinterpret_cast<RenderFn>(g_ModRow.renderOriginal);
+    const auto original = isaac::runtime::engine_call::AsFunction<RenderFn>(__atomic_load_n(&g_ModRow.renderOriginal,__ATOMIC_ACQUIRE));
     if (original == nullptr) {
         return;
     }
@@ -2230,7 +2237,7 @@ extern "C" void ModRowMenuGameRenderRelayCallback(void* self) {
 
 //: 装 `Menu_Game::Render` 的入口中继（模块初始化线程上、游戏主循环尚未开始）。
 void InstallModRowRenderRelay(const TargetModule& module) {
-    if (g_ModRow.renderOriginal != 0) {
+    if (g_NativeModsMenuProbeState.modRowRelayState == 1) {
         return;
     }
     std::uintptr_t target = 0;
@@ -2241,10 +2248,10 @@ void InstallModRowRenderRelay(const TargetModule& module) {
         return;
     }
     std::uintptr_t original = 0;
-    const bool installed = isaac::runtime::relay::TryInstallEntryRelay(
+    const bool installed = isaac::runtime::relay::TryInstallEntryRelayWithPublisher(
         target, kMenuGameRenderExpected.data(),
-        reinterpret_cast<std::uintptr_t>(&ModRowMenuGameRenderRelayCallback), &original);
-    g_ModRow.renderOriginal = installed ? original : 0;
+        isaac::runtime::engine_call::AddressOfFunction(&ModRowMenuGameRenderRelayCallback),
+        PublishProbeOriginal, &g_ModRow.renderOriginal, &original);
     g_NativeModsMenuProbeState.modRowRelayState = installed ? 1U : 2U;
     g_NativeModsMenuProbeState.modRowRelayFailure =
         installed ? 0U : isaac::runtime::relay::LastFailure();
@@ -2263,7 +2270,7 @@ void InstallModRowRenderRelay(const TargetModule& module) {
 //: 去 `SetState(9)`（统计）。**页面上"跳错页"比"什么都不发生"更难解释**，所以这里再加一道保险。
 extern "C" void NativeModsMenuSetStateRelayCallback(void* self, std::int32_t state) {
     using SetStateFn = void (*)(void*, std::int32_t);
-    const auto original = reinterpret_cast<SetStateFn>(g_SetStateRelayOriginal);
+    const auto original = isaac::runtime::engine_call::AsFunction<SetStateFn>(__atomic_load_n(&g_SetStateRelayOriginal,__ATOMIC_ACQUIRE));
     if (original == nullptr) {
         return;
     }
@@ -2282,7 +2289,7 @@ extern "C" void NativeModsMenuSetStateRelayCallback(void* self, std::int32_t sta
 }
 
 void InstallSetStateRelay(const TargetModule& module) {
-    if (g_SetStateRelayOriginal != 0) {
+    if (g_NativeModsMenuProbeState.setStateRelayState == 1) {
         return;
     }
     std::uintptr_t target = 0;
@@ -2291,10 +2298,10 @@ void InstallSetStateRelay(const TargetModule& module) {
         return;
     }
     std::uintptr_t original = 0;
-    const bool installed = isaac::runtime::relay::TryInstallEntryRelay(
+    const bool installed = isaac::runtime::relay::TryInstallEntryRelayWithPublisher(
         target, kSetStateExpected.data(),
-        reinterpret_cast<std::uintptr_t>(&NativeModsMenuSetStateRelayCallback), &original);
-    g_SetStateRelayOriginal = installed ? original : 0;
+        isaac::runtime::engine_call::AddressOfFunction(&NativeModsMenuSetStateRelayCallback),
+        PublishProbeOriginal, &g_SetStateRelayOriginal, &original);
     g_NativeModsMenuProbeState.setStateRelayState = installed ? 1U : 2U;
     if (!installed) {
         g_NativeModsMenuProbeState.lastFailure = kFailureSetStateGuard;
@@ -2942,7 +2949,7 @@ void NativeModsMenuProbeUpdate() noexcept {
 //: 后续那十几个页面的 `Render` 大多会因自己的可见位是 0 而整页跳过（各页自带门控）。
 extern "C" void NativeModsMenuTitleRenderRelayCallback(void* self) {
     using RenderFn = void (*)(void*);
-    const auto original = reinterpret_cast<RenderFn>(g_TitleRelayOriginal);
+    const auto original = isaac::runtime::engine_call::AsFunction<RenderFn>(__atomic_load_n(&g_TitleRelayOriginal,__ATOMIC_ACQUIRE));
     if (original != nullptr) {
         original(self);  // 1) 标题菜单照常画（与没挂钩时逐帧等价）
     }
@@ -2995,10 +3002,10 @@ void InstallTitleRenderRelay(const TargetModule& module) {
         g_NativeModsMenuProbeState.lastFailure = kFailureTitleRelayGuard;
         return;
     }
-    const bool installed = isaac::runtime::relay::TryInstallEntryRelay(
+    const bool installed = isaac::runtime::relay::TryInstallEntryRelayWithPublisher(
         target, kMenuTitleRenderExpected.data(),
-        reinterpret_cast<std::uintptr_t>(&NativeModsMenuTitleRenderRelayCallback),
-        &g_TitleRelayOriginal);
+        isaac::runtime::engine_call::AddressOfFunction(&NativeModsMenuTitleRenderRelayCallback),
+        PublishProbeOriginal, &g_TitleRelayOriginal);
     g_NativeModsMenuProbeState.titleRelayState = installed ? 1U : 2U;
     g_NativeModsMenuProbeState.titleRelayFailure =
         installed ? 0U : isaac::runtime::relay::LastFailure();

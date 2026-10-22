@@ -50,6 +50,7 @@ HARNESS = r'''
 #include "lua_runtime_state.hpp"
 #include "runtime_constants.hpp"
 #include "room_descriptor_layout.hpp"
+#include "interfaces/lua/api500_world.guards.hpp"
 
 #include <cstdint>
 #include <cstring>
@@ -121,10 +122,23 @@ std::uintptr_t AddressOf(const std::vector<unsigned char>& block) {
 
 void PublishFakeEngine() {
     g_ModuleBytes.assign(kGameOwnerGlobalSlotOffset + sizeof(std::uint64_t), 0);
+    // 2026-10-20：配置字段已经走受保护的原生布局，旧夹具需提供相同指纹。
+    const auto& layout = isaac::runtime::api500_world::kLayouts[6];
+    std::memcpy(g_ModuleBytes.data() + layout.offset, layout.bytes.data(), layout.bytes.size());
+    // LeaveDoor字段的独立写者指纹（只校验，不执行AArch64）。
+    constexpr unsigned char leaveGuard[16]={0x28,0xa3,0xd9,0x39,0x29,0x23,0xb,0x29,0x28,0x5b,0x46,0xb9,0x28,0x67,0,0xb9};
+    std::memcpy(g_ModuleBytes.data()+0x3d9b80,leaveGuard,sizeof(leaveGuard));
+    // 新的真实Spawns容器同样验证解析器与镜像布局；均只提供指纹，不执行代码。
+    constexpr unsigned char parseGuard[16]={0xfd,0x43,0x02,0x91,0xfc,0x6f,0x0a,0xa9,0xfa,0x67,0x0b,0xa9,0xf8,0x5f,0x0c,0xa9};
+    constexpr unsigned char mirrorGuard[16]={0xf8,0x5f,0x03,0xa9,0xf6,0x57,0x04,0xa9,0xf4,0x4f,0x05,0xa9,0xf4,0x03,0x00,0xaa};
+    std::memcpy(g_ModuleBytes.data()+0x48f490,parseGuard,sizeof(parseGuard));
+    std::memcpy(g_ModuleBytes.data()+0x495248,mirrorGuard,sizeof(mirrorGuard));
+
+
     g_OwnerBytes.assign(sizeof(std::uint64_t), 0);
     g_GamePointerBytes.assign(sizeof(std::uint64_t), 0);
     // Level 对象要覆盖到描述符数组、当前索引/维度、以及元素个数所在的 +0x21510。
-    g_LevelBytes.assign(0x21520, 0);
+    g_LevelBytes.assign(0x21600, 0);
     // 每个房间配置块 0x60 字节（`Shape` 在 +0x5C、占 4 字节 ⇒ 块至少要 0x60），三块互不重叠。
     g_ConfigBytes.assign(0x60 * 3, 0);
 
@@ -351,7 +365,7 @@ class LuaRoomDescriptorTests(unittest.TestCase):
                          "FLAGS=1025", "TYPE=1", "SHAPE=1",
                          # 批次 056：空容器形状（真值取证前是 `Size = 0`、`Get` 恒 nil）。
                          # 这条钉的是"形状在、不抛错"；**它不声称 Spawns 的真实内容正确**。
-                         "SPAWNS=table", "SPAWNS_SIZE=0", "SPAWNS_GET=nil",
+                         "SPAWNS=userdata", "SPAWNS_SIZE=0", "SPAWNS_GET=nil",
                          # 批次 061：字段写入必须**接受**（不抛错）。这条钉的是"形状"，
                          # 不声称写入真的落到引擎（`EnterDoor` 的偏移还没有证据）。
                          "WRITE=ok"):
@@ -374,7 +388,7 @@ class LuaRoomDescriptorTests(unittest.TestCase):
         self.assertIn("DATA_KIND=table", result.stdout)
         self.assertIn("DATA_TYPE=0", result.stdout)
         self.assertIn("DATA_SHAPE=0", result.stdout)
-        self.assertIn("DATA_SPAWNS=table", result.stdout)
+        self.assertIn("DATA_SPAWNS=userdata", result.stdout)
 
     def test_get_room_by_idx_finds_rooms_and_refuses_what_it_cannot_prove(self):
         """`GetRoomByIdx(97)` 找到宝箱房；`(-1)` 是当前房间；越界与 -2 给 nil。
@@ -453,7 +467,7 @@ class LuaRoomDescriptorTests(unittest.TestCase):
         self.assertIn("CUR_VISITED=0", result.stdout)
         self.assertIn("CUR_DATA_KIND=table", result.stdout)
         self.assertIn("CUR_DATA_TYPE=0", result.stdout)
-        self.assertIn("CUR_DATA_SPAWNS=table", result.stdout)
+        self.assertIn("CUR_DATA_SPAWNS=userdata", result.stdout)
 
     def test_get_rooms_exposes_size_and_indexed_access(self):
         """`GetRooms()` 要有 `.Size` 与 `:Get(i)`，越界给 nil（EID 就是这么遍历的）。"""

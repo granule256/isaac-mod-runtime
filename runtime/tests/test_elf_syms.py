@@ -10,6 +10,7 @@
 """
 
 import importlib.util
+import re
 import struct
 import sys
 import unittest
@@ -130,6 +131,41 @@ class SymSyncTests(unittest.TestCase):
             self.tool.sync_syms_from_elf(path)
         self.assertEqual(self.tool.SYMS[key], 0x1234)
 
+    def test_callback_registry_count_layout_follows_elf_size(self):
+        name = self.tool.SYM_ELF_NAMES['g_CallbackRegistry']
+        for size, offset in ((0x2008, 0x2000), (0x2508, 0x2500), (0x2d08, 0x2d00)):
+            with self.subTest(size=size), self._elf({name: (0x8000, size)}) as path:
+                self.tool.sync_syms_from_elf(path)
+                self.assertEqual(self.tool.CALLBACK_REGISTRY_COUNT_OFFSET, offset)
+                requests, _ = self.tool.build_requests(0x10000000, 0, 0)
+                request = next(row for row in requests if row[0] == 'callback_count')
+                self.assertEqual(request[1], 0x10008000 + offset)
+
+    def test_unknown_registry_layout_does_not_request_a_guessed_count(self):
+        name = self.tool.SYM_ELF_NAMES['g_CallbackRegistry']
+        with self._elf({name: (0x8000, 0x2608)}) as path:
+            self.tool.sync_syms_from_elf(path)
+            requests, skipped = self.tool.build_requests(0x10000000, 0, 0)
+            self.assertNotIn('callback_count', [row[0] for row in requests])
+            self.assertIn('callback_count_layout', skipped)
+
+    def test_diagnostic_snapshot_reads_and_labels_optional_u32(self):
+        import contextlib
+        import io
+        fields = ('g_CallbackDiagnosticViewIncomplete', 'g_CallbackDiagnosticViewOverflow')
+        names = self.tool.SYM_ELF_NAMES_OPTIONAL
+        with self._elf({names[key]: (0x8000 + index * 4, 4) for index, key in enumerate(fields)}) as path:
+            self.tool.sync_syms_from_elf(path)
+            requests, _ = self.tool.build_requests(0x10000000, 0, 0)
+            self.assertTrue(all(key in [row[0] for row in requests] for key in fields))
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            self.assertTrue(self.tool.print_callback_diagnostic_view({fields[0]: [0x100000001]}))
+        self.assertIn('诊断快照', output.getvalue())
+        self.assertIn('标记 = 1', output.getvalue())
+        self.assertIn('条目 = 未读', output.getvalue())
+        self.assertFalse(self.tool.print_callback_diagnostic_view({}))
+
     def test_missing_symbol_is_dropped_not_kept_stale(self):
         """核心断言：解析不到就**删键**。留着过期偏移等于把别人的变量当成我们的。"""
         kept, gone = "identity", "g_DefaultEntry"
@@ -206,6 +242,45 @@ class SymbolHintTests(unittest.TestCase):
             self.assertTrue(name.startswith("_ZN5isaac7runtime5probe"),
                             f"{key} 的符号名不在探针命名空间里：{name}")
 
+    def test_probe_build_only_hints_are_accounted_for(self):
+        """**正式包按设计缺席**的那批探针量：要么解析到，要么如实记账，不许静默消失。
+
+        为什么再分一张表（批次 232，2026-09-30 用户指令"将探针都撤去"）：正式包现在把探针的
+        采集动作整个编译掉了（`runtime/source/probe_gate.hpp`），而正式包是带 section GC 链接的
+        ⇒ **没人写的全局量会被链接器丢掉** ⇒ 那 77 个符号在生产 ELF 里根本不存在。
+        主表那两条断言是"偏移表不许过期"的守门人，不该为探针放宽（与上一张表同一个理由）。
+
+        三条断言：
+        ① 三张符号表**互不重叠**（否则同一个键两边抢着写 `SYMS`）；
+        ② 这张表里的键看起来必须是"我们自己的诊断全局量"（键 `g_` 打头，或符号名落在
+           `isaac::runtime` 里）—— 防止有人把别的东西塞进这张"允许缺席"的表来糊弄门禁；
+        ③ 同步之后每一项要么进 `SYMS`、要么进 `SYM_MISSING` + 本构建无探针名单，
+           **不许两边都不在**（那才是"静默消失"，读数会 KeyError）。
+        """
+        table = getattr(self.tool, "SYM_ELF_NAMES_PROBE_BUILD_ONLY", None)
+        self.assertIsNotNone(table, "探针包专用符号表不见了")
+        self.assertTrue(table, "这张表空了 ⇒ 有人把键挪回了主表（那会让上面两条断言红）")
+        for other_name, other in (("主表", self.tool.SYM_ELF_NAMES),
+                                  ("探针 TU 表", self.tool.SYM_ELF_NAMES_PROBE_ONLY)):
+            overlap = set(table) & set(other)
+            self.assertEqual(overlap, set(),
+                             f"这些键同时出现在探针包表与{other_name}里：{sorted(overlap)}")
+        for key, name in table.items():
+            self.assertTrue(key.startswith("g_") or "5isaac7runtime" in name,
+                            f"{key} / {name} 看着不像我们自己的诊断全局量")
+        elf = ROOT / self.tool.DEFAULT_ELF
+        if not elf.exists():
+            self.skipTest(f"没有本地构建产物 {self.tool.DEFAULT_ELF}")
+        self.tool.sync_syms_from_elf(elf)
+        for key in table:
+            self.assertTrue(key in self.tool.SYMS or key in self.tool.SYM_MISSING,
+                            f"{key} 既没解析到、也没记进 SYM_MISSING（静默消失了）")
+        # 反向自证：**解析得到**的键不许被记成"本构建没有" —— 两个名单不许互相污染。
+        contaminated = [k for k in self.tool.SYMS
+                        if k in table and k in self.tool.SYM_PROBE_BUILD_ABSENT]
+        self.assertEqual(contaminated, [],
+                         f"这些键既解析到了、又被记成「本构建无探针」：{sorted(contaminated)}")
+
     def test_error_probe_keys_are_all_auto_synced(self):
         """错误通道探针读的每个键都必须能被自动同步。
 
@@ -233,6 +308,92 @@ class SymbolHintTests(unittest.TestCase):
         unresolved = {key: name for key, name in self.tool.SYM_ELF_NAMES.items()
                       if name not in table}
         self.assertEqual(unresolved, {}, f"这些符号在本构建的 ELF 里找不到：{unresolved}")
+
+
+class U32ReadMaskingTests(unittest.TestCase):
+    """**4 字节的全局必须掩码**：读数工具按 8 字节取字，一个字里往往装着两个 `uint32`。
+
+    ## 为什么要有这条（2026-09-28 批次 192 的现场发现）
+
+    同一个坑已经咬过两次，而两次都是"读数看起来有值、其实是错的"：
+
+    * 2026-09-26：`mod_engine_stage`（真值 2）被印成 `4294967298`（= 2 | 1<<32，高 32 位是隔壁
+      `mod_engine_attempts` 的 1）—— 于是"调了 4 次"与"一次都没调"这种**相反结论**都可能得出；
+    * 2026-09-28（本批）：我新加的 10 个触摸诊断量全是 `uint32`，地址实测 4 字节一格
+      （`0x83c0818…0x83c083c`，正好两两共用一个 8 字节字）⇒ 若用 `first(...)`，
+      **每一个印出来的数都掺了隔壁的值**。加上这条门禁时它还顺带扫出了一处**存量**问题
+      （`g_sequence`，启动状态机那一段）—— 见本类最后一个用例。
+
+    修法是既有的两种之一：`first_u32(...)`，或 `first(...) & 0xFFFFFFFF`。
+    **判据不是"必须写成哪一种"，而是"有没有掩码"** —— 存量里两种写法都有（79 处 4 字节读），
+    一刀切要求某一种会误报一片。
+
+    这条门禁**不需要设备**，但需要本构建的 `runtime.elf`（符号大小从 ELF 的 `.symtab` 读，
+    **不写死名单** —— 写死名单就等于又抄了一张会过期的表）。
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tool = load_module("gdb_tool_for_u32_gate", GDB_TOOL)
+        cls.elf_syms = load_module("elf_syms_for_u32_gate", ELF_TOOL)
+
+    def _violations(self, source: str) -> list[str]:
+        """按同一套判据扫一段源码，返回违规行（**判据只有这一份**，自证用例复用它）。"""
+        elf = ROOT / self.tool.DEFAULT_ELF
+        if not elf.exists():
+            self.skipTest(f"没有本地构建产物 {self.tool.DEFAULT_ELF}")
+        table = self.elf_syms.load_symbols(elf.read_bytes())
+        found = []
+        for lineno, line in enumerate(source.splitlines(), 1):
+            for key in re.findall(r"first\(\s*values\s*,\s*'([A-Za-z0-9_]+)'", line):
+                name = self.tool.SYM_ELF_NAMES.get(key)
+                if not name or name not in table:
+                    continue                      # 非字面键 / 不在表里 ⇒ 不判
+                if table[name][1] != 4:
+                    continue                      # 只判 4 字节的（指针、u64 整字读是对的）
+                if "0xFFFFFFFF" not in line:
+                    found.append(f"行 {lineno}：{key}（{name}，size=4）—— {line.strip()[:80]}")
+        return found
+
+    def test_every_four_byte_global_is_masked(self):
+        violations = self._violations(GDB_TOOL.read_text(encoding="utf-8"))
+        self.assertEqual(
+            violations, [],
+            "这些 4 字节全局用 `first(...)` 读却**没掩码**（会把隔壁全局取进高 32 位）：\n  "
+            + "\n  ".join(violations)
+            + "\n\n改成 `first_u32(values, '键')`，或补 `& 0xFFFFFFFF`。")
+
+    def test_the_rule_actually_fires(self):
+        """**破坏证伪**：门禁必须真的抓得到这一形状，否则它只是个装饰。
+
+        造一行"4 字节符号 + 无掩码"的假源码，走**同一个** `_violations`，必须报出来。
+        （本项目纪律：新增/优化过的门禁必须能抓到它声称能抓的东西。）
+        """
+        elf = ROOT / self.tool.DEFAULT_ELF
+        if not elf.exists():
+            self.skipTest(f"没有本地构建产物 {self.tool.DEFAULT_ELF}")
+        table = self.elf_syms.load_symbols(elf.read_bytes())
+        key = next((k for k, n in self.tool.SYM_ELF_NAMES.items()
+                    if n in table and table[n][1] == 4), None)
+        self.assertIsNotNone(key, "符号表里找不到任何 4 字节符号，这条自证用例本身失效了")
+        fake = f"    value = first(values, '{key}')\n"
+        self.assertNotIn("0xFFFFFFFF", fake, "构造的假源码本身必须是不带掩码的")
+        hits = self._violations(fake)
+        self.assertEqual(len(hits), 1, f"判据没抓到构造出来的违规 —— 门禁是假的：{hits}")
+        self.assertIn(key, hits[0])
+
+    def test_the_rule_accepts_both_legal_spellings(self):
+        """反向自证：两种合法写法都**不许**被判红（否则门禁会逼着大家改存量）。"""
+        elf = ROOT / self.tool.DEFAULT_ELF
+        if not elf.exists():
+            self.skipTest(f"没有本地构建产物 {self.tool.DEFAULT_ELF}")
+        table = self.elf_syms.load_symbols(elf.read_bytes())
+        key = next((k for k, n in self.tool.SYM_ELF_NAMES.items()
+                    if n in table and table[n][1] == 4), None)
+        self.assertIsNotNone(key)
+        for legal in (f"    v = first_u32(values, '{key}')\n",
+                      f"    v = first(values, '{key}') & 0xFFFFFFFF\n"):
+            self.assertEqual(self._violations(legal), [], f"合法写法被判红：{legal!r}")
 
 
 class GameRunningCheckTests(unittest.TestCase):

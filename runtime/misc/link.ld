@@ -57,8 +57,17 @@ SECTIONS
    *      （其中 32 MiB 是我们自己的 `__fake_heap`），而游戏本体 `Repentance.nro` 是 11.2 MiB。
    * 抬升时用量：代码结束 `0x77ef0`、只读段结束 `0xaf7fc`。
    */
-  ASSERT(__code_end__ <= 0x100000,
-         "RX 段超过 1 MiB：先确认是否为失控增长，再按预算规则调整上限")
+  /* 2026-10-13：新65方法、字段和真实Shader链的逐对象账见
+   * dist/callback-rplus-20261013/object-sizes-build9.txt。
+   * 链接RX=0x107A00（仅超过旧闸门31232B），已排除重复旧实现。
+   * RX闸门增加128KiB到1.125MiB；RO仍2MiB。449预算从实际NSO重新生成。 */
+  /* 2026-10-14：用户明确要求代码预算扩展到4MiB，依据见
+   * docs/API扩展容量与预算说明-20261014.md。API300已共享重复检查；
+   * 这两个限额只控制增长，不预填地址空间。RO累计上限同步为6MiB，
+   * 使代码到4MiB时仍有2MiB只读预算；实际NSO占用另重算原生内存补丁。
+   * 152MiB假堆、32KiB保留线、页对齐/连续三段及展开信息保持原要求。 */
+  ASSERT(__code_end__ <= 0x400000,
+         "RX 段超过 4 MiB：先确认是否为失控增长，再按预算规则调整上限")
   . = DEFINED(EXL_STARTUP_PROBE_COMPAT_LAYOUT) ? 0x55000 : ALIGN(0x1000);
 
   /* App name */
@@ -101,33 +110,52 @@ SECTIONS
   /*
    * ★★ 展开表（`.eh_frame` / `.eh_frame_hdr`）**必须保留** —— 2026-09-24（批次 104）恢复。
    *
-   * `crt0.s` 的 MOD0 头里有两个字段指向 `__eh_frame_hdr_start__/end__`：**系统加载器**按这对
-   * 区间把本模块的展开信息注册给 libgcc。2026-09-12 为省 36.5 KB 把这一对做成了"同一个地址"
-   * （长度 0）、并把 `.eh_frame` 丢进 `/DISCARD/`，当时记的结论是"对运行时没有任何副作用"。
+   * ★ 2026-09-25（批次 134）**更正**：批次 104 当初写的"**系统加载器**按 MOD0 那对区间把本模块的
+   * 展开信息注册给 libgcc"是**未经验证的推断，且是错的**。实测（`dist/freeze-20260925/`）：
+   *   ① 本模块的 `_Unwind_Find_FDE` **只查自己 .bss 里那张"已登记对象"链表**，不查任何模块表；
+   *   ② 那张链表**永远是空的** —— 本模块是 `-nostartfiles`，没有 crtbegin ⇒ 没人调
+   *      `__register_frame_info_bases`（平时由 crtbegin 的 `frame_dummy` 做），而且那个入口
+   *      **根本没被链接进来**、也没有导出，外部无从替我们登记。
+   *   ⇒ 于是 2026-09-25 又一次真机"画面卡死、音乐还在"（同 09-21 / 09-24 的签名）。
    *
-   * **这条结论是错的** —— 2026-09-21 与 2026-09-24 两次真机"无声卡死"（画面不动、音乐还在、
-   * 没有崩溃报告）就是它的代价：展开器拿不到我们任何一帧的信息 ⇒ `_Unwind_RaiseException`
-   * **相位 1 直接失败 ⇒ `abort()`**（不是 `std::terminate`！后者只在"展开成功但没人接"时才走）
-   * ⇒ newlib `_exit` 自旋。⇒ **任何穿过我们模块的 C++ 异常都会把游戏变成无声卡死**。
-   * 完整证据链：`docs/改动日志-20260924.md` 的 015 段与 `docs/问题与解决记录.md`「续八十」。
+   * ★★ 同一批还发现**第二个必需件**：展开器是"**按长度逐个走、直到遇到零长条目为止**"，
+   *   而那个零长终止符平时由 **crtend.o** 提供 —— `-nostartfiles` 同样没有它。
+   *   实测（离线走链）：我们的 `.eh_frame` 里 2 CIE + 1880 FDE 正好把区间走完，
+   *   **始终没有终止符** ⇒ libgcc 继续往后读垃圾长度 ⇒ `classify_object_over_fdes` 返回 −1
+   *   ⇒ 把这个对象**判定为空**（`u`/`s` 被换成只读段里的哨兵 `0xAC888`/`0x7F8`，设备读数与
+   *   `search_object` 的失败分支反汇编逐字一致）⇒ 登记了也永远查不到 FDE。
+   *   ⇒ **本段末尾必须补一个 4 字节零**（`LONG(0)`，等价于 crtend 的 `__FRAME_END__`）。
+   *
+   * 所以本段有**三件事**不能少：① `.eh_frame`/`.eh_frame_hdr` 不被丢；
+   * ② 由我们自己登记（`source/eh_frame_registration.cpp`，所以要导出起止符号）；
+   * ③ **末尾那个零长终止符**。判据由 `runtime/tests/test_architecture_layout.py` 钉住。
+   *
+   * MOD0 那对 `__eh_frame_hdr_start__/end__` **仍然要填对**（`crt0.s` 写入、`/DISCARD/` 不许丢），
+   * 那是模块头自描述的一部分；但**它不等于"已经登记"** —— 别再把两者混为一谈。
    *
    * 只读预算：实测仍远低于闸门上限（代码段 1 MiB / 只读段 2 MiB），所以不用放宽上限。
-   * 判据由 `runtime/tests/test_architecture_layout.py` 钉住（**不得再被丢掉**）。
    */
   .eh_frame_hdr : {
     HIDDEN(__eh_frame_hdr_start__ = .);
     KEEP (*(.eh_frame_hdr .eh_frame_hdr.*))
     HIDDEN(__eh_frame_hdr_end__ = .);
   } :rodata
-  .eh_frame : { KEEP (*(.eh_frame .eh_frame.*)) } :rodata
+  .eh_frame : {
+    HIDDEN(__eh_frame_start__ = .);
+    KEEP (*(.eh_frame .eh_frame.*))
+    /* ★ crtend 的零长终止符（`-nostartfiles` 没有 crtend ⇒ 必须自己补）。
+       展开器靠它判断"这个对象走完了"；没有它，链会一直往后读、直到把整支判成空。*/
+    LONG(0);
+    HIDDEN(__eh_frame_end__ = .);
+  } :rodata
 
   /* Misc .rodata stuffs (build-id, etc.) */
   .note.gnu.build-id : { *(.note.gnu.build-id) } :rodata
 
   /* Read-write sections */
   ASSERT(. > __code_end__, "只读段必须非空：exlaunch 靠 Rx->R->Rw 三元组识别模块")
-  ASSERT(. <= 0x200000,
-         "只读段结束超过 2 MiB：先确认是否为失控增长，再按预算规则调整上限")
+  ASSERT(. <= 0x600000,
+         "代码与只读段累计结束超过 6 MiB：先确认是否为失控增长，再按预算规则调整上限")
   . = DEFINED(EXL_STARTUP_PROBE_COMPAT_LAYOUT) ? 0x76000 : ALIGN(0x1000);
   ASSERT((. & 0xFFF) == 0,
          "读写段起点必须 4 KiB 对齐：SaltyNX 1.8.1 用 PT_DYNAMIC 计算插件映射跨度")

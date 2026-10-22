@@ -1,8 +1,10 @@
+#include "infrastructure/memory/engine_field_access.hpp"
 #include <string>
 #include <string_view>
 #include "interfaces/lua/runtime_perf.hpp"
 #include "interfaces/lua/api_sequence_probe.hpp"
 #include "interfaces/lua/font_api.hpp"
+#include "interfaces/lua/color_api.hpp"
 
 #include "interfaces/lua/lua_integer_argument.hpp"
 #include "interfaces/lua/owner_binding.hpp"
@@ -11,6 +13,9 @@
 #include "lua_runtime_state.hpp"
 #include "runtime_constants.hpp"
 
+// 批次 415：Font 存储改走 **Lua 状态自己的分配器**（`lua_getallocf`）—— 不再需要额外头文件
+// （`lua_getallocf` / `lua_Alloc` 由 `lua.h` 提供，已经通过 `lauxlib.h` 拿得到）。
+
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
@@ -18,7 +23,22 @@
 
 extern "C" {
 #include <lauxlib.h>
+#include "probe_gate.hpp"
 }
+
+// 271-perf：贴图桥里的"`Font::Load` 窗口"开关（定义在 `source/image_pcx_bridge_hook.cpp`）。
+// 作用：把引擎这次字体加载**包成一个时间窗口**，好让贴图桥那边能回答
+// "窗口内我们自己的图像层花了多少、引擎自己花多少"。跨 TU 只走函数调用（数据 GOT 那条坑见
+// `interfaces/lua/runtime_perf.hpp` 顶部）。
+//
+// ★ 挂在 `EXL_DIAGNOSTIC_PROBES` 门控里（与批次 262 把诊断开销收进门控同一口径）：
+//   这是纯量具，正式包不需要；而且宿主夹具里**只链 Lua 运行时、不链贴图桥**
+//   （`test_lua_font_resources` 的 harness 就是这么编的），不加门控会直接链接失败。
+#if EXL_DIAGNOSTIC_PROBES
+extern "C" void IsaacRuntime_FontLoadWindowBegin() noexcept;
+extern "C" void IsaacRuntime_FontLoadWindowEnd(std::uint32_t micros, std::uint32_t glyphCount,
+                                               std::uint32_t charsSpan) noexcept;
+#endif
 
 namespace isaac::runtime {
 
@@ -41,6 +61,53 @@ std::atomic<std::uint32_t> g_FontIsLoadedCalls{0};
 std::atomic<std::uint32_t> g_FontIsLoadedResult{0};
 std::atomic<std::uint32_t> g_FontDrawAlpha{0};
 std::atomic<std::uint32_t> g_FontDrawScaleX{0};
+
+// ---------------------------------------------------------------------------
+// 批次 414（2026-10-08）：`Font` 的实例存储先试过"固定块池"；**415 改成走 Lua 分配器**。
+// ---------------------------------------------------------------------------
+// 现场与结论（414 的真机读数把根因钉出来了，见 `dist/change-archive-20261008/414-*/README.md`）：
+//   414 用"固定块池 + 我们自己的 malloc"，池本身工作正常（**成功发出过 384 块**、峰值满负荷），
+//   但真机上 `当前在外 = 288` 个 Font **没被回收**、`chunk 要不到 = 1194`（堆空闲 31.9 MB 但
+//   没有连续 8 MiB）。⇒ 根因**不在分配器，在 GC**：那 **128 KiB 是用我们自己的 `malloc` 拿的，
+//   而 Lua 的 GC 看不见它**（userdata 本身只有十几字节）⇒ GC 没有理由回收 ⇒ 越攒越多把堆吃干。
+//   （PC 上同一份模组不炸：那边 OS 内存大，且 GC 被别的垃圾触发时照样收掉这些 userdata。）
+//
+// 415 的修法 = 这笔内存**从 Lua 状态自己的分配器拿**（`lua_getallocf`）：
+//   它计入 Lua 的 GC 账 ⇒ GC 按需回收 ⇒ 288 个活 Font 那种堆积不会再发生。
+//   ★★ **2026-10-10（批次 425）订正：上面那句"它计入 Lua 的 GC 账"是错的。**
+//     走 `lua_getallocf` 拿到的是**裸 `frealloc`**（`lapi.c:1169` = `return G(L)->frealloc;`），
+//     而 Lua **只在 `luaM_realloc_` 里更新 `g->GCdebt`**（`lmem.c:97`）⇒
+//     **直接调 `frealloc` 恰好绕过了这笔账** ⇒ 这些块**不进 Lua 的用量统计** ⇒
+//     GC 的触发判断（`GCdebt` 对 `GCthreshold`）**永远看不到它们**。
+//     真机实证（424 那版，152 MiB 堆）：`whatsmydps` 每帧一个 Font（`MC_POST_RENDER`），
+//     **存活块数锯到 507 块 = 63 MB**，而它**每约 250 帧才被收一次**（等别的分配顺手触发）。
+//     ⇒ 425 的修法见 `lua_runtime_state.hpp` 的 `NudgeLuaGcIfFontBlocksHigh()`：
+//       这笔内存**我们自己看得见**（`g_FontStorageLive`）⇒ 由我们把它**补报**给 GC。
+//     （415 换到 Lua 分配器这条路**仍然是对的**——比自己开池子好得多，池那版连
+//      "谁在还"都追不到；只是它**不足以**让 GC 主动回收。）
+//   ★ 池的"固定尺寸复用"思想本身没错，但它的块**对 GC 不可见**，正好是病因 ⇒ 撤掉池接线
+//     （池的实现与其用例一并删除，不留死代码）。
+//
+// ★ 参数与对齐口径与最早那版一致（那两条与 GC 无关，仍然成立）：
+//   块对 **16 字节对齐**（`Font` 要求 16，而分配器只保证 8），**原始指针存在对象前面 8 字节**，
+//   归还时读回来交给同一个分配器（`osize` 与分配时一致、`nsize = 0` = 释放）。
+// ★ 探针量仍是**外部链接**（写在 `namespace {` 之前）：读数工具按符号名读
+//   （技能 `isaac-switch-probe-batch` §11，本项目已因此栽过 5 次）。
+std::atomic<std::uint32_t> g_FontStorageAllocations{0};  // 累计分配次数
+std::atomic<std::uint32_t> g_FontStorageLive{0};         // 当前活着（未归还）的 Font 数 ★ 关键判据
+std::atomic<std::uint32_t> g_FontStorageLivePeak{0};     // 峰值
+std::atomic<std::uint32_t> g_FontStorageFailures{0};     // 分配失败次数（拿不到分配器 / 分配返回空）
+
+//: ★★ 批次 425：只读壳（**外部链接**，与上面那四个计数一样写在 `namespace {` 之外）。
+//: 调用方是 `mod_menu_native.cpp` 的每帧路径 —— 它把这个数交给
+//: `LuaRuntime::NudgeLuaGcIfFontBlocksHigh()` 去催 GC（原因见 `font_api.hpp` 里那段）。
+std::uint32_t FontStorageLiveBlocks() noexcept {
+    return g_FontStorageLive.load(std::memory_order_relaxed);
+}
+
+std::uint32_t FontStorageAllocationCount() noexcept { return g_FontStorageAllocations.load(std::memory_order_relaxed); }
+std::atomic<std::uint32_t> g_FontStorageDestructions{0};
+std::uint32_t FontStorageDestructionCount() noexcept { return g_FontStorageDestructions.load(std::memory_order_relaxed); }
 
 namespace {
 
@@ -67,30 +134,35 @@ using LuaRuntime::kFontMetatable;
 // every instance the game constructs is 16-byte aligned, so we keep 16. `malloc` only promises 8
 // here, therefore the block carries one alignment slot plus room for the raw pointer, which is
 // stored in the 8 bytes immediately before the object and read back on release.
+// ★ 2026-10-08（批次 414 → **415**）更正链：这一段最早是"`malloc` 一块、把原始指针存在对象前面
+//   （`kFontStorageSlack`）"；414 改成固定块池（想治"每帧 128 KiB 撞碎片"）；**415 改成走
+//   Lua 状态自己的分配器** —— 因为真机读数证明根因是 **GC 看不见这笔内存**（见文件顶部那段）。
+//   **上面两段原始推导一字未删**，留着看历史；池的实现与用例已随 415 删除（不留死代码）。
 constexpr std::size_t kFontAlignment = 16;
-constexpr std::size_t kFontStorageSlack = kFontAlignment + sizeof(void*);
-
-void* AllocateFontStorage() noexcept {
-    void* raw = std::malloc(kFontObjectSize + kFontStorageSlack);
-    if (raw == nullptr) {
-        return nullptr;
-    }
-    const std::uintptr_t rawAddress = reinterpret_cast<std::uintptr_t>(raw);
-    // The object starts at least `sizeof(void*)` bytes into the block, so the raw pointer always
-    // fits in front of it, and the slack above covers the worst-case alignment offset.
-    const std::uintptr_t aligned =
-        (rawAddress + sizeof(void*) + (kFontAlignment - 1)) &
-        ~(static_cast<std::uintptr_t>(kFontAlignment) - 1);
-    *reinterpret_cast<void**>(aligned - sizeof(void*)) = raw;
+// 2026-10-13订正：Lua拥有整个原生对象，lua_newuserdata经luaM_realloc_计账。
+constexpr std::size_t kFontStorageBytes = sizeof(FontHandle) + kFontObjectSize + kFontAlignment - 1;
+void* AllocateFontStorage(lua_State* state) {
+    auto* handle = static_cast<FontHandle*>(lua_newuserdata(state, kFontStorageBytes));
+    handle->font = nullptr;
+    const auto address = reinterpret_cast<std::uintptr_t>(handle) + sizeof(FontHandle);
+    const auto aligned = (address + kFontAlignment - 1) & ~(static_cast<std::uintptr_t>(kFontAlignment) - 1);
+    g_FontStorageAllocations.fetch_add(1, std::memory_order_relaxed);
+    const auto live = g_FontStorageLive.fetch_add(1, std::memory_order_relaxed) + 1;
+    auto peak = g_FontStorageLivePeak.load(std::memory_order_relaxed);
+    while (live > peak && !g_FontStorageLivePeak.compare_exchange_weak(peak, live)) {}
     return reinterpret_cast<void*>(aligned);
 }
+void ReleaseFontStorage(lua_State*, void*) noexcept {
+    // 仅记原生析构；内存直到userdata实际回收才由Lua归还，不能free内部地址。
+    g_FontStorageLive.fetch_sub(1, std::memory_order_relaxed);
+    g_FontStorageDestructions.fetch_add(1, std::memory_order_relaxed);
+}
 
-void ReleaseFontStorage(void* font) noexcept {
-    if (font == nullptr) {
-        return;
-    }
-    void* raw = *reinterpret_cast<void**>(reinterpret_cast<std::uintptr_t>(font) - sizeof(void*));
-    std::free(raw);
+struct BorrowedGameFont{FontHandle value;std::uintptr_t module,game;};
+bool LiveGameFont(const BorrowedGameFont*view)noexcept{
+ const auto base=LuaRuntime::EngineModuleBase();std::uintptr_t slot{},game{};
+ if(!base||base!=view->module||base>UINTPTR_MAX-kGameOwnerGlobalSlotOffset)return false;
+ return engine_memory::ReadAt(base+kGameOwnerGlobalSlotOffset,&slot,engine_memory::EngineMemoryReadable)&&slot&&engine_memory::ReadAt(slot,&game,engine_memory::EngineMemoryReadable)&&game==view->game&&engine_memory::EngineMemoryReadable(engine_memory::AddressOf(view->value.font),kFontObjectSize);
 }
 
 // --- Shared preludes -------------------------------------------------------
@@ -101,6 +173,7 @@ void ReleaseFontStorage(void* font) noexcept {
 // proceed, otherwise the Lua error code to return verbatim.
 int ResolveFont(lua_State* state, const char* apiName, void** font) {
     auto* handle = static_cast<FontHandle*>(luaL_checkudata(state, 1, kFontMetatable));
+    if(lua_rawlen(state,1)==sizeof(BorrowedGameFont)&&!LiveGameFont(static_cast<const BorrowedGameFont*>(lua_touserdata(state,1))))return luaL_error(state,"%s: borrowed Font owner is no longer available",apiName);
     if (handle->font == nullptr) {
         return luaL_error(state, "%s was called on a released Font", apiName);
     }
@@ -307,7 +380,32 @@ int FontLoad(lua_State* state) {
     const std::string_view normalized =
         NormalizeModResourcePath(lua_tostring(state, 2), normalizedStorage);
     const char* handedToEngine = normalized.empty() ? lua_tostring(state, 2) : normalized.data();
+#if EXL_DIAGNOSTIC_PROBES
+    // 271-perf：把这次引擎 `Font::Load` 包成窗口 + 计时（回答"那 1 秒在谁的代码里"）。
+    const std::uint64_t fontBeginTick = isaac::runtime::RuntimePerfTick();
+    IsaacRuntime_FontLoadWindowBegin();
+#endif
     const bool loaded = method(font, handedToEngine, extension);
+#if EXL_DIAGNOSTIC_PROBES
+    const std::uint64_t fontEndTick = isaac::runtime::RuntimePerfTick();
+    std::uint32_t fontMicros = 0;
+    if (fontEndTick > fontBeginTick) {
+        fontMicros = static_cast<std::uint32_t>(
+            (fontEndTick - fontBeginTick) * 1000000ULL /
+            isaac::runtime::RuntimePerfTicksPerSecond());
+    }
+    // 字形数与"字形块大小 / 10"：偏移由 `KAGE::Graphics::Font::Load`(0x4cdeb8) 的反汇编推得
+    // （`str w22, [x19, #0x24]` 存的是"块大小 / 20" = 字形数；`str w8, [x19, #0x30]` 存的是"块大小 / 10"）。
+    // **只读**、只做对账，不参与任何判断；且只在诊断包里读（宿主用例的假 font 指针不必碰这块内存）。
+    std::uint32_t glyphCount = 0;
+    std::uint32_t charsSpan = 0;
+    if (loaded && font != nullptr) {
+        const auto* fontBytes = static_cast<const std::uint8_t*>(font);
+        glyphCount = *reinterpret_cast<const std::uint32_t*>(fontBytes + 0x24);
+        charsSpan = *reinterpret_cast<const std::uint32_t*>(fontBytes + 0x30);
+    }
+    IsaacRuntime_FontLoadWindowEnd(fontMicros, glyphCount, charsSpan);
+#endif
     // 探针读数（见 `RecordFontLoadForProbe`）：名字与引擎侧结果是"字体到底装没装上"的唯一判据。
     RecordFontLoadForProbe(handedToEngine != nullptr ? std::string_view{handedToEngine}
                                                      : std::string_view{},
@@ -529,8 +627,7 @@ int DrawStringVariant(lua_State* state, const char* apiName, bool scaled, bool u
     // The colour is a Runtime-owned 16-byte RGBA block; the engine takes `Color` through an
     // invisible reference (its class has a user-defined copy constructor), so the pointer is
     // exactly what the native call expects.
-    auto* color = static_cast<LuaRuntime::ColorHandle*>(
-        luaL_checkudata(state, colorIndex, LuaRuntime::kColorMetatable));
+    auto* color = RequireColorArgument(state, colorIndex);
     int boxWidth = 0;
     if (argumentCount >= colorIndex + 1) {
         if (!isaac::runtime::IsIntegerArgument(state, colorIndex + 1)) {
@@ -647,6 +744,12 @@ bool PushDefaultScreenFont(lua_State* state) {
     if (state == nullptr || lua_gettop(state) != 0) {
         return false;
     }
+    // ★ 批次 269：先问"原生绑定在不在"。`CreateFontHandle` 在构造/析构 thunk 缺失时会
+    // **直接 `luaL_error`**（宿主 harness 与"引擎基址没解析到"都是这种情况），
+    // 而这一条链要的是"没有可用字体 ⇒ false"，不是把错误抛回模组（那会摘掉整条回调）。
+    if (LuaRuntime::FontCtorThunk() == 0 || LuaRuntime::FontDestructorThunk() == 0) {
+        return false;
+    }
     lua_getfield(state, LUA_REGISTRYINDEX, kDefaultScreenFontRegistryKey);
     if (lua_type(state, -1) == LUA_TUSERDATA) {
         return true;  // 缓存命中：栈顶就是它
@@ -658,13 +761,22 @@ bool PushDefaultScreenFont(lua_State* state) {
             return false;
         }
         lua_pushstring(state, path);         // 栈：font, path
-        // `FontLoad` 是 Lua 侧那个处理器（`Font:Load`）：它**不消费实参**，只把结果压栈
-        // ⇒ 返回后栈是 [font, path, bool]，三样都要自己收干净（这是本函数唯一容易写错的地方）。
-        if (FontLoad(state) != 1) {          // 栈：font, path, bool
+        // ★ 批次 269：`FontLoad` **用受保护调用**，不直接调。
+        // 理由：`FontLoad`（Lua 侧那个 `Font:Load` 处理器）在**原生绑定缺失**时会 `luaL_error`
+        // （宿主 harness 就是这种情况：没装字体 thunk），而"这一条候选路径装不上"与
+        // "整个调用出错"是两件事 —— 直接调会让错误一路抛回模组（`isaac_api.cpp` 的
+        // `RenderScaledText`/`RenderText` 那条链）⇒ **摘掉调用它的整条回调**。
+        // 改成受保护之后，任何一次加载失败都只是"这条路径不行、试下一条"，最后统一以
+        // `false` 表示"没有可用字体"，由调用方按各 API 的降级口径处理（`RenderText` 静默不画、
+        // `GetTextWidth` 给 -1）。这也是第 11 条纪律在字体这条链上的落地。
+        lua_pushcfunction(state, FontLoad);  // 栈：font, path, loadFn
+        lua_pushvalue(state, -3);            // 栈：…, font
+        lua_pushvalue(state, -3);            // 栈：…, path
+        if (lua_pcallk(state, 2, 1, 0, 0, nullptr) != LUA_OK) {
             lua_settop(state, 0);
             return false;
-        }
-        const bool loaded = lua_toboolean(state, -1) != 0;
+        }                                    // 栈：font, path, bool
+        const bool loaded = lua_toboolean(state, -1);
         lua_pop(state, 2);                   // 栈：font
         if (loaded) {
             // 缓存进 registry（存的是同一个 userdata 的引用；`__gc` 仍然只跑一次）。
@@ -673,6 +785,20 @@ bool PushDefaultScreenFont(lua_State* state) {
             return true;
         }
         lua_pop(state, 1);                   // 这个路径装不上，试下一个
+    }
+    return false;
+}
+
+// 文本里有没有非 ASCII 字节 ⇒ 决定走 `*UTF8` 那条引擎入口。
+//
+// ★ 抽成一个助手（批次 269）：**绘制（`Isaac.RenderText`/`RenderScaledText`）与量宽
+// （`Isaac.GetTextWidth`）必须用同一个判据** —— 两处各写一份循环，将来只改一处就会
+// 让"画出来的"和"量出来的"用不同字体函数对同一段文本，而那种偏差在屏幕上只表现为"对不齐"。
+bool TextHasNonAsciiByte(const char* text, std::size_t length) {
+    for (std::size_t index = 0; index < length; ++index) {
+        if (static_cast<unsigned char>(text[index]) >= 0x80) {
+            return true;
+        }
     }
     return false;
 }
@@ -700,6 +826,7 @@ bool DrawScaledTextWithDefaultFont(lua_State* state, const char* text, std::size
     //    值与 Lua 构造出来的完全等价。
     auto* color =
         static_cast<LuaRuntime::ColorHandle*>(lua_newuserdata(state, sizeof(LuaRuntime::ColorHandle)));
+    *color = {};
     color->red = red;
     color->green = green;
     color->blue = blue;
@@ -713,18 +840,49 @@ bool DrawScaledTextWithDefaultFont(lua_State* state, const char* text, std::size
     //    alpha/缩放）全都在里面，不另写一份。它按 `unicode` 决定用哪条引擎入口，而
     //    `DrawStringVariant` 只认 bool 参数 —— 这里用"文本里有没有非 ASCII 字节"来选，
     //    UTF-8 文本走 UTF8 变体（与 EID 自己 `font:DrawStringScaledUTF8` 的选择口径一致）。
-    bool unicode = false;
-    for (std::size_t index = 0; index < length; ++index) {
-        if (static_cast<unsigned char>(text[index]) >= 0x80) {
-            unicode = true;
-            break;
-        }
-    }
-    if (unicode) {
+    if (TextHasNonAsciiByte(text, length)) {
         static_cast<void>(FontDrawStringScaledUTF8(state));
     } else {
         static_cast<void>(FontDrawStringScaled(state));
     }
+    lua_settop(state, 0);
+    return true;
+}
+
+// `Isaac.GetTextWidth(str)`（`Isaac.md:439`）。量宽与绘制**共用同一份默认字体**：
+// 契约 `Isaac.md:441` 明说"与 `Isaac.RenderText()` 用同一个字体"，所以这里复用
+// `PushDefaultScreenFont()`（同一个 registry 缓存键），**不另加载一份** ——
+// 两份字体会让"量出来的宽度"与"画出来的宽度"在缩放/度量上漂。
+//
+// 走的是 `Font:GetStringWidth` / `Font:GetStringWidthUTF8` 两个**已有的**处理器
+// （它们的引擎绑定、加载检查、UTF-8 静态缓冲区注意事项都在那两处写着），这里只负责
+// 把栈摆成它们要的形状（`[font, string]`）并把结果读回来。
+bool MeasureTextWithDefaultFont(lua_State* state, const char* text, std::size_t length,
+                                int* width) {
+    if (state == nullptr || text == nullptr || width == nullptr || lua_gettop(state) != 0) {
+        return false;
+    }
+    if (!PushDefaultScreenFont(state)) {     // 栈：font
+        lua_settop(state, 0);
+        return false;
+    }
+    lua_pushlstring(state, text, length);    // 栈：font, text
+    // ★ 批次 269：与 `PushDefaultScreenFont` 里的 `FontLoad` 同一个理由 —— 量宽的原生绑定
+    // 缺失时 `Font:GetStringWidth*` 会 `luaL_error`，而这条 API 要的是"量不出来 ⇒ -1"，
+    // 不是把错误抛回模组（那会摘掉调用它的整条回调）。用受保护调用把它变成 false。
+    const bool unicode = TextHasNonAsciiByte(text, length);
+    lua_pushcfunction(state, unicode ? FontGetStringWidthUTF8 : FontGetStringWidth);
+    lua_pushvalue(state, -3);                // 栈：…, font
+    lua_pushvalue(state, -3);                // 栈：…, text
+    if (lua_pcallk(state, 2, 1, 0, 0, nullptr) != LUA_OK) {
+        lua_settop(state, 0);
+        return false;
+    }                                        // 栈：font, text, width
+    if (!lua_isnumber(state, -1)) {
+        lua_settop(state, 0);
+        return false;
+    }
+    *width = static_cast<int>(lua_tointeger(state, -1));
     lua_settop(state, 0);
     return true;
 }
@@ -738,14 +896,9 @@ int CreateFontHandle(lua_State* state) {
     if (ctor == 0 || destructorMethod == 0) {
         return luaL_error(state, "Font native binding is unavailable");
     }
-    // The userdata is created first and starts unbound, so an allocation failure below unwinds
-    // through `luaL_error` with nothing to release and no `__gc` installed yet.
-    auto* handle = static_cast<FontHandle*>(lua_newuserdata(state, sizeof(FontHandle)));
-    handle->font = nullptr;
-    void* font = AllocateFontStorage();
-    if (font == nullptr) {
-        return luaL_error(state, "Font could not allocate its native object");
-    }
+    // OOM由Lua标准内存错误传播，Lua分配器会先紧急回收再重试；尚无原生对象需析构。
+    void* font = AllocateFontStorage(state);
+    auto* handle = static_cast<FontHandle*>(lua_touserdata(state, -1));
     ctor(font);
     handle->font = font;
     luaL_getmetatable(state, kFontMetatable);
@@ -755,6 +908,7 @@ int CreateFontHandle(lua_State* state) {
 
 int DestroyFontHandle(lua_State* state) {
     auto* handle = static_cast<FontHandle*>(luaL_checkudata(state, 1, kFontMetatable));
+    if(lua_rawlen(state,1)==sizeof(BorrowedGameFont)){handle->font=nullptr;return 0;}
     if (handle->font == nullptr) {
         // Idempotent: Lua may collect a userdata that failed to construct, and a double release of
         // this block would be a use-after-free.
@@ -768,7 +922,7 @@ int DestroyFontHandle(lua_State* state) {
         // a handle without it -- but a missing binding must not make `__gc` raise.
         destructorMethod(handle->font);
     }
-    ReleaseFontStorage(handle->font);
+    ReleaseFontStorage(state, handle->font);
     handle->font = nullptr;
     return 0;
 }
@@ -807,6 +961,9 @@ FontChainProbe FontChainProbeSnapshot() noexcept {
 }
 
 void RecordFontLoadForProbe(const std::string_view handedToEngine, bool accepted) noexcept {
+    (void)handedToEngine;  // 批次 232：生产构建里这段被编译掉 ⇒ 参数必然用不上
+    (void)accepted;  // 批次 232：生产构建里这段被编译掉 ⇒ 参数必然用不上
+#if EXL_DIAGNOSTIC_PROBES  // 批次 232 探针总开关（口径见 probe_gate.hpp）
     // 一个字：
     //   bit0        引擎侧接受了这个名字（`Font:Load` 的返回值）
     //   bit1        名字是非空内容挂载点相对名（不含 `rom:/`、不以 `/` 开头、不含 `/../`）
@@ -825,6 +982,7 @@ void RecordFontLoadForProbe(const std::string_view handedToEngine, bool accepted
                 << (16 + 8 * index);
     }
     g_LastFontLoadWord.store(word, std::memory_order_release);
+#endif  // EXL_DIAGNOSTIC_PROBES
 }
 
 std::uint32_t LastFontLoadWordForProbe() noexcept {
@@ -842,3 +1000,11 @@ std::string_view NormalizeModResourcePathForProbe(const char* path,
 }
 
 } // namespace isaac::runtime
+
+namespace isaac::runtime {
+int PushBorrowedGameFont(lua_State*L,std::uintptr_t game,std::uintptr_t offset){
+ auto*view=static_cast<BorrowedGameFont*>(lua_newuserdata(L,sizeof(BorrowedGameFont)));
+ *view={{engine_memory::AsObject(game+offset)},LuaRuntime::EngineModuleBase(),game};
+ luaL_getmetatable(L,LuaRuntime::kFontMetatable);lua_setmetatable(L,-2);return 1;
+}
+}

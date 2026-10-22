@@ -10,16 +10,24 @@
 本条门禁钉住**五件事**，缺一条这个能力就是假的：
 
 1. `fatal_forensics.hpp` 里的 `Break` 必须用**真机验证过的那种写法**：
-   `x0 = 2`（`BreakReason_User`）+ `svc 0x7f` + `__builtin_unreachable()`；
+   `x0 = 2`（`BreakReason_User`）+ `svc 0x26` + `__builtin_unreachable()`；
+   ★ 2026-09-26（批次 135）改过一次：原来是 `svc 0x7f`，真机报告
+   `01790359235_010021c000b6a000.log` 给出的类型是 `Undefined System Call`（`Svc Id: 0x7f`）——
+   因为 `0x7f` 在本仓库 svc 表里是 `svcCallSecureMonitor`、userland 下不合法；
+   `svcBreak` 的真号是 **`0x26`**（`runtime/config.json`）。**别改回 0x7f**。
 2. 魔数必须是 `0x3142414341415349`（ASCII `ISAACAB1`）—— 报告里认它才知道是我装的兜底；
 3. **两个注册点都必须在**：`exl_main` 里装 `std::set_terminate`、
    `luaL_newstate` 之后装 `lua_atpanic`（后者正是"Lua 无保护抛错"那条路的唯一兜底）；
-4. ★★ **`svc 0x7f` 必须有 `__aarch64__` 守卫** —— 宿主机（x86_64）门禁夹具会编译这一份，
+4. ★★ **`svc` 必须有 `__aarch64__` 守卫** —— 宿主机（x86_64）门禁夹具会编译这一份，
    没有守卫就会"不是合法指令"编译失败（2026-09-24 实测踩过）；而 `svc` 那条路是**不返回**的，
    所以整个设施必须是**头文件里的 inline**（做成独立 `.cpp` 会让编译 `lua_runtime.cpp` 的夹具
    在链接期报未定义符号 —— 同一天踩到的第二个坑）；
 5. **不许顺手改游戏逻辑**：这个设施里不许出现"调引擎 / 包 Lua 调用 / 写引擎内存"的东西 ——
    它只能留证，不能改行为（改行为属于"按报告定位根因"那一步，另开批次）。
+6. ★ 2026-09-29（批次 197）新增：**全仓不许再出现 `svc 0x7f`**。批次 135 只改了
+   `fatal_forensics.hpp` 一处，其余探针点（`runtime/source/probe/*`、
+   `saltynx_runtime_bridge.cpp`、`saltynx_probe_break.hpp`）当时**留作欠账**；本批已全部
+   统一成 `0x26`（9 处），并由本条门禁钉住 —— 否则"改了一处就以为全仓一致"会再次发生。
 
 ★ 这一条门禁**不检查真机时刻**（那要靠崩溃报告），只钉"能力装上了没有、有没有夹带私货"。
 """
@@ -33,6 +41,7 @@ HPP = ROOT / "runtime" / "source" / "fatal_forensics.hpp"
 CPP = ROOT / "runtime" / "source" / "fatal_forensics.cpp"
 ENTRY = ROOT / "runtime" / "source" / "runtime_entry.cpp"
 LUA = ROOT / "runtime" / "source" / "lua_runtime.cpp"
+SOURCE = ROOT / "runtime" / "source"
 
 
 def code_only(text: str) -> str:
@@ -46,32 +55,34 @@ class AbortForensicsTests(unittest.TestCase):
             self.assertTrue(path.is_file(), f"缺文件：{path}")
 
     def test_break_uses_the_hardware_proven_shape(self):
-        """`Break` 必须是真机验证过的形状：`x0=2` + `svc 0x7f` + `__builtin_unreachable()`。
+        """`Break` 必须是真机验证过的形状：`x0=2` + `svc 0x26` + `__builtin_unreachable()`。
 
-        为什么照抄这形状而不是自己写：`saltynx_runtime_bridge.cpp` 的 `IsaacModRuntime_ProbeFsSteps`
-        用同一形状在真机上产出过带寄存器快照的崩溃报告（项目《探针证据规范》就是这么来的）。
+        为什么是 `0x26`：那是本仓库 svc 表里的 `svcBreak`（`runtime/config.json`）。
+        2026-09-26 之前的 `0x7f` 是 `svcCallSecureMonitor`，userland 下被判"未定义系统调用"，
+        报告类型会显示成 `Undefined System Call`（真机报告 `01790359235_...log` 为证）。
         """
         text = HPP.read_text(encoding="utf-8")
         self.assertIn('register std::uint64_t x0 __asm__("x0") = 2;', text,
                       "x0 必须是 2 = `BreakReason_User`")
-        self.assertIn('__asm__ volatile("svc 0x7f"', text,
-                      "必须是 `svc 0x7f`（与真机验证过的那一处逐字相同）")
+        self.assertIn('__asm__ volatile("svc 0x26"', text,
+                      "必须是 `svc 0x26`（= `svcBreak`；`0x7f` 是 `svcCallSecureMonitor`，"
+                      "userland 下报告会变成 `Undefined System Call`）")
         self.assertIn("__builtin_unreachable();", text,
                       "`svcBreak` 之后不返回，要显式告诉编译器")
         self.assertIn("[[noreturn]] inline void Break", text,
                       "`Break` 必须是 inline（见文件头：宿主夹具各自编译一部分运行时）且标 `[[noreturn]]`")
 
     def test_svc_is_guarded_for_the_host_build(self):
-        """★★ `svc 0x7f` 必须只在 AArch64 上编译，宿主退化成 `std::abort()`。
+        """★★ `svc` 必须只在 AArch64 上编译，宿主退化成 `std::abort()`。
 
         理由（2026-09-24 实测）：宿主门禁夹具在 x86_64 上编译运行时的一部分，
-        `svc 0x7f` 在那里**不是合法指令** ⇒ 没有守卫就编不过。
+        `svc` 在那里**不是合法指令** ⇒ 没有守卫就编不过。
         另一条同源的教训：这个设施**不能做成独立 `.cpp`** —— 编译 `lua_runtime.cpp` 的夹具
         源清单里没有它，会在链接期报 `InstallLuaPanicHandler` 未定义。
         """
         text = HPP.read_text(encoding="utf-8")
         self.assertIn("#if defined(__aarch64__)", text,
-                      "`svc 0x7f` 必须有 AArch64 守卫（否则宿主夹具编译失败）")
+                      "`svc` 必须有 AArch64 守卫（否则宿主夹具编译失败）")
         self.assertIn("std::abort();", text,
                       "宿主分支要退化成 `std::abort()`（夹具不会触发，只保证编得过）")
         # 那个独立 .cpp 必须已经删掉（它的存在正是"链接期未定义符号"的成因）。
@@ -127,6 +138,27 @@ class AbortForensicsTests(unittest.TestCase):
             ("new ", "不许在这里分配堆内存（可能就在死之前，分配会再炸一次）"),
         ):
             self.assertNotIn(forbidden, hpp_code, why)
+
+    def test_no_probe_uses_svc_0x7f_anywhere(self):
+        """★ 全仓禁止 `svc 0x7f`（2026-09-29 批次 197）。
+
+        为什么：`0x7f` 在本仓库 svc 表里是 `svcCallSecureMonitor`，userland 下被判
+        "未定义系统调用" ⇒ 报告类型不是 `User Break`、寄存器语义也不对（批次 135 真机报告
+        `01790359235_010021c000b6a000.log` 实测）。批次 135 只改了 `fatal_forensics.hpp`，
+        其余 9 处**留作欠账**，于是"改了一处就以为全仓一致"。本批统一后加这条门禁。
+        判据只看**代码**（注释里会引 `0x7f` 来解释原因，不该被误伤）。
+        """
+        offenders = []
+        for path in sorted(SOURCE.rglob("*")):
+            if path.suffix not in (".cpp", ".hpp", ".c", ".h", ".s"):
+                continue
+            if "third_party" in path.parts:
+                continue
+            code = code_only(path.read_text(encoding="utf-8", errors="ignore"))
+            if "svc 0x7f" in code:
+                offenders.append(str(path.relative_to(ROOT)))
+        self.assertEqual(offenders, [],
+                         f"这些文件里还有 `svc 0x7f`（应为 `svc 0x26`）：{offenders}")
 
 
 if __name__ == "__main__":

@@ -173,59 +173,36 @@ extern "C" {
 #include <array>
 #include <cstdio>
 #include <cstring>
+#include <map>
+#include <string>
 
 namespace {
-std::array<unsigned char, ModPersistence::kMaximumFileSize> g_file{};
-std::size_t g_file_size = 0;
-bool g_file_exists = false;
+std::map<std::string,std::string> g_files;
 bool g_fail_write = false;
 
 // 内存里的"存档分区"：实现统一端口 `ISaveFilePort`（2026-09-17 用户指令：所有持久化走存档分区、
 // 消费者只认同一个接口）。这里不碰任何真实文件 —— 它证明消费者不依赖具体提供方。
 class HarnessStore final : public isaac::runtime::ISaveFilePort {
 public:
-    [[nodiscard]] isaac::runtime::Status Read(std::string_view, char* out, std::size_t capacity,
+    [[nodiscard]] isaac::runtime::Status Read(std::string_view name, char* out, std::size_t capacity,
                                               std::size_t* size) noexcept override {
-        if (size == nullptr) {
-            return isaac::runtime::Status{isaac::runtime::StatusCode::InvalidArgument};
-        }
-        *size = 0;
-        if (!g_file_exists) {
-            return isaac::runtime::Status{isaac::runtime::StatusCode::NotFound};
-        }
-        if (g_file_size > capacity) {
-            return isaac::runtime::Status{isaac::runtime::StatusCode::CapacityExceeded};
-        }
-        std::memcpy(out, g_file.data(), g_file_size);
-        *size = g_file_size;
-        return isaac::runtime::Status::Ok();
+        if(size==nullptr) return isaac::runtime::Status{isaac::runtime::StatusCode::InvalidArgument};
+        *size=0;auto it=g_files.find(std::string(name));
+        if(it==g_files.end()) return isaac::runtime::Status{isaac::runtime::StatusCode::NotFound};
+        *size=it->second.size();
+        if(*size>capacity) return isaac::runtime::Status{isaac::runtime::StatusCode::CapacityExceeded};
+        std::memcpy(out,it->second.data(),*size);return isaac::runtime::Status::Ok();
     }
-
-    [[nodiscard]] isaac::runtime::Status Write(std::string_view,
+    [[nodiscard]] isaac::runtime::Status Write(std::string_view name,
                                                std::string_view data) noexcept override {
-        if (g_fail_write) {
-            return isaac::runtime::Status{isaac::runtime::StatusCode::IoFailure};
-        }
-        if (data.size() > g_file.size()) {
-            return isaac::runtime::Status{isaac::runtime::StatusCode::CapacityExceeded};
-        }
-        std::memcpy(g_file.data(), data.data(), data.size());
-        g_file_size = data.size();
-        g_file_exists = true;
-        return isaac::runtime::Status::Ok();
+        if(g_fail_write) return isaac::runtime::Status{isaac::runtime::StatusCode::IoFailure};
+        g_files[std::string(name)]=std::string(data);return isaac::runtime::Status::Ok();
     }
-
-    [[nodiscard]] isaac::runtime::Status Remove(std::string_view) noexcept override {
-        g_file_exists = false;
-        g_file_size = 0;
-        return isaac::runtime::Status::Ok();
+    [[nodiscard]] isaac::runtime::Status Remove(std::string_view name) noexcept override {
+        g_files.erase(std::string(name));return isaac::runtime::Status::Ok();
     }
-
-    [[nodiscard]] isaac::runtime::Status Exists(const char*, bool* out) noexcept override {
-        if (out != nullptr) {
-            *out = g_file_exists;
-        }
-        return isaac::runtime::Status::Ok();
+    [[nodiscard]] isaac::runtime::Status Exists(const char*,bool* out) noexcept override {
+        if(out) *out=!g_files.empty();return isaac::runtime::Status::Ok();
     }
 };
 
@@ -237,16 +214,11 @@ void Configure() {
     ModPersistence::ResetCacheForTesting();
 }
 
-void RefreshChecksum() {
-    std::uint32_t checksum = 2166136261U;
-    for (std::size_t index = 32; index < g_file_size; ++index) {
-        checksum ^= g_file[index];
-        checksum *= 16777619U;
-    }
-    for (std::size_t index = 0; index < 4; ++index) {
-        g_file[28 + index] = static_cast<unsigned char>(checksum >> (index * 8));
-    }
+void RefreshChecksum(std::string& file) {
+    auto* p=reinterpret_cast<std::uint8_t*>(file.data());
+    ModPersistence::detail::WriteU32(p+28,ModPersistence::detail::Checksum(p+32,file.size()-32));
 }
+
 }
 
 GameIsPausedObservation ObserveGameIsPaused(uintptr_t, uintptr_t) {
@@ -300,12 +272,14 @@ int main(int argc, char** argv) {
                  "if m:LoadData()~='[1,2]' then error('isaac save not visible to Mod') end; "
                  "m:SaveData('mod-side'); "
                  "if Isaac.LoadModData(m)~='mod-side' then error('mod save not visible to Isaac') end; "
+                 "Isaac.RemoveModData(m); if m:HasData() or Isaac.LoadModData(m)~='' then error('Isaac.RemoveModData not visible to Mod') end; "
+                 "Isaac.RemoveModData(m); if m:HasData() then error('idempotent remove') end; "
+                 "if pcall(function()Isaac.RemoveModData({})end) then error('invalid mod accepted') end; "
                  "m:AddCallback(ModCallbacks.MC_POST_UPDATE,function() end)";
     } else if (std::strcmp(scenario, "invalid") == 0) {
         script = "local m=RegisterMod('Persistent Probe',1); m:SaveData({})";
     } else if (std::strcmp(scenario, "corrupt") == 0) {
-        g_file_exists = true;
-        g_file_size = 4;
+        g_files["isaac-mod-data.bin"]="bad!";
         script = "local m=RegisterMod('Persistent Probe',1); m:HasData()";
     } else if (std::strcmp(scenario, "namespace") == 0) {
         const auto first = ModPersistence::HashModNamespace("First", 5);
@@ -323,12 +297,17 @@ int main(int argc, char** argv) {
                    : 12;
     } else if (std::strcmp(scenario, "unknown") == 0) {
         const auto key = ModPersistence::HashModNamespace("Persistent Probe", 16);
-        if (ModPersistence::SaveModData(key, "old", 3) != ModPersistence::Result::Success) return 13;
-        g_file[32 + 16] = 99;
-        RefreshChecksum();
+        // 旧ISMODST2里未知记录类型完整保留，新独立文件不改历史容器。
+        std::string legacy(59,'\0');auto* p=reinterpret_cast<std::uint8_t*>(legacy.data());
+        std::memcpy(p,"ISMODST2",8);ModPersistence::detail::WriteU16(p+8,2);
+        ModPersistence::detail::WriteU16(p+10,32);ModPersistence::detail::WriteU32(p+20,1);
+        ModPersistence::detail::WriteU32(p+24,27);ModPersistence::detail::WriteU64(p+32,key);
+        ModPersistence::detail::WriteU64(p+40,ModPersistence::detail::kModDataKey);
+        p[48]=99;ModPersistence::detail::WriteU32(p+52,3);std::memcpy(p+56,"old",3);
+        RefreshChecksum(legacy);g_files["isaac-mod-data.bin"]=legacy;
         ModPersistence::ResetCacheForTesting();
         if (ModPersistence::SaveModData(key, "new", 3) != ModPersistence::Result::Success) return 14;
-        if (g_file_size < 32 || g_file[32 + 16] != 99 || g_file[20] != 2) return 15;
+        if (g_files["isaac-mod-data.bin"]!=legacy) return 15;
         ModPersistence::ResetCacheForTesting();
         const char* data = nullptr;
         std::size_t length = 0;

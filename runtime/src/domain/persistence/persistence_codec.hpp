@@ -25,7 +25,7 @@ public:
     static constexpr std::uint16_t kVersion = 2;
     static constexpr std::size_t kHeaderSize = 32;
     static constexpr std::size_t kRecordHeaderSize = 24;
-    static constexpr std::size_t kMaximumFileSize = 16 * 1024;
+    static constexpr std::size_t kMaximumFileSize = UINT32_MAX;
     static constexpr std::size_t kMaximumPayloadSize = kMaximumFileSize - kHeaderSize;
     static constexpr std::uint32_t kMaximumRecordCount = 256;
 

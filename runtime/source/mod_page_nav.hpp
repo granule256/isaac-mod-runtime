@@ -75,6 +75,58 @@ constexpr bool ModPageHoldShouldMove(std::uint32_t holdFrames) noexcept {
             (holdFrames % kModPageHoldRepeatEvery) == 0U);
 }
 
+// ---------------------------------------------------------------------------
+// 视角偏转：**照引擎 `SetModsOffset @0x3FF6F4` 的公式**，但要**用 PC 口径的下标/条数**
+// ---------------------------------------------------------------------------
+//
+// 引擎的公式（反汇编原文）：`选中项 < 5` ⇒ 不滚；`选中项 < 行数 − 3` ⇒ 滚 `选中项 − 4`；
+// 否则 ⇒ 滚 `行数 − 7`（到底段）。
+//
+// ★★ 2026-09-27 真机实测（批次 170）：**直接让引擎自己调**（`modsRender` 之后补一次
+// `SetModsOffset(选中项)`）**完全不会滚** —— 因为那条公式里的"行数"是从 `g_Manager+0x36800`
+// 读的，而**那张表是我们造的、比 PC 多一行**（下标 0 = 控制台开关）：
+//   * 我们的表 7 行（6 模组 + 控制台）⇒ 到底段 `7 − 7 = 0`，而中间段要求 `选中项 < 行数−3 = 4`
+//     与首段 `选中项 ≥ 5` **互斥** ⇒ **中间段永远走不到** ⇒ 每一档都算出 0 ⇒ 一行都不滚；
+//   * PC 的同名清单 6 行 ⇒ 到底段 `6 − 7 = −1` ⇒ 往下挪一行（用户看到的"PC 有偏转"）。
+// ⇒ 所以我们要做的不是"另发明一套"，而是**把公式按 PC 口径求值**（模组序号 / 模组条数，
+//   控制台那一行不算），再把结果写进引擎那一格 —— 结果与 PC 对同一份模组清单逐值一致。
+inline constexpr std::uint32_t kModPageScrollStartRow = 5;
+inline constexpr std::uint32_t kModPageScrollTailRows = 3;
+inline constexpr std::uint32_t kModPageScrollEndRows = 7;
+inline constexpr float kModPageRowStep = 25.0F;
+//: 不滚动时状态 16 那一格的 Y（引擎在"选中项 < 5"时写的常数）。
+inline constexpr float kModPageScrollBaseY = -336.0F;
+//: `MenuManager + 0x0` = 引擎的"菜单还在动"标志（`SetModsOffset` 收尾把它置 1）。
+inline constexpr std::uintptr_t kMenuManagerMovingFlagOffset = 0x0;
+
+//: ★★ 该滚几行 —— **按我们自己纸里能看到的行数**算（2026-09-27 批次 173 定案）。
+//:
+//: 为什么不能照搬引擎那三个常数（`5` / `−3` / `−7`）：那是按 **PC 的可见行数**定的，
+//: 而 **NS 这版把画布裁掉了一圈且不缩放**（可见 426×240 ÷ 画布 480×270 ⇒ 所有东西看上去大 1.127 倍）
+//: ⇒ 同一张纸在 NS 上**露出来的行数比 PC 少**。用户实测：纸比 PC 大、显示的行数更少
+//: （这是移植的裁切方式，不是我们改的 —— 见 `docs/问题与解决记录.md` 续七十五）。
+//: ⇒ 于是那条按"5 行"写的公式在我们这儿要么滚得太晚、要么（行数少时）**退化成完全不滚**：
+//:   我们的表 7 行时，中间段条件 `选中项 < 行数−3 = 4` 与首段 `选中项 ≥ 5` **互斥** ⇒ 只有到底段 `7−7 = 0`。
+//: ⇒ 照**我们自己的窗口**来：`滚几行 = clamp(选中项 − (可见行数 − 1), 0, 模组条数 − 可见行数)`。
+//:   **这不是"另发明一套"**：引擎的中间段本来就是同一条式子（它的"可见行数"是 5）。
+//: ★ 位置不再参与（批次 169 起位置只在 `Init` 时定一次、之后不写），所以这里只算滚动量，没有反馈回路。
+inline constexpr std::uint32_t kModPageVisibleRows = 5;
+
+[[nodiscard]] constexpr std::uint32_t ModPageScrollRows(std::uint32_t selected,
+                                                        std::uint32_t modCount) noexcept {
+    if (modCount <= kModPageVisibleRows || selected < kModPageVisibleRows) {
+        return 0;
+    }
+    const std::uint32_t maximum = modCount - kModPageVisibleRows;
+    const std::uint32_t rows = selected - (kModPageVisibleRows - 1);
+    return rows < maximum ? rows : maximum;
+}
+
+//: 滚 `scrollRows` 行时状态 16 那一格的目标 Y。
+[[nodiscard]] constexpr float ModPageScrollSlotY(std::int32_t scrollRows) noexcept {
+    return kModPageScrollBaseY - kModPageRowStep * static_cast<float>(scrollRows);
+}
+
 //: 上/下走一格，在 `0..count-1` 之间**回环**（引擎原版就是回环：末项往下回第一项、首项往上回末项）。
 //: `count == 0`（一个模组都没有）或当前值越界（表变短了）⇒ 一律答 0，**绝不算出越界的值**。
 constexpr std::uint32_t ModPageAdvance(std::uint32_t selected, std::uint32_t count,

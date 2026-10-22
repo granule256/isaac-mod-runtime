@@ -322,7 +322,25 @@ template <typename T>
     if (offset > UINTPTR_MAX - address) {
         return false;
     }
-    std::memcpy(value, reinterpret_cast<const void*>(address + offset), sizeof(T));
+    // ★ 2026-09-26（批次 139 的**设备构建**抓出来的）：这一句曾让设备构建编译不过 ——
+    //   devkitA64 的 `-Werror=array-bounds` 在 `isaac_api.o` 上报
+    //   `array subscript 0 is outside array bounds of 'const void [0]'`，指的就是这一行。
+    //   **它不是真缺陷**（`address == 0` 在上面已经先返回假 ⇒ 这里永远不会真去读地址 0），
+    //   而是编译器的一个误报：深度内联之后它把"由整数转来的 `void*`"当成一个**大小 0 的对象**
+    //   （诊断里的 `const void [0]`），于是把 `memcpy` 访问的第 0 个字节算成"下标 0 越界"；
+    //   报错处那句 `note: source object is likely at address zero` 说明它拿的是"**很可能**为 0"
+    //   这种猜测，而不是证明。触发与否取决于"当次哪一段被内联" ⇒ 在别的编译单元改代码
+    //   也可能把它翻出来（这次就是：批次 139 改了 `isaac_api.cpp`，红的是一个**既有**的调用链
+    //   `IsPickupEntity → ClassifyCallbackEntity → CaptureEntity → ReadEngineUnchecked`）。
+    //   **修法只改形状、不改任何判据**：先用一句空 asm 把地址记进寄存器、让编译器**不知道**它的值
+    //   （寄存器级、零运行时代价），它就没有"很可能为 0"可猜了。
+    //   ⚠️ 纪律：**不许**用 `-Wno-array-bounds` 或降 `-Werror` 来绕 —— 那会把真正的越界一起放过去；
+    //   上面那三道判据（地址非 0、出参非空、偏移不溢出）一条都不动。
+    std::uintptr_t source = address + offset;
+#if defined(__GNUC__) || defined(__clang__)
+    __asm__ __volatile__("" : "+r"(source));
+#endif
+    std::memcpy(value, reinterpret_cast<const void*>(source), sizeof(T));
     return true;
 }
 

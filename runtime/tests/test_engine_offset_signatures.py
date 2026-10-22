@@ -46,6 +46,24 @@ def load_table() -> list[dict]:
 
 
 class EngineOffsetSignatureTests(unittest.TestCase):
+    def test_hud_local_aliases_do_not_share_the_render_signature(self):
+        """同文件的局部Fn别名必须按调用作用域解析，不能都读成HUD.Render。"""
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("abi_hud_scope", TOOL)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        expected = {
+            "kHudRenderOffset": 1,
+            "kHudShowItemTextOffset": 5,
+            "kHudShowItemObjectOffset": 3,
+            "kHudShowFortuneTextOffset": 2,
+        }
+        for constant, arity in expected.items():
+            with self.subTest(constant=constant):
+                signature = module.declared_signature(constant)
+                self.assertIsNotNone(signature)
+                self.assertEqual(len(signature[1]), arity)
+
     def test_every_offset_constant_is_registered(self):
         constants = CONST_RE.findall(CONSTANTS.read_text(encoding="utf-8"))
         self.assertTrue(constants, "没解析到任何偏移常量（runtime_constants.hpp 格式变了？）")
@@ -83,6 +101,12 @@ class EngineOffsetSignatureTests(unittest.TestCase):
             "kZlibInflateInit2FileOffset",
             "kZlibInflateFileOffset",
             "kZlibInflateEndFileOffset",
+            # 批次 214（2026-09-30）：三个**结构体字段**偏移里有一个恰好撞上模块里的真符号 ——
+            # `kAnim2AnimationCountOffset = 0xA0`（ANM2 对象里"动画个数"那一格），而模块偏移 0xA0
+            # 上正好是 ELF 头区域的 `_init` ⇒ 判据比不过（`None != '_init'`）。
+            # ★ 这一族是**字段偏移**（相对对象），不是模块偏移；表里 `kind=field`、`mangled=null`
+            #   本来就是"没有对应符号"的意思 ⇒ 加进本名单并写明理由（与上面四条同一类）。
+            "kAnim2AnimationCountOffset",
         }
         rejected_seen = set()
         for entry in load_table():
@@ -91,6 +115,11 @@ class EngineOffsetSignatureTests(unittest.TestCase):
                 rejected_seen.add(entry["constant"])
                 self.assertIsNone(entry["mangled"],
                                   f"{entry['constant']} 应当被假阳性过滤器留空（镜像那个偏移上是 {raw}）")
+                continue
+            # 对象字段小偏移可能撞模块里rapidxml等非引擎符号；与生成器命名空间过滤同规则。
+            # 不再为每个新字段再加一条手工白名单，真实引擎函数仍逐字比较。
+            engine_symbol = bool(raw and re.match(r"_Z(?:N|NK)(?:15IsaacRepentance|4KAGE|2nn)", raw))
+            if entry["kind"] == "field" and entry["mangled"] is None and raw and not engine_symbol:
                 continue
             self.assertEqual(
                 entry["mangled"], raw,
@@ -479,15 +508,14 @@ class EngineOffsetSignatureTests(unittest.TestCase):
         unknown = [row["callback"] for row in rows if row["engine_returns"] is None]
         self.assertEqual(unknown, [], "返回值这一项没判出来（收尾点或往回扫的判据要修）：" + repr(unknown))
         returns = [row["callback"] for row in rows if row["engine_returns"]]
-        self.assertEqual(
-            len(returns), 4,
-            "引擎里有返回值的入口中继靶点数变了（当前 4 个：ItemPool::GetCollectible、"
-            "UseActiveItem、handle_collision、spawn_entity）。"
-            "★ 批次 098（2026-09-24）这里从 5 **回到 4**：成就闸门按用户裁定从 "
-            "`PersistentGameData::TryUnlock`（返回 bool）挪到 `PersistentGameData::SetReadOnly`"
-            "（返回 void）—— 是设计变更，不是判据坏了。"
-            "除了这类明确的设计变更，变了要么是镜像换了版本、"
-            "要么是判据坏了 —— 两边都要先查清再改这个数字：" + repr(returns))
+        expected = {"EntryRelayGameSpawnExCallback", "EntryRelayPreGetCollectibleCallback", "EntryRelayUseActiveItemCallback",
+                    "EntryRelayPickupCollisionCallback", "EntryRelayRoomEntitySpawnCallback"}
+        expected.update({"EntryRelayItemPoolGetPillCallback", "EntryRelayItemPoolGetPillEffectCallback",
+                         "EntryRelayGameDevolveEnemyCallback"})
+        expected.update("EntryRelay" + family + "CollisionCallback" for family in
+                        ("Familiar", "Npc", "Player", "Tear", "Projectile", "Knife", "Bomb"))
+        self.assertEqual(set(returns), expected,
+                         "须逐一核对有返回值的入口，新增七条碰撞仍保留原生bool")
 
     def test_the_three_after_use_bookkeeping_callbacks_return_a_value(self):
         """三个"用后记账"回调**必须**声明非 void 返回值（钉住 2026-09-21 的修复，不许退回 void）。"""

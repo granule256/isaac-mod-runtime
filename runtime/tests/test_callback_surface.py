@@ -27,7 +27,7 @@ SURFACE = ROOT / "tools" / "callback_surface.json"
 DESCRIPTOR = ROOT / "runtime" / "src" / "domain" / "callback" / "callback_descriptor.hpp"
 MOD_API = ROOT / "runtime" / "src" / "interfaces" / "lua" / "mod_api.cpp"
 
-STATUSES = {"dispatched", "hookable", "needs_hook", "platform", "unknown"}
+STATUSES = {"dispatched", "hookable", "needs_hook", "platform", "pc_inactive", "unknown"}
 #: 「还没查」的条数上限：**只能降不能升**（2026-09-17 首次登记 = 42）。
 UNKNOWN_BUDGET = 42
 

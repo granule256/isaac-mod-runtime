@@ -1,0 +1,22 @@
+{
+  "schema": "isaac-layout-table/1",
+  "build_id": "91C73FDD575061318D68886316AFEAC72388B2AB",
+  "struct": "RoomConfig",
+  "rows": [
+    {
+      "name": "Curses",
+      "offset": 9472,
+      "size": 24,
+      "type": "std::vector<Curse>",
+      "confidence": "confirmed",
+      "semantic": "Manager+21B78的RoomConfig含2500向量；Curse步长32、id0/string8；反向全长字节比较，同名后者优先，未命中-1。",
+      "evidence_files": [
+        "dist/apis700-20261016/ns-main/RoomConfig-LoadCurses-492abc.txt",
+        "dist/apis700-20261016/ns-main/RoomConfig-GetCurseName-4933b4.txt",
+        "dist/apis700-20261016/ns-main/xref-3e4074.txt",
+        "dist/apis700-20261016/pc-main/80c130.txt"
+      ],
+      "judgement": "runtime/tests/test_api700_world.py"
+    }
+  ]
+}

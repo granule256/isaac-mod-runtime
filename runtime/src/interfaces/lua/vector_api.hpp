@@ -61,3 +61,19 @@ int VectorClassIndex(lua_State* state);
 void PushLuaVector(lua_State* state, float x, float y);
 
 } // namespace isaac::runtime
+
+#include <cstdint>
+namespace LuaRuntime {struct VectorHandle;}
+namespace isaac::runtime {
+LuaRuntime::VectorHandle* TryVectorArgument(lua_State*,int index);
+LuaRuntime::VectorHandle* RequireVectorArgument(lua_State*,int index);
+void PushGridVectorReference(lua_State*,std::uintptr_t grid,std::uintptr_t offset);
+void PushEntityVectorReference(lua_State*,std::uintptr_t entity,std::uintptr_t offset);
+void RegisterVectorReferenceMetatable(lua_State*);
+}
+
+namespace isaac::runtime {
+// 容器持有owner userdata；每次Vector访问先由resolver核数组身份，再读取当前位置。
+using ExternalVectorResolver=void(*)(lua_State*,int,std::uintptr_t,LuaRuntime::VectorHandle*);
+void PushExternalVectorReference(lua_State*,int,std::uintptr_t,ExternalVectorResolver);
+}

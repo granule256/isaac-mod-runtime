@@ -43,6 +43,9 @@
 struct TargetModule;
 
 namespace isaac::runtime::modmenu {
+// 本体STB加载成功后的原生模组房间收尾；仅在同一游戏线程调用。
+void LoadEngineModRoomsAfterStage(void* config, int stage, int mode) noexcept;
+extern std::uint32_t g_ModRoomLoadState[8];
 
 //: **常驻状态面**：真机读数的抓手（读数工具 `tools/read_device_state_via_gdb.py` 按名字取这个符号）。
 //:
@@ -91,10 +94,12 @@ struct State {
                                      //      ★ 用户在选项页里换语言是当场生效的 ⇒ 我们每帧问一次
                                      //      语言码，变了就换布局 + 重载模组页那张纸（它是分语言的）。
     std::uint32_t pageReloads;       // [21] 因"语言变了"重新载入过模组页几次（`Menu_Mods::Init`）
-                                     //      ★ 只换得了**贴图**；动画**排版**是引擎按路径哈希缓存的，
-                                     //      换语言当场换不动（重启一次才对）。079 试过照抄引擎
-                                     //      `PerformLanguageSwitch` 的"全局回收"那一步，真机把 **EID
-                                     //      的信息显示搞坏了** ⇒ 已撤回，别再试（见 `.cpp` 那段注释）
+                                     //      ★ 重载本身只换得了**贴图**；动画**排版**是引擎按路径哈希
+                                     //      缓存的（路径串一样分不出语言）⇒ 还得照引擎协议做那三步
+                                     //      （Pre 放开引用 → `AnmCache::FreeUnreferenced*` 回收 → Post 重载），
+                                     //      **083 起已在做、真机三条全过**。079 曾被 080 以"把 EID 的
+                                     //      信息显示搞坏了"为由撤回，但**那是误判**（真凶是 082 修的
+                                     //      "换语言后丢 Mod 挂载点"）⇒ 别再按旧说法"退回不做"（见 `.cpp` 那段历史）
     // ---- [22]..[25]：2026-09-23 定位"换语言后 EID 坏掉"时加的观测（**只读**，不改引擎行为）----
     std::uint32_t mountRelayFired;      // [22] 引擎重建挂载点表之后，我们那个"重新挂回去"的中继跑过几次。
                                         //      ★ 它应当跟着重建次数一起涨；恒 0 = 中继没装上或没被调到。
@@ -265,6 +270,217 @@ struct State {
     std::uint32_t taintFileFailures;        // [57] 读/写那个文件**失败**过几次（含端口不可用）
                                             //      ★ 必须恒 0 才说明"这条路是好的"；
                                             //      读失败按**干净**处理（fail-open：宁可不禁也不误禁）
+    // 批次 135（2026-09-26）加的两格：**本模块自己的堆**还剩多少 / 用了多少字节。
+    // 由来：`PngToPcx` 的转码峰值曾撞满堆 ⇒ `std::bad_alloc` ⇒ 崩溃（2026-09-25 无声卡死 /
+    // 09-26 崩溃报告）。有了这两格，"是不是堆撞满"在现场直接可读，不用再靠推断。
+    // 口径 = newlib `mallinfo()`（`arena` = 堆总量、`fordblks` = 其中空闲）；每 60 帧更新一次。
+    std::uint32_t heapFreeBytes;            // [58] 空闲字节数（0 = 宿主构建或还没采到）
+    std::uint32_t heapUsedBytes;            // [59] 已用字节数 = `arena - fordblks`
+    // 批次 153（2026-09-27）加的一格：**"把模组 content 喂给引擎"这件事是从哪个时机跑起来的**。
+    //   0 = 还没跑过；1 = **模组脚本执行之前**（正确时机）；2 = 进模组页那一刻（兼容兜底）。
+    // 为什么必须能从读数里分开：真机已经证明【时机】才是成败关键 —— 148b 那次喂成功了（容器
+    // 132 → 155），但模组的 `danceCostumes` 早就在它自己的 Lua 文件一加载时查成了 `-1`
+    // （43 次查询、0 次命中），再也没查第二次 ⇒ 服装照样不换。没有这一格，
+    // "喂成功了但喂晚了"与"压根没喂"在读数里长得一样。
+    std::uint32_t modEngineTrigger;         // [60] 见上（1 = 模组脚本之前 / 2 = 进模组页 / 3 = 每帧重试）
+    // 批次 154（2026-09-27）加的一格：**"模组脚本之前"那一次**走到了哪一步。
+    // ★ 值域（批次 155 把"跑完"与"喂进去了"分开，154 那一版**误导过一次**）：
+    //   0 = 没跑过 / 1 = 两个入口已解析 / **2 = 跑完且容器涨了（真喂进去了）**
+    //   / 3 = 失败 / **4 = 跑完了但两个容器一条没涨**（文件没打开 / 路径不对 / 挂载没就绪）。
+    // 为什么要单独留：`g_ModEngineScanStage` 会被后面的重试覆盖 ⇒ "早期那次到底成没成"读不出来；
+    // 而"服装编号是模组在自己 Lua 文件里查死的"⇒ 只有"早期那次真喂进去了"才可能有舞。
+    std::uint32_t modEngineEarlyStage;      // [61] 见上
+    // 批次 159（2026-09-27）加的两格：**引擎说"继续游戏"现在可不可选**。
+    // 由来：没有可继续的局时，引擎自己会跳过那一项、并把行图画成灰帧；而我们这一列是
+    // 自己驱动光标的（插了一格）⇒ 不照抄那条规则，光标就能停在灰项上、按确认就"进局即死"。
+    // 口径与引擎**逐条一致**：`Manager + 0x2B688` 的两个字节**任一个非 0** ⇒ 可选。
+    // 没有这两格就分不清"引擎说不可选、我们按不可选处理了"与"我们压根没读到"。
+    std::uint32_t continueAvailable;        // [62] 1 = 可选 / 0 = 不可选 / **2 = 读不到**
+                                            //      （读不到按"可选"处理：宁可保持旧行为，也不
+                                            //       把用户锁在"继续游戏"外面）
+    std::uint32_t continueSkipped;          // [63] 因为它不可选而**跳过**它的次数
+                                            //      （0 ⇒ 这条规则一次都没生效过，或者那一局
+                                            //       一直有可继续的局）
+    // 批次 180（2026-09-28）加的四格：**这个进程一共还有多少内存**。
+    //
+    // 由来：用户报"D6 刷出四级道具 ⇒ 跳舞模组卡一下然后人物模型消失或卡死"，取证结论是
+    // **我们模块自己的堆撞墙**（`dist/specialist-heap-exhaustion-20260928.md`：转码单笔要 4.62 MB
+    // 连续空间，而真机读数里 `arena = 32.0 MB`、空闲只剩 2.2 MB）。本批把 `HeapSize`
+    // 32 MiB → 128 MiB（`program/setting.hpp`），但**"128 MiB 装不装得下"没有任何上游文档可依**
+    // ⇒ 与其猜，不如把这四个数读出来：
+    //   * `[64]` 进程可用内存总量、`[65]` 已用（`svcGetInfo` 的 6 / 7）；
+    //   * `[66]` 进程内存管理池总量、`[67]` 其中已用（同上的 16 / 17）。
+    // 用途：给**以后**任何"要不要再抬 / 再省内存"的决策留一个现场数字
+    // （本项目在"堆够不够"这件事上已经猜错过不止一次）。
+    //
+    // ★★ 2026-09-28 真机读数之后的**更正**（批次 181）：当初加这几格时以为它"能判 128 MiB
+    //   之后的余量够不够"，**这条期望没兑现** —— 实测 `[64] = 3189.0 MB` / `[65] = 3188.0 MB`
+    //   （该口径下"余量"只剩 1.0 MB），而**同一刻游戏完全正常**（贴图桥 `实际转码 13 / 失败 0`、
+    //   模块堆 arena 47.4 MB）。
+    //   ⇒ `UsedMemorySize` 更接近"整个应用内存池已被提交"的量，**两边几乎相等是常态**
+    //     ⇒ **这两个数答不了"堆还能不能再抬"**（要判断只能抬了之后看能不能开机）。
+    //   `[66]`/`[67]` 恒 0 也不是错误：那是"系统资源池"，普通 Application 不使用它。
+    //   ⇒ 所以这几格**只作记录**、不作判据：给将来任何"内存到底去哪了"的疑问留现场数字。
+    //
+    // ★ 口径与哨兵：`svcGetInfo` 失败时存 **`0xFFFFFFFF`**（与服装查表那几格同一个约定）——
+    //   "调用失败"与"真的只有 0 字节"必须能分开，否则读到一个 0 会让人以为"内存耗尽了"。
+    // ★ 每 60 帧采一次（与 `[58]/[59]` 同一次调用里做，见 `.cpp` 的 `NoteHeapUsagePeriodically`）。
+    std::uint32_t processTotalMemoryBytes;      // [64] 进程可用内存总量（0xFFFFFFFF = 调用失败）
+    std::uint32_t processUsedMemoryBytes;       // [65] 进程已用内存（同上）
+    std::uint32_t systemResourceTotalBytes;     // [66] 进程内存管理池总量（同上）
+    std::uint32_t systemResourceUsedBytes;      // [67] 其中已用（同上）
+    // ---- [68]..[73]：批次 378（2026-10-05）加的六格 —— "逐模组喂 content"补到引擎的 16 项 ----
+    //
+    // 由来：Switch 版引擎自己那条路（`ModManager::LoadConfigs @ 0x41E388`）在这版镜像里**从不执行**
+    // ⇒ 模组的 `content/*.xml` 要我们自己喂。本批之前只喂 2 个（`costumes2.xml` / `music.xml`），
+    // 本批补齐到引擎那 16 项（14 个文件 + `LoadCustomResources` + `PostLoadMods`）。
+    // ⇒ 必须能从读数里回答三件事，否则下一轮出问题还是只能猜：
+    //   ① **16 项入口有没有全部解析到**（任一解析失败 ⇒ 那一项的内容就是不进引擎的，且**不报错**）；
+    //   ② 到底调了多少次（每模组 × 16，或"重试导致重复喂"都从这里一眼看出）；
+    //   ③ 真条目构造了几个、`PostLoadMods` 收尾了没有（收尾**只允许一次**）。
+    // ★ 为什么跟在**最后**而不是紧挨 `[60]/[61]` 那两个 `modEngine*` 格：字段顺序就是读数工具的
+    //   下标契约（见上面的纪律 2）—— 插在中间会让 `[62]` 以后每一格整体错位，
+    //   而错位在读数里表现为"某几格莫名非 0"，比报错难查得多。
+    std::uint32_t modEngineLoadersResolved;   // [68] **位掩码**：bit i = 表里第 i 项入口解析成功
+                                              //      （16 字节序言**与**该行自己的 4 字节判别式都过）。
+                                              //      bit0..13 = 14 个 content 文件、bit14 = `LoadCustomResources`、
+                                              //      bit15 = `PostLoadMods`（行号见 `runtime_constants.hpp`
+                                              //      的 `kModContentFeedSpecs`）。
+                                              //      ★ 全部 16 位应当恒为 0xFFFF（解析失败**不报错**，
+                                              //      只表现为"那个文件的内容不进引擎"）。
+    std::uint32_t modEngineLoaderFailures;    // [69] 上一位的**补码**（便于读数一眼看出缺哪几项）：
+                                              //      bit0..15 = 解析失败的那几项；
+                                              //      ★ bit16 = `ModEntry::ctor` 解析失败（它**不在**表里，
+                                              //      单独占一位）—— 那位一亮，所有带 `ModEntry*` 的项
+                                              //      （8 个）都会被跳过（引擎那个参数不能传空指针：
+                                              //      空指针会让 `type="none"` 的条目一条都不加）；
+                                              //      ★ bit17 = `std::string::assign` 那条 **PLT 桩**解析失败
+                                              //      （同样不在表里）—— 那位一亮，真条目的 `+0x48`/`+0x60`
+                                              //      填不上 ⇒ `LoadCustomResources` 找不到模组自己的资源
+                                              //      （`GetContentPath` 读的就是 `+0x48`），其余 15 项不受影响。
+    std::uint32_t modEngineContentCalls;      // [70] 14 项加载器**一共被调了几次**（累加；
+                                              //      含 `costumes2.xml` / `music.xml` 那条专用路的每一次调用，
+                                              //      它是"两种路径口径各试一次"⇒ 那两个文件最多算 2 次）
+    std::uint32_t modEnginePostLoadModsCalls; // [71] `EntityConfig::PostLoadMods()` 调了几次。
+                                              //      **正常 = 1**（引擎在循环外只调一次；本批用一次性闩锁保证，
+                                              //      多调一次等于拿一份没收尾的配置去收尾）
+    std::uint32_t modEngineCustomResourceCalls;  // [72] `ModEntry::LoadCustomResources()` 调了几次。
+                                              //      **正常 = 启用的模组数**（引擎每个模组第一个调它）
+    std::uint32_t modEngineRealEntryBuilds;   // [73] 用引擎构造器造的**真 `ModEntry`** 有几个。
+                                              //      **正常 = 启用的模组数**（按下标惰性构造一次、之后复用）。
+                                              //      ★ 为什么不复用那个 0x140 字节的替身：`LoadCustomResources`
+                                              //      会写 `+0x140` 起的 13 个 `ANM2`（到 `+0x1008`），
+                                              //      替身装不下 ⇒ 那是越界写（见 `runtime_constants.hpp`）
+    std::uint32_t modEngineDefaultAnm2Loads;  // [74] ★ 批次 409（2026-10-08）：`ANM2::Load(
+                                              //      "gfx/ui/mod_defaults.anm2", true)` 在
+                                              //      `Manager+kManagerToModManagerOffset+0x368`
+                                              //      上被我们调了几次。**正常 = 1**（引擎那条
+                                              //      `ModManager::LoadConfigs` 尾部只跑一次；本仓由
+                                              //      `LoadModManagerDefaultAnm2Once` 在那同一个一次性
+                                              //      闩锁里做）。**0 = 那一步没做** ⇒ 暂停屏画
+                                              //      模组道具（id ≥ 733）时会写 `0x80` 崩
+                                              //      （真机 2026-10-08 13:45 实测）。
+    // 批次 417（2026-10-08）加的一格 —— ★ **追加在末尾**：本结构体只许往后加字段，
+    //   插在中间会让老读数件按偏移解析时把 [60]..[74] 全部错位（技能 §3 的硬规矩）。
+    //   内容 = **Lua 状态自己占了多少字节**。由来：415 的真机读数说本模块堆
+    //   "已用 122.8 MB / 空闲 5.2 MB"，而"这 122 MB 是谁吃的"当时只能猜。有了这一格就能把
+    //   **Lua 侧**（模组的表/字符串 —— EID 的语言包光源码就有 8 MB）与**其它**（`malloc` 出来的：
+    //   Font 块、贴图转码缓冲、挂载表、名字层…）分开：**其它 = [59] − 本格**。
+    //   口径 = `LuaRuntime::LuaStateMemoryBytes()`（`lua_gc` 的 GCCOUNT + GCCOUNTB）；
+    //   只在宿主构建或还没采到时为 0（与 [58]/[59] 同一个 60 帧节拍）。
+    std::uint32_t luaStateBytes;              // [75] Lua 状态自己的内存（字节）
+    // 批次 418（2026-10-09）加的五格 —— ★ **追加在末尾**（同一个规矩：只许往后加）。
+    //
+    // 由来：批次 417 只把"已用 120.8 MB"拆成"Lua 侧 36.8 MB + 其它 ≈84 MB"，而"那 84 MB 是谁"
+    // 归因不到任何一条代码缓冲 —— 对 417 的生产 ELF 做**全镜像反汇编穷举**（抓所有
+    // `bl/b` 到 `malloc/realloc/calloc/operator new/new[]` 的调用点并归函数）之后，
+    // 模块自己的堆分配点只有 6 个函数（`ImagePcxCacheInsert` / `ReadPngFileForBridge` /
+    // `PngToPcx` / `IsaacRenderText` / `IsaacRenderScaledText` / `CreateSpriteHandle`），
+    // 它们的**常驻上限加起来不到 25 MiB** ⇒ "84 MB 是我们自己的缓冲"这个前提**很可能是伪的**。
+    //
+    // ⇒ 下面四格 `mallinfo` 账目就是用来**把两种可能分开**的（判读表见读数工具那一段）：
+    //      [76] = `mallinfo().uordblks`（分配器自认**已分配**的字节数）
+    //             ⇒ 与 [59]（`arena − fordblks`）一比：**几乎相等** = [59] 没高估，
+    //                84 MB 是真实的分配；**远小于** [59] = 口径高估，是量具问题。
+    //      [77] = `mallinfo().ordblks`（**空闲块个数**）—— 碎片程度的直接读数
+    //             （有一个独立的、非 mallinfo 来源的观测是"8115 个碎块"，这两处可以互相印证）。
+    //      [78] = `mallinfo().hblks`（mmap 区个数；newlib 的 dlmalloc 走 `sbrk`，**正常恒 0**）。
+    //      [79] = `mallinfo().keepcost`（**堆顶那块空闲**的字节数 = 能归还给系统的那部分）
+    //             ⇒ 它很小而 [58] 不小 = 释放的块**无法与堆顶合并** ⇒ 只增不减 + 碎片。
+    //   ★ 与 [58]/[59] **同一个 `mallinfo()` 调用**取出来（不多扫一遍空闲链表），
+    //     同一个 60 帧节拍 ⇒ 五格天然是同一时刻的读数，可以互相减。
+    //   ★ 失败/不可用一律写 0（宿主构建没有这个口径；门禁不据此断言真值）。
+    std::uint32_t heapAllocatedBytes;         // [76] `mallinfo().uordblks`：分配器自认已分配的字节
+    std::uint32_t heapFreeChunkCount;         // [77] `mallinfo().ordblks`：**空闲块个数**（碎片读数）
+    std::uint32_t heapMmappedRegions;         // [78] `mallinfo().hblks`：mmap 区个数（newlib 下恒 0）
+    std::uint32_t heapTopFreeBytes;           // [79] `mallinfo().keepcost`：堆顶那块空闲的字节数
+    // 批次 418：贴图桥转码结果缓存的**实际占用**（不是它的**预算** —— 预算按"任一时点
+    // 都可能被容器淘汰回额度内"来理解；具体数值看 `image_pcx_bridge_hook.cpp` 的
+    // `kImagePcxCacheBudgetBytes`，**不在这里重复写死**，免得两处数值各说各话）。
+    // 口径 = `bridge::ImagePcxCacheUsedBytes()`（走函数，**不**按对象偏移硬读 —— 偏移会随
+    // `BudgetedLruCache` 的布局漂，硬编码会静默读错）。同一个 60 帧节拍。
+    std::uint32_t imagePcxCacheUsedBytes;     // [80] 贴图桥缓存当前驻留了多少字节
+    // 批次 420（2026-10-10）加的五格 —— ★ **追加在末尾**（同一个规矩：只许往后加）。
+    //
+    // 由来：批次 416 把 `HeapSize` 抬到 256 MiB 时真机装不上（加载期 `nn::diag::Abort`，
+    // 崩溃报告 `01791470579…` 已归档在 `dist/change-archive-20261008/416-heap-256mib/`），
+    // 它的栈显示是**游戏自己**在 `nv::InitializeGraphics`（向系统要那块图形内存）里
+    // 要不到 ⇒ 自己 abort。⇒ 我们缺一个"**这个进程到底还剩多少内存**"的现场数字：
+    //   * `[64]`/`[65]`（`TotalMemorySize`/`UsedMemorySize`）实测**几乎相等** ⇒ 答不了"还剩多少"；
+    //   * 本批补的是内核另外两组口径：
+    //     - `InfoType_TotalNonSystemMemorySize`(21) / `UsedNonSystemMemorySize`(22)
+    //       = **不含"进程内存管理池"**的进程可用 / 已用（6.0.0+）；
+    //     - `svcGetSystemInfo(Total/UsedPhysicalMemorySize, PhysicalMemoryInfo_Application, …)`
+    //       = **分配给"应用"那一档的物理内存**总量 / 已用 —— 这才是"整机分给游戏的分额"。
+    //   ⇒ ★★ **`svcGetSystemInfo` 这条路被真机否掉了**：本批第一次上卡（880319）当场
+    //      崩 —— 崩溃报告 `01791635311_010021c000b6a000.log` 报
+    //      `Type = Undefined System Call`、`Svc Id = 0x6f`、`PC = runtime + 0x9901c`
+    //      ⇒ **在用户态的 Application 里 `svcGetSystemInfo` 根本不存在**，一调就死。
+    //      ⇒ 本批**只保留 `svcGetInfo` 的两格**（它同样答得了"还剩多少"）：
+    //   ⇒ 本批要回答的问题：**进程可用（不含系统池）余量 = `[81]` − `[82]`**，
+    //     并与 `[64]`/`[65]`（**含**系统池、实测恒几乎相等）对照。
+    //   ★ 与 `[58]`/`[59]` 同一个 60 帧节拍；失败一律存 `0xFFFFFFFF` 哨兵
+    //     （"调用失败"与"真的是 0 字节"必须能分开 —— 与服装查表那几格同一个约定）。
+    //   ★ **只读、只记录**：没有任何行为跟着这两格变。
+    std::uint32_t processTotalNonSystemBytes; // [81] 进程可用（不含系统池），`svcGetInfo` 21
+    std::uint32_t processUsedNonSystemBytes;  // [82] 进程已用（不含系统池），`svcGetInfo` 22
+    // 批次 420（续，2026-10-10）：★ **真正能回答"还剩多少"的那条路 —— resource limit**。
+    // 口径来自 Atmosphère 内核源码（取证见 `docs/分析-用户态查可用内存-20261010.md`）：
+    //   * `svcGetInfo(InfoType_ResourceLimit = 9, handle = **INVALID_HANDLE**, 0)` ⇒ 拿本进程的
+    //     resource limit 句柄（★ `handle` 必须传 **0**，内核写着 `R_UNLESS(handle == InvalidHandle, …)`）；
+    //   * `svcGetResourceLimitLimitValue`(svc 0x30) / `CurrentValue`(0x31)，
+    //     `which = LimitableResource_Memory = 0` ⇒ 得到"内存配额上限"与"当前已用"；
+    //   * **还剩多少 = `[83]` − `[84]`** —— 内核自己的 `KResourceLimit::GetFreeValue` 就是这么算的
+    //     （`kern_k_process.cpp` 的 `GetTotalUserPhysicalMemorySize` 用的正是它；
+    //      `InfoType_FreeThreadCount` 的实现也写成 `limit - current`）。
+    // ★ 三个调用**都没有权限检查**（`kern_svc_resource_limit.cpp:28-54`、`kern_svc_info.cpp:201-225`）
+    //   —— 与 `svcGetSystemInfo`（用户态是未定义 svc 0x6f）完全不同。
+    // ★ 失败/超 4 GiB/句柄为空一律存 `0xFFFFFFFF` 哨兵（"调用失败"与"真的是 0"必须能分开）。
+    // ★ 只读、只记录；没有任何行为跟着这两格变。
+    std::uint32_t resourceLimitMemoryBytes;   // [83] 内存配额上限（`lim - cur` 的 `lim`）
+    std::uint32_t resourceMemoryUsedBytes;    // [84] 内存配额当前已用（`lim - cur` 的 `cur`）
+    // 批次 421（2026-10-10）：★ **用户点名要"内存占用 / 可用余量"** —— 遍历 libnx 的 API 后
+    // 定为 **`svcQueryMemory`(0x06) 逐段扫地址空间、按 `MemType` 分类求和**（取证见
+    // `docs/分析-用户态查可用内存-20261010.md`）。**这才是"看得见的内存占用"**：`InfoType`
+    // 6/7/21/22 都退化成"池的总量"、`svcGetSystemInfo` 在用户态是未定义 svc、`svcGetInfo`
+    // 的区域大小那几格（3/5/13）在 Application 上直接调用失败。
+    //   ★ 单位 = **KiB**（不是字节）：第一版用字节 ⇒ "所有已映射"**直接溢出 u32 格**
+    //     （说明 > 4 GiB）⇒ 换 KiB 后 u32 能装到 4 TiB，够用。
+    //   ★ **一次扫，只做一次**（一次扫要几千次 svc 调用，绝不能每帧做）。
+    //   ★ 口径：`[89]` = **"私有/真实占用"合计**（`Normal`+`Heap`+代码+`Mapped`+其它
+    //     非 `Io`/非 `SharedMem`/非 `Unmapped`）—— **游戏本体 + 我们的兼容层 + 模组
+    //     都在这份里**（兼容层与模组的 `malloc` 用的就是游戏的堆/映射）；
+    //     `[90]` = 所有"非 Unmapped"合计（含 IO 与共享 ⇒ 它明显大于 `[89]`）。
+    //   ★ 失败 / 超 4 TiB 一律 `0xFFFFFFFF` 哨兵。
+    std::uint32_t memNormalKiB;               // [85] `MemType_Normal`（KiB）
+    std::uint32_t memHeapKiB;                 // [86] `MemType_Heap`（KiB）
+    std::uint32_t memCodeKiB;                 // [87] `CodeStatic` + `CodeMutable`（KiB）
+    std::uint32_t memMappedKiB;               // [88] `MappedMemory`+`ThreadLocal`+`TransferMem`+`ProcessMem`（KiB）
+    std::uint32_t memPrivateKiB;              // [89] ★ **私有/真实占用合计**（KiB）——含游戏+兼容层+模组
+    // ★★ 2026-10-10（批次 424）：**原来这里还有 [90] `memMappedTotalKiB`（所有"非 Unmapped"合计），
+    //   已删除** —— 实测它**恒为哨兵 `0xFFFFFFFF`**（"IO / 保留区"的**虚拟地址范围**是 TiB 量级，
+    //   KiB 单位下必然溢出 u32）⇒ **那一格没有意义，留着只会让读数里多一个误导性的数**。
+    //   ★ 它是**最后一格**，所以删除**不影响前面任何字段的编号**（本项目"只往后加"的规矩不受影响）。
 };
 
 //: 状态面本体。**定义在 `.cpp` 里、外部链接**（理由见 `State` 的注释）。
@@ -281,6 +497,22 @@ void ModMenuNativeInstall(const TargetModule& module) noexcept;
 //: 每帧调一次（在引擎自己的 `Manager::Update` **之前**）：推进"我们那一格的导航"、
 //: 驱动模组页（状态 16）。位置 = 引擎分派之前，所以我们这一帧写进去的状态/索引引擎这一帧就按它走。
 void ModMenuNativeUpdate() noexcept;
+
+//: ★★ 批次 153（2026-09-27）：**在模组脚本执行之前**把模组的 `content/`（皮肤 + 音乐）喂给引擎。
+//:
+//: 为什么必须在那个时机（真机证据，不是推断）：PC 的模组惯例是在**文件作用域**就用
+//: `Isaac.GetCostumeIdByPath` 把服装编号建成表（官方教程的写法），而编号一旦建成就**不会再查**。
+//: 我们原来只在"进模组页那一刻"喂 —— 那时模组的表早就填成 `-1` 了
+//: （真机读数：容器 132 → 155 说明喂成功了，但同一次读数里 `GetCostumeIdByPath` 43 次调用
+//: **0 次命中**、查的时候容器只有 132 ⇒ 喂晚了）。
+//:
+//: 调用点 = `hook_manager.cpp` 的 `LoadDefaultManifestModThroughService()` 里、
+//: **注册完各模组的资源挂载点之后、`service.LoadAll(...)`（跑模组脚本）之前**。
+//: ★ 156 才挪到这里：155 及以前放在 `InitializeDefaultManifestMod(...)` 之前 —— 那**太早了**，
+//: 那时我们的模组列表还没发布、模组的内容目录也还没注册 ⇒ 那一次**什么都没做**
+//: （真机 `[61] = 4`、加载器一次都没被调用），而它照样被记成"跑完了"。
+//: 只要这条链上还有"进模组页"与"每帧重试"两条兜底，放错位置不会崩，但**舞会一直出不来**。
+void LoadEngineModContentBeforeModScripts() noexcept;
 
 //: 判定「按 PC 规则，本局是不是不该给成就」—— 给入口中继 `PersistentGameDataSetReadOnly` 用。
 //: 规则 = 带符号的 `AfterbirthPlus.nro` 里 `ModManager::AchievementsLocked()` **一比一**：

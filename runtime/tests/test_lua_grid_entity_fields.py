@@ -62,6 +62,7 @@ HARNESS = r'''
 #include "lua_runtime.hpp"
 #include "game_observer.hpp"
 #include "runtime_constants.hpp"
+#include "interfaces/lua/api500_world.guards.hpp"
 
 #include <cstdint>
 #include <cstring>
@@ -108,6 +109,9 @@ void PublishFakeRoom() {
     g_ModuleBytes.assign(kGameOwnerGlobalSlotOffset + sizeof(std::uint64_t), 0);
     g_OwnerSlotBytes.assign(sizeof(std::uint64_t), 0);
     g_EntityBytes.assign(0x48, 0);
+    WriteAt<std::uintptr_t>(g_EntityBytes,0,AddressOf(g_ModuleBytes)+kGridEntity_SpikesVtableOffset);
+    const auto& gridLayout=isaac::runtime::api500_world::kLayouts[0];
+    std::memcpy(g_ModuleBytes.data()+gridLayout.offset,gridLayout.bytes.data(),gridLayout.bytes.size());
     WriteAt<std::uint32_t>(g_EntityBytes, kGridEntityTypeOffset, kSpikeType);
     WriteAt<std::uint32_t>(g_EntityBytes, kGridEntityVariantOffset, kSpikeVariant);
     WriteAt<std::uint32_t>(g_EntityBytes, kGridEntityVarDataOffset, kSpikeVarData);

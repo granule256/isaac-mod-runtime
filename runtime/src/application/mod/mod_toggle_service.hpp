@@ -5,10 +5,19 @@
 #include "domain/runtime/status.hpp"
 #include "ports/save_file_port.hpp"
 
+#include <atomic>
 #include <cstddef>
 #include <string_view>
 
 namespace isaac::runtime {
+
+//: ★★ 批次 427：两个读数（**外部链接**，读数工具按符号名读）。
+//:   * `g_ModTogglePrunedEntries` = 开机时清掉的"死条目"累计（模组已删/改名 ⇒ 清掉它占的格）；
+//:   * `g_ModToggleCapacityRejections` = ★ **因名单满而被拒的开关次数** ——
+//:     用户报的"关不掉"当年就是**静默**的（`SetEnabled` 返回 false、脚本只给一句笼统提示），
+//:     这一格让"到底有没有被容量挡下"变成一个可读的数。
+extern std::atomic<std::uint32_t> g_ModTogglePrunedEntries;
+extern std::atomic<std::uint32_t> g_ModToggleCapacityRejections;
 
 // 模组开关（2026-09-16，路线 B 的第一步）：把"哪些模组被关掉了"存进**游戏存档分区**，
 // 并在扫描/加载之前按它过滤。
@@ -37,7 +46,12 @@ public:
 
     // 内存里改一个模组的开关（**不落盘**，落盘由调用方在合适时机调 `Save()`）。
     [[nodiscard]] Status SetEnabled(std::string_view directory, bool enabled) noexcept {
-        return state_.SetEnabled(directory, enabled);
+        const Status status = state_.SetEnabled(directory, enabled);
+        if (!status.ok() && status.code() == StatusCode::CapacityExceeded) {
+            // ★ 批次 427：让"被容量挡下"留痕（用户报的"关不掉"就是它）。
+            g_ModToggleCapacityRejections.fetch_add(1, std::memory_order_relaxed);
+        }
+        return status;
     }
 
     [[nodiscard]] const ModToggleState& state() const noexcept { return state_; }

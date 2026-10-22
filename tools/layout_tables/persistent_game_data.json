@@ -1,0 +1,37 @@
+{
+  "schema": "isaac-layout-table/1",
+  "build_id": "91C73FDD575061318D68886316AFEAC72388B2AB",
+  "struct": "PersistentGameData",
+  "note": [
+    "BossKilled为真实存档bool byte数组；仅恢复1..103已证范围。AddBoss写1和具名消费者读同表，REPENTOGON包装同样读bosses[id]。原始全文dist/pgd-bestiary-write-static-20261010/，不手工模拟AddBoss副作用。"
+  ],
+  "rows": [
+    {
+      "name": "BossKilled",
+      "kind": "array",
+      "offset": 3463,
+      "width": 104,
+      "stride": 1,
+      "confidence": "confirmed",
+      "semantic": "Boss是否被标为击杀，合法Lua下标1..103；数组0槽不由本API开放。值锚点：AddBoss以id索引后写byte1，后续解锁分支逐Boss读同表。",
+      "evidence": [
+        {
+          "kind": "access",
+          "function": "_ZN15IsaacRepentance18PersistentGameData7AddBossENS_7eBossIdE",
+          "address": "0x00439a74",
+          "offset": 3463,
+          "width": 1,
+          "why": "439A60先add x8,this,w1,uxtw，439A68 mov w9,#1，439A74 strb w9,[x8,#0xD87]；id作为逐byte下标。"
+        },
+        {
+          "kind": "access",
+          "function": "_ZN15IsaacRepentance18PersistentGameData7AddBossENS_7eBossIdE",
+          "address": "0x00439a84",
+          "offset": 3464,
+          "width": 1,
+          "why": "id1真实读者，随后解锁分支读取id2与其它boss；与写入同一表。"
+        }
+      ]
+    }
+  ]
+}

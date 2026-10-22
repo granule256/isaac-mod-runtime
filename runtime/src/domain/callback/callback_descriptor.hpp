@@ -85,7 +85,54 @@ inline constexpr CallbackId kCallbackPreUseItem = 23;
 inline constexpr CallbackId kCallbackPrePickupCollision = 38;
 inline constexpr CallbackId kCallbackPostGetCollectible = 63;
 inline constexpr CallbackId kCallbackPreRoomEntitySpawn = 71;
+// --- 2026-10-07 批次 396：补全回调（第 1 批）---------------------------------------
+//
+// 两条都走零占洞入口中继（`HookBackend::EntryRelay`），靶点与 16 字节守卫见
+// `runtime_constants.hpp` 里那两段取证：
+//   * `MC_EVALUATE_CACHE`(8)：`Entity_Player::EvaluateItems()` —— 属性重算的唯一总闸；
+//   * `MC_ENTITY_TAKE_DMG`(11)：基类 `Entity::TakeDamage` + 三个**不回跳基类**的子类
+//     （玩家/掉落物/槽位）共四条入口中继 ⇒ 覆盖全部实体、不重复。
+// 取值必须等于 PC 表（`analysis/isaacdocs-snapshot/docs/enums/ModCallbacks.md`）。
+// 命名规则（被 `test_callback_surface.py` 与读数工具的门禁钉住）：`MC_XXX_YYY` ↔ `kCallbackXxxYyy`。
+inline constexpr CallbackId kCallbackEvaluateCache = 8;
+inline constexpr CallbackId kCallbackEntityTakeDmg = 11;
+// --- 2026-10-07 批次 397：补全回调（第 2 批）---------------------------------------
+//
+// 三条原为 `hookable`（"游戏里已有时刻，只差接线"），本批按反汇编定案改成走入口中继：
+//   * `MC_POST_GAME_END`(16)：`Game::End(eEnding)` 入口；
+//   * `MC_POST_NPC_DEATH`(29)：`Entity_NPC::trigger_death_remove()` 入口；
+//   * `MC_POST_ENTITY_KILL`(68)：`Entity::Kill()` 入口（只挂基类一条即全覆盖）。
+// 靶点与语义依据见 `runtime_constants.hpp` 的「批次 397」那段。取值必须等于 PC 表。
+// 命名规则（被 `test_callback_surface.py` 与读数工具的门禁钉住）：`MC_XXX_YYY` ↔ `kCallbackXxxYyy`。
+inline constexpr CallbackId kCallbackPostGameEnd = 16;
+inline constexpr CallbackId kCallbackPostNpcDeath = 29;
+inline constexpr CallbackId kCallbackPostEntityKill = 68;
+// `MC_POST_FIRE_TEAR`(61)：`Entity_Player::FireTear(...)` 入口中继，派发点在**原函数返回之后**
+// （实参 = 返回的泪弹指针）。靶点与 ABI 取证见 `runtime_constants.hpp` 的「批次 337/397」两段。
+inline constexpr CallbackId kCallbackPostFireTear = 61;
 // 目前已挂钩派发点的回调种类上限（含未挂钩但允许登记的）：PC 表到 73。
+inline constexpr CallbackId kCallbackPreFamiliarCollision = 26;
+inline constexpr CallbackId kCallbackPreNpcCollision = 30;
+inline constexpr CallbackId kCallbackPrePlayerCollision = 33;
+inline constexpr CallbackId kCallbackPreTearCollision = 42;
+inline constexpr CallbackId kCallbackPreProjectileCollision = 46;
+inline constexpr CallbackId kCallbackPreKnifeCollision = 53;
+inline constexpr CallbackId kCallbackPreBombCollision = 60;
+inline constexpr CallbackId kCallbackPostNpcRender = 28;
+inline constexpr CallbackId kCallbackGetCard = 20;
+inline constexpr CallbackId kCallbackGetShaderParams = 21;
+inline constexpr CallbackId kCallbackExecuteCmd = 22;
+inline constexpr CallbackId kCallbackPreModUnload = 73;
+inline constexpr CallbackId kCallbackGetPillColor = 64;
+inline constexpr CallbackId kCallbackGetPillEffect = 65;
+inline constexpr CallbackId kCallbackGetTrinket = 66;
+inline constexpr CallbackId kCallbackPostCurseEval = 12;
+inline constexpr CallbackId kCallbackPostPickupSelection = 37;
+inline constexpr CallbackId kCallbackPostEntityRemove = 67;
+inline constexpr CallbackId kCallbackPreSpawnCleanAward = 70;
+inline constexpr CallbackId kCallbackPreEntityDevolve = 72;
+inline constexpr CallbackId kCallbackPreNpcUpdate = 69;
+inline constexpr CallbackId kCallbackPreEntitySpawn = 24;
 inline constexpr CallbackId kCallbackMaximumId = 73;
 
 // One registered callback. The Lua function is referenced by registry index,

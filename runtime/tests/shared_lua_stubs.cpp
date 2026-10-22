@@ -16,12 +16,18 @@
 #include "game_observer.hpp"
 #include "game_file_reader.hpp"
 #include "level_start_room.hpp"
+#include "domain/runtime/hook_catalog.hpp"
 
 #include <cstddef>
 #include <cstdint>
 
 // 弱符号：测试自己的 TU 里定义同名函数即可覆盖（强符号优先）。
 #define ISAAC_TEST_WEAK __attribute__((weak))
+
+namespace isaac::runtime {
+ISAAC_TEST_WEAK bool EntryRelayInstalled(HookId) noexcept { return false; }
+ISAAC_TEST_WEAK std::uintptr_t EntryRelayFallbackEntry(HookId) noexcept { return 0; }
+}
 
 namespace {
 
@@ -124,3 +130,19 @@ namespace isaac::runtime {
 ISAAC_TEST_WEAK void ResetInputEdgeState() noexcept {}
 
 }  // namespace isaac::runtime
+
+// 批次 388（2026-10-07 补，修 271-perf 引入的存量回归）：
+// `test_lua_entity_player.py` 的 harness 刻意带 `-DEXL_DIAGNOSTIC_PROBES=1`（批次 252 为读
+// `ApiRowStatsSnapshot().rejectGuard` 而加），于是会编到 `font_api.cpp` 里 `#if EXL_DIAGNOSTIC_PROBES`
+// 包住的 **Font 计时窗口**（`IsaacRuntime_FontLoadWindowBegin/End`）。那两个函数的**真实现**
+// 在 `image_pcx_bridge_hook.cpp`（贴图桥），而**宿主夹具只链 Lua 运行时、不链贴图桥**
+// （`font_api.cpp` 文件头自己写着这条）⇒ 链接期 `Undefined symbols … FontLoadWindowBegin/End`。
+// ⇒ 按本文件的设计在此补**弱默认**（"不记这笔时间"，与不装量具时行为一致）。
+// 为什么放在这里而不是每个 harness 各写一份：文件头那条规矩 —— 新增观测函数只在这里补一行默认。
+#if defined(EXL_DIAGNOSTIC_PROBES) && EXL_DIAGNOSTIC_PROBES
+extern "C" {
+ISAAC_TEST_WEAK void IsaacRuntime_FontLoadWindowBegin() noexcept {}
+ISAAC_TEST_WEAK void IsaacRuntime_FontLoadWindowEnd(std::uint32_t, std::uint32_t,
+                                                    std::uint32_t) noexcept {}
+}
+#endif

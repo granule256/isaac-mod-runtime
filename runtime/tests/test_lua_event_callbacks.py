@@ -29,6 +29,8 @@
 5. **`MC_POST_GET_COLLECTIBLE`**：实参是 `(SelectedCollectible, ItemPoolType, Decrease, Seed)`
    —— 第一个实参是**刚选出来的道具**（这是它与 `MC_PRE_GET_COLLECTIBLE` 的唯一区别）；返回值
    能替换它；返回 `nil` 则不替换。
+
+★ 2026-10-10 更正：上文历史“任一真值”表述已退役，完整PC脚本在首个非nil处停止；首false不拦且后续true不执行，首true仍拦。两个场景独立验证。
 """
 
 import subprocess
@@ -159,8 +161,13 @@ int main(int argc, char** argv) {
     } else if (std::strcmp(scenario, "block") == 0) {
         script =
             "local mod = RegisterMod('Probe', 1) "
-            "mod:AddCallback(ModCallbacks.MC_PRE_USE_ITEM, function() return false end) "
             "mod:AddCallback(ModCallbacks.MC_PRE_USE_ITEM, function() return true end)";
+    } else if (std::strcmp(scenario, "first_false_stops") == 0) {
+        script =
+            "local mod = RegisterMod('Probe', 1) _probe = { later = 0 } "
+            "mod:AddCallback(ModCallbacks.MC_PRE_USE_ITEM, function() return false end) "
+            "mod:AddCallback(ModCallbacks.MC_PRE_USE_ITEM, function() "
+            "_probe.later = _probe.later + 1 return true end)";
     } else if (std::strcmp(scenario, "no_block") == 0) {
         script =
             "local mod = RegisterMod('Probe', 1) "
@@ -322,6 +329,12 @@ int main(int argc, char** argv) {
         if (!LuaRuntime::DispatchPreUseItem(Player(), 33, 0, 0, 0)) return 2;
         return LuaRuntime::TakeCallbackError() ? 3 : 0;
     }
+    if (std::strcmp(scenario, "first_false_stops") == 0) {
+        if (LuaRuntime::DispatchPreUseItem(Player(), 33, 0, 0, 0)) return 2;
+        double later = 0;
+        if (!Counter("later", &later) || later != 0) return 3;
+        return LuaRuntime::TakeCallbackError() ? 4 : 0;
+    }
     if (std::strcmp(scenario, "no_block") == 0) {
         if (LuaRuntime::DispatchPreUseItem(Player(), 33, 0, 0, 0)) return 2;
         return LuaRuntime::TakeCallbackError() ? 3 : 0;
@@ -434,6 +447,7 @@ SCENARIOS = (
     "filter",
     "filter_blocks",
     "block",
+    "first_false_stops",
     "no_block",
     "post_get",
     "post_get_override",
@@ -479,7 +493,7 @@ class LuaEventCallbackTests(unittest.TestCase):
         header = (SOURCE / "lua_runtime.hpp").read_text(encoding="utf-8")
         for declaration in ("void DispatchPreGameExit(bool shouldSave);",
                             "bool DispatchPreUseItem(",
-                            "void DispatchUseItem(",
+                            "isaac::runtime::UseItemCallbackResult DispatchUseItem(",
                             "void DispatchUseCard(",
                             "void DispatchUsePill(",
                             "std::uint64_t DispatchPostGetCollectible(",

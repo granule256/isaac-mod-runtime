@@ -44,6 +44,7 @@ LONG_NAME = "#THE_SAD_ONION_DESCRIPTION_LONG_STUB_TAIL"
 
 HARNESS = r'''
 #include "interfaces/lua/isaac_api.hpp"
+#include "interfaces/lua/api_call_stats.hpp"   // 批次 141：`GetCostumeIdByPath` 的常驻埋点
 
 #include "lua_runtime.hpp"
 #include "game_file_reader.hpp"
@@ -123,6 +124,10 @@ enum ItemSlot : std::size_t {
     kCardItem,          // Card[0]
     kPillItem,          // PillEffect[1]
     kBrimstone,         // 第二帧的新收藏品 1（换局后的向量）
+    // 批次 139（2026-09-26）：null 服装向量里的三条 —— `Isaac.GetCostumeIdByPath` 的夹具。
+    kCostumeLong,       // 长串路径（>22 字节 ⇒ 堆形态）：the/specialist_isaac.anm2
+    kCostumeShort,      // 短串路径（内联形态）：the/items/binky.anm2
+    kCostumeEmpty,      // 空串路径（字节 0 ⇒ 必须被跳过）
     kItemSlotCount,
 };
 
@@ -176,6 +181,22 @@ std::uintptr_t ItemAddress(std::size_t slot) {
     return AddressOf(g_ItemBlocks[slot]);
 }
 
+// 批次 139（2026-09-26）：null 服装条目的**路径**（`+0x88`，24 字节 libc++ 串）与 **id**（`+0x04`）。
+// ★ **写死字面偏移**（0x88），并在这 24 字节字段前后各放一个单字节诱饵（0x87 / 0xA0）：
+//   夹具跟着实现侧的常量走会两边一起错、断言永远绿（理由见 `SetItemQuality` 的注释）。
+//   `+0x04` 用既有的 `kItemConfigItemIdOffset`（PC 的 `ItemConfig_Item.ID`，实现返回的就是它）。
+void WriteCostumePath(std::size_t slot, const std::string& path) {
+    auto& block = g_ItemBlocks[slot];
+    WriteAt<std::uint8_t>(block, 0x87, 0xA5u);   // 诱饵：字段前一字节
+    WriteLibcxxString(block, 0x88, path, false);
+    WriteAt<std::uint8_t>(block, 0xA0, 0x5Au);   // 诱饵：字段后一字节
+}
+
+void SetNullCostumePath(std::size_t slot, std::uint32_t id, const std::string& path) {
+    WriteCostumePath(slot, path);
+    WriteAt<std::uint32_t>(g_ItemBlocks[slot], kItemConfigItemIdOffset, id);
+}
+
 void CreateBlocks() {
     // 0xD8 而不是 0x40：`GfxFileName` 在 `+0x38`（24 字节的 libc++ 串占到 `+0x4F`），
     // 2026-09-16 起的 `Quality`(`+0xC8`) / `CraftingQuality`(`+0xCC`) 两个 32 位整数要占到 `+0xCF`，
@@ -212,22 +233,43 @@ void SetItemQuality(std::size_t slot, std::uint32_t quality, std::uint32_t craft
     WriteAt<std::uint32_t>(block, 0xD0, 0x7E7E7E7Eu);                 // 诱饵：CraftingQuality 后一格
 }
 
-// `AchievementID`(`+0x50`) / `Tags`(`+0x58`) / `MaxCharges`(`+0x74`) / `ChargeType`(`+0xB0`)。
+// `AchievementID`(`+0x50`) / `MaxCharges`(`+0x74`) / `ChargeType`(`+0xB0`)。
 // ★ 同样**写死字面偏移 + 每个字段的后一格放诱饵**（理由见 `SetItemQuality` 的注释）：
 //   夹具一旦跟着实现侧的常量走，两边就会一起错，断言永远绿。
 // ★ 值故意挑"能把类型定死"的：`AchievementID` 给 **-1**（PC 的"默认可解锁"取值为 -1，
-//   读成无符号就永远不等于 -1）、`MaxCharges` 也给 -1（同样钉有符号）、`Tags` 走低位的位掩码。
-void SetItemExtras(std::size_t slot, std::int32_t achievementId, std::uint32_t tags,
+//   读成无符号就永远不等于 -1）、`MaxCharges` 也给 -1（同样钉有符号）。
+//
+// ★★ 2026-09-29（批次 195）：**`Tags` 从这里搬走了** —— 它的真偏移是 `+0xC0`（u64，33 位），
+//   而 `+0x58` 是 items.xml 的 `maxhearts=`（见下）。搬走的同时**在 `+0x58` 放一个可辨认的诱饵**：
+//   实现若还在读旧偏移，读到的就是 `0x5A5A5A5A` 而不是 `Tags` ⇒ 断言必然失败（这正是"钉 ABI 本身"）。
+void SetItemExtras(std::size_t slot, std::int32_t achievementId,
                    std::int32_t maxCharges, std::int32_t chargeType) {
     auto& block = g_ItemBlocks[slot];
     WriteAt<std::int32_t>(block, 0x50, achievementId);
     WriteAt<std::uint32_t>(block, 0x54, 0x7F7F7F7Fu);
-    WriteAt<std::uint32_t>(block, 0x58, tags);
+    // `+0x58` = `maxhearts`（**不是** tags）：放诱饵，旧实现读这里必红。
+    WriteAt<std::uint32_t>(block, 0x58, 0x5A5A5A5Au);
     WriteAt<std::uint32_t>(block, 0x5C, 0x7F7F7F7Fu);
     WriteAt<std::int32_t>(block, 0x74, maxCharges);
     WriteAt<std::uint32_t>(block, 0x78, 0x7F7F7F7Fu);
     WriteAt<std::int32_t>(block, 0xB0, chargeType);
     WriteAt<std::uint32_t>(block, 0xB4, 0x7F7F7F7Fu);
+}
+
+// `Tags`（`+0xC0`，**8 字节无符号位掩码**，有效 bit0..bit32；2026-09-29 批次 195 更正偏移）。
+//
+// 证据：`ItemConfig::LoadMetadata @ 0x3BA88C` 的 `str x21,[x8,#0xc0]`（写点唯一）、
+// `ItemConfig::IsTaggedCollectible @ 0x3C0E58` 的 `ldr x8,[x0,#0xc0]` + `tst x8,x19`
+// （三个读者同口径）、`ItemConfig::Load` 的 `str xzr,[x20,#0xc0]!`（8 字节清零）。
+//
+// ★ 写死字面偏移 + **8 字节整体写**：这样"按 4 字节读"会丢掉高 32 位（`TAG_NO_EDEN = 1<<32`
+//   永远读不到）⇒ 用 bit32 的那条断言会把宽度钉住。
+// ★ 相邻的 `+0xC8`（Quality）/ `+0xCC`（CraftingQuality）由 `SetItemQuality` 写不同的值，
+//   天然充当"后一格诱饵"；`+0xBC` 放一个 4 字节诱饵当"前一格"。
+void SetItemTags(std::size_t slot, std::uint64_t tags) {
+    auto& block = g_ItemBlocks[slot];
+    WriteAt<std::uint32_t>(block, 0xBC, 0x7D7D7D7Du);   // 诱饵：tags 前一格
+    WriteAt<std::uint64_t>(block, 0xC0, tags);
 }
 
 // `Hidden`（`+0xB7`，**1 字节**；2026-09-16 第三批）。
@@ -271,6 +313,48 @@ void PublishVector(std::size_t beginOffset, const std::vector<std::uint64_t>& el
               AddressOf(block) + elements.size() * sizeof(std::uint64_t));
 }
 
+// 批次 148（2026-09-26）：曲目表 —— `Isaac.GetMusicIdByName` 的夹具。
+//
+// 形状与真机同源：曲目表是 `Manager + kManagerMusicOffset` 派生出的 Music 对象里那张
+// `vector<Music::Entry>`（`+0x3D8/+0x3E0`，步长 `0x70`）；每条的**名字**是起点那 24 字节的
+// libc++ 串（证据见 `runtime_constants.hpp` 的 `kMusicEntryNameStringOffset`）。
+//
+// ★ 每条的 `+0x20`（真机上那一格是 **path**）**故意摆一条不同的串当诱饵**：实现若读错字段，
+//   拿到的就是 `decoy_*` 而不是曲目名 ⇒ 断言必然失败。`+0x38` 再摆一条，覆盖面一样。
+std::vector<unsigned char> g_MusicTable;
+
+void PublishMusicEntries(const std::vector<std::string>& names) {
+    const std::size_t stride = kMusicEntrySize;
+    // ★★ 是**连续**的元素数组（`vector<Music::Entry>`），**不是指针数组**：真机实测
+    //    `end - begin = 13328`、`13328 / 119 = 112 = 0x70`，而 `Music::Play` 取条目是
+    //    `begin + id * 0x70`（`umaddl x21, w19, w10(0x70), x8`）—— 两处都指着"连续、步长 0x70"。
+    //    夹具若摆成指针数组（步长 8），实现那条 `(end - begin) % 0x70 == 0` 的形状判据会直接否掉
+    //    ⇒ 这一次就是这么红的（第一版夹具写错了，实现是对的）。
+    g_MusicTable.assign(names.size() * stride, 0);
+    for (std::size_t index = 0; index < names.size(); ++index) {
+        const std::size_t entry = index * stride;
+        // ★ 2026-09-27（批次 149c）：条目布局**按真机更正过** —— `+0x00` 是这条自己的
+        //   **编号**（`int32`，真机读数 `g_ModEngineMusicLastEntryId` = 120 = 最后一条的下标），
+        //   名字串在 `+0x08`（`kMusicEntryNameStringOffset`）。第一版夹具把名字摆在 `+0x00`
+        //   （那是 148 的排除法推断），真机否掉了它：`Music::LoadConfig` 的属性分派里
+        //   `strcmp(属性名, "id")` → `str w0,[模板+0x00]`、`strcmp("name")` → `string::assign`
+        //   到 `模板+0x08`（证据见 `tools/layout_tables/music_entry.json` 与
+        //   `runtime_constants.hpp` 的两条常量注释）。
+        WriteAt<std::int32_t>(g_MusicTable, entry + kMusicEntryIdOffset,
+                              static_cast<std::int32_t>(index));
+        WriteLibcxxString(g_MusicTable, entry + kMusicEntryNameStringOffset, names[index], false);
+        // 诱饵：`+0x20`（真机上那一格是 **path**）与 `+0x38` 各摆一条**不同**的串 ——
+        // 实现若读错字段，拿到的就是 `decoy_*`，断言必然失败。
+        WriteLibcxxString(g_MusicTable, entry + 0x20,
+                          "decoy_path_" + std::to_string(index) + ".ogg", false);
+        WriteLibcxxString(g_MusicTable, entry + 0x38, "decoy_layer_" + std::to_string(index), false);
+    }
+    WriteWord(g_ManagerBytes, kManagerMusicOffset + kMusicEntryVectorBeginOffset,
+              AddressOf(g_MusicTable));
+    WriteWord(g_ManagerBytes, kManagerMusicOffset + kMusicEntryVectorEndOffset,
+              AddressOf(g_MusicTable) + names.size() * stride);
+}
+
 std::vector<std::uint64_t> CollectibleElements() {
     // 733 项（真机硬判据 `E - B == 0x16E8`）：0 号是真机上的空槽（指针为 0）。
     std::vector<std::uint64_t> elements(kItemConfigCollectibleCount, 0);
@@ -299,6 +383,16 @@ bool HarnessIsAvailable(int kind, void* /*entry*/, std::int64_t flags) {
     return kind == 0 && flags == kItemIsAvailableFlags;
 }
 
+// 批次 241：`ItemConfig_Item:IsRune()`（PC 类名 `ItemConfig_Card`）的宿主接法。
+// 真机上它直读 `Card+0x58`（== 2 ⇒ 符文），宿主没有引擎映像 ⇒ 这里按**条目地址**回答：
+// 只对夹具里那张卡条目为 true，别的（药丸/收藏品）为 false —— 这一条把"哪些句柄算符文"钉住。
+int g_IsRuneCallCount = 0;
+
+bool HarnessIsRune(void* card) {
+    ++g_IsRuneCallCount;
+    return reinterpret_cast<std::uintptr_t>(card) == ItemAddress(kCardItem);
+}
+
 // 条目数据。`+0x00` 是 PC 的 `ItemType`（批次 3 定案：`items.xml` 的 `type` 属性被解析器原样
 // 写进这个字段，见 `runtime_constants.hpp` 的 `kItemConfigItemTypeOffset`）：1=PASSIVE、
 // 2=TRINKET、3=ACTIVE、4=FAMILIAR。卡牌/药丸条目沿用 3/4 只是为了证明"`Type` 原样返回
@@ -317,17 +411,36 @@ void FillItems() {
     // 其余条目保持 0（字段在、值为 0 —— 与 PC 上"这段内存是整数"同形）。
     SetItemQuality(kSadOnion, /*quality=*/1, /*craftingQuality=*/3);
     SetItemQuality(kLongCollectible, /*quality=*/4, /*craftingQuality=*/4);
-    // `items.xml` 属性分派表上的另外四个字段（2026-09-16 第二批）。
-    SetItemExtras(kSadOnion, /*achievementId=*/ -1, /*tags=*/ 0x108u, /*maxCharges=*/ 0,
+    // `items.xml` 属性分派表上的另外三个字段（2026-09-16 第二批；`Tags` 已在批次 195 搬走）。
+    SetItemExtras(kSadOnion, /*achievementId=*/ -1, /*maxCharges=*/ 0,
                   /*chargeType=*/ 0);
-    SetItemExtras(kLongCollectible, /*achievementId=*/ 5, /*tags=*/ 0xABCDu, /*maxCharges=*/ -1,
+    SetItemExtras(kLongCollectible, /*achievementId=*/ 5, /*maxCharges=*/ -1,
                   /*chargeType=*/ 2);
+    // `Tags`（`+0xC0`，u64；2026-09-29 批次 195 更正偏移与宽度）。
+    // ★ **必须在 `SetItemQuality` 之后**：那边给 `+0xC4` 放的 4 字节诱饵正好落在 tags 的高半部。
+    // 值挑的是"能把两件事定死"的：
+    //   * `kSadOnion` = `TAG_MUSHROOM(0x100) | TAG_OFFENSIVE(0x100000) | TAG_SUMMONABLE(0x1000000)`
+    //     —— 就是 items_metadata.xml 给 1 号道具列的那三个标签；
+    //   * `kLongCollectible` 带上 **bit32**（`TAG_NO_EDEN = 1<<32`）⇒ 按 4 字节读会丢掉它，
+    //     断言必然失败（宽度被钉住）。
+    SetItemTags(kSadOnion, 0x1100100ULL);
+    SetItemTags(kLongCollectible, 0x100000108ULL);
     // `Hidden`（第三批）：一条假、一条真 ⇒ "读得到 + 读得对"两个方向都钉住。
     // 第二条同时覆盖"非 0 就是真"的口径（引擎里就是 `!= 0`）。
     SetItemHidden(kSadOnion, /*hidden=*/ false);
     SetItemHidden(kLongCollectible, /*hidden=*/ true);
     // `MimicCharge`（第三批）：卡与胶囊各给一个可辨认的值（卡 2、胶囊 3）。
     SetMimicCharge(kCardItem, 2, kPillItem, 3);
+    // 批次 139：null 服装向量（`costumes2.xml` 里 `type=none` 的那些条目）。
+    //   ① 长串路径（24 字节 ⇒ 堆形态）id 5；② 短串路径（19 字节 ⇒ 内联形态）id 7；
+    //   ③ 空串（字节 0 ⇒ 必须被跳过）id 9。
+    SetNullCostumePath(kCostumeLong, 5, "the/specialist_isaac.anm2");
+    SetNullCostumePath(kCostumeShort, 7, "the/items/binky.anm2");
+    SetNullCostumePath(kCostumeEmpty, 9, "");
+    // ★ 反向判据的诱饵：**收藏品**条目上也挂一条同族的路径 ⇒ `GetCostumeIdByPath` 只允许搜 null 向量
+    //   （那是已登记的偏离，见 `api_deviation.cpp` 的 0x0E01005D）。★ 只写路径、**不写 id**：
+    //   收藏品条目的 `+0x04` 是它自己的 id（`valid` 场景要断言 `item.ID == 1`），不能被这条诱饵动过。
+    WriteCostumePath(kSadOnion, "the/specialist_decoy.anm2");
 }
 
 // 换局：`ItemConfig::Init` 重排向量 —— 收藏品向量指到另一块数组、1 号条目换了一个对象。
@@ -348,6 +461,14 @@ void PublishVectors() {
     PublishVector(kItemConfigCardBeginOffset, {ItemAddress(kCardItem), 0});
     // PillEffect：{ 空槽, 条目 }
     PublishVector(kItemConfigPillEffectBeginOffset, {0, ItemAddress(kPillItem)});
+    // 批次 139：null 服装向量 —— `Isaac.GetCostumeIdByPath` 搜的就是这一条（`IC+0x30/+0x38`）。
+    PublishVector(kItemConfigNullItemBeginOffset,
+                  {ItemAddress(kCostumeLong), ItemAddress(kCostumeShort),
+                   ItemAddress(kCostumeEmpty)});
+    // 批次 148：曲目表 —— `Isaac.GetMusicIdByName` 搜的就是这一条。
+    // 下标 1 用**长串**（>22 字节 ⇒ 堆形态），把 libc++ 的两种串形态都走到（与服装那条同一口径）；
+    // 下标 2 就是模组 `content/music.xml` 追加的那两条的等价物（真机上它们是 119/120）。
+    PublishMusicEntries({"Title Screen", "Burning Basement (long-form track name)", "specialist"});
 }
 
 void PublishManager() {
@@ -376,7 +497,8 @@ int main(int argc, char** argv) {
     const std::string scenario = argv[1];
     const char* kScenarios[] = {"valid", "no_base", "slot_zero", "no_manager", "empty_vector",
                                 "bad_length", "huge_length", "null_entry", "bad_string",
-                                "wrong_kind", "bad_isavailable_entry"};
+                                "wrong_kind", "bad_isavailable_entry", "costume_id_by_path",
+                                "music_id_by_name"};
     bool known = false;
     for (const char* candidate : kScenarios) {
         if (scenario == candidate) known = true;
@@ -434,6 +556,10 @@ int main(int argc, char** argv) {
     if (scenario == "valid" || scenario == "bad_isavailable_entry") {
         isaac::runtime::SetItemConfigIsAvailableHostImplementation(&HarnessIsAvailable);
     }
+    // 批次 241：`IsRune` 的宿主实现（只在 valid 场景装）。
+    if (scenario == "valid") {
+        isaac::runtime::SetItemConfigCardIsRuneHostImplementation(&HarnessIsRune);
+    }
 
     const std::string script = "SCENARIO = '" + scenario + "'\n" + kScriptTemplate;
     const auto result =
@@ -465,6 +591,26 @@ int main(int argc, char** argv) {
         if (!ExpectNumber("PHASE2_OK", 1.0)) return 1;
     }
     std::printf("ITEM_CONFIG_OK scenario=%s\n", scenario.c_str());
+    // 批次 141（2026-09-26）：把 `GetCostumeIdByPath` 的**常驻埋点**打出来给 Python 侧核对。
+    // 这几格正是真机上"跳舞模组那 23 条到底查到了没有"的唯一直接证据（读数工具按符号直读同一批
+    // 全局量）⇒ 门禁在这里钉住"查了几次 / 中几次 / 最后一次中的是几 / 容器里有几条"的语义，
+    // 免得哪天埋点被挪了位置，或计数只加在"命中"那条返回路径上。
+    if (scenario == "costume_id_by_path") {
+        const isaac::runtime::ApiRowStats stats = isaac::runtime::ApiRowStatsSnapshot();
+        std::printf("COSTUME_STATS calls=%u hits=%u misses=%u last=%u null=%u\n",
+                    stats.costumePathCalls, stats.costumePathHits, stats.costumePathMisses,
+                    stats.costumePathLastId, stats.costumePathNullCount);
+    }
+    // 批次 148（2026-09-26）：曲目名反查的常驻埋点（真机读数工具按同一批裸名直读）。
+    // ★ `table` 那一格正是"模组的 `content/music.xml` 进引擎了没有"的直接读数 ——
+    //   夹具里是 3 条，真机上基线 119、模组进去之后 121。
+    if (scenario == "music_id_by_name") {
+        const isaac::runtime::ApiRowStats stats = isaac::runtime::ApiRowStatsSnapshot();
+        std::printf("MUSIC_STATS calls=%u hits=%u last=%d table=%u name=%s\n",
+                    stats.musicIdCalls, stats.musicIdHits,
+                    static_cast<int>(stats.musicIdLastResult), stats.musicIdTableCount,
+                    g_IsaacMusicIdLastName);
+    }
     if (hasSecondFrame) {
         // 两帧的 Lua 侧结论都已经由 `ExpectNumber` 核对过，这里只是把标记打出来给 Python 侧看。
         std::printf("PHASE1_OK PHASE2_OK\n");
@@ -538,17 +684,25 @@ local function verifyValid()
   check(item.CraftingQuality == 3,
         'CraftingQuality must come from +0xCC (fixture 3, not the Quality value), got '
         .. describe(item.CraftingQuality))
-  -- `items.xml` 属性分派表上的另外四个字段（2026-09-16 第二批）：
-  -- `AchievementID`(`+0x50`) / `Tags`(`+0x58`) / `MaxCharges`(`+0x74`) / `ChargeType`(`+0xB0`)。
+  -- `items.xml` 属性分派表上的另外三个字段（2026-09-16 第二批）：
+  -- `AchievementID`(`+0x50`) / `MaxCharges`(`+0x74`) / `ChargeType`(`+0xB0`)。
+  -- `Tags` 的偏移在批次 195 更正为 `+0xC0`（见下面那几条断言），不在这一组里。
   -- EID 的用法：`eid_api.lua:2003` 用 `item.AchievementID == -1` 与 `item.Tags & TAG_QUEST`
   -- 判断"是不是任务道具"，`eid_api.lua:785/786` 把 `ChargeType`/`MaxCharges` 填进描述对象。
   -- **-1 这条同时钉住"有符号读"**：无符号读会给出 4294967295，断言必然失败。
   check(item.AchievementID == -1,
         'AchievementID must be read **signed** (fixture -1), got ' .. describe(item.AchievementID))
-  check(item.Tags == 0x108,
-        'Tags must come from +0x58 (fixture 0x108), got ' .. describe(item.Tags))
+  -- ★★ 2026-09-29（批次 195）：`Tags` 的真偏移是 **`+0xC0`（u64）**，`+0x58` 是 `maxhearts=`。
+  -- 夹具在 `+0x58` 放了 `0x5A5A5A5A` 当诱饵、在 `+0xC0` 写 8 字节 ⇒ 这两条断言同时钉住
+  -- "偏移对"与"宽度是 8 字节"（值 `0x1100100` 就是 items_metadata.xml 给 1 号道具的三个标签）。
+  check(item.Tags == 0x1100100,
+        'Tags must come from +0xC0 (fixture 0x1100100), got ' .. describe(item.Tags))
   check(item.Tags & 0x100 == 0x100,
         'Tags must work as a bitmask the way EID uses it, got ' .. describe(item.Tags))
+  local longTagsItem = config:GetCollectible(2)
+  check(longTagsItem.Tags == 0x100000108,
+        'Tags must be read as a **u64**: bit32 (TAG_NO_EDEN = 1<<32) must survive, got '
+        .. describe(longTagsItem.Tags))
   check(item.MaxCharges == 0,
         'MaxCharges must come from +0x74 (fixture 0), got ' .. describe(item.MaxCharges))
   check(item.ChargeType == 0,
@@ -579,8 +733,15 @@ local function verifyValid()
         'EID probes `item.IsAvailable` as a field first — it must not be nil')
   check(item:IsAvailable() == true,
         'the collectible entry must be routed to Item::IsAvailable with flags 0xE')
-  -- 没有证据的成员：恒假，而不是报错或编一个值。
-  check(item:HasTags(1) == false, 'ItemConfig_Item:HasTags has no evidence and must return false')
+  -- `ItemConfig_Item:HasTags(tags)`（2026-09-29 批次 195：**从恒 false 改成真实现**）。
+  -- PC 契约 `tools/pc_contract_docs/ItemConfig_Item.md:23`；口径 = 引擎自己三处同形的
+  -- **任一命中**：`(Tags & mask) != 0`（`IsTaggedCollectible` / `IsTaggedTrinket` / `GetTaggedItems`）。
+  -- 夹具给 1 号道具写的是 `0x1100100`（mushroom|offensive|summonable）⇒ 这两条同时钉住
+  -- "参数真的被读了"与"任一命中"（老实现连参数都没读、恒 false）。
+  check(item:HasTags(0x100) == true,
+        'ItemConfig_Item:HasTags must read the mask argument (TAG_MUSHROOM) and answer true')
+  check(item:HasTags(0x8000) == false,
+        'ItemConfig_Item:HasTags must answer false when no bit matches (TAG_QUEST)')
   -- 批次 3：`ItemConfig_Item:IsCollectible()`（**无参**）是 EID 在描述构建里直接调用的成员
   -- （`main.lua:669`/`738`/`757`），判据是"句柄仍有效且 `Type != ITEM_NULL`"。
   check(item:IsCollectible() == true,
@@ -588,7 +749,15 @@ local function verifyValid()
   -- 批次 7：`ItemConfig_Item:IsTrinket()`（同样是**数据行**实现，判据 `Type == ITEM_TRINKET`）。
   check(item:IsTrinket() == false,
         'ItemConfig_Item:IsTrinket must be false for a passive collectible')
-  check(config:HasTags(1) == false, 'ItemConfig:HasTags has no evidence and must return false')
+  -- `ItemConfig:HasTags(id, tags)`（门面便捷形式，2026-09-29 批次 195：**从恒 false 改成真实现**）。
+  -- id 走**收藏品向量**（与本文件里的 `IsCollectible` 同一条口径；PC 上没有这条方法 ⇒ 签名由我们定，
+  -- 见 `isaac_api.cpp` 实现处的注释）。
+  check(config:HasTags(1, 0x100) == true,
+        'ItemConfig:HasTags(id, mask) must answer true when the bit is set')
+  check(config:HasTags(1, 0x8000) == false,
+        'ItemConfig:HasTags(id, mask) must answer false when no bit matches')
+  check(config:HasTags(999, 0x100) == false,
+        'ItemConfig:HasTags out of range must be false, not an error')
 
   -- 0 号是真机上的空槽（指针为 0）：必须 nil，既不是假对象也不能崩。
   check(config:GetCollectible(0) == nil, 'the null collectible slot must be nil')
@@ -630,7 +799,9 @@ local function verifyValid()
         'the long-name entry has its own CraftingQuality, got ' .. describe(long.CraftingQuality))
   -- 每个条目读的是**自己那段内存**（不是共用一份夹具值），顺带把 `MaxCharges` 的有符号读也钉住。
   check(long.AchievementID == 5, 'AchievementID must be per-entry, got ' .. describe(long.AchievementID))
-  check(long.Tags == 0xABCD, 'Tags must be per-entry, got ' .. describe(long.Tags))
+  -- ★ 批次 195：`Tags` 的偏移改成 `+0xC0`（u64）之后，这条"每个条目读的是自己那段内存"的断言
+  -- 也要跟着换值 —— 而且它顺带把**宽度**钉住（`0x100000108` 带 bit32 = `TAG_NO_EDEN`）。
+  check(long.Tags == 0x100000108, 'Tags must be per-entry, got ' .. describe(long.Tags))
   check(long.MaxCharges == -1,
         'MaxCharges must be read **signed** (fixture -1), got ' .. describe(long.MaxCharges))
   check(long.ChargeType == 2,
@@ -682,6 +853,14 @@ local function verifyValid()
   -- 打印的 `ISAVAIL_CALLS` 在 Python 侧逐项核对 —— 布尔返回值区分不了 1 与 2，所以不能只看 Lua。
   check(card:IsAvailable() == false, 'a card entry must not be routed to Item::IsAvailable')
   check(pill:IsAvailable() == false, 'a pill entry must not be routed to Item::IsAvailable')
+
+  -- 批次 241：`IsRune()`（PC 类名 `ItemConfig_Card`）。宿主实现按条目地址回答：
+  -- 只有卡条目为 true；药丸/收藏品这些**没有"符文"概念**的向量一律 false（且不抛错）。
+  check(card:IsRune() == true, 'IsRune must be true for the card entry (harness)')
+  check(pill:IsRune() == false, 'IsRune must be false for a non-card entry')
+  check(item:IsRune() == false, 'IsRune must be false for a collectible entry')
+  local isRuneArgOk = pcall(function() return card:IsRune(1) end)
+  check(not isRuneArgOk, 'IsRune must reject extra arguments')
 
   savedConfig = config
   savedItem = item
@@ -744,7 +923,8 @@ local function verifyWrongKind()
   local item = config:GetCollectible(1)
   check(item ~= nil, 'the entry is still addressable')
   check(item.Type == 2, 'Type is the raw kind field, got ' .. describe(item.Type))
-  check(config:IsCollectible(1) == false, 'IsCollectible requires kind == 1')
+  check(config:IsCollectible(1) == false, 'IsCollectible rejects trinket type 2')
+  check(item:IsCollectible() == false, 'item IsCollectible also rejects type 2')
   -- 同一条目、同一个 `Type` 字段：`IsTrinket` 必须与 `IsCollectible` 给出相反答案。
   check(item:IsTrinket() == true, 'IsTrinket requires kind == 2, got kind 2')
   check(config:IsCollectible(2) == true, 'the neighbouring collectible is untouched')
@@ -763,11 +943,81 @@ local function verifyBadIsAvailableEntry()
   check(value == false, 'a wrong entry word must degrade to false, got ' .. describe(value))
 end
 
+-- 批次 139（2026-09-26）：`Isaac.GetCostumeIdByPath(path)` 的**消费者视角**判据。
+-- The Specialist for Good Items 在**文件作用域**就用它建两张服装表（`main.lua:26/29`）
+-- ⇒ 这条 API 的判据必须照它的用法来：拿 `costumes2.xml` 里 `anm2root + anm2path` 拼出来的整串去问。
+local function verifyCostumeIdByPath()
+  -- ① 命中：长串形态（24 字节 ⇒ 堆）与短串形态（19 字节 ⇒ 内联）各一条。
+  local long = Isaac.GetCostumeIdByPath('the/specialist_isaac.anm2')
+  check(long == 5, 'the long-form path must map to its id (5), got ' .. describe(long))
+  local short = Isaac.GetCostumeIdByPath('the/items/binky.anm2')
+  check(short == 7, 'the short-form path must map to its id (7), got ' .. describe(short))
+  -- ② **逐字**：大小写 / 前后缀 / 斜杠方向 / 截断 —— 任一不同都必须答 -1，而且**不抛错**
+  --    （引擎写入侧只是 `memcpy(anm2root) + append(anm2path)`，没有任何改写）。
+  local nearMisses = { 'THE/SPECIALIST_ISAAC.ANM2', 'the/specialist_isaac.anm2 ',
+                       'gfx/the/specialist_isaac.anm2', 'the\\specialist_isaac.anm2',
+                       'the/specialist_isaac', 'specialist_isaac.anm2', '' }
+  for _, text in ipairs(nearMisses) do
+    local ok, value = pcall(function() return Isaac.GetCostumeIdByPath(text) end)
+    check(ok, 'a near-miss path must not raise a Lua error: ' .. tostring(value))
+    check(value == -1, 'a near-miss path must answer -1, got ' .. describe(value))
+  end
+  -- ③ 空串条目（夹具里第 3 条，字节 0）必须被**跳过**：问它自己的"空路径"也仍是 -1 —
+  --    上面那个 '' 已经覆盖；这里再确认"跳过它之后后面的条目仍然找得到"（顺序不敏感）。
+  check(Isaac.GetCostumeIdByPath('the/items/binky.anm2') == 7,
+        'an empty-path entry must not break the scan')
+  -- ④ **只搜 null 向量**（已登记的偏离 0x0E01005D）：收藏品条目上也挂着同族路径 ⇒ 必须答 -1。
+  local decoy = Isaac.GetCostumeIdByPath('the/specialist_decoy.anm2')
+  check(decoy == -1, 'the collectible vector must NOT be searched, got ' .. describe(decoy))
+  -- ⑤ 参数口径：PC 用 `luaL_checklstring`（数字会被转成串）⇒ 数字不许报错，只是查不到；
+  --    缺参数则报错（PC 的 `bad argument #1`）。
+  local numberOk, numberValue = pcall(function() return Isaac.GetCostumeIdByPath(123) end)
+  check(numberOk, 'a number argument must not raise (PC coerces it): ' .. tostring(numberValue))
+  check(numberValue == -1, 'a number argument maps to no costume, got ' .. describe(numberValue))
+  local missingOk = pcall(function() return Isaac.GetCostumeIdByPath() end)
+  check(not missingOk, 'calling it without an argument must raise')
+end
+
+-- 批次 148（2026-09-26）：`Isaac.GetMusicIdByName(name)` 的**消费者视角**判据。
+-- The Specialist for Good Items 的"放歌"就是这条用法：`main.lua:477/478` 拿
+-- `GetMusicIdByName("specialist")` 的编号、`:185/186` 拿 `s_<角色>` 那一族的编号，
+-- 编号再喂给 `MusicManager():Play(id, 1)`（`main.lua:483/489/494`）。
+local function verifyMusicIdByName()
+  -- ① 两条内置曲目（夹具下标 0/1，第二条的名字是**长串**⇒ 堆形态）必须各自返回自己的下标。
+  -- ★ 每条只查**一次**并存下来再断言：`check(..., 消息)` 的消息是**先求值**的，
+  --   把调用写进消息里会让它被查两次 ⇒ 埋点的调用计数就与这里数出来的对不上。
+  local title = Isaac.GetMusicIdByName('Title Screen')
+  check(title == 0, 'the first track must map to index 0, got ' .. describe(title))
+  local longName = Isaac.GetMusicIdByName('Burning Basement (long-form track name)')
+  check(longName == 1, 'a long-form name must map to its index (1), got ' .. describe(longName))
+  -- ② 模组追加的那条（下标 2）—— 这就是"放歌"真正要的那一下。
+  local specialist = Isaac.GetMusicIdByName('specialist')
+  check(specialist == 2, 'the modded track must map to its index (2), got ' .. describe(specialist))
+  -- ③ 查不到 ⇒ **-1**（PC 契约同页 :292 明写），而且**不抛错**。
+  local misses = { 'PAINCIALIST', 'specialist ', ' specialist', 'specialist.ogg', '',
+                   'decoy_path_2.ogg', 'Title Screen X' }
+  for _, text in ipairs(misses) do
+    local ok, value = pcall(function() return Isaac.GetMusicIdByName(text) end)
+    check(ok, 'a near-miss name must not raise a Lua error: ' .. tostring(value))
+    check(value == -1, 'a near-miss name must answer -1, got ' .. describe(value))
+  end
+  -- ④ ★ **字段不能读错**：夹具每条的 `+0x20`（真机上那一格是 path）与 `+0x38` 都摆了诱饵串
+  --    ⇒ 若实现读的是那两格，上面 ③ 里那两个诱饵名就会被"命中"（返回数字而不是 -1），断言会红。
+  -- ⑤ 参数口径照 PC 的 `luaL_checklstring`：数字不许报错（转成串、查不到 ⇒ -1）；缺参数报错。
+  local numberOk, numberValue = pcall(function() return Isaac.GetMusicIdByName(123) end)
+  check(numberOk, 'a number argument must not raise (PC coerces it): ' .. tostring(numberValue))
+  check(numberValue == -1, 'a number argument maps to no track, got ' .. describe(numberValue))
+  local missingOk = pcall(function() return Isaac.GetMusicIdByName() end)
+  check(not missingOk, 'calling it without an argument must raise')
+end
+
 local RUNNERS = {
   null_entry = verifyNullEntry,
   bad_string = verifyBadString,
   wrong_kind = verifyWrongKind,
   bad_isavailable_entry = verifyBadIsAvailableEntry,
+  costume_id_by_path = verifyCostumeIdByPath,
+  music_id_by_name = verifyMusicIdByName,
 }
 
 local function run()
@@ -845,6 +1095,15 @@ class LuaItemConfigTests(unittest.TestCase):
             [cxx, "-std=c++23", "-Wall", "-Wextra", "-Werror", "-DLUA_C89_NUMBERS",
              "-DEXL_LAYERED_RUNTIME=1", "-DEXL_LOAD_KIND=Module",
              "-DEXL_LOAD_KIND_ENUM=2", "-DEXL_PROGRAM_ID=0",
+             # ★ 批次 388 补（2026-10-07）：`costume_id_by_path` / `music_id_by_name` 两个场景读的是
+             # `ApiRowStatsSnapshot()` 里的服装/曲目查表埋点，而那些计数被**批次 232 的探针总开关**
+             # （`EXL_DIAGNOSTIC_PROBES`，见 `runtime/source/probe_gate.hpp`）包住了
+             # （`api_call_stats.hpp` 的 `RecordCostumePathLookup` / `RecordMusicIdLookup`）。
+             # 宿主 harness 原来**没有**定义这个宏 ⇒ 埋点体被编译掉 ⇒ 计数恒 0 ⇒ 那两条断言
+             # （`COSTUME_STATS calls=12 …` / `MUSIC_STATS calls=11 …`）**必然失败**。
+             # 这是 232 引入的回归：真机跑诊断包（`make DIAGNOSTIC_PROBES=1`）时是好的，只有宿主
+             # harness 会踩到；同族的 `test_lua_entity_player.py` 已在批次 252 用同样方式补过。
+             "-DEXL_DIAGNOSTIC_PROBES=1",
              "-I", str(compatibility), "-I", str(SOURCE), "-I", str(SOURCE.parent / "src"),
              "-I", str(lua_root), str(harness),
              *(str(path) for path in layered_lua_runtime_sources(SOURCE)),
@@ -894,6 +1153,56 @@ class LuaItemConfigTests(unittest.TestCase):
         result = self.run_scenario("valid")
         self.assertIn("PHASE1_OK", result.stdout)
         self.assertIn("PHASE2_OK", result.stdout)
+
+    def test_costume_id_by_path_maps_the_exact_path_and_answers_minus_one_otherwise(self):
+        """★ 批次 139：`Isaac:GetCostumeIdByPath(path)` 的**消费者视角**判据。
+
+        The Specialist for Good Items 在**文件作用域**就用它建两张服装表（`main.lua:26/29`，缺它整个模组
+        加载失败），所以判据照它的用法来：夹具在 **null 服装向量**里放三条 —— 长串路径（24 字节 ⇒ 堆形态）
+        id 5、短串路径（19 字节 ⇒ 内联形态）id 7、空串 id 9 —— 然后断言：
+
+        * 两条都能**命中并返回各自的 id**（两种 libc++ 串形态都走到）；
+        * 大小写 / 前后缀（`gfx/`、尾空格）/ 反斜杠 / 截断 / 空串 ⇒ 一律 **-1 且不抛错**
+          （"逐字比对"是引擎写入侧就只做 `memcpy + append` 决定的，比对口径错 ⇒ 模组拿 -1 去
+          `AddNullCostume(-1)` ⇒ `GetNullItem(-1)` 是空 ⇒ `AddCostume` 解引用空指针）；
+        * **只搜 null 向量**：收藏品条目上也挂着同族路径 ⇒ 必须答 -1（登记在 `api_deviation.cpp` 0x0E01005D）；
+        * 参数口径照 PC 的 `luaL_checklstring`：数字不报错（转为串、查不到 ⇒ -1），**缺参数报错**。
+        """
+        result = self.run_scenario("costume_id_by_path")
+        self.assertNotIn("ISAAC_ERROR", result.stdout + result.stderr)
+        self.assertIn("ITEM_CONFIG_OK scenario=costume_id_by_path", result.stdout)
+        # 批次 141：**常驻埋点**必须逐格对得上这次运行的调用序列（`verifyCostumeIdByPath` 里
+        # 一共问了 12 次：3 次命中 —— long / short / binky —— 与 9 次没命中；最后一次命中是 binky
+        # 的 id 7；最后一次查表是"数字参数 123"那次，容器里仍是夹具的 3 条）。
+        # 这一行是"读数里那几格可信"的判据：埋点挪位置、只在命中路径上加计数、或把容器条目数
+        # 记成别的东西，都会在这里红。
+        self.assertIn("COSTUME_STATS calls=12 hits=3 misses=9 last=7 null=3", result.stdout)
+
+    def test_music_id_by_name_maps_exact_names_and_answers_minus_one_otherwise(self):
+        """★ 批次 148：`Isaac:GetMusicIdByName(name)` 的**消费者视角**判据。
+
+        The Specialist for Good Items 的"放歌"就是这条用法（`main.lua:477/478` 拿 `specialist`、
+        `:185/186` 拿 `s_<角色>` 那一族的编号），所以判据照它的用法来：夹具的曲目表放三条
+        —— 下标 0 `Title Screen`（短串）、下标 1 一条**长串**名（> 22 字节 ⇒ 堆形态）、
+        下标 2 `specialist`（= 模组 `content/music.xml` 追加那条的等价物）—— 然后断言：
+
+        * 三条都能**命中并返回自己的下标**（两种 libc++ 串形态都走到）；
+        * 大小写 / 尾空格 / 前缀 / `.ogg` 后缀 / 截断 / 空串 ⇒ 一律 **-1 且不抛错**
+          （契约同页 :292 明写"找不到返回 -1"）；
+        * ★ **字段读错必须被发现**：每条夹具的 `+0x20`（真机上是 path）与 `+0x38` 都摆了诱饵串，
+          断言里专门去问那两个诱饵名 ⇒ 实现若读错字段就会"命中"，这里必红；
+        * 参数口径照 PC 的 `luaL_checklstring`：数字不报错（转为串、查不到 ⇒ -1），缺参数报错；
+        * **常驻埋点**逐格对账（`calls/hits/last/table`）—— `table` 那一格同时就是真机上
+          "模组的 `content/music.xml` 进引擎了没有"的直接读数（真机基线 119、进去之后 121）。
+        """
+        result = self.run_scenario("music_id_by_name")
+        self.assertNotIn("ISAAC_ERROR", result.stdout + result.stderr)
+        self.assertIn("ITEM_CONFIG_OK scenario=music_id_by_name", result.stdout)
+        # 调用序列（`verifyMusicIdByName` 一共 11 次，**都不带"消息里再查一次"**）：
+        #   3 次命中（Title Screen / 长串 / specialist）+ 7 个近似名 + 数字参数 123 = 11 次；
+        #   最后一次是数字 123 ⇒ 结果 -1、名字记成 "123"；查表时曲目表里 3 条。
+        # 缺参数那一次不计：`luaL_checklstring` 在记录埋点**之前**就抛错了（与 PC 同一处报错）。
+        self.assertIn("MUSIC_STATS calls=11 hits=3 last=-1 table=3 name=123", result.stdout)
 
     def test_is_available_refuses_to_call_when_the_entry_word_is_wrong(self):
         """入口指纹对不上 ⇒ **一次调用都不许发生**（宁可返回 false）。

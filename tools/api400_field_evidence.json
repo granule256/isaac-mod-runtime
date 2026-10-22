@@ -1,0 +1,1063 @@
+{
+  "schema": "isaac-api-field-evidence/1",
+  "note": "60个新公共字段独立于方法Catalog计数；本批共40方法60字段，不能把目录增量40说成100新方法。原件/生产读写及边界另存，全部Experimental。",
+  "rows": [
+    {
+      "key": "ProjectileParams:GridCollision",
+      "owner": "ProjectileParams",
+      "name": "GridCollision",
+      "kind": "field",
+      "offset": 0,
+      "value_kind": "Bool",
+      "maturity": "Experimental",
+      "contract": {
+        "page": "tools/pc_contract_docs/ProjectileParams.md",
+        "line": 125,
+        "quote": "#### boolean GridCollision  {: .copyable aria-label='Variables' }"
+      },
+      "judgement": "runtime/tests/test_api400_params.py",
+      "evidence": "dist/apis400-20261016/field-proof-matrix.json",
+      "performance": "只在实际调用/字段访问时工作，标量无分配，Vector/Color依PC值复制，未知名字不读取原生对象。"
+    },
+    {
+      "key": "ProjectileParams:HeightModifier",
+      "owner": "ProjectileParams",
+      "name": "HeightModifier",
+      "kind": "field",
+      "offset": 4,
+      "value_kind": "Float",
+      "maturity": "Experimental",
+      "contract": {
+        "page": "tools/pc_contract_docs/ProjectileParams.md",
+        "line": 130,
+        "quote": "#### float HeightModifier  {: .copyable aria-label='Variables' }"
+      },
+      "judgement": "runtime/tests/test_api400_params.py",
+      "evidence": "dist/apis400-20261016/field-proof-matrix.json",
+      "performance": "只在实际调用/字段访问时工作，标量无分配，Vector/Color依PC值复制，未知名字不读取原生对象。"
+    },
+    {
+      "key": "ProjectileParams:FallingSpeedModifier",
+      "owner": "ProjectileParams",
+      "name": "FallingSpeedModifier",
+      "kind": "field",
+      "offset": 8,
+      "value_kind": "Float",
+      "maturity": "Experimental",
+      "contract": {
+        "page": "tools/pc_contract_docs/ProjectileParams.md",
+        "line": 115,
+        "quote": "#### float FallingSpeedModifier  {: .copyable aria-label='Variables' }"
+      },
+      "judgement": "runtime/tests/test_api400_params.py",
+      "evidence": "dist/apis400-20261016/field-proof-matrix.json",
+      "performance": "只在实际调用/字段访问时工作，标量无分配，Vector/Color依PC值复制，未知名字不读取原生对象。"
+    },
+    {
+      "key": "ProjectileParams:FallingAccelModifier",
+      "owner": "ProjectileParams",
+      "name": "FallingAccelModifier",
+      "kind": "field",
+      "offset": 12,
+      "value_kind": "Float",
+      "maturity": "Experimental",
+      "contract": {
+        "page": "tools/pc_contract_docs/ProjectileParams.md",
+        "line": 110,
+        "quote": "#### float FallingAccelModifier  {: .copyable aria-label='Variables' }"
+      },
+      "judgement": "runtime/tests/test_api400_params.py",
+      "evidence": "dist/apis400-20261016/field-proof-matrix.json",
+      "performance": "只在实际调用/字段访问时工作，标量无分配，Vector/Color依PC值复制，未知名字不读取原生对象。"
+    },
+    {
+      "key": "ProjectileParams:VelocityMulti",
+      "owner": "ProjectileParams",
+      "name": "VelocityMulti",
+      "kind": "field",
+      "offset": 16,
+      "value_kind": "Float",
+      "maturity": "Experimental",
+      "contract": {
+        "page": "tools/pc_contract_docs/ProjectileParams.md",
+        "line": 165,
+        "quote": "#### float VelocityMulti  {: .copyable aria-label='Variables' }"
+      },
+      "judgement": "runtime/tests/test_api400_params.py",
+      "evidence": "dist/apis400-20261016/field-proof-matrix.json",
+      "performance": "只在实际调用/字段访问时工作，标量无分配，Vector/Color依PC值复制，未知名字不读取原生对象。"
+    },
+    {
+      "key": "ProjectileParams:Scale",
+      "owner": "ProjectileParams",
+      "name": "Scale",
+      "kind": "field",
+      "offset": 20,
+      "value_kind": "Float",
+      "maturity": "Experimental",
+      "contract": {
+        "page": "tools/pc_contract_docs/ProjectileParams.md",
+        "line": 145,
+        "quote": "#### float Scale  {: .copyable aria-label='Variables' }"
+      },
+      "judgement": "runtime/tests/test_api400_params.py",
+      "evidence": "dist/apis400-20261016/field-proof-matrix.json",
+      "performance": "只在实际调用/字段访问时工作，标量无分配，Vector/Color依PC值复制，未知名字不读取原生对象。"
+    },
+    {
+      "key": "ProjectileParams:CircleAngle",
+      "owner": "ProjectileParams",
+      "name": "CircleAngle",
+      "kind": "field",
+      "offset": 24,
+      "value_kind": "Float",
+      "maturity": "Experimental",
+      "contract": {
+        "page": "tools/pc_contract_docs/ProjectileParams.md",
+        "line": 85,
+        "quote": "#### float CircleAngle  {: .copyable aria-label='Variables' }"
+      },
+      "judgement": "runtime/tests/test_api400_params.py",
+      "evidence": "dist/apis400-20261016/field-proof-matrix.json",
+      "performance": "只在实际调用/字段访问时工作，标量无分配，Vector/Color依PC值复制，未知名字不读取原生对象。"
+    },
+    {
+      "key": "ProjectileParams:HomingStrength",
+      "owner": "ProjectileParams",
+      "name": "HomingStrength",
+      "kind": "field",
+      "offset": 28,
+      "value_kind": "Float",
+      "maturity": "Experimental",
+      "contract": {
+        "page": "tools/pc_contract_docs/ProjectileParams.md",
+        "line": 135,
+        "quote": "#### float HomingStrength  {: .copyable aria-label='Variables' }"
+      },
+      "judgement": "runtime/tests/test_api400_params.py",
+      "evidence": "dist/apis400-20261016/field-proof-matrix.json",
+      "performance": "只在实际调用/字段访问时工作，标量无分配，Vector/Color依PC值复制，未知名字不读取原生对象。"
+    },
+    {
+      "key": "ProjectileParams:CurvingStrength",
+      "owner": "ProjectileParams",
+      "name": "CurvingStrength",
+      "kind": "field",
+      "offset": 32,
+      "value_kind": "Float",
+      "maturity": "Experimental",
+      "contract": {
+        "page": "tools/pc_contract_docs/ProjectileParams.md",
+        "line": 95,
+        "quote": "#### float CurvingStrength  {: .copyable aria-label='Variables' }"
+      },
+      "judgement": "runtime/tests/test_api400_params.py",
+      "evidence": "dist/apis400-20261016/field-proof-matrix.json",
+      "performance": "只在实际调用/字段访问时工作，标量无分配，Vector/Color依PC值复制，未知名字不读取原生对象。"
+    },
+    {
+      "key": "ProjectileParams:Acceleration",
+      "owner": "ProjectileParams",
+      "name": "Acceleration",
+      "kind": "field",
+      "offset": 36,
+      "value_kind": "Float",
+      "maturity": "Experimental",
+      "contract": {
+        "page": "tools/pc_contract_docs/ProjectileParams.md",
+        "line": 27,
+        "quote": "#### float Acceleration  {: .copyable aria-label='Variables' }"
+      },
+      "judgement": "runtime/tests/test_api400_params.py",
+      "evidence": "dist/apis400-20261016/field-proof-matrix.json",
+      "performance": "只在实际调用/字段访问时工作，标量无分配，Vector/Color依PC值复制，未知名字不读取原生对象。"
+    },
+    {
+      "key": "ProjectileParams:Spread",
+      "owner": "ProjectileParams",
+      "name": "Spread",
+      "kind": "field",
+      "offset": 40,
+      "value_kind": "Float",
+      "maturity": "Experimental",
+      "contract": {
+        "page": "tools/pc_contract_docs/ProjectileParams.md",
+        "line": 150,
+        "quote": "#### float Spread  {: .copyable aria-label='Variables' }"
+      },
+      "judgement": "runtime/tests/test_api400_params.py",
+      "evidence": "dist/apis400-20261016/field-proof-matrix.json",
+      "performance": "只在实际调用/字段访问时工作，标量无分配，Vector/Color依PC值复制，未知名字不读取原生对象。"
+    },
+    {
+      "key": "ProjectileParams:Color",
+      "owner": "ProjectileParams",
+      "name": "Color",
+      "kind": "field",
+      "offset": 44,
+      "value_kind": "Color",
+      "maturity": "Experimental",
+      "contract": {
+        "page": "tools/pc_contract_docs/ProjectileParams.md",
+        "line": 90,
+        "quote": "#### [Color](Color.md) Color  {: .copyable aria-label='Variables' }"
+      },
+      "judgement": "runtime/tests/test_api400_params.py",
+      "evidence": "dist/apis400-20261016/field-proof-matrix.json",
+      "performance": "只在实际调用/字段访问时工作，标量无分配，Vector/Color依PC值复制，未知名字不读取原生对象。"
+    },
+    {
+      "key": "ProjectileParams:BulletFlags",
+      "owner": "ProjectileParams",
+      "name": "BulletFlags",
+      "kind": "field",
+      "offset": 88,
+      "value_kind": "U64",
+      "maturity": "Experimental",
+      "contract": {
+        "page": "tools/pc_contract_docs/ProjectileParams.md",
+        "line": 32,
+        "quote": "#### int BulletFlags  {: .copyable aria-label='Variables' }"
+      },
+      "judgement": "runtime/tests/test_api400_params.py",
+      "evidence": "dist/apis400-20261016/field-proof-matrix.json",
+      "performance": "只在实际调用/字段访问时工作，标量无分配，Vector/Color依PC值复制，未知名字不读取原生对象。"
+    },
+    {
+      "key": "ProjectileParams:PositionOffset",
+      "owner": "ProjectileParams",
+      "name": "PositionOffset",
+      "kind": "field",
+      "offset": 96,
+      "value_kind": "Vector",
+      "maturity": "Experimental",
+      "contract": {
+        "page": "tools/pc_contract_docs/ProjectileParams.md",
+        "line": 140,
+        "quote": "#### [Vector](Vector.md) PositionOffset  {: .copyable aria-label='Variables' }"
+      },
+      "judgement": "runtime/tests/test_api400_params.py",
+      "evidence": "dist/apis400-20261016/field-proof-matrix.json",
+      "performance": "只在实际调用/字段访问时工作，标量无分配，Vector/Color依PC值复制，未知名字不读取原生对象。"
+    },
+    {
+      "key": "ProjectileParams:TargetPosition",
+      "owner": "ProjectileParams",
+      "name": "TargetPosition",
+      "kind": "field",
+      "offset": 104,
+      "value_kind": "Vector",
+      "maturity": "Experimental",
+      "contract": {
+        "page": "tools/pc_contract_docs/ProjectileParams.md",
+        "line": 155,
+        "quote": "#### [Vector](Vector.md) TargetPosition  {: .copyable aria-label='Variables' }"
+      },
+      "judgement": "runtime/tests/test_api400_params.py",
+      "evidence": "dist/apis400-20261016/field-proof-matrix.json",
+      "performance": "只在实际调用/字段访问时工作，标量无分配，Vector/Color依PC值复制，未知名字不读取原生对象。"
+    },
+    {
+      "key": "ProjectileParams:FireDirectionLimit",
+      "owner": "ProjectileParams",
+      "name": "FireDirectionLimit",
+      "kind": "field",
+      "offset": 112,
+      "value_kind": "Vector",
+      "maturity": "Experimental",
+      "contract": {
+        "page": "tools/pc_contract_docs/ProjectileParams.md",
+        "line": 120,
+        "quote": "#### [Vector](Vector.md) FireDirectionLimit  {: .copyable aria-label='Variables' }"
+      },
+      "judgement": "runtime/tests/test_api400_params.py",
+      "evidence": "dist/apis400-20261016/field-proof-matrix.json",
+      "performance": "只在实际调用/字段访问时工作，标量无分配，Vector/Color依PC值复制，未知名字不读取原生对象。"
+    },
+    {
+      "key": "ProjectileParams:DotProductLimit",
+      "owner": "ProjectileParams",
+      "name": "DotProductLimit",
+      "kind": "field",
+      "offset": 120,
+      "value_kind": "Float",
+      "maturity": "Experimental",
+      "contract": {
+        "page": "tools/pc_contract_docs/ProjectileParams.md",
+        "line": 105,
+        "quote": "#### float DotProductLimit  {: .copyable aria-label='Variables' }"
+      },
+      "judgement": "runtime/tests/test_api400_params.py",
+      "evidence": "dist/apis400-20261016/field-proof-matrix.json",
+      "performance": "只在实际调用/字段访问时工作，标量无分配，Vector/Color依PC值复制，未知名字不读取原生对象。"
+    },
+    {
+      "key": "ProjectileParams:WiggleFrameOffset",
+      "owner": "ProjectileParams",
+      "name": "WiggleFrameOffset",
+      "kind": "field",
+      "offset": 124,
+      "value_kind": "Int",
+      "maturity": "Experimental",
+      "contract": {
+        "page": "tools/pc_contract_docs/ProjectileParams.md",
+        "line": 170,
+        "quote": "#### int WiggleFrameOffset  {: .copyable aria-label='Variables' }"
+      },
+      "judgement": "runtime/tests/test_api400_params.py",
+      "evidence": "dist/apis400-20261016/field-proof-matrix.json",
+      "performance": "只在实际调用/字段访问时工作，标量无分配，Vector/Color依PC值复制，未知名字不读取原生对象。"
+    },
+    {
+      "key": "ProjectileParams:ChangeFlags",
+      "owner": "ProjectileParams",
+      "name": "ChangeFlags",
+      "kind": "field",
+      "offset": 128,
+      "value_kind": "U64",
+      "maturity": "Experimental",
+      "contract": {
+        "page": "tools/pc_contract_docs/ProjectileParams.md",
+        "line": 37,
+        "quote": "#### [ProjectileFlags](enums/ProjectileFlags.md) ChangeFlags  {: .copyable aria-label='Variables' }"
+      },
+      "judgement": "runtime/tests/test_api400_params.py",
+      "evidence": "dist/apis400-20261016/field-proof-matrix.json",
+      "performance": "只在实际调用/字段访问时工作，标量无分配，Vector/Color依PC值复制，未知名字不读取原生对象。"
+    },
+    {
+      "key": "ProjectileParams:ChangeVelocity",
+      "owner": "ProjectileParams",
+      "name": "ChangeVelocity",
+      "kind": "field",
+      "offset": 136,
+      "value_kind": "Float",
+      "maturity": "Experimental",
+      "contract": {
+        "page": "tools/pc_contract_docs/ProjectileParams.md",
+        "line": 69,
+        "quote": "#### float ChangeVelocity  {: .copyable aria-label='Variables' }"
+      },
+      "judgement": "runtime/tests/test_api400_params.py",
+      "evidence": "dist/apis400-20261016/field-proof-matrix.json",
+      "performance": "只在实际调用/字段访问时工作，标量无分配，Vector/Color依PC值复制，未知名字不读取原生对象。"
+    },
+    {
+      "key": "ProjectileParams:ChangeTimeout",
+      "owner": "ProjectileParams",
+      "name": "ChangeTimeout",
+      "kind": "field",
+      "offset": 140,
+      "value_kind": "Int",
+      "maturity": "Experimental",
+      "contract": {
+        "page": "tools/pc_contract_docs/ProjectileParams.md",
+        "line": 53,
+        "quote": "#### int ChangeTimeout  {: .copyable aria-label='Variables' }"
+      },
+      "judgement": "runtime/tests/test_api400_params.py",
+      "evidence": "dist/apis400-20261016/field-proof-matrix.json",
+      "performance": "只在实际调用/字段访问时工作，标量无分配，Vector/Color依PC值复制，未知名字不读取原生对象。"
+    },
+    {
+      "key": "ProjectileParams:DepthOffset",
+      "owner": "ProjectileParams",
+      "name": "DepthOffset",
+      "kind": "field",
+      "offset": 144,
+      "value_kind": "Float",
+      "maturity": "Experimental",
+      "contract": {
+        "page": "tools/pc_contract_docs/ProjectileParams.md",
+        "line": 100,
+        "quote": "#### float DepthOffset  {: .copyable aria-label='Variables' }"
+      },
+      "judgement": "runtime/tests/test_api400_params.py",
+      "evidence": "dist/apis400-20261016/field-proof-matrix.json",
+      "performance": "只在实际调用/字段访问时工作，标量无分配，Vector/Color依PC值复制，未知名字不读取原生对象。"
+    },
+    {
+      "key": "ProjectileParams:Variant",
+      "owner": "ProjectileParams",
+      "name": "Variant",
+      "kind": "field",
+      "offset": 148,
+      "value_kind": "Int",
+      "maturity": "Experimental",
+      "contract": {
+        "page": "tools/pc_contract_docs/ProjectileParams.md",
+        "line": 160,
+        "quote": "#### int Variant  {: .copyable aria-label='Variables' }"
+      },
+      "judgement": "runtime/tests/test_api400_params.py",
+      "evidence": "dist/apis400-20261016/field-proof-matrix.json",
+      "performance": "只在实际调用/字段访问时工作，标量无分配，Vector/Color依PC值复制，未知名字不读取原生对象。"
+    },
+    {
+      "owner": "EntityLaser",
+      "name": "ParentOffset",
+      "key": "EntityLaser:ParentOffset",
+      "offset": 1024,
+      "kind": "field",
+      "group": "Laser",
+      "value_kind": "Vector",
+      "maturity": "Experimental",
+      "contract": {
+        "page": "tools/pc_contract_docs/EntityLaser.md",
+        "line": 232,
+        "quote": "#### [Vector](Vector.md) ParentOffset  {: .copyable aria-label='Variables' }"
+      },
+      "judgement": "runtime/tests/test_api400_fields.py",
+      "evidence": "dist/apis400-20261016/field-proof-matrix.json",
+      "performance": "只在实际调用/字段访问时工作，标量无分配，Vector/Color依PC值复制，未知名字不读取原生对象。"
+    },
+    {
+      "owner": "EntityLaser",
+      "name": "StartAngleDegrees",
+      "key": "EntityLaser:StartAngleDegrees",
+      "offset": 1032,
+      "kind": "field",
+      "group": "Laser",
+      "value_kind": "Float",
+      "maturity": "Experimental",
+      "contract": {
+        "page": "tools/pc_contract_docs/EntityLaser.md",
+        "line": 267,
+        "quote": "#### float StartAngleDegrees  {: .copyable aria-label='Variables' }"
+      },
+      "judgement": "runtime/tests/test_api400_fields.py",
+      "evidence": "dist/apis400-20261016/field-proof-matrix.json",
+      "performance": "只在实际调用/字段访问时工作，标量无分配，Vector/Color依PC值复制，未知名字不读取原生对象。"
+    },
+    {
+      "owner": "EntityLaser",
+      "name": "AngleDegrees",
+      "key": "EntityLaser:AngleDegrees",
+      "offset": 1036,
+      "kind": "field",
+      "group": "Laser",
+      "value_kind": "Float",
+      "maturity": "Experimental",
+      "contract": {
+        "page": "tools/pc_contract_docs/EntityLaser.md",
+        "line": 157,
+        "quote": "#### float AngleDegrees  {: .copyable aria-label='Variables' }"
+      },
+      "judgement": "runtime/tests/test_api400_fields.py",
+      "evidence": "dist/apis400-20261016/field-proof-matrix.json",
+      "performance": "只在实际调用/字段访问时工作，标量无分配，Vector/Color依PC值复制，未知名字不读取原生对象。"
+    },
+    {
+      "owner": "EntityLaser",
+      "name": "LastAngleDegrees",
+      "key": "EntityLaser:LastAngleDegrees",
+      "offset": 1040,
+      "kind": "field",
+      "group": "Laser",
+      "value_kind": "Float",
+      "maturity": "Experimental",
+      "contract": {
+        "page": "tools/pc_contract_docs/EntityLaser.md",
+        "line": 217,
+        "quote": "#### float LastAngleDegrees  {: .copyable aria-label='Variables' }"
+      },
+      "judgement": "runtime/tests/test_api400_fields.py",
+      "evidence": "dist/apis400-20261016/field-proof-matrix.json",
+      "performance": "只在实际调用/字段访问时工作，标量无分配，Vector/Color依PC值复制，未知名字不读取原生对象。"
+    },
+    {
+      "owner": "EntityLaser",
+      "name": "Timeout",
+      "key": "EntityLaser:Timeout",
+      "offset": 1096,
+      "kind": "field",
+      "group": "Laser",
+      "value_kind": "Int",
+      "maturity": "Experimental",
+      "contract": {
+        "page": "tools/pc_contract_docs/EntityLaser.md",
+        "line": 276,
+        "quote": "#### int Timeout  {: .copyable aria-label='Variables' }"
+      },
+      "judgement": "runtime/tests/test_api400_fields.py",
+      "evidence": "dist/apis400-20261016/field-proof-matrix.json",
+      "performance": "只在实际调用/字段访问时工作，标量无分配，Vector/Color依PC值复制，未知名字不读取原生对象。"
+    },
+    {
+      "owner": "EntityLaser",
+      "name": "FirstUpdate",
+      "key": "EntityLaser:FirstUpdate",
+      "offset": 1100,
+      "kind": "field",
+      "group": "Laser",
+      "value_kind": "Bool",
+      "maturity": "Experimental",
+      "contract": {
+        "page": "tools/pc_contract_docs/EntityLaser.md",
+        "line": 187,
+        "quote": "#### boolean FirstUpdate  {: .copyable aria-label='Variables' }"
+      },
+      "judgement": "runtime/tests/test_api400_fields.py",
+      "evidence": "dist/apis400-20261016/field-proof-matrix.json",
+      "performance": "只在实际调用/字段访问时工作，标量无分配，Vector/Color依PC值复制，未知名字不读取原生对象。"
+    },
+    {
+      "owner": "EntityLaser",
+      "name": "Shrink",
+      "key": "EntityLaser:Shrink",
+      "offset": 1102,
+      "kind": "field",
+      "group": "Laser",
+      "value_kind": "Bool",
+      "maturity": "Experimental",
+      "contract": {
+        "page": "tools/pc_contract_docs/EntityLaser.md",
+        "line": 262,
+        "quote": "#### boolean Shrink  {: .copyable aria-label='Variables' }"
+      },
+      "judgement": "runtime/tests/test_api400_fields.py",
+      "evidence": "dist/apis400-20261016/field-proof-matrix.json",
+      "performance": "只在实际调用/字段访问时工作，标量无分配，Vector/Color依PC值复制，未知名字不读取原生对象。"
+    },
+    {
+      "owner": "EntityLaser",
+      "name": "LaserLength",
+      "key": "EntityLaser:LaserLength",
+      "offset": 1104,
+      "kind": "field",
+      "group": "Laser",
+      "value_kind": "Float",
+      "maturity": "Experimental",
+      "contract": {
+        "page": "tools/pc_contract_docs/EntityLaser.md",
+        "line": 212,
+        "quote": "#### float LaserLength  {: .copyable aria-label='Variables' }"
+      },
+      "judgement": "runtime/tests/test_api400_fields.py",
+      "evidence": "dist/apis400-20261016/field-proof-matrix.json",
+      "performance": "只在实际调用/字段访问时工作，标量无分配，Vector/Color依PC值复制，未知名字不读取原生对象。"
+    },
+    {
+      "owner": "EntityLaser",
+      "name": "Radius",
+      "key": "EntityLaser:Radius",
+      "offset": 1252,
+      "kind": "field",
+      "group": "Laser",
+      "value_kind": "Float",
+      "maturity": "Experimental",
+      "contract": {
+        "page": "tools/pc_contract_docs/EntityLaser.md",
+        "line": 237,
+        "quote": "#### float Radius  {: .copyable aria-label='Variables' }"
+      },
+      "judgement": "runtime/tests/test_api400_fields.py",
+      "evidence": "dist/apis400-20261016/field-proof-matrix.json",
+      "performance": "只在实际调用/字段访问时工作，标量无分配，Vector/Color依PC值复制，未知名字不读取原生对象。"
+    },
+    {
+      "owner": "EntityLaser",
+      "name": "IsActiveRotating",
+      "key": "EntityLaser:IsActiveRotating",
+      "offset": 1256,
+      "kind": "field",
+      "group": "Laser",
+      "value_kind": "Bool",
+      "maturity": "Experimental",
+      "contract": {
+        "page": "tools/pc_contract_docs/EntityLaser.md",
+        "line": 207,
+        "quote": "#### boolean IsActiveRotating  {: .copyable aria-label='Variables' }"
+      },
+      "judgement": "runtime/tests/test_api400_fields.py",
+      "evidence": "dist/apis400-20261016/field-proof-matrix.json",
+      "performance": "只在实际调用/字段访问时工作，标量无分配，Vector/Color依PC值复制，未知名字不读取原生对象。"
+    },
+    {
+      "owner": "EntityLaser",
+      "name": "RotationDelay",
+      "key": "EntityLaser:RotationDelay",
+      "offset": 1260,
+      "kind": "field",
+      "group": "Laser",
+      "value_kind": "UInt",
+      "maturity": "Experimental",
+      "contract": {
+        "page": "tools/pc_contract_docs/EntityLaser.md",
+        "line": 247,
+        "quote": "#### int RotationDelay  {: .copyable aria-label='Variables' }"
+      },
+      "judgement": "runtime/tests/test_api400_fields.py",
+      "evidence": "dist/apis400-20261016/field-proof-matrix.json",
+      "performance": "只在实际调用/字段访问时工作，标量无分配，Vector/Color依PC值复制，未知名字不读取原生对象。"
+    },
+    {
+      "owner": "EntityLaser",
+      "name": "RotationDegrees",
+      "key": "EntityLaser:RotationDegrees",
+      "offset": 1264,
+      "kind": "field",
+      "group": "Laser",
+      "value_kind": "Float",
+      "maturity": "Experimental",
+      "contract": {
+        "page": "tools/pc_contract_docs/EntityLaser.md",
+        "line": 242,
+        "quote": "#### float RotationDegrees  {: .copyable aria-label='Variables' }"
+      },
+      "judgement": "runtime/tests/test_api400_fields.py",
+      "evidence": "dist/apis400-20261016/field-proof-matrix.json",
+      "performance": "只在实际调用/字段访问时工作，标量无分配，Vector/Color依PC值复制，未知名字不读取原生对象。"
+    },
+    {
+      "owner": "EntityLaser",
+      "name": "RotationSpd",
+      "key": "EntityLaser:RotationSpd",
+      "offset": 1268,
+      "kind": "field",
+      "group": "Laser",
+      "value_kind": "Float",
+      "maturity": "Experimental",
+      "contract": {
+        "page": "tools/pc_contract_docs/EntityLaser.md",
+        "line": 252,
+        "quote": "#### float RotationSpd  {: .copyable aria-label='Variables' }"
+      },
+      "judgement": "runtime/tests/test_api400_fields.py",
+      "evidence": "dist/apis400-20261016/field-proof-matrix.json",
+      "performance": "只在实际调用/字段访问时工作，标量无分配，Vector/Color依PC值复制，未知名字不读取原生对象。"
+    },
+    {
+      "owner": "EntityLaser",
+      "name": "MaxDistance",
+      "key": "EntityLaser:MaxDistance",
+      "offset": 1272,
+      "kind": "field",
+      "group": "Laser",
+      "value_kind": "Float",
+      "maturity": "Experimental",
+      "contract": {
+        "page": "tools/pc_contract_docs/EntityLaser.md",
+        "line": 222,
+        "quote": "#### float MaxDistance  {: .copyable aria-label='Variables' }"
+      },
+      "judgement": "runtime/tests/test_api400_fields.py",
+      "evidence": "dist/apis400-20261016/field-proof-matrix.json",
+      "performance": "只在实际调用/字段访问时工作，标量无分配，Vector/Color依PC值复制，未知名字不读取原生对象。"
+    },
+    {
+      "owner": "EntityLaser",
+      "name": "EndPoint",
+      "key": "EntityLaser:EndPoint",
+      "offset": 1280,
+      "kind": "field",
+      "group": "Laser",
+      "value_kind": "Vector",
+      "maturity": "Experimental",
+      "contract": {
+        "page": "tools/pc_contract_docs/EntityLaser.md",
+        "line": 182,
+        "quote": "#### [Vector](Vector.md) EndPoint  {: .copyable aria-label='Variables' }"
+      },
+      "judgement": "runtime/tests/test_api400_fields.py",
+      "evidence": "dist/apis400-20261016/field-proof-matrix.json",
+      "performance": "只在实际调用/字段访问时工作，标量无分配，Vector/Color依PC值复制，未知名字不读取原生对象。"
+    },
+    {
+      "owner": "EntityLaser",
+      "name": "DisableFollowParent",
+      "key": "EntityLaser:DisableFollowParent",
+      "offset": 1292,
+      "kind": "field",
+      "group": "Laser",
+      "value_kind": "Bool",
+      "maturity": "Experimental",
+      "contract": {
+        "page": "tools/pc_contract_docs/EntityLaser.md",
+        "line": 177,
+        "quote": "#### boolean DisableFollowParent  {: .copyable aria-label='Variables' }"
+      },
+      "judgement": "runtime/tests/test_api400_fields.py",
+      "evidence": "dist/apis400-20261016/field-proof-matrix.json",
+      "performance": "只在实际调用/字段访问时工作，标量无分配，Vector/Color依PC值复制，未知名字不读取原生对象。"
+    },
+    {
+      "owner": "EntityLaser",
+      "name": "BlackHpDropChance",
+      "key": "EntityLaser:BlackHpDropChance",
+      "offset": 1316,
+      "kind": "field",
+      "group": "Laser",
+      "value_kind": "Float",
+      "maturity": "Experimental",
+      "contract": {
+        "page": "tools/pc_contract_docs/EntityLaser.md",
+        "line": 162,
+        "quote": "#### float BlackHpDropChance  {: .copyable aria-label='Variables' }"
+      },
+      "judgement": "runtime/tests/test_api400_fields.py",
+      "evidence": "dist/apis400-20261016/field-proof-matrix.json",
+      "performance": "只在实际调用/字段访问时工作，标量无分配，Vector/Color依PC值复制，未知名字不读取原生对象。"
+    },
+    {
+      "owner": "EntityLaser",
+      "name": "OneHit",
+      "key": "EntityLaser:OneHit",
+      "offset": 1377,
+      "kind": "field",
+      "group": "Laser",
+      "value_kind": "Bool",
+      "maturity": "Experimental",
+      "contract": {
+        "page": "tools/pc_contract_docs/EntityLaser.md",
+        "line": 227,
+        "quote": "#### boolean OneHit  {: .copyable aria-label='Variables' }"
+      },
+      "judgement": "runtime/tests/test_api400_fields.py",
+      "evidence": "dist/apis400-20261016/field-proof-matrix.json",
+      "performance": "只在实际调用/字段访问时工作，标量无分配，Vector/Color依PC值复制，未知名字不读取原生对象。"
+    },
+    {
+      "owner": "EntityLaser",
+      "name": "GridHit",
+      "key": "EntityLaser:GridHit",
+      "offset": 1378,
+      "kind": "field",
+      "group": "Laser",
+      "value_kind": "Bool",
+      "maturity": "Experimental",
+      "contract": {
+        "page": "tools/pc_contract_docs/EntityLaser.md",
+        "line": 192,
+        "quote": "#### boolean GridHit  {: .copyable aria-label='Variables' }"
+      },
+      "judgement": "runtime/tests/test_api400_fields.py",
+      "evidence": "dist/apis400-20261016/field-proof-matrix.json",
+      "performance": "只在实际调用/字段访问时工作，标量无分配，Vector/Color依PC值复制，未知名字不读取原生对象。"
+    },
+    {
+      "owner": "EntityProjectile",
+      "name": "Acceleration",
+      "key": "EntityProjectile:Acceleration",
+      "offset": 1052,
+      "kind": "field",
+      "group": "Projectile",
+      "value_kind": "Float",
+      "maturity": "Experimental",
+      "contract": {
+        "page": "tools/pc_contract_docs/EntityProjectile.md",
+        "line": 65,
+        "quote": "#### float Acceleration  {: .copyable aria-label='Variables' }"
+      },
+      "judgement": "runtime/tests/test_api400_fields.py",
+      "evidence": "dist/apis400-20261016/field-proof-matrix.json",
+      "performance": "只在实际调用/字段访问时工作，标量无分配，Vector/Color依PC值复制，未知名字不读取原生对象。"
+    },
+    {
+      "owner": "EntityProjectile",
+      "name": "ChangeFlags",
+      "key": "EntityProjectile:ChangeFlags",
+      "offset": 1080,
+      "kind": "field",
+      "group": "Projectile",
+      "value_kind": "U64",
+      "maturity": "Experimental",
+      "contract": {
+        "page": "tools/pc_contract_docs/EntityProjectile.md",
+        "line": 70,
+        "quote": "#### [ProjectileFlags](enums/ProjectileFlags.md) ChangeFlags  {: .copyable aria-label='Variables' }"
+      },
+      "judgement": "runtime/tests/test_api400_fields.py",
+      "evidence": "dist/apis400-20261016/field-proof-matrix.json",
+      "performance": "只在实际调用/字段访问时工作，标量无分配，Vector/Color依PC值复制，未知名字不读取原生对象。"
+    },
+    {
+      "owner": "EntityProjectile",
+      "name": "ChangeTimeout",
+      "key": "EntityProjectile:ChangeTimeout",
+      "offset": 1092,
+      "kind": "field",
+      "group": "Projectile",
+      "value_kind": "Int",
+      "maturity": "Experimental",
+      "contract": {
+        "page": "tools/pc_contract_docs/EntityProjectile.md",
+        "line": 86,
+        "quote": "#### int ChangeTimeout  {: .copyable aria-label='Variables' }"
+      },
+      "judgement": "runtime/tests/test_api400_fields.py",
+      "evidence": "dist/apis400-20261016/field-proof-matrix.json",
+      "performance": "只在实际调用/字段访问时工作，标量无分配，Vector/Color依PC值复制，未知名字不读取原生对象。"
+    },
+    {
+      "owner": "EntityProjectile",
+      "name": "ChangeVelocity",
+      "key": "EntityProjectile:ChangeVelocity",
+      "offset": 1088,
+      "kind": "field",
+      "group": "Projectile",
+      "value_kind": "Float",
+      "maturity": "Experimental",
+      "contract": {
+        "page": "tools/pc_contract_docs/EntityProjectile.md",
+        "line": 102,
+        "quote": "#### float ChangeVelocity  {: .copyable aria-label='Variables' }"
+      },
+      "judgement": "runtime/tests/test_api400_fields.py",
+      "evidence": "dist/apis400-20261016/field-proof-matrix.json",
+      "performance": "只在实际调用/字段访问时工作，标量无分配，Vector/Color依PC值复制，未知名字不读取原生对象。"
+    },
+    {
+      "owner": "EntityProjectile",
+      "name": "CurvingStrength",
+      "key": "EntityProjectile:CurvingStrength",
+      "offset": 1048,
+      "kind": "field",
+      "group": "Projectile",
+      "value_kind": "Float",
+      "maturity": "Experimental",
+      "contract": {
+        "page": "tools/pc_contract_docs/EntityProjectile.md",
+        "line": 118,
+        "quote": "#### float CurvingStrength  {: .copyable aria-label='Variables' }"
+      },
+      "judgement": "runtime/tests/test_api400_fields.py",
+      "evidence": "dist/apis400-20261016/field-proof-matrix.json",
+      "performance": "只在实际调用/字段访问时工作，标量无分配，Vector/Color依PC值复制，未知名字不读取原生对象。"
+    },
+    {
+      "owner": "EntityProjectile",
+      "name": "FallingAccel",
+      "key": "EntityProjectile:FallingAccel",
+      "offset": 1032,
+      "kind": "field",
+      "group": "Projectile",
+      "value_kind": "Float",
+      "maturity": "Experimental",
+      "contract": {
+        "page": "tools/pc_contract_docs/EntityProjectile.md",
+        "line": 133,
+        "quote": "#### float FallingAccel  {: .copyable aria-label='Variables' }"
+      },
+      "judgement": "runtime/tests/test_api400_fields.py",
+      "evidence": "dist/apis400-20261016/field-proof-matrix.json",
+      "performance": "只在实际调用/字段访问时工作，标量无分配，Vector/Color依PC值复制，未知名字不读取原生对象。"
+    },
+    {
+      "owner": "EntityProjectile",
+      "name": "HomingStrength",
+      "key": "EntityProjectile:HomingStrength",
+      "offset": 1044,
+      "kind": "field",
+      "group": "Projectile",
+      "value_kind": "Float",
+      "maturity": "Experimental",
+      "contract": {
+        "page": "tools/pc_contract_docs/EntityProjectile.md",
+        "line": 150,
+        "quote": "#### float HomingStrength  {: .copyable aria-label='Variables' }"
+      },
+      "judgement": "runtime/tests/test_api400_fields.py",
+      "evidence": "dist/apis400-20261016/field-proof-matrix.json",
+      "performance": "只在实际调用/字段访问时工作，标量无分配，Vector/Color依PC值复制，未知名字不读取原生对象。"
+    },
+    {
+      "owner": "EntityProjectile",
+      "name": "Scale",
+      "key": "EntityProjectile:Scale",
+      "offset": 1040,
+      "kind": "field",
+      "group": "Projectile",
+      "value_kind": "Float",
+      "maturity": "Experimental",
+      "contract": {
+        "page": "tools/pc_contract_docs/EntityProjectile.md",
+        "line": 161,
+        "quote": "#### float Scale  {: .copyable aria-label='Variables' }"
+      },
+      "judgement": "runtime/tests/test_api400_fields.py",
+      "evidence": "dist/apis400-20261016/field-proof-matrix.json",
+      "performance": "只在实际调用/字段访问时工作，标量无分配，Vector/Color依PC值复制，未知名字不读取原生对象。"
+    },
+    {
+      "owner": "EntityProjectile",
+      "name": "WiggleFrameOffset",
+      "key": "EntityProjectile:WiggleFrameOffset",
+      "offset": 1076,
+      "kind": "field",
+      "group": "Projectile",
+      "value_kind": "Int",
+      "maturity": "Experimental",
+      "contract": {
+        "page": "tools/pc_contract_docs/EntityProjectile.md",
+        "line": 166,
+        "quote": "#### int WiggleFrameOffset  {: .copyable aria-label='Variables' }"
+      },
+      "judgement": "runtime/tests/test_api400_fields.py",
+      "evidence": "dist/apis400-20261016/field-proof-matrix.json",
+      "performance": "只在实际调用/字段访问时工作，标量无分配，Vector/Color依PC值复制，未知名字不读取原生对象。"
+    },
+    {
+      "owner": "EntityKnife",
+      "name": "Scale",
+      "key": "EntityKnife:Scale",
+      "offset": 1056,
+      "kind": "field",
+      "group": "Knife",
+      "value_kind": "Float",
+      "maturity": "Experimental",
+      "contract": {
+        "page": "tools/pc_contract_docs/EntityKnife.md",
+        "line": 102,
+        "quote": "#### float Scale  {: .copyable aria-label='Variables' }"
+      },
+      "judgement": "runtime/tests/test_api400_fields.py",
+      "evidence": "dist/apis400-20261016/field-proof-matrix.json",
+      "performance": "只在实际调用/字段访问时工作，标量无分配，Vector/Color依PC值复制，未知名字不读取原生对象。"
+    },
+    {
+      "owner": "EntityKnife",
+      "name": "RotationOffset",
+      "key": "EntityKnife:RotationOffset",
+      "offset": 1068,
+      "kind": "field",
+      "group": "Knife",
+      "value_kind": "Float",
+      "maturity": "Experimental",
+      "contract": {
+        "page": "tools/pc_contract_docs/EntityKnife.md",
+        "line": 97,
+        "quote": "#### float RotationOffset  {: .copyable aria-label='Variables' }"
+      },
+      "judgement": "runtime/tests/test_api400_fields.py",
+      "evidence": "dist/apis400-20261016/field-proof-matrix.json",
+      "performance": "只在实际调用/字段访问时工作，标量无分配，Vector/Color依PC值复制，未知名字不读取原生对象。"
+    },
+    {
+      "owner": "EntityKnife",
+      "name": "MaxDistance",
+      "key": "EntityKnife:MaxDistance",
+      "offset": 1100,
+      "kind": "field",
+      "group": "Knife",
+      "value_kind": "Float",
+      "maturity": "Experimental",
+      "contract": {
+        "page": "tools/pc_contract_docs/EntityKnife.md",
+        "line": 77,
+        "quote": "#### float MaxDistance  {: .copyable aria-label='Variables' }"
+      },
+      "judgement": "runtime/tests/test_api400_fields.py",
+      "evidence": "dist/apis400-20261016/field-proof-matrix.json",
+      "performance": "只在实际调用/字段访问时工作，标量无分配，Vector/Color依PC值复制，未知名字不读取原生对象。"
+    },
+    {
+      "owner": "EntityKnife",
+      "name": "Charge",
+      "key": "EntityKnife:Charge",
+      "offset": 1104,
+      "kind": "field",
+      "group": "Knife",
+      "value_kind": "Float",
+      "maturity": "Experimental",
+      "contract": {
+        "page": "tools/pc_contract_docs/EntityKnife.md",
+        "line": 72,
+        "quote": "#### float Charge  {: .copyable aria-label='Variables' }"
+      },
+      "judgement": "runtime/tests/test_api400_fields.py",
+      "evidence": "dist/apis400-20261016/field-proof-matrix.json",
+      "performance": "只在实际调用/字段访问时工作，标量无分配，Vector/Color依PC值复制，未知名字不读取原生对象。"
+    },
+    {
+      "owner": "EntityKnife",
+      "name": "PathOffset",
+      "key": "EntityKnife:PathOffset",
+      "offset": 1256,
+      "kind": "field",
+      "group": "Knife",
+      "value_kind": "Float",
+      "maturity": "Experimental",
+      "contract": {
+        "page": "tools/pc_contract_docs/EntityKnife.md",
+        "line": 87,
+        "quote": "#### float PathOffset  {: .copyable aria-label='Variables' }"
+      },
+      "judgement": "runtime/tests/test_api400_fields.py",
+      "evidence": "dist/apis400-20261016/field-proof-matrix.json",
+      "performance": "只在实际调用/字段访问时工作，标量无分配，Vector/Color依PC值复制，未知名字不读取原生对象。"
+    },
+    {
+      "owner": "EntityKnife",
+      "name": "PathFollowSpeed",
+      "key": "EntityKnife:PathFollowSpeed",
+      "offset": 1260,
+      "kind": "field",
+      "group": "Knife",
+      "value_kind": "Float",
+      "maturity": "Experimental",
+      "contract": {
+        "page": "tools/pc_contract_docs/EntityKnife.md",
+        "line": 82,
+        "quote": "#### float PathFollowSpeed  {: .copyable aria-label='Variables' }"
+      },
+      "judgement": "runtime/tests/test_api400_fields.py",
+      "evidence": "dist/apis400-20261016/field-proof-matrix.json",
+      "performance": "只在实际调用/字段访问时工作，标量无分配，Vector/Color依PC值复制，未知名字不读取原生对象。"
+    },
+    {
+      "owner": "EntityTear",
+      "name": "WaitFrames",
+      "key": "EntityTear:WaitFrames",
+      "offset": 1064,
+      "kind": "field",
+      "group": "Tear",
+      "value_kind": "Int",
+      "maturity": "Experimental",
+      "contract": {
+        "page": "tools/pc_contract_docs/EntityTear.md",
+        "line": 167,
+        "quote": "#### int WaitFrames  {: .copyable aria-label='Variables' }"
+      },
+      "judgement": "runtime/tests/test_api400_fields.py",
+      "evidence": "dist/apis400-20261016/field-proof-matrix.json",
+      "performance": "只在实际调用/字段访问时工作，标量无分配，Vector/Color依PC值复制，未知名字不读取原生对象。"
+    },
+    {
+      "owner": "EntityTear",
+      "name": "ParentOffset",
+      "key": "EntityTear:ParentOffset",
+      "offset": 2284,
+      "kind": "field",
+      "group": "Tear",
+      "value_kind": "Vector",
+      "maturity": "Experimental",
+      "contract": {
+        "page": "tools/pc_contract_docs/EntityTear.md",
+        "line": 120,
+        "quote": "#### [Vector](Vector.md) ParentOffset  {: .copyable aria-label='Variables' }"
+      },
+      "judgement": "runtime/tests/test_api400_fields.py",
+      "evidence": "dist/apis400-20261016/field-proof-matrix.json",
+      "performance": "只在实际调用/字段访问时工作，标量无分配，Vector/Color依PC值复制，未知名字不读取原生对象。"
+    },
+    {
+      "owner": "EntityLaser",
+      "name": "BounceLaser",
+      "key": "EntityLaser:BounceLaser",
+      "offset": 1296,
+      "kind": "field",
+      "group": "Laser",
+      "value_kind": "Entity",
+      "maturity": "Experimental",
+      "contract": {
+        "page": "tools/pc_contract_docs/EntityLaser.md",
+        "line": 167,
+        "quote": "#### [Entity](Entity.md) BounceLaser  {: .copyable aria-label='Variables' data-altreturn='nil' }"
+      },
+      "judgement": "runtime/tests/test_api400_fields.py",
+      "evidence": "dist/apis400-20261016/field-proof-matrix.json",
+      "performance": "只在实际调用/字段访问时工作，标量无分配，Vector/Color依PC值复制，未知名字不读取原生对象。"
+    }
+  ]
+}

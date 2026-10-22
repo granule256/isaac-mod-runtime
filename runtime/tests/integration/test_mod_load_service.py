@@ -450,6 +450,11 @@ class ModLoadServiceTests(unittest.TestCase):
                 [
                     compiler, "-std=c++17", "-Wall", "-Wextra", "-Werror",
                     "-I", str(SRC),
+                    # 批次 236：`mod_load_service.cpp` 现在引一个 `runtime/source` 下的头
+                    #（`load_phase_probe.hpp`）。真机构建的包含路径里本来就有 `runtime/source`
+                    # （`hook_manager.cpp` 就是这么引 `runtime_constants.hpp` 的），
+                    # 这个宿主 harness 之前只加了 `runtime/src` —— 补上，让两边口径一致。
+                    "-I", str(SRC.parent / "source"),
                     str(source),
                     str(SRC / "application" / "mod" / "manifest_parser.cpp"),
                     str(SRC / "application" / "mod" / "manifest_service.cpp"),

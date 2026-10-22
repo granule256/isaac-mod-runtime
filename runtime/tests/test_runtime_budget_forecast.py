@@ -39,10 +39,28 @@ RO_LIMIT = DEFAULT_RO_END_LIMIT
 
 
 class RuntimeBudgetForecastTests(unittest.TestCase):
+    def test_combined_end_budget_includes_code_growth_and_reserve_floor(self):
+        """代码增长也会推后只读结束；累计预算不能只扣新增只读数据。"""
+        code_end = CODE_LIMIT - 100000
+        per_api = ENGINE_METHOD_API_CODE_BYTES + RODATA_BYTES_PER_API
+        ro_end = RO_LIMIT - 10 * per_api
+        fits = forecast(code_end, ro_end, apis=10, kind="engine")
+        self.assertEqual(fits["capacity_by_rodata"],10)
+        self.assertTrue(fits["requested_fits"])
+        self.assertFalse(forecast(code_end,ro_end,apis=11,kind="engine")["requested_fits"])
+        ro_end = RO_LIMIT - DEFAULT_FLOOR_KIB * 1024 - 10 * per_api
+        fits = evaluate_policy(code_end,ro_end,apis=10,kind="engine")
+        self.assertTrue(fits["ok"],fits["problems"])
+        self.assertEqual(fits["remaining_rodata"],DEFAULT_FLOOR_KIB*1024)
+        over = evaluate_policy(code_end,ro_end,apis=11,kind="engine")
+        self.assertFalse(over["ok"])
+        self.assertTrue(any("只读" in problem for problem in over["problems"]))
+
     def test_capacity_is_limited_by_the_tighter_segment(self):
         """两段余量都很大时，上限取较小者；且明确指出是哪一段。"""
-        # 代码余 4900 B（正好 10 条），只读余 2720 B（正好 10 条）—— 两边打平。
-        result = forecast(CODE_LIMIT - 4900, RO_LIMIT - 2720, apis=0, kind="engine")
+        # 代码余4900B、累计代码/只读余7620B，都是正好10条。
+        combined = ENGINE_METHOD_API_CODE_BYTES + RODATA_BYTES_PER_API
+        result = forecast(CODE_LIMIT - 4900, RO_LIMIT - 10 * combined, apis=0, kind="engine")
         self.assertEqual(result["capacity_by_code"], 10)
         self.assertEqual(result["capacity_by_rodata"], 10)
         self.assertEqual(result["capacity"], 10)
@@ -52,8 +70,8 @@ class RuntimeBudgetForecastTests(unittest.TestCase):
         self.assertEqual(result["binding_segment"], "code")
         self.assertEqual(result["capacity"], 10)
 
-        # 只读段更紧（余 2720 B ⇒ 10 条），代码段很宽 ⇒ 先撞只读段。
-        result = forecast(CODE_LIMIT - 49000, RO_LIMIT - 2720, apis=0, kind="engine")
+        # 累计代码/只读更紧（余7620B ⇒ 10条），代码段自身很宽。
+        result = forecast(CODE_LIMIT - 49000, RO_LIMIT - 10 * combined, apis=0, kind="engine")
         self.assertEqual(result["binding_segment"], "rodata")
         self.assertEqual(result["capacity"], 10)
 

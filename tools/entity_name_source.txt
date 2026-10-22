@@ -1,0 +1,1224 @@
+# 由 `tools/generate_entity_name_table.py --import-xml` 从游戏 dump 的
+# `resources/entities2.xml` + `rp_patch/resources/entities2.xml` 提取。
+# 格式：名字<TAB>Type<TAB>Variant，按名字升序。拼法（base 优先、rp 补新键）见生成器文档头。
+# 名字里的反斜杠/制表符/换行/回车/问号已转义（`\\` / `\t` / `\n` / `\r` / `\?`；
+# 问号是躲 C++ 的历史三字符组，见生成器文档头）。
+#ADULT_LEECH	854	0
+#ARMY_FLY	868	0
+#BABY_BEGOTTEN	883	0
+#BABY_PLUM	908	0
+#BALL_AND_CHAIN	893	0
+#BIG_BONY	830	0
+#BIG_CORN	217	3
+#BISHOP	805	0
+#BLACK_GOAT	891	1
+#BLACK_KNIGHT	41	4
+#BLASTER	821	0
+#BLOATY	879	0
+#BLOODFLY	61	6
+#BLOOD_CULTIST	885	1
+#BLOOD_PUPPY	802	0
+#BLURB	813	0
+#BOMBGAGGER	844	0
+#BOMB_GRIMACE	809	0
+#BONE_FLY	25	4
+#BOUNCER	822	0
+#BRAINLESS_KNIGHT	41	3
+#BRIMSTONE_DEATHS_HEAD	212	3
+#BUBBLES	806	0
+#BULB	61	5
+#BUMBINO	916	0
+#BUTT_SLICKER	878	0
+#CANDLER	833	0
+#CARRION_PRINCESS	23	3
+#CARRION_RIDER	239	101
+#CHIMERA	910	0
+#CLICKETY_CLACK	889	0
+#CLOG	914	0
+#CLOGGY	872	0
+#CLUTCH	921	0
+#COAL	33	11
+#COAL_BOY	820	1
+#COAL_SPIDER	818	2
+#COHORT	857	0
+#COLOSTOMIA	917	0
+#CORPSE_EATER	239	100
+#CRACKLE	87	1
+#CULTIST	885	0
+#CURSED_DEATHS_HEAD	212	2
+#CURSED_GLOBIN	24	3
+#CYST	862	0
+#DANNY	820	0
+#DARKER_ESAU	866	0
+#DARK_ESAU	866	0
+#DEAD_ISAAC	912	20
+#DEAD_MEAT	57	2
+#DEEP_GAPER	811	0
+#DOGMA	950	0
+#DRAGON_FLY	25	3
+#DRAGON_FLY_X	25	3
+#DRIP	870	0
+#DUMP	876	0
+#DUMP_HEAD	876	1
+#DUST	882	0
+#DUSTY_DEATHS_HEAD	887	0
+#EGGY	29	2
+#ELLEECH	855	1
+#ETERNAL_FLY_BOMB	819	1
+#EVIS	865	0
+#EXORCIST	832	0
+#FACELESS	827	0
+#FANATIC	832	1
+#FESTERING_GUTS	831	20
+#FETAL_DEMON	886	1
+#FIRE_WORM	825	0
+#FISSURE	815	0
+#FLAGELLANT	834	2
+#FLESH_MAIDEN	880	0
+#FLOAST	859	0
+#FLY_BOMB	819	0
+#FLY_TRAP	873	0
+#GASBAG	856	0
+#GAS_DWARF	874	0
+#GOAT	891	0
+#GREAT_GIDEON	907	0
+#GRILLED_CLOTTY	15	3
+#GRILLED_GYRO	824	1
+#GRUDGE	877	0
+#GUTTED_FATTY	831	0
+#GYRO	824	0
+#HALF_HEART	92	1
+#HARDY	826	0
+#HARD_HOST	27	3
+#HENRY	837	0
+#HOLY_BONY	227	1
+#HOLY_EYE	60	2
+#HOLY_MULLIGAN	22	2
+#HORNFEL	906	0
+#HORNY_BOYS	920	0
+#INK	61	3
+#KINETI	816	1
+#LEVEL_2_CHARGER	855	0
+#LEVEL_2_GAPER	850	0
+#LEVEL_2_GUSHER	850	2
+#LEVEL_2_HORF	850	1
+#LEVEL_2_WILLO	838	0
+#LIL_BLUB	901	0
+#LIL_PORTAL	306	1
+#LOOSE_KNIGHT	41	2
+#MAMA_FLY	61	4
+#MASK_II	93	1
+#MAZE_ROAMER	890	0
+#MIGRAINE	869	0
+#MIN_MIN	913	0
+#MOCKULUS	864	0
+#MOLE	829	0
+#MORNINGSTAR	863	0
+#MOTHER	912	0
+#MOTHERS_SHADOW	867	0
+#MULLIGHOUL	817	1
+#NECRO	828	0
+#NEEDLE	881	0
+#NIGHTWATCH	842	0
+#PASTY	881	1
+#PEEPING_FATTY	835	0
+#PLANETOID	229	1
+#POLTY	816	0
+#PON	840	0
+#POOFER	892	0
+#POOT_MINE	875	0
+#PREY	817	0
+#PUSTULE	861	0
+#QUAD_REVENANT	841	1
+#QUAKEY	823	0
+#QUAKE_GRIMACE	804	0
+#RAGLICH	919	0
+#RAG_CREEP	240	2
+#RAINMAKER	902	0
+#REAP_CREEP	900	0
+#REDSKULL	212	4
+#REVENANT	841	0
+#ROCK_SPIDER	818	0
+#ROTGUT	911	0
+#ROTTEN_GAPER	10	3
+#SHADY	888	0
+#SICK_BOOM_FLY	25	5
+#SINGE	915	0
+#SIREN	904	0
+#SLOG	40	2
+#SMALL_LEECH	810	0
+#SMALL_MAGGOT	853	0
+#SNAPPER	834	1
+#SOY_CREEP	240	1
+#SPIKEBALL	852	0
+#SPLIT_RAGE_CREEP	241	1
+#SPLURT	871	0
+#STICKY_LEAPER	34	1
+#STRIDER	814	0
+#STRIFER	839	0
+#SUB_HORF	812	0
+#SWARM_SPIDER	884	0
+#TAINTED_BOOM_FLY	25	6
+#TAINTED_FACELESS	827	1
+#TAINTED_HOPPER	29	3
+#TAINTED_MOLE	829	1
+#TAINTED_MULLIGAN	22	3
+#TAINTED_POOTER	14	2
+#TAINTED_ROUND_WORM	244	2
+#TAINTED_SOY_CREEP	240	3
+#TAINTED_SPITTY	31	1
+#TAINTED_SUB_HORF	812	1
+#TAINTED_SUCKER	61	7
+#TAINTED_TUBE_WORM	244	3
+#THE_BEAST	951	0
+#THE_HERETIC	905	0
+#THE_PILE	269	1
+#THE_SCOURGE	909	0
+#THE_SHELL	19	3
+#THE_VISAGE	903	0
+#TINTED_ROCK_SPIDER	818	1
+#TRIPLE_GRIMACE	42	2
+#TUFF_TWIN	19	2
+#TURDLET	918	0
+#TWITCHY	851	0
+#ULTRA_DEATH	951	40
+#ULTRA_FAMINE	951	10
+#ULTRA_PESTILENCE	951	20
+#ULTRA_WAR	951	30
+#UNBORN	860	0
+#VESSEL	858	0
+#VIS_FATTY	886	0
+#VIS_VERSA	836	0
+#WHIPPER	834	0
+#WILLO	808	0
+#WORMWOOD	62	3
+#WRAITH	807	0
+#WRINKLY_BABY	38	3
+1UP	3	41
+\?\?\?	102	1
+\?\?\? (Alt)	102	2
+\?\?\?'s Only Friend	3	77
+Abel	3	8
+Abyss Locust	3	231
+Acid Baby	3	112
+Angel	1000	9
+Angelic Baby	38	1
+Angelic Prism	3	123
+Angry Fly	3	118
+Anima Chain	1000	193
+Attack Fly	3	43
+BBF	3	58
+Baby	38	0
+Baby Long Legs	206	0
+Baby Plum (familiar)	3	224
+Backdrop Decoration	1000	140
+Background (Beast)	951	100
+Background (Death)	951	104
+Background (Famine)	951	101
+Background (Pestilence)	951	102
+Background (War)	951	103
+Bag of Crafting	8	4
+Ball of Bandages L1	3	69
+Ball of Bandages L2	3	70
+Ball of Bandages L3	3	71
+Ball of Bandages L4	3	72
+Balloon Tear	2	35
+Bar Particle	1000	75
+Battery Bum	6	13
+Battery up	1000	48
+Beast Rock Projectile	951	2
+Beast Soul	951	3
+Beetle	1000	64
+Beggar	6	4
+Begotten	251	0
+Begotten Chain	251	10
+Belial Tear	2	32
+Best Bud	3	60
+Beths Heart	3	227
+Big Bomb	4	1
+Big Bone	830	10
+Big Chest	5	340
+Big Chubby	3	104
+Big Fan	3	65
+Big Hole	411	2
+Big Horn	411	0
+Big Horn Hand	1000	125
+Big Horn Hole Helper	1000	122
+Big Knife Projectile	1000	182
+Big Poison Bomb	4	6
+Big Poop Nugget	5	42
+Big Rock Explosion	1000	149
+Big Rock Wave	1000	150
+Big Spider	94	0
+Big Water Splash	1000	132
+Bird Cage	3	210
+Bishop Shield	1000	160
+Black Bony	277	0
+Black Globin	278	0
+Black Globin's Body	280	0
+Black Globin's Head	279	0
+Black Heart	5	10
+Black Maw	225	0
+Black Rune	5	300
+Black Tooth Tear	2	30
+BlackHole	1000	107
+BlackHoleRay	1000	107
+Blastocyst	74	0
+Blastocyst Medium	75	0
+Blastocyst Small	76	0
+Blended Heart	5	10
+Blind Bat	803	0
+Blind Creep	242	0
+Blister	303	0
+Bloat Eye	68	11
+Blood Baby	3	238
+Blood Donation Machine	6	2
+Blood Drop	1000	70
+Blood Explosion	1000	2
+Blood Gush	1000	42
+Blood Oath	3	203
+Blood Particle	1000	5
+Blood Puppy	3	241
+Blood Splat	1000	7
+Blood Tear	2	1
+Bloodshot Eye	3	116
+Bloody Key Tear	2	44
+Bloody Sad Bomb	4	16
+Blubber	210	0
+Blue Baby Soul	3	13
+Blue Boil	298	0
+Blue Conjoined Fatty	257	1
+Blue Fire Place	33	2
+Blue Flame	1000	10
+Blue Gaper	297	0
+Blue Spider	3	73
+Bob's Brain	3	59
+Bobby Bomb	4	11
+Bobs Head Tear	2	4
+Boil	30	0
+Boiled Baby	3	208
+Bomb	4	0
+Bomb Bag	3	20
+Bomb Balloon Tear	2	38
+Bomb Bum	6	9
+Bomb Chest	5	51
+Bomb Crater	1000	18
+Bomb Explosion	1000	1
+Bone Club	8	1
+Bone Heart	5	10
+Bone Knight	283	0
+Bone Orbital	3	128
+Bone Scythe	8	2
+Bone Spur	3	234
+Bone Tear	2	29
+Bone Trap	885	10
+Bony	227	0
+Booger Tear	2	26
+Boom Fly	25	0
+Boomerang	1000	60
+Bot Fly	3	218
+Bouncing Impact	1000	50
+Box Buddy	3	119
+Brain	32	0
+Breath of Life Halo	1000	123
+Brimstone Ball	1000	113
+Brimstone Balloon Tear	2	37
+Brimstone Bomb	4	15
+Brimstone Head	203	0
+Brimstone Impact	1000	50
+Brimstone Impact CageVis	1000	50
+Brimstone Swirl	1000	71
+Broken Gaping Maw	236	0
+Broken Shovel	5	110
+Broken Shovel Shadow	1000	115
+Brother Bobby	3	1
+Brown Cloud	1000	105
+Brown Creep	1000	56
+Brown Nugget	3	115
+Brownie	402	0
+Brownie Corn	217	2
+Bullet Poof	1000	11
+Bullet Poof (Static)	1000	200
+Bum Fiend	3	24
+Bumbo	3	88
+Butt Bomb	4	9
+Butterfly	1000	69
+Buttlicker	89	0
+C.H.A.D.	28	1
+Cain's Eye	3	76
+Camillo Jr.	230	0
+Canary	843	0
+Card Against Humanity	5	300
+Censer	3	89
+Chain Gib	1000	163
+Chain Lightning	1000	167
+Challenge Trophy	5	370
+Chance Card	5	300
+Chaos Card Tear	2	9
+Charged Baby	3	86
+Charged Key	5	30
+Charger	23	0
+Chest	5	50
+Chimera (body)	910	1
+Chimera (head)	910	2
+Chub	28	0
+Chubber	39	2
+Chubber Projectile	39	22
+Cleaver Slash	1000	176
+Clot	15	1
+Clotty	15	0
+Clutch Orbital	921	1
+Coal	33	11
+Cod Worm	221	0
+Coin Particle	1000	98
+Coin Projectile	9	7
+Coin Tear	2	20
+Collectible	5	100
+Colostomia Puddle	1000	168
+Confessional	6	17
+Conjoined Fatty	257	0
+Conjoined Spitty	243	0
+Conquest	65	1
+Constant Stone Shooter	202	0
+Coplayer	1	1
+Corn	217	1
+Corn Mine	295	0
+Corn Projectile	9	5
+Couch	960	3
+Crack The Sky	1000	19
+Cracked Orb Poof	1000	173
+Crackwave	1000	72
+Crane Game	6	16
+Crazy Long Legs	207	0
+Credit Card	5	300
+Creep (Black)	1000	26
+Creep (Green)	1000	23
+Creep (Red)	1000	22
+Creep (Static)	1000	169
+Creep (White)	1000	25
+Creep (Yellow)	1000	24
+Crispy	226	2
+Cross Stone Shooter	202	10
+Cross Stone Shooter (always on)	202	11
+Cross Stoney	302	10
+Cube Baby	3	239
+Cube of Meat L1	3	44
+Cube of Meat L2	3	45
+Cube of Meat L3	3	46
+Cube of Meat L4	3	47
+Curse Halo	1000	123
+Cyclopia	284	0
+Daddy Long Legs	101	0
+Daddys Foot	3	16
+Damocles	3	202
+Dangle	261	1
+Dank Charger	23	2
+Dank Death's Head	212	1
+Dank Globin	24	2
+Dank Squirt	220	1
+Dark Arts Halo	1000	123
+Dark Ball	404	1
+Dark Ball Smoke Particle	1000	88
+Dark Bum	3	64
+Dark Esau's Pit	866	1
+Dark Matter Tear	2	6
+Dark One	267	0
+Dark Snare	1000	194
+Dart Fly	256	0
+Dead Bird	3	14
+Dead Bird (permanent)	3	219
+Dead Cat	3	40
+Death	66	0
+Death Horse	66	20
+Death Scythe	66	10
+Death Skull	1000	109
+Death without horse	66	30
+Death's Head	212	0
+Decap Attack	3	243
+Decoy	4	2
+Deep Gaper	811	0
+Delirium	412	0
+Demon Baby	3	2
+Depression	3	105
+Devil	1000	6
+Devil Beggar	6	5
+Diamond Particle	1000	85
+Diamond Tear	2	18
+Dice Room Floor	1000	76
+Dice Shard	5	300
+Dime	5	20
+Dinga	223	0
+Dingle	261	0
+Dip	217	0
+Dip Familiar	3	201
+Dip Familiar (Brownie)	3	201
+Dip Familiar (black)	3	201
+Dip Familiar (corny)	3	201
+Dip Familiar (flaming)	3	201
+Dip Familiar (gold)	3	201
+Dip Familiar (rainbow)	3	201
+Dip Familiar (red)	3	201
+Dip Familiar (stinky)	3	201
+Dip Familiar (stone)	3	201
+Dip Familiar (white)	3	201
+Dirt Patch	1000	116
+Dirt Pile	1000	146
+Distant Admiration	3	31
+Divine Intervention	1000	188
+Dogma Angel	950	2
+Dogma Angel Baby	950	10
+Dogma Blackhole	1000	171
+Dogma Debris	1000	170
+Dogma Orb	1000	172
+Dogma's TV	950	1
+Donation Machine	6	8
+Donkey Jawbone	8	3
+Door Outline	1000	154
+Dople	53	0
+Double Bomb	5	40
+Double Penny	5	20
+Double Vis	39	1
+Dr. Fetus Rocket	1000	31
+Dr. Fetus Target	1000	30
+Drowned Boom Fly	25	2
+Drowned Charger	23	1
+Drowned Hive	22	1
+Dry Baby	3	51
+Dukie	288	0
+Dummy	964	0
+Dust Cloud	1000	59
+Egg Tear	2	27
+Ember Particle	1000	66
+Embryo	77	0
+Emergency Contact	5	300
+Enemy Brimstone Swirl	1000	110
+Enemy Ghost	1000	144
+Enemy Soul	1000	179
+Enemy Soul (Belial)	1000	179
+Envy	51	0
+Envy (big)	51	10
+Envy (medium)	51	20
+Envy (small)	51	30
+Eraser Tear	2	45
+Error Room Keeper	17	2
+Esau Jr.	3	244
+Eternal Chest	5	53
+Eternal Fly	96	0
+Eves Bird Foot	3	15
+Evil Eye	1000	84
+Evil Twin	53	1
+Evis Guts	865	10
+Explosion Wave	1000	187
+Explosivo Tear	2	19
+Eye	60	0
+Eyeball Projectile	9	16
+Fallen Gabriel	272	1
+Fallen Uriel	271	1
+Falling Ember	1000	87
+Famine	63	0
+Fart	1000	34
+Fart Ring	1000	106
+Farting Baby	3	95
+Fartwave	1000	143
+Fat Bat	258	0
+Fat Sack	209	0
+Fate's Reward	3	81
+Fatty	208	0
+Feather Projectile	9	13
+Fetus Tear	2	50
+Finger!	3	110
+Fire	1000	51
+Fire Jet	1000	147
+Fire Jet (purple)	1000	147
+Fire Place	33	0
+Fire Tear	2	5
+Fire Wave	1000	148
+Fireworks	1000	104
+Fissure Spawner	1000	192
+Fist Tear	2	39
+Fistula	71	0
+Fistula Medium	72	0
+Fistula Small	73	0
+Fistuloid	308	0
+Flaming Fatty	208	2
+Flaming Gaper	10	2
+Flaming Hopper	54	0
+Flesh Death's Head	286	0
+Flesh Mobile Host	247	0
+Floating Knight	254	0
+Fly	13	0
+Fly Explosion	1000	3
+Fly Orbital	3	33
+Foreigner	843	1
+Forever Alone	3	30
+Forgotten Body	3	900
+Forgotten Chain	1000	114
+Forgotten Soul	1000	117
+Forgotten Soul Poof	1000	16
+Fortune Telling Machine	6	3
+Fred	59	0
+Freezer Baby	3	209
+Friend Zone	3	84
+Friendly ball	1000	81
+Frowning Gaper	10	0
+Frozen Enemy	963	0
+Fruity Plum	3	225
+Full Fly	249	0
+Full Key	3	28
+Full Knife	3	223
+GB Bug	3	93
+Gabriel	272	0
+Gaper	10	1
+Gaping Maw	235	0
+Gazing Globin	24	1
+Gemini	79	0
+Gemini Baby	79	10
+Gemini Familiar	3	79
+Generic Prop	960	0
+Generic Tracer	1000	198
+Ghost Baby	3	9
+Gideon Attract Ring	1000	151
+Gideon Attract Trail	1000	151
+Giga Bomb	4	17
+Giga Rocket	4	20
+Gish	43	1
+Glaucoma Blood Tear	2	25
+Glaucoma Tear	2	24
+Glitter Bomb	4	12
+Globin	24	0
+Gluttony	49	0
+God's Flesh Blood Tear	2	17
+God's Flesh Tear	2	16
+Gold Heart	5	10
+Golden Bomb	5	40
+Golden Key	5	30
+Golden Troll Bomb	4	18
+Grab Bag	5	69
+Great Gideon (defeated)	907	0
+Greed	50	0
+Greed Donation Machine	6	11
+Greed Gaper	299	0
+Grid Projectile	9	8
+Grid Projectile Helper	1000	136
+Grid Tear	2	40
+Ground Glow	1000	196
+Grub	239	0
+Guardian Angel	3	32
+Guillotine	3	68
+Guppys Hair Ball	3	42
+Gurdy	36	0
+Gurdy Jr.	99	0
+Gurgle	87	0
+Gurgling	237	0
+Gurgling (boss)	237	1
+Gush	309	0
+Gusher	11	0
+Gut	30	1
+Guts	40	0
+Gutted Fatty Eye	831	10
+HP up	1000	49
+Haemolacria Trail	1000	111
+Half Sack	211	0
+Hallowed Ground	3	129
+Halo	1000	123
+Hanger	90	0
+Harlequin Baby	3	10
+Haunt	260	0
+Haunted Chest	5	58
+Head Projectile	9	15
+Headless Baby	3	55
+Headless Horseman	82	0
+Headless Horsemans Head	83	0
+Heart	5	10
+Heart (double)	5	10
+Heart (eternal)	5	10
+Heart (half soul)	5	10
+Heart (half)	5	10
+Heart (soul)	5	10
+Heart of Infamy	98	0
+Heaven Door	1000	39
+Hell Game	6	15
+Heretic Pentagram	1000	162
+Hive	22	0
+Holy Card	5	300
+Holy Leech	55	2
+Holy Water	3	25
+Homunculus	228	0
+Homunculus Cord	228	10
+Hopper	29	0
+Horf	12	0
+Hornfel Decoy	906	1
+Hornfel Door	967	0
+Hornfel Room Controller	1000	152
+Host	27	0
+Hot Bomb	4	8
+Hungry Soul	1000	186
+Hungry Tear	2	36
+Hush	407	0
+Hush (Skinless)	408	0
+Hush Ashes	1000	100
+Hush Fly	296	0
+Hush Laser	1000	96
+Hush Laser Up	1000	101
+Hush Projectile	9	6
+Hushy	3	107
+I.Blob	15	2
+Ice Tear	2	41
+Imp	259	0
+Impact	1000	97
+Incubus	3	80
+Intruder	3	200
+Isaac	102	0
+Isaac (secret)	6	14
+Isaac's Bed	5	380
+Isaac's Carpet	1000	74
+Isaac's Heart	3	62
+Isaacs Body	3	48
+Isaacs Head	3	12
+It Lives	78	1
+Item Wisp Familiar	3	237
+Jaw Bone	3	130
+Juicy Sack	3	52
+Kamikaze Leech	55	1
+Keeper	86	0
+Key	5	30
+Key Bum	3	90
+Key Master	6	7
+Key Piece 1	3	26
+Key Piece 2	3	27
+Key Ring	5	30
+Key Tear	2	43
+Kineti Beam	1000	175
+King Baby	3	109
+Knife Piece 1	3	213
+Knife Piece 2	3	214
+Knife Piece 3	3	215
+Knight	41	0
+Krampus	81	1
+Ladder	1000	8
+Lamb Body	273	10
+Large Blood Explosion	1000	77
+Larry Jr.	19	0
+Laser (Beast)	7	13
+Laser (Brimtech)	7	9
+Laser (Electric)	7	10
+Laser (Giant Brimtech)	7	15
+Laser (Giant Red)	7	6
+Laser (Light Beam)	7	5
+Laser (Pride)	7	4
+Laser (Shoop da Whoop)	7	3
+Laser (Thick Brown)	7	12
+Laser (Thick Dark)	7	1
+Laser (Thick Red)	7	1
+Laser (Thicker Brimtech)	7	14
+Laser (Thicker Red)	7	11
+Laser (Thin Red)	7	2
+Laser Impact	1000	50
+Lava Projectile	9	14
+Lava Spawner	1000	181
+Leaper	34	0
+Leech	3	56
+Leech Explosion	1000	130
+Lemon Mishap	1000	32
+Lemon Party	1000	78
+Leper	310	0
+Leper (stage 2)	310	0
+Leper (stage 3)	310	0
+Leper (stage 4)	310	0
+Leper Flesh	310	1
+Leprocy	3	121
+Light	1000	121
+Light Ring	7	8
+Lil Abaddon	3	230
+Lil Chest	3	82
+Lil Dumpy	3	212
+Lil Ghost	1000	159
+Lil Gurdy	3	87
+Lil Harbingers	3	122
+Lil Loki	3	97
+Lil Monstro	3	108
+Lil Portal	3	232
+Lil Spewer	3	125
+Lil' Battery	5	90
+Lil' Brimstone	3	61
+Lil' Haunt	3	63
+Liquid Poop Creep	1000	195
+Little C.H.A.D.	3	22
+Little Chubby	3	3
+Little Gish	3	4
+Little Horn	404	0
+Little Steve	3	5
+Locked Chest	5	60
+Loki	69	0
+Lokii	69	1
+Lost Fly	3	85
+Lost Soul	3	211
+Lucky Penny	5	20
+Lump	56	0
+Lust	47	0
+Maggot	21	0
+Maggot Explosion	1000	131
+Magic Card	5	300
+Mama Gurdy	266	0
+Mama Gurdy Left Hand	266	1
+Mama Gurdy Right Hand	266	2
+Mama Guts	57	1
+Mama Mega Explosion	1000	127
+Mask	93	0
+Mask of Infamy	97	0
+Maw	26	0
+Meat Projectile	9	11
+Meatball	290	0
+Mega Chest	5	57
+Mega Clotty	282	0
+Mega Fatty	264	0
+Mega Maw	262	0
+Mega Satan	274	0
+Mega Satan 2	275	0
+Mega Satan 2's Left Hand	275	2
+Mega Satan 2's Right Hand	275	1
+Mega Satan's Left Hand	274	2
+Mega Satan's Right Hand	274	1
+Megatroll Bomb	4	4
+MemBrain	57	0
+Menorah	3	205
+Metallic Tear	2	3
+Milk Puddle	1000	90
+Milk!	3	100
+Mimic Chest	5	54
+Minecart	965	0
+Minisaac	3	228
+Ministro	305	0
+Mist	1000	138
+Mobile Host	204	0
+Mom	45	0
+Mom Foot Stomp	1000	29
+Mom Stomp	45	10
+Mom's Chest	5	390
+Mom's Dead Hand	287	0
+Mom's Dresser	960	1
+Mom's Dressing Table	6	12
+Mom's Hand	213	0
+Mom's Hand (Emergency Contact)	1000	91
+Mom's Heart	78	0
+Mom's Razor	3	117
+Mom's Vanity	960	2
+Moms Guts	78	10
+Moms Knife	8	0
+Mongo Baby	3	74
+Monstrance Halo	1000	123
+Monstro	20	0
+Monstro II	43	0
+Monstros Tooth	1000	28
+Moter	80	0
+Mother 2	912	10
+Mother Ball	912	100
+Mother Ball (Medium)	912	100
+Mother Ball (Small)	912	100
+Mother Shockwave	1000	183
+Mother Tracer	1000	190
+Mother Worm	912	30
+Movable TNT	292	0
+Movable TNT (Mine Crafter)	292	1
+Moveable Blue Fireplace	33	12
+Moveable Fireplace	33	10
+Moveable Purple Fireplace	33	13
+Mr. Fred	270	0
+Mr. Maw Body	35	0
+Mr. Maw Head	35	1
+Mr. Maw Neck	35	10
+Mr. Me!	1000	108
+Mr. Mega Bomb	4	10
+Mr. Mine	311	0
+Mr. Mine Neck	311	10
+Mr. Red Maw Body	35	2
+Mr. Red Maw Head	35	3
+Mulliboom	16	2
+Mulligan	16	0
+Mulligoon	16	1
+Multidimensional Baby	3	101
+Multidimensional Tear	2	21
+Mushroom	300	0
+My Shadow	23	0
+Mysterious Tear	2	7
+Mystery Egg	3	124
+Mystery Sack	3	57
+Nail Blood Tear	2	23
+Nail Particle	1000	86
+Nail Tear	2	13
+Needle Tear	2	31
+Nerve Ending	231	0
+Nerve Ending 2	231	1
+Nest	205	0
+Nickel	5	20
+Night Crawler	255	0
+Notched Axe	8	9
+Nulls	252	0
+Obsessed Fan	3	98
+Occult Target	1000	153
+Old Chest	5	55
+One Tooth	234	0
+Oob	224	0
+Pacer	11	1
+Pale Fatty	208	1
+Papa Fly	3	99
+Para-Bite	58	0
+Paschal Candle	3	221
+Pedestal Ripple	1000	134
+Peep	68	0
+Peep Eye	68	10
+Peepers Eye	3	17
+Peepers Other Eye	3	207
+Peeping Fatty Eye	835	10
+Penny	5	20
+Pentagram (Black Powder)	1000	93
+Pestilence	64	0
+Pickup Ghost	1000	191
+Pill Black-Yellow	5	70
+Pill Blue-Blue	5	70
+Pill Blue-Cadetblue	5	70
+Pill Dots-Red	5	70
+Pill Dots-White	5	70
+Pill Orange-Orange	5	70
+Pill Pink-Red	5	70
+Pill White-Azure	5	70
+Pill White-Black	5	70
+Pill White-Blue	5	70
+Pill White-White	5	70
+Pill White-Yellow	5	70
+Pill Yellow-Orange	5	70
+Pin	62	0
+Pitfall	291	0
+Player	1	0
+Player Creep (Black Powder)	1000	92
+Player Creep (Black)	1000	45
+Player Creep (Holy Water)	1000	37
+Player Creep (Red)	1000	46
+Player Creep (White)	1000	44
+Player Creep Holy Water Trail	1000	54
+Pointy Rib	3	127
+Poison Bomb	4	5
+Poison Mind	301	0
+Poky	44	0
+Polycephalus	269	0
+Poof01	1000	15
+Poof02	1000	16
+Poof04	1000	17
+Poop	245	0
+Poop Explosion	1000	43
+Poop Nugget	5	42
+Poop Particle	1000	58
+Pooter	14	0
+Pop Blood Tear	2	34
+Pop Tear	2	33
+Portal	306	0
+Portal Teleport	1000	161
+Pride	52	0
+Projectile	9	0
+Psy Fly	3	204
+Psy Tumor	253	0
+Psychic Horf	248	0
+Psychic Maw	26	2
+Puke Projectile	9	3
+Pulling Effect	1000	57
+Punching Bag	3	67
+Pupula Blood Tear	2	15
+Pupula Tear	2	14
+Purgatory Rift	1000	189
+Purgatory Soul	1000	189
+Purple Ball	409	1
+Purple Fire Place	33	3
+Purple Fire Projectile	9	2
+Quake Grimace	804	0
+Rag Man	405	0
+Rag Man's Head	405	1
+Rag Mega	409	0
+Rag Mega's Rebirth Pillar	409	2
+Rag man's Rag Ling	246	1
+Rage Creep	241	0
+Raglich Arm	919	1
+Ragling	246	0
+Rain Drop	1000	135
+Rainbow Baby	3	11
+Razor Tear	2	28
+Red Boom Fly	25	1
+Red Chest	5	360
+Red Fire Place	33	1
+Red Flame	1000	52
+Red Ghost	285	0
+Red Host	27	1
+Red Maw	26	1
+Redemption	1000	185
+Reverse Explosion	1000	177
+Reverse Explosion Debris	1000	177
+Rift	1000	180
+Ring Fly	222	0
+Ripple Poof	1000	14
+Robo-Baby	3	6
+Robo-Baby 2.0	3	53
+Rock Explosion	1000	62
+Rock Particle	1000	4
+Rock Projectile	9	9
+Rock Tear	2	42
+Rock Tear Poof	1000	145
+Rocket	4	19
+Rotgut (heart)	911	2
+Rotgut (maggot)	911	1
+Rotten Baby	3	54
+Rotten Beggar	6	18
+Rotty	226	1
+Round Worm	244	0
+Roundy	276	0
+Rune Bag	3	91
+Rune#1	5	300
+Rune#2	5	300
+Sack	30	2
+Sack of Pennies	3	21
+Sack of Sacks	3	114
+Sacrificial Dagger	3	35
+Sad Bomb	4	7
+Samson's Chains	3	75
+Satan	84	0
+Satan Stomp	84	10
+Saturnus Halo	1000	123
+Scared Heart	5	10
+Scarred Double Vis	39	3
+Scarred Guts	40	1
+Scarred Para-Bite	58	1
+Scissors	3	78
+Scolex	62	1
+Scythe Break	1000	20
+Scythe Tear	2	8
+Secret Room Keeper	17	1
+Selfless Knight	41	1
+Seraphim	3	92
+Shade	3	106
+Shell Game	6	6
+Shockwave (Directional)	1000	67
+Shockwave (Radial)	1000	61
+Shockwave (Random)	1000	73
+Shockwave Ring	1000	151
+Shockwave Trail	1000	151
+Shoop Impact	1000	50
+Shop Item	5	150
+Shop Restock Machine	6	10
+Shop Spikes	1000	174
+Shopkeeper	17	0
+Singe's Ball	915	1
+Siren Charm Effect	1000	165
+Siren Charm Glow	1000	165
+Siren Helper	966	0
+Siren Helper Projectile	904	10
+Siren Minion	3	220
+Siren Ring	1000	164
+Siren's Skull	904	1
+Sissy Longlegs	3	66
+Sister Maggy	3	7
+Sisters Vis	410	0
+Skinny	226	0
+Slide	44	1
+Slipped Rib	3	126
+Slippery Brown Creep	1000	94
+Slippery Brown Creep (growing)	1000	155
+Slot Machine	6	1
+Sloth	46	0
+Small Baby Long Legs	206	1
+Small Bomb	4	14
+Small Crazy Long Legs	207	1
+Small Hole	411	1
+Small Rocket	1000	118
+Small Water Ripple	1000	133
+Smart Fly	3	50
+Smoke Cloud	1000	141
+Soul Sucker	61	2
+Spawner	1000	120
+Spear of destiny	1000	83
+Special Secret Room Keeper	17	4
+Special Shopkeeper	17	3
+Spider	85	0
+Spider Baby	3	113
+Spider Explosion	1000	38
+Spider Mod	3	94
+Spidermod Text	9001	1
+Spike Effect	1000	55
+Spiked Chest	5	52
+Spin to Win	3	226
+Spirit Sword	8	10
+Spit	61	1
+Spitty	31	0
+Splasher	238	0
+Spore Tear	2	48
+Sprinkler	3	120
+Sprite Trail	1000	166
+Squirt	220	0
+Stairway	1000	156
+Stalactite	951	1
+Star of Bethlehem	3	236
+Static Halo	1000	123
+Static Halo (Prerendered)	1000	123
+Static Splash	1000	132
+Static Splash 2	1000	132
+Steven	79	1
+Steven Baby	79	11
+Steven Projectile	9	12
+Sticky Nickel	5	20
+Stitches	3	222
+Stone Eye	201	0
+Stone Grimace	42	0
+Stone Tear	2	22
+Stoney	302	0
+Succubus	3	96
+Sucker	61	0
+Suction Pitfall	291	1
+Suit Card	5	300
+Sumptorium	8	5
+Super Bum	3	102
+Super Envy	51	1
+Super Envy (big)	51	11
+Super Envy (medium)	51	21
+Super Envy (small)	51	31
+Super Gluttony	49	1
+Super Greed	50	1
+Super Lust	47	1
+Super Pooter	14	1
+Super Pride	52	1
+Super Sloth	46	1
+Super Wrath	48	1
+Swarm	281	0
+Swarm Fly Orbital	3	229
+Swarmer	91	0
+Swinger Body	216	0
+Swinger Head	216	1
+Swinger Neck	216	10
+Sword Tear	2	47
+Sworn Protector	3	83
+TV	960	4
+Tadpole	1000	158
+Tainted Round Worm Butt	244	2
+Tall Ladder	1000	156
+Tar Boy	307	0
+Tar Boy (mouth)	307	0
+Tar Bubble	1000	124
+Tarot Card	5	300
+Tear	2	0
+Tear Creep (Green)	1000	53
+Tear Poof small	1000	79
+Tear Poof very small	1000	80
+Tear PoofA	1000	12
+Tear PoofB	1000	13
+Tear Projectile	9	4
+Tech Dot	1000	126
+Tech Sword	8	11
+Tech Sword Tear	2	49
+Telekinesis\tHalo	1000	123
+Teleport Pitfall	291	2
+Teratoma	71	1
+Teratoma Medium	72	1
+Teratoma Small	73	1
+The Adversary	268	0
+The Blighted Ovum	79	2
+The Blighted Ovum Baby	79	12
+The Bloat	68	1
+The Cage	265	0
+The Carrion Queen	28	2
+The Duke of Flies	67	0
+The Fallen	81	0
+The Forsaken	403	0
+The Frail	62	2
+The Gate	263	0
+The Hollow	19	1
+The Husk	67	1
+The Lamb	273	0
+The Matriarch	413	0
+The Relic	3	23
+The Scourge (chain)	909	10
+The Stain	401	0
+The Thing	304	0
+The Wretched	100	1
+Thorns Halo	1000	123
+Throwable Bomb	4	13
+Throwable Bomb (pickup)	5	41
+Ticking Spider	250	0
+Timer	1000	119
+Tiny Bug	1000	21
+Tiny Fly	1000	33
+Tinytoma	3	216
+Tinytoma (small)	3	217
+Tonsil	3	103
+Tooth Particle	1000	35
+Tooth Tear	2	2
+Tractor Beam	7	7
+Trap Door Cover	1000	139
+Triachnid	101	1
+Trinity Shield	1000	47
+Trinket	5	350
+Trite	29	1
+Troll Bomb	4	3
+Tube Worm	244	1
+Tumor	229	0
+Turdling	237	2
+Twisted Baby 1	3	235
+Twisted Baby 2	3	235
+Ulcer	289	0
+Ultra Death Head	951	42
+Ultra Death Scythe	951	41
+Ultra Famine Fly	951	11
+Ultra Greed	406	0
+Ultra Greed Bling	1000	103
+Ultra Greed Coin (Bomb)	293	2
+Ultra Greed Coin (Heart)	293	3
+Ultra Greed Coin (Key)	293	1
+Ultra Greed Coin (Spinner)	293	0
+Ultra Greed Door	294	0
+Ultra Greed Footprint	1000	89
+Ultra Greedier	406	1
+Ultra Pestilence Fly	951	21
+Ultra Pestilence Fly Ball	951	23
+Ultra Pestilence Maggot	951	22
+Ultra Pride	46	2
+Ultra Pride Baby	38	2
+Ultra War Bomb	951	31
+Umbilical Baby	3	240
+Umbilical Cord	79	20
+Umbilical Cord Helper	1000	201
+Uriel	271	0
+Urn of Souls	1000	178
+Urn of Souls (Belial)	1000	178
+Vanishing Twin	3	242
+Vis	39	0
+Visage Chain	903	10
+Visage Mask	903	1
+Visage Plasma	903	20
+Vomit Grimace	42	1
+Walking Boil	88	0
+Walking Gut	88	1
+Walking Sack	88	2
+Wall Bug	1000	68
+Wall Creep	240	0
+Wall Hole X-Ray	1000	36
+Wall Hugger	218	0
+War	65	0
+War without horse	65	10
+Water Droplet	1000	41
+Water Ripple	1000	133
+Water Splash	1000	99
+Whirlpool	1000	142
+Whirlpool Particle	1000	142
+White Fire Place	33	4
+Widow	100	0
+Willo Spawner	1000	157
+Wisp	1000	65
+Wisp Familiar	3	206
+Wizoob	219	0
+Womb hole teleport	1000	82
+Wood Particle	1000	27
+Wooden Chest	5	56
+Worm	1000	63
+Worm Friend	3	233
+Worm Friend Snare	1000	184
+Wormwood Hole	1000	137
+Wormwood Hole Spray	1000	137
+Wrath	48	0
+YO LISTEN!	3	111
+lvl2 Fly	214	0
+lvl2 Spider	215	0

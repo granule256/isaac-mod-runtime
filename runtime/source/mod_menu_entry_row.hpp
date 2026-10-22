@@ -119,6 +119,64 @@ inline constexpr float kMenuGameRowHeight = 48.0F;
     return slot < kModEntrySlot ? slot : slot - 1;
 }
 
+// ---------------------------------------------------------------------------
+// 引擎自己说"这一项可不可选"：**继续游戏**（引擎行 1）是唯一有这种状态的格子
+// ---------------------------------------------------------------------------
+//
+// 由来（2026-09-27 批次 159，用户真机报的 bug）：没有可继续的局时，引擎把"继续游戏"那一行
+// 画成灰帧、并在**它自己的**导航里跳过它 —— `Menu_Game::Update @0x40D5E0` 三处读
+// `Manager + 0x2B688` 的两个字节：
+//   * `0x40D7C0`（上键）/ `0x40D84C`（下键）：**两个都为 0 ⇒ 跳过 index 1**；
+//   * `0x40D9F0` 收尾：把已经停在 1 上的选中项**拨回 0**；
+//   * `0x40DB5C`：按这两格选**第 2 层行图**的帧（0 / 2 / 1）—— "灰"是引擎自己画的。
+// `Menu_Game::Init @0x40D1A4` / `Reset @0x40D428` 也只有 `byte0 != 0` 才默认停在第 1 项。
+//
+// 而这一列是**我们自己驱动光标**的（插了一格）⇒ 不照抄这条规则，光标就能停在灰掉的
+// "继续游戏"上；按下确认时引擎先读到的就是我们每帧写回去的行号 1 ⇒ 直接走"载入存档"那条路，
+// 没有存档 ⇒ **进局即死**。
+//
+// 判据与引擎**逐条一致**：`byte0 != 0 || byte1 != 0` ⇒ 可选（引擎只在**两个都是 0** 时跳过）。
+
+//: 引擎那 5 项里"继续游戏"的行号。
+inline constexpr std::uint32_t kContinueEngineRow = 1;
+
+//: 第 `slot` 格在**引擎看来**可不可选。只有"继续游戏"会不可选；我们那一格与其余格子恒可选。
+[[nodiscard]] constexpr bool SlotSelectableByEngine(std::uint32_t slot,
+                                                    bool continueAvailable) noexcept {
+    if (slot >= kMenuGameEntryCount) {
+        return false;
+    }
+    return EngineRowForSlot(slot) != kContinueEngineRow || continueAvailable;
+}
+
+//: 上下键推进：**跳过引擎说不可选的格子**（引擎自己就是这么走的：0 ↔ 2）。
+//: 最多绕一圈；万一整列都不可选（不可能发生）就停在原地。
+[[nodiscard]] constexpr std::uint32_t AdvanceSlotSkipping(std::uint32_t slot, bool down,
+                                                          bool continueAvailable) noexcept {
+    if (kMenuGameEntryCount == 0) {
+        return 0;
+    }
+    const std::uint32_t start = slot < kMenuGameEntryCount ? slot : 0;
+    std::uint32_t current = start;
+    for (std::uint32_t step = 0; step < kMenuGameEntryCount; ++step) {
+        current = down ? (current + 1) % kMenuGameEntryCount
+                       : (current + kMenuGameEntryCount - 1) % kMenuGameEntryCount;
+        if (SlotSelectableByEngine(current, continueAvailable)) {
+            return current;
+        }
+    }
+    return start;
+}
+
+//: **写回引擎前的最后一道保险**：引擎说"继续游戏"不可选时，那一行**绝不许写回 1**
+//: （引擎的确认分支读的就是写回去的这一格；写 1 = 走"载入存档"那条路 ⇒ 无存档时进局即死）。
+//: 入参是**引擎行号**（调用方先过 `EngineRowForSlot` 与 0..4 的夹取）—— 这样"写回的是行号"
+//: 那条 2026-09-23 的教训仍然写在调用点里看得见。
+[[nodiscard]] constexpr std::uint32_t GuardContinueRowForWrite(std::uint32_t engineRow,
+                                                               bool continueAvailable) noexcept {
+    return (engineRow == kContinueEngineRow && !continueAvailable) ? 0 : engineRow;
+}
+
 //: 引擎索引该写成什么：**夹在 0..4**。引擎只认 5 项，越界有风险；
 //: 我们的第 6 格（slot 5）在引擎看来"停在最后一项（OPTIONS）上"，光标位置由我们自己给。
 [[nodiscard]] constexpr std::uint32_t EngineIndexClampedForSlot(std::uint32_t slot) noexcept {

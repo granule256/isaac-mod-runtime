@@ -204,7 +204,7 @@ int main(int argc, char** argv) {
     if (!Expect("ISAAC_FIRST_COUNT", 1.0, stage)) return 1;
     if (!Expect("ISAAC_LAST_COUNT", static_cast<double>(frames), stage)) return 1;
     if (!Expect("ISAAC_RUN_CALLBACK_OK", 1.0, stage)) return 1;
-    if (!Expect("ISAAC_FIRST_FRAME_WARNINGS", 1.0, stage)) return 1;
+    if (!Expect("ISAAC_FIRST_FRAME_WARNINGS", 0.0, stage)) return 1;
     // 第二帧调用同样的 stub：同一会话里的告警不许重复。
     if (!Expect("ISAAC_SECOND_FRAME_WARNINGS", 0.0, stage)) return 1;
     // 批次 026：`Isaac.RenderScaledText` 必须真的走到原生绘制入口（旧桩"什么都不画"，
@@ -291,7 +291,7 @@ end)
 local ISAAC_MEMBERS = {
   'GetFrameCount', 'GetTime', 'DebugString', 'IsInGame', 'RunCallback',
   'GetPlayer', 'GetItemConfig', 'FindByType', 'FindInRadius',
-  'CountEnemies', 'CountBosses', 'WorldToScreen', 'WorldToRenderPosition',
+  'CountEnemies', 'CountBosses', 'WorldToScreen', 'WorldToRenderPosition', 'ScreenToWorld',
   'GetPersistentGameData', 'GetTrinketIdByName', 'GetCallbacks',
   'LoadModData', 'SaveModData', 'RenderScaledText',
 }
@@ -315,10 +315,11 @@ local STUB_PROBES = {
    check = function(value) return value == 0 end, expected = '0'},
   {name = 'Isaac.GetPersistentGameData',
    call = function() return Isaac.GetPersistentGameData() end,
-   check = function(value) return value == 0 end, expected = '0'},
-  {name = 'Isaac.GetTrinketIdByName',
-   call = function() return Isaac.GetTrinketIdByName('Swallowed Penny') end,
-   check = function(value) return value == 0 end, expected = '0'},
+   check = function(value) return value == nil end, expected = 'nil without engine'},
+  -- ★ 批次 404（2026-10-07）：`Isaac.GetTrinketIdByName` **不再是桩**（本批补了本体饰品静态表
+  -- ＋模组追加层）。原来这条探针钉的是"恒 0"，现在它的正确返回值是**本体饰品 id**
+  -- （`Swallowed Penny` → 53）或未命中时 `-1` —— 由 `test_lua_batch404_mod_content_names`
+  -- 的端到端场景覆盖，不在这里当桩探。
   {name = 'Isaac.GetCallbacks',
    -- 批次 3 起这是真实现（字符串名 → 命名回调表；数字 id → 我们自己的回调注册表），
    -- 所以"空表"这条要用一个**没有登记过**的 id 来验：本脚本登记了 21/22 与
@@ -339,12 +340,33 @@ local STUB_PROBES = {
   {name = 'Isaac.RenderScaledText',
    call = function() return Isaac.RenderScaledText('x', 1, 2, 1, 1, 0, 0, 0, 1) end,
    check = function(value) return value == nil end, expected = 'nil'},
+}
+
+-- ★★ 批次 195（2026-09-29）：坐标变换三条的探针 —— 它们的**形状变了**，判据也随之改写。
+--
+-- `Isaac.WorldToScreen` / `Isaac.WorldToRenderPosition`（`0x0E01000C` / `0x0E01000D`）以前是
+-- **恒等变换**（共享助手 `WorldToIdentity`），旧判据钉的是"坐标等于输入"。现在两条都**真调引擎**
+-- （`GetRenderPosition(pos, true)`，PLT 桩 `0x670FA0` + 16 字节入口守卫）。
+-- 宿主 harness **没有引擎映像** ⇒ 它们的正确行为是**报错**（"native bindings are unavailable"），
+-- 不是原样返回：编一个坐标会让模组把东西画到错的地方，而且不报错。
+--
+-- `Isaac.ScreenToWorld`（`0x0E01005F`，本批**新增**）：引擎里没有反向入口（PC 自己也就地算），
+-- 而且 `g_Game` 为空时 **PC 原样返回输入** ⇒ 宿主（没进局）这一档正是"原样返回"。
+local NATIVE_PROBES = {
   {name = 'Isaac.WorldToScreen',
    call = function() return Isaac.WorldToScreen(Vector(3, 4)) end,
-   check = function(value) return type(value) == 'userdata' end, expected = 'a Vector'},
+   error = 'native bindings are unavailable',
+   expected = 'a Lua error (no engine image on the host: fabricating a coordinate would draw at the wrong place silently)'},
   {name = 'Isaac.WorldToRenderPosition',
    call = function() return Isaac.WorldToRenderPosition(Vector(3, 4)) end,
-   check = function(value) return type(value) == 'userdata' end, expected = 'a Vector'},
+   error = 'native bindings are unavailable',
+   expected = 'a Lua error (same reason as WorldToScreen)'},
+  {name = 'Isaac.ScreenToWorld',
+   call = function() return Isaac.ScreenToWorld(Vector(3, 4)) end,
+   check = function(value)
+     return type(value) == 'userdata' and value.X == 3 and value.Y == 4
+   end,
+   expected = 'the same Vector unchanged (g_Game 为空时 PC 也原样返回)'},
 }
 
 -- 采样函数：帧计数与 `GetTime()` 的逐帧断言都在这里做。
@@ -380,7 +402,10 @@ local function sample()
     -- 第二帧再调同样的 stub：每会话只告警一次，所以这里必须一行告警都没有。
     installCollector()
     Isaac.CountBosses()
-    Isaac.WorldToScreen(Vector(1, 1))
+    -- ★ 批次 195：原来这里调的是 `Isaac.WorldToScreen`（它当时是桩、会告警一次）。它现在
+    -- 是真实现（宿主上会报"绑定不可用"）⇒ 换一条**仍然是桩**的成员来验"每会话只告警一次"。
+    -- ★ 批次 404：`GetTrinketIdByName` 也不是桩了 ⇒ 换成 `GetPersistentGameData`（仍是桩）。
+    Isaac.GetPersistentGameData()
     ISAAC_SECOND_FRAME_WARNINGS = countLines('未实现：')
     restorePrint()
   end
@@ -393,8 +418,7 @@ local function sample()
       if type(Isaac[name]) ~= 'function' then error('missing Isaac.' .. name) end
     end
     -- `Options` 只有这两个字段（EID 用的就是它们）。
-    if type(Options.HUDOffset) ~= 'number' then error('Options.HUDOffset must be a number') end
-    if Options.HUDOffset ~= 1.0 then error('Options.HUDOffset must be the normalized 0..1 default') end
+    if Options.HUDOffset ~= nil then error('HUDOffset must be unavailable without engine memory') end
     if type(Options.Language) ~= 'string' then error('Options.Language must be a string') end
     if Options.Language ~= 'zh' then error('Options.Language must default to zh') end
 
@@ -419,6 +443,26 @@ local function sample()
         error(probe.name .. ' must return ' .. probe.expected)
       end
     end
+
+    -- ===== 坐标变换三条（批次 195）：两条真调引擎（宿主上必须报错）、一条在"没进局"时原样返回 =====
+    for _, probe in ipairs(NATIVE_PROBES) do
+      local callOk, value = pcall(probe.call)
+      if probe.error ~= nil then
+        if callOk then
+          error(probe.name .. ' must raise a Lua error, got ' .. tostring(value))
+        end
+        if not string.find(tostring(value), probe.error, 1, true) then
+          error(probe.name .. ' must mention "' .. probe.error .. '", got ' .. tostring(value))
+        end
+      else
+        if not callOk then
+          error(probe.name .. ' must not raise a Lua error: ' .. tostring(value))
+        end
+        if not probe.check(value) then
+          error(probe.name .. ' must return ' .. probe.expected)
+        end
+      end
+    end
     for _, probe in ipairs(STUB_PROBES) do
       local callOk = pcall(probe.call)
       if not callOk then error(probe.name .. ' must not raise on the second call') end
@@ -427,6 +471,7 @@ local function sample()
     -- 三件套。"不报错 + 安全值"由上面的 `check` 覆盖；这里钉的是"它们不再自报未实现"
     -- （否则真机的"容器读不到"会被误导成"这个 API 还是 stub"）。
     local IMPLEMENTED = {
+      ['Isaac.GetPersistentGameData'] = true,
       ['Isaac.GetCallbacks'] = true,
       ['Isaac.FindByType'] = true,
       ['Isaac.FindInRadius'] = true,
@@ -445,14 +490,23 @@ local function sample()
               .. warnings .. ' time(s)')
       end
     end
-    ISAAC_FIRST_FRAME_WARNINGS = 1
+    ISAAC_FIRST_FRAME_WARNINGS = countLines('未实现：')
 
-    -- 传进去的不是 Vector 时必须返回 nil，而不是假装算出一个坐标。
-    if Isaac.WorldToScreen(42) ~= nil then
-      error('Isaac.WorldToScreen must return nil for a non-Vector argument')
+    -- 传进去的不是 Vector 时必须**明确报错**，而不是假装算出一个坐标。
+    -- ★ 批次 195 改写：三条坐标变换在旧版是"共享助手 `WorldToIdentity` 给 nil"，现在是真实现
+    -- （两条调引擎、一条照 PC 的算式就地算）⇒ 参数类型不对时与 PC 的绑定层同形：报 Lua 错误。
+    -- 断言形状也换成"必须报错且消息里现拼出 API 名"，比"给 nil"更强（nil 会被模组当坐标用）。
+    local misOk, misErr = pcall(function() return Isaac.WorldToScreen(42) end)
+    if misOk or not string.find(tostring(misErr), 'Isaac.WorldToScreen', 1, true) then
+      error('Isaac.WorldToScreen must raise a Lua error naming the API for a non-Vector argument')
     end
-    if Isaac.WorldToRenderPosition('nope') ~= nil then
-      error('Isaac.WorldToRenderPosition must return nil for a non-Vector argument')
+    misOk, misErr = pcall(function() return Isaac.WorldToRenderPosition('nope') end)
+    if misOk or not string.find(tostring(misErr), 'Isaac.WorldToRenderPosition', 1, true) then
+      error('Isaac.WorldToRenderPosition must raise a Lua error naming the API for a non-Vector argument')
+    end
+    misOk, misErr = pcall(function() return Isaac.ScreenToWorld(42) end)
+    if misOk or not string.find(tostring(misErr), 'Isaac.ScreenToWorld', 1, true) then
+      error('Isaac.ScreenToWorld must raise a Lua error naming the API for a non-Vector argument')
     end
 
     -- `Isaac.GetPlayer` 批次 2 起是真实现（读引擎内存），所以它不在 stub 名单里：宿主 harness
@@ -536,7 +590,9 @@ local mod = RegisterMod('EID load order', 1)
 -- EID main.lua 的加载阶段（在注册回调之前，也就是"脚本顶层的调用"）。
 local languageAtLoad = Options.Language
 local itemConfig = Isaac.GetItemConfig()
-local hudOffsetPosition = Vector(20, 12) * (Options.HUDOffset - 1) + Vector(0, 3)
+local hudAvailable, hudOffsetPosition = pcall(function()
+  return Vector(20, 12) * (Options.HUDOffset - 1) + Vector(0, 3)
+end)
 
 local done = false
 local function verify()
@@ -549,10 +605,7 @@ local function verify()
     if itemConfig ~= nil then error('Isaac.GetItemConfig must be nil without an engine base') end
     -- EID main.lua 第 1248 行的表达式：Vector(20, 12) * (Options.HUDOffset - 1) + Vector(0, 3)
     -- HUDOffset = 1.0 时结果是 (0, 3)；这里同时锁定类型与 EID 的算术输入。
-    if hudOffsetPosition.X ~= 0 or hudOffsetPosition.Y ~= 3 then
-      error('Options.HUDOffset must be usable in arithmetic, got ' ..
-            tostring(hudOffsetPosition.X) .. ',' .. tostring(hudOffsetPosition.Y))
-    end
+    if hudAvailable then error('No engine memory must not produce a fabricated HUD position') end
     if languageAtLoad ~= 'zh' then error('Options.Language must be zh during script load') end
     -- Harness 在初始化完成后把宿主语言切到 en；动态属性必须在回调里读到新值。
     if Options.Language ~= 'en' then error('Options.Language must follow a language change to en') end
@@ -687,3 +740,7 @@ class LuaIsaacTableTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+# 2026-10-09更正：此无引擎夹具不再要求伪造HUD默认值；真实内存/位置公式另由test_lua_options_hud_offset覆盖。
+
+# 2026-10-09更正：PGD已恢复真实userdata，无引擎夹具返回nil且无未实现告警；首帧改读实际告警数。

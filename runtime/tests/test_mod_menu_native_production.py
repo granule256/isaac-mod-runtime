@@ -46,6 +46,7 @@ import re
 import sys
 import unittest
 from pathlib import Path
+from tools.lua_api_stub_report import strip_comments
 
 ROOT = Path(__file__).resolve().parents[2]
 SOURCE = ROOT / "runtime" / "source"
@@ -64,7 +65,12 @@ NEW_HOOKS = ("MenuGameRender", "MenuTitleRender", "MenuManagerSetState")
 #: 挪到 `PersistentGameData::SetReadOnly`（唯一写只读位的地方，参数改成「原参数 OR 该禁」）。
 #: ★ 它**不属于** `NEW_HOOKS` —— 那一组是"探针也装、所以探针构建里必须跳过"的；
 #:   本条的入口探针**不碰**，两边不会在同一入口装第二次，所以不需要那条跳过判据。
-PRODUCTION_ONLY_HOOKS = ("PersistentGameDataSetReadOnly",)
+#: 批次 147（2026-09-26）追加：引擎那条"模组 content 加载"路的闸门
+#: （`ModManager::LoadConfigs` 入口中继）。同样**只属于生产**：原生模组页探针不碰这个入口，
+#: 两边不会在同一入口装第二次。
+#: ★ 批次 363（2026-10-05）追加第五条：`ANM2::Load` 入口中继（`Anm2Load`）。它当时**漏了这条
+#:   账**（只改了目录、没补这个元组）⇒ 本测试从 363 起一直是红的，批次 378 补上。
+PRODUCTION_ONLY_HOOKS = ("PersistentGameDataSetReadOnly", "ModManagerLoadConfigs", "Anm2Load")
 #: 本功能相关的全部挂点（**按追加顺序**）—— 目录顺序、`HOOK_NAMES`、回调声明三条判据共用。
 ALL_NEW_HOOKS = NEW_HOOKS + PRODUCTION_ONLY_HOOKS
 #: 状态面字段数（`State` 的字段个数 = 读数工具那一段的下标个数）。
@@ -92,15 +98,61 @@ ALL_NEW_HOOKS = NEW_HOOKS + PRODUCTION_ONLY_HOOKS
 #: 2026-09-25（批次 120）：56 → **58**（[56]..[57] = 存档分区里那个"污染过"标记我们认为它是几 /
 #: 读写失败几次。用户裁定"**比 PC 严**"⇒ 跨重启也要保持，所以标记要落盘；没有这两格就分不清
 #: "文件读到了什么"与"存档分区那条路坏没坏"）。
-STATE_FIELDS = 58
+#: 2026-09-26（批次 135）：58 → **60**（[58]..[59] = 本模块堆的**空闲**/*已用*字节数，口径
+#: = newlib `mallinfo()`。由来：`PngToPcx` 的转码峰值撞满堆 ⇒ `std::bad_alloc` ⇒ 09-25 无声卡死 /
+#: 09-26 可见崩溃；有这两格，"是不是堆撞满"在现场直接可读，不用再靠推断）。
+#: 2026-09-27（批次 153）：60 → **61**（[60] = 「把模组 content 喂给引擎」是从哪个时机跑起来的：
+#: 1 = 模组脚本之前 / 2 = 进模组页。由来：148b 喂成功了（容器 132 → 155），可模组的
+#: `Isaac.GetCostumeIdByPath` 在同一个读数里是 **43 次调用、0 次命中** —— 喂晚了。
+#: 没有这一格，"喂成功了但喂晚"与"压根没喂"在读数里长得一模一样）。
+#: 2026-09-27（批次 154）：61 → **62**（[61] = "模组脚本之前"**那一次**走到了哪一步 0..3。
+#: 由来：`g_ModEngineScanStage` 会被后来的重试覆盖 ⇒ "早期那次成没成"读不出来，而
+#: "进局瞬间崩"（模组拿 `-1` 去 `Music::Play`）恰恰要靠这一格分清"早期没喂成"与"喂成了又被抹掉"）。
+#: 2026-09-27（批次 159）：62 → **64**（[62] = 引擎说「继续游戏」可不可选：1 / 0 / **2 = 读不到**；
+#: [63] = 因为它不可选而**跳过**它的次数。由来：没有可继续的局时，引擎自己会跳过那一项、
+#: 把行图画成灰帧，而这一列是**我们自己驱动光标**的 ⇒ 不照抄这条规则，光标就能停在灰项上；
+#: 按确认时引擎读到的正是我们每帧写回去的行号 1 ⇒ 走"载入存档"那条路 ⇒ **进局即死**。
+#: 没有这两格就分不清"我们按不可选处理了"与"我们压根没读到引擎的判定"）。
+#: 2026-09-28（批次 180）：64 → **68**（[64]/[65] = 进程可用内存总量 / 已用；
+#: [66]/[67] = "进程内存管理池"总量 / 其中已用。`svcGetInfo` 的 6/7/16/17，失败存 0xFFFFFFFF）。
+#: 由来：本批把 `HeapSize` 抬到 128 MiB 治"D6 跳舞模组卡死 / 人物模型消失"，而"128 MiB 装不装得下"
+#: 上游没有文档能回答 ⇒ 把"进程还剩多少内存"量出来，让"再抬/再省"有现场数字可依，不再靠猜）。
+#: 2026-10-05（批次 378）：68 → **74**（[68]..[73] = 把"逐模组喂 content"从 2 项补到引擎那 16 项之后
+#: 必须能读出来的六格：16 项入口解析成功位图 / 解析失败位图（bit16 = `ModEntry::ctor`）/
+#: 14 项加载器调用次数 / `EntityConfig::PostLoadMods` 调用次数（正常 1）/
+#: `ModEntry::LoadCustomResources` 调用次数（正常 = 启用模组数）/ 真 `ModEntry` 构造次数。
+#: 由来：本批之前只喂 `costumes2.xml` / `music.xml` 两项，其余 12 个文件的内容在 Switch 上
+#: **从来就没进过引擎**（引擎自己那条 `ModManager::LoadConfigs @ 0x41E388` 在本版镜像里从不执行）；
+#: 而"某个加载器入口没解析到"与"喂进去了但没生效"在旧读数里长得一模一样 —— 没有这六格，
+#: 下一轮只能再猜一遍。★ 解析失败**不报错不崩**，只表现为"那个文件的内容不进引擎"）。
+#: 2026-10-08（批次 409）：74 → **75**（[74] = 引擎 `ModManager::LoadConfigs` **尾部**那一步
+#: —— `ANM2::Load("gfx/ui/mod_defaults.anm2", true)` 到 `ModManager+0x368` 那个
+#: "模组道具在暂停屏上的默认图标" ANM2 —— 被我们调了几次，正常 = 1。
+#: 由来：批次 378 重放 `LoadConfigs` 时只重放到"逐模组喂 content + `PostLoadMods`"，
+#: **漏掉了紧接着的收尾那一步**；后果是那个 ANM2 永远默认构造（层数组为空），
+#: 而 `ANM2::GetLayer(int)` 不做越界返回空 ⇒ 暂停屏上出现模组道具（id ≥ 733）时
+#: `RenderCustomCollectionItem` 走"默认"分支会对空层数组算地址再 `+0x80` ⇒ 写 `0x80` 崩
+#: （真机 2026-10-08 13:45 实测；报告 `dist/crash-20261008-1345/`）。
+# 2026-10-15：生产字段/初值都已追加到90，前76格保持原顺序。
+STATE_FIELDS = 90
 
 sys.path.insert(0, str(ROOT))
 
 
 def function_body(text: str, signature: str) -> str:
-    """取一个函数的函数体（从签名起、到下一个顶格的 `}` 为止）。"""
+    """按真实大括号配对取函数体，忽略注释与字符串中的示例。"""
+    text = strip_comments(text)
     assert signature in text, f"没找到 {signature}"
-    return text.split(signature, 1)[1].split("\n}\n", 1)[0]
+    body = text.split(signature, 1)[1]
+    depth = 1 if "{" in signature else 0
+    for token in re.finditer(r'''"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|[{}]''', body):
+        if token.group() == "{":
+            depth += 1
+        elif token.group() == "}":
+            depth -= 1
+            if depth == 0:
+                return body[:token.start()]
+    raise AssertionError(f"函数体未闭合：{signature}")
 
 
 class ModMenuNativeProductionTests(unittest.TestCase):
@@ -108,6 +160,12 @@ class ModMenuNativeProductionTests(unittest.TestCase):
     def setUpClass(cls):
         cls.cpp = CPP.read_text(encoding="utf-8")
         cls.hpp = HPP.read_text(encoding="utf-8")
+
+    def test_function_parser_keeps_nested_unindented_blocks(self):
+        source = 'void Example() { /* } */ const char* s = "}"; if (ready) {\n}\n return;\n}\nvoid Other() {}'
+        body = function_body(source, "void Example()")
+        self.assertIn("return;", body)
+        self.assertNotIn("Other", body)
 
     # ---- 1) 判据必须是图层数，不是 `GetLayer` 的空指针 ------------------------
 
@@ -365,6 +423,38 @@ class ModMenuNativeProductionTests(unittest.TestCase):
             "runLatchCarriedOver", "runLatchResumes",
             # 批次 120（2026-09-25）加的两格：存档分区里那个标记（我们认为它是几 / 读写失败几次）。
             "taintFileState", "taintFileFailures",
+            # 批次 135（2026-09-26）加的两格：本模块堆的空闲/已用字节数（`mallinfo()`，每 60 帧采）。
+            "heapFreeBytes", "heapUsedBytes",
+            # 批次 153（2026-09-27）加的一格：喂模组 content 的**触发时机**
+            # （1 = 模组脚本之前 / 2 = 进模组页 / 3 = 每帧重试）。见 `STATE_FIELDS` 上面那段。
+            "modEngineTrigger",
+            # 批次 154（2026-09-27）加的一格：**"模组脚本之前"那一次**走到了哪一步（0..3）。
+            "modEngineEarlyStage",
+            # 批次 159（2026-09-27）加的两格：引擎说「继续游戏」可不可选（1 / 0 / 2 = 读不到）/
+            # 因为它不可选而跳过它的次数。见 `STATE_FIELDS` 上面那段。
+            "continueAvailable", "continueSkipped",
+            # 批次 180（2026-09-28）加的四格：进程可用内存总量 / 已用、进程内存管理池总量 / 已用
+            # （`svcGetInfo` 的 6/7/16/17，失败 = 0xFFFFFFFF）。见 `STATE_FIELDS` 上面那段。
+            "processTotalMemoryBytes", "processUsedMemoryBytes",
+            "systemResourceTotalBytes", "systemResourceUsedBytes",
+            # 批次 378（2026-10-05）加的六格：把"逐模组喂 content"补到引擎那 16 项之后的取证
+            # （16 项入口解析成功位图 / 失败位图 + `ModEntry::ctor` 的那一位 / 14 项加载器调用次数 /
+            #  `PostLoadMods` 次数 / `LoadCustomResources` 次数 / 真 `ModEntry` 构造次数）。
+            # 见 `STATE_FIELDS` 上面那段。
+            "modEngineLoadersResolved", "modEngineLoaderFailures", "modEngineContentCalls",
+            "modEnginePostLoadModsCalls", "modEngineCustomResourceCalls", "modEngineRealEntryBuilds",
+            # 批次 409（2026-10-08）加的一格：`ModManager::LoadConfigs` 尾部那一步
+            # （`gfx/ui/mod_defaults.anm2` → `ModManager+0x368`）被调几次（正常 = 1）。
+            # 见 `STATE_FIELDS` 上面那段。
+            "modEngineDefaultAnm2Loads",
+            # 批次 417（2026-10-08）加的一格：**Lua 状态自己占多少字节**（`lua_gc` 的 GCCOUNT）。
+            # 用来把 [59] 的"已用"拆成 Lua 侧与其它：其它 = [59] − 本格。
+            "luaStateBytes",
+            "heapAllocatedBytes", "heapFreeChunkCount", "heapMmappedRegions",
+            "heapTopFreeBytes", "imagePcxCacheUsedBytes",
+            "processTotalNonSystemBytes", "processUsedNonSystemBytes",
+            "resourceLimitMemoryBytes", "resourceMemoryUsedBytes",
+            "memNormalKiB", "memHeapKiB", "memCodeKiB", "memMappedKiB", "memPrivateKiB",
         ]
         fields = re.findall(r"std::uint32_t\s+(\w+);", self.hpp[self.hpp.index("struct State"):])
         self.assertEqual(fields, expected,
@@ -480,11 +570,13 @@ class ModMenuNativeProductionTests(unittest.TestCase):
     # ---- 8) HookId 与 kHookCatalog 一一对应，且三条进了读数工具的 HOOK_NAMES --
 
     def test_new_hooks_are_appended_to_the_catalog_in_order(self):
-        catalog = CATALOG.read_text(encoding="utf-8")
+        catalog = strip_comments(CATALOG.read_text(encoding="utf-8"))
         order = re.search(r"enum class HookId[^{]*\{(.*?)\};", catalog, re.S).group(1)
         ids = re.findall(r"(\w+)\s*(?:=\s*\d+)?\s*,", order)
-        self.assertEqual(ids[-len(ALL_NEW_HOOKS) - 1:-1], list(ALL_NEW_HOOKS),
-                         "新 `HookId` 必须**追加在末尾**（插在中间会让所有老编号挪位）")
+        # Later hooks may follow this historical group; its numeric IDs must
+        # stay fixed rather than forcing this group to remain the catalog tail.
+        self.assertEqual(ids[15:21], list(ALL_NEW_HOOKS),
+                         "模组页挂点的旧编号必须保持 15..20，后续挂点只能追加")
         self.assertEqual(ids[-1], "Count")
         rows = re.findall(
             r"\{\s*HookId::(\w+)\s*,\s*\"([^\"]*)\"\s*,\s*HookBackend::(\w+)\s*,\s*(true|false)\s*\}",
@@ -497,8 +589,10 @@ class ModMenuNativeProductionTests(unittest.TestCase):
         reader = READER.read_text(encoding="utf-8")
         # 注意：`.*?` 会停在注释里的 `` `[i]` `` 那个方括号上 ⇒ 用"行尾的 `]`"当结束符。
         names = re.search(r"^HOOK_NAMES = \[(.*?)\]\n", reader, re.S | re.M).group(1)
-        tail = re.findall(r"'(\w+)'", names)[-len(ALL_NEW_HOOKS):]
-        self.assertEqual(tail, list(ALL_NEW_HOOKS),
+        entries = re.findall(r"'(\w+)'", names)
+        self.assertEqual(entries, ids[:-1],
+                         "读数工具的整张挂点表必须与实际 HookId 完全一致")
+        self.assertEqual(entries[15:21], list(ALL_NEW_HOOKS),
                          "读数工具的 `HOOK_NAMES` 必须按同一顺序追加这几条"
                          "（它按 HookId 顺序读 `g_hookCallbacks`）")
 
@@ -701,14 +795,342 @@ class ModMenuNativeProductionTests(unittest.TestCase):
         self.assertIn("ModPageIsActive", reload_body,
                       "页面正显示时不换它的动画（等它关了再换，标志还挂着）")
         self.assertIn("pageReloads", reload_body, "重载次数要进状态面")
-        self.assertIn("positionSet = 0", reload_body,
-                      "位置那套状态机要跟着重来（`Init` 会写回页面位置）")
+        # ★ 2026-09-27 批次 169 改判据：页面位置**不再有状态机** —— 引擎那套模型是
+        #   "位置 = `Menu_Mods::Init` 的入参、之后谁都不改"（`Render` 只读它；滚动全靠画布），
+        #   所以这里要判的是"重载**不许**去动页面位置"，而不是"要把状态机重置掉"。
+        #   依据：`PreLanguageSwitch` 只 `ANM2::Reset(this+0x10)`、
+        #   `PostLanguageSwitch` 与 `Init` 同一套动作但**不碰构造函数、也不动页面位置**。
+        self.assertNotIn("g_ModsPosition", reload_body,
+                         "重载不许碰页面位置：位置是 `Init` 的入参，引擎自己从不改它")
         # ④ 时机：在**每帧更新**里调，不在渲染回调里（那一下会 `ANM2::Load`）。
         update = function_body(self.cpp, "void ModMenuNativeUpdate() noexcept")
         self.assertIn("ReloadPageForLanguage(*module);", update, "每帧更新里要调它（要传 module：那三步要用它读 GOT 槽）")
         title_relay = function_body(self.cpp, 'extern "C" void EntryRelayMenuTitleRenderCallback')
         self.assertNotIn("ReloadPageForLanguage", title_relay,
                          "渲染回调里不许重载页面（`ANM2::Load` 不能在渲染批次中间做）")
+
+    # ---- 12c) `LoadCostumes` 的第二个参数**不许传空指针**（2026-09-27 批次 152）----
+
+    def test_load_costumes_is_never_called_with_a_null_mod_entry(self):
+        """★★ 批次 152：`ItemConfig::LoadCostumes(path, ModEntry*)` 的第二个参数**不能传 `nullptr`**。
+
+        真机证据（149b 读数，`dist/gdb-read-20260927-*`）：`LoadCostumes` 被我们调了 2 次、
+        null 服装容器却 **132 → 132**（模组的 23 条一条没进）。
+
+        2026-09-27 把 `LoadCostumes @ 0x3B9448` 全文读完（962 行反汇编）得到的机制 ——
+        每一句都能照地址复核（完整版在 `runtime_constants.hpp` 的批次 152 那一段）：
+
+          * 第二个参数在这个函数里**只被用作"是不是空指针"**（`0x3B9DA0` / `0x3B9DF0` /
+            `0x3B9E40` 三处 `ldr x2,[sp,#0x48]` + `cbz`），另加由它算出
+            `ctx = ModEntry + 0x108`（入口 `0x3B946C add`、`0x3B9478 csel`）；
+          * `type="none"` 那条分支（`0x3B9E40`，模组的 23 条全是它）**一次都不碰 `ctx`**：
+              非空 ⇒ `0x3B9E58 str w8,[sp,#0x88]` 把编号覆盖成"容器旧条数"、
+                     `0x3B9E5C bl _Znwm` 造新条目、`0x3B9EE0`+`0x3B9EE4` 压进
+                     `ItemConfig+0x30/+0x38`、`0x3B9FFC str w8,[x9,#0x4]` 写编号、
+                     `0x3BA070 string::assign(item+0x88, …)` 写路径 ⇒ **容器涨**；
+              空指针 ⇒ 落到"按 XML 的 `id` 去找**已有**那条"的路（`0x3B9EF4`）⇒ 容器不涨。
+          * 本体 `resources/costumes2.xml` 的调用点 `0x3F5FFC-0x3F6010` 就是 `mov x2, xzr`
+            —— 所以"空指针也照样能跑"**不等于**"空指针是对的"：那是**本体**资源的语义。
+
+        ## 为什么替身的两个 map 必须是**合法空树**
+        `ctx`（`ModEntry+0x108`）是两个 libc++ `std::map<int,int>` 的头部（`+0x108` / `+0x120`），
+        `trinket`（`0x3B9DA0`）与 `passive·active·familiar`（`0x3B9DF0`）两条分支会读它们
+        （`0x3B9F64` / `0x3BA0F4`）。空树的判据 = `__begin_node_ == &__end_node_`、
+        `__end_node_.__left_ = 0`、`size_ = 0`；**零填充不行** ——
+        `0x3B9F74 ldr x8,[x9]` → `0x3B9F78 ldr x8,[x8]` 会解引用 `__begin_node_`（全 0 即空指针）。
+        """
+        calls = [line for line in self.cpp.splitlines() if "loadCostumes(" in line]
+        self.assertEqual(len(calls), 2,
+                         f"应当恰好两处调用 `loadCostumes(...)`（两种路径口径各一次），实际 {len(calls)}")
+        for line in calls:
+            self.assertNotIn("nullptr", line,
+                             "第三个实参不许是 `nullptr` —— 那会让 `type=\"none\"` 的服装"
+                             "**一条都不加**（149b 真机 132 → 132 就是这个；机制见本方法的文档串）")
+            self.assertIn("modEntry", line, "第三个实参必须是我们那个替身")
+        # 替身本身：结构、布局常量、以及"空树"那三步必须都在。
+        self.assertIn("struct SubstituteModEntryTree", self.cpp, "替身要有一个具名的 map 头部结构")
+        self.assertIn("struct SubstituteModEntry", self.cpp, "替身本体要有具名结构（不许用裸缓冲）")
+        self.assertIn("kModEntryCostumeContextOffset", self.cpp,
+                      "`ctx` 的偏移要用具名常量（引擎入口那条 `add x8,x2,#0x108`）")
+        self.assertIn("void* const modEntry = &g_SubstituteModEntry;", self.cpp,
+                      "两个调用点共用同一个替身指针")
+        self.assertIn("tree.beginNode = &tree.endNodeLeft;", self.cpp,
+                      "空 map 的 `__begin_node_` 必须指向 `__end_node_` 自身（**不能是 0**："
+                      "`0x3B9F78 ldr x8,[x8]` 会解引用它）")
+        self.assertIn("tree.endNodeLeft = nullptr;", self.cpp, "空树的根那一格必须是 0")
+        self.assertIn("tree.size = 0;", self.cpp, "空树的 `size_` 必须是 0")
+        for field in ("costumeMap", "trinketMap"):
+            self.assertIn(f"MakeEmptyCostumeTree(g_SubstituteModEntry.{field});", self.cpp,
+                          f"{field} 也要摆成空树（引擎那几条分支各读一个）")
+        # 常量在 `runtime_constants.hpp`（偏移值对得上入口那条 `add` 的立即数）。
+        constants = (SOURCE / "runtime_constants.hpp").read_text(encoding="utf-8")
+        self.assertIn("kModEntryCostumeContextOffset = 0x108;", constants,
+                      "`ctx` 相对 `ModEntry*` 的偏移就是入口 `add x8,x2,#0x108` 那个立即数")
+        self.assertIn("kModEntryCostumeContextBytes = 0x30;", constants,
+                      "两个 map 头部各 0x18 字节（`__begin_node_`/`__end_node_.__left_`/`size_`）")
+        self.assertIn("kModEntrySubstituteBytes", constants, "替身的长度要有个具名常量")
+
+    # ---- 12d) 喂引擎必须**在模组脚本之前**（2026-09-27 批次 153）--------------
+
+    def test_mod_content_is_loaded_before_the_mod_scripts_run(self):
+        """★★ 批次 153：`content/` 必须在**模组脚本执行之前**喂给引擎。
+
+        ## 真机证据（同一次读数，`dist/gdb-read-20260927-110207.txt`）
+
+        | 读数 | 值 | 说明 |
+        | --- | --- | --- |
+        | `costume_entries_before → after` | **132 → 155** | 服装**确实喂进引擎了**（152 的修法生效） |
+        | `Isaac.GetCostumeIdByPath` | **43 次调用 / 0 次命中** | 模组查的时候容器里只有 132 |
+        | `g_IsaacCostumePathNullCount` | **132** | ⇒ 查询发生在"本体已就绪、我们的 23 条还没进"的窗口里 |
+        | `AddNullCostume` 收到的编号 | **-1**（兜底挡下 33 次） | 模组手里那张表全是 `-1` |
+
+        ## 为什么"晚了"就永远修不回来
+
+        模组惯例是在自己 Lua 文件的**文件作用域**用 `Isaac.GetCostumeIdByPath` 建服装表
+        （PC 官方教程的写法；`main.lua:26/32`），**建完就再也不查**（跳舞那段 `main.lua:449/461`
+        只是取表）。⇒ 表里是 `-1` 就是 `-1`。
+
+        ## 判据（三条）
+
+        1. `hook_manager.cpp` 里那次调用必须落在 `LoadDefaultManifestModThroughService()` 的
+           **① 模组列表已发布（`ModMenuPublishDiscovered`）→ ② 各模组资源挂载点已注册
+           （`g_ContentMountService.RegisterMod`）→ ③ 模组脚本还没跑（`service.LoadAll`）**
+           这个窗口里。★ 156 才挪到这里：153~155 放在 `InitializeDefaultManifestMod(...)` **之前**
+           = ① 之前 —— 那时模组列表还是空的、内容目录也没注册 ⇒ 那一次**什么都没做**
+           （真机 `[61] = 4`、加载器一次都没被调用），却被记成"跑完了"；
+        2. 时机只能在**游戏线程、引擎自己的 `Manager::Update` 帧**上（该处注释已写明"从这一行起
+           才允许用游戏 nnSdk 的文件 API"，143/144 两次崩溃就是违反了这条）；
+        3. "进模组页"那条路**必须留着**当兜底（早期那一次可能因为别的原因没成）；
+           但要有闸挡住重复喂（否则同一条内容会被加两遍）。
+        """
+        hook = HOOK_MANAGER.read_text(encoding="utf-8")
+        self.assertIn("isaac::runtime::modmenu::LoadEngineModContentBeforeModScripts();", hook,
+                      "`hook_manager.cpp` 必须调用那个「模组脚本之前」的入口")
+        call_at = hook.index("isaac::runtime::modmenu::LoadEngineModContentBeforeModScripts();")
+        # ★★ 批次 156：**位置**在 `LoadDefaultManifestModThroughService()` 里、
+        #    注册完各模组的资源挂载点之后、跑模组脚本之前。
+        #
+        #    为什么不是"在 `InitializeDefaultManifestMod(...)` 之前"（153~155 的位置）：
+        #    那个位置**太早了** —— 模组列表（`ModMenuPublishDiscovered`）还没发布、
+        #    模组的内容目录也还没 `RegisterMod` ⇒ 那一次**什么都没做**
+        #    （真机 `[61] = 4`、加载器一次都没被调用），而它照样被记成"跑完了"。
+        service = function_body(hook, "bool LoadDefaultManifestModThroughService(u32* failureDetail) {")
+        # ★ 判据只看**代码**（去掉行注释）：上面那段说明里逐字写了 `service.LoadAll(...)`
+        #   与 `ModMenuPublishDiscovered(batch)` 这两个名字，直接在原文里 `index` 会匹配到
+        #   **注释**、把顺序判反（2026-09-27 实测踩过一次）。这也是本仓"判据只看代码"那条纪律。
+        code = re.sub(r"//[^\n]*", "", service)
+        call_in_service = code.index(
+            "isaac::runtime::modmenu::LoadEngineModContentBeforeModScripts();")
+        # ★★★ 批次 378（2026-10-05）：这个锚点以前是 `g_ContentMountService.RegisterMod(`
+        #   —— 它代表"模组的资源已经对引擎可见"。模组目录挂载被 **PC 的资源层重定向**取代之后，
+        #   同一件事的锚点变成"**发布重定向清单**"（判定意图不变：内容必须在"资源可见"之后、
+        #   在"跑模组脚本"之前）。取证见 `docs/分析-模组挂载机制与371没音乐定案-20261005.md`。
+        resources_visible_at = code.index("PublishModResourceRedirectList(")
+        load_all_at = code.index("service.LoadAll(")
+        self.assertLess(resources_visible_at, call_in_service,
+                        "★ 调用必须排在「发布重定向清单（模组资源对引擎可见）」**之后** —— "
+                        "引擎的文件层要能打开 `<目录>/content/*.xml`，靠的就是那条重定向")
+        self.assertLess(call_in_service, load_all_at,
+                        "★ 调用必须排在 `service.LoadAll(...)`（**跑模组脚本**）**之前** —— "
+                        "服装编号是模组在文件作用域查死并固定的，晚一步就永远补不回来")
+        self.assertIn("ModMenuPublishDiscovered(", code[:call_in_service],
+                      "模组列表（`ModMenuPublishDiscovered`）要在调用之前就发布好，否则循环体进不去")
+        # 并且**不许**再放回"清单安装之前"那个位置。
+        callback_zone = hook[:hook.index("InitializeDefaultManifestMod(&failureDetail)")]
+        self.assertNotIn("LoadEngineModContentBeforeModScripts();", callback_zone[-2000:],
+                         "★ 不许再放回 `InitializeDefaultManifestMod(...)` 之前 —— 那个位置"
+                         "模组列表还是空的、内容目录也没注册（真机 `[61] = 4` 就是那次）")
+        # `.hpp` 要有声明（它是跨 TU 的入口）。
+        self.assertIn("void LoadEngineModContentBeforeModScripts() noexcept;", self.hpp,
+                      "`.hpp` 里要有声明（它是 `hook_manager.cpp` 调的跨 TU 入口）")
+        # 闸：有次数上限、且"涨过就不再喂"（防止把同一条内容加两遍）。
+        self.assertIn("kMaximumContentLoadAttempts", self.cpp,
+                      "闸要有具名的次数上限（不许无上限地试：每次都在读文件 + 调引擎）")
+        self.assertIn("g_CostumeCountAfter > g_CostumeCountBefore", self.cpp,
+                      "要判「上一次到底涨没涨」")
+        self.assertIn("g_MusicEntryCountAfter > g_MusicEntryCountBefore", self.cpp,
+                      "音乐侧同理")
+        # 早期那条路要能自己把 `Manager` 取出来（那时每帧更新还没跑过 ⇒ `g_Menu.manager` 是 0）。
+        self.assertIn("ReadSingleton(module, kManagerSlotOffset, &manager)", self.cpp,
+                      "早期时机要按引擎自己的 `g_Manager` 槽现取一次 Manager")
+
+    # ---- 12e) 喂数据**不许依赖任何单一时机**（2026-09-27 批次 154）------------
+
+    def test_content_load_retries_until_it_succeeds(self):
+        """★★ 批次 154：喂模组 `content/` 这件事**不许依赖任何单一时机**。
+
+        ## 真机事故（`dist/crash-153-20260927-1121.log`，用户 2026-09-27 11:21 报"进入局内的瞬间报错了"）
+
+        崩点在引擎的 `Music::Play + 0x68`（`Data Abort`、`Fault Address = 0`），`X[02] = 0xffffffff`
+        = **-1**；栈是 `MC_POST_UPDATE 派发 → 我们的 MusicPlay → 引擎 Music::Play`。
+        也就是模组在回调里拿到 `Isaac.GetMusicIdByName("specialist") == -1`（它的
+        `content/music.xml` 没进引擎），紧接着 `MusicManager():Play(-1, 1)`。
+
+        153 把喂数据挪到"模组脚本之前"那一刻；但那**一次**不保证能解析挂载路径 ⇒ 那次没喂成，
+        而我又告诉用户"这次不用开模组页" ⇒ **没有任何兜底** ⇒ 模组的 `music.xml` 始终没进引擎。
+        ⇒ 结论：必须**每帧那条路也会重试到成功为止**。
+
+        ## 判据
+
+        1. `ModMenuNativeUpdate` 里要调重试入口，且排在"菜单管理器读不到就 return"**早退之前**
+           （一局游戏里菜单管理器不存在，而"进局前把内容喂好"恰恰是最要紧的场景）；
+        2. 重试要有**具名的次数上限**与**帧间隔**（每次都在读文件 + 调引擎，不许每帧都试、也不许无上限）；
+        3. "早期那一次"的阶段要单独留一格（`[61]`）—— `g_ModEngineScanStage` 会被重试覆盖，
+           而"早期没喂成"与"喂成了又被抹掉"的修法完全不同。
+        """
+        update = function_body(self.cpp, "void ModMenuNativeUpdate() noexcept")
+        self.assertIn("MaybeRetryEngineModContent(*module);", update,
+                      "每帧更新里要调重试入口（它同时覆盖「模组页」与「局内」两种场景）")
+        retry_at = update.index("MaybeRetryEngineModContent(*module);")
+        early = update.index("ReadSingleton(*module, kMenuManagerSlotOffset")
+        self.assertLess(retry_at, early,
+                        "★ 必须排在「菜单管理器读不到就 return」那道早退**之前** —— "
+                        "在一局游戏里菜单管理器不存在，而那时内容还没喂好正是本次崩溃的形状")
+        retry = function_body(self.cpp, "void MaybeRetryEngineModContent(const TargetModule& module) noexcept {")
+        self.assertIn("EngineModContentLoaded()", retry,
+                      "成功之后必须立刻变空转（否则会把同一条内容加两遍）")
+        self.assertIn("kContentLoadRetryIntervalFrames", retry, "要有具名的帧间隔")
+        for token in ("kMaximumContentLoadAttempts", "EngineModContentLoaded()",
+                      "kContentLoadRetryIntervalFrames"):
+            self.assertIn(token, self.cpp, f"缺 {token}")
+        # 「早期那一次」的阶段单独留格。
+        self.assertIn("g_ModMenuState.modEngineEarlyStage = g_ModEngineScanStage;", self.cpp,
+                      "「模组脚本之前」那次走到的阶段要单独留一格（它会被后面的重试覆盖）")
+        self.assertIn("modEngineEarlyStage", self.hpp, "状态面 .hpp 要有 [61] 那一格")
+        # 触发时机现在有三档。
+        self.assertIn("(void)LoadEngineModContent(*module, 1);", self.cpp, "1 = 模组脚本之前")
+        self.assertIn("(void)LoadEngineModContent(module, 2);", self.cpp, "2 = 进模组页")
+        self.assertIn("(void)LoadEngineModContent(module, 3);", self.cpp, "3 = 每帧重试")
+
+    # ---- 12g) 喂 content **不许依赖挂载解析**（2026-09-27 批次 155）-------------
+
+    def test_mod_content_is_fed_without_depending_on_mount_resolution(self):
+        """★★ 批次 155：喂模组 `content/` 必须**先直接喂"相对应用根"的路径**，解析只作兜底。
+
+        ## 为什么（154 的真机读数把这条钉死了）
+
+        * `GetMountedFilePath` 返回 `rom:/isaac_mods/mods/<目录>/content/<文件>`，**去掉 `rom:/`
+          之后与"我们自己拼的那条"逐字相同** ⇒ 它其实只是**恒等变换 + 一次"路径在挂载表里吗"的校验**；
+        * 而那次校验依赖 `ContentManager` 就绪。154 的读数显示：在"模组脚本之前"那一刻
+          `ResolveMountedPath` **全部解析不到** ⇒ 我们**整条跳过**了（那一次的 `[61]` 还写着
+          "跑完" —— 所以 155 把"跑完"与"喂进去了"分成 2 / 4 两个阶段字）；
+        * 结果：内容直到后面某次每帧重试才进去（`[60] = 3`），**那时模组的服装编号早就查成 `-1`**
+          （`GetCostumeIdByPath` 43 次调用 0 命中、查的时候容器只有 132）⇒ **舞照旧不出来**。
+
+        ⇒ 做法照**引擎自己那条模组路**（`ModManager::LoadConfigs @ 0x41E388`）：它就是把
+        `ModEntry::GetContentPath` 拼出的"相对应用根"串**直接**交给 `FileManager::OpenRead` 的。
+        `OpenRead` 打开失败是普通分支（返回空即返回，不 abort）⇒ 直接喂没有风险。
+
+        ## 判据
+
+        1. 每个文件**先**调一次"直接喂"（`loadCostumes(config, path, modEntry)` /
+           `loadMusic(music, path, true)`）；
+        2. `ResolveMountedPath` 只能出现在那之后（兜底），且**不许**再是"喂之前的前置条件"；
+        3. 阶段字要有 **4 = 跑完了但一条没涨**（否则"跑完"会被读成"喂进去了"——154 就栽在这里）。
+        """
+        for call in ("loadCostumes(config, path, modEntry);", "loadMusic(music, path, true);"):
+            self.assertIn(call, self.cpp, f"必须先直接喂相对应用根的路径：{call}")
+        outfit = function_body(self.cpp, "bool LoadEngineModContent(const TargetModule& module, std::uint32_t trigger) {")
+        direct = outfit.index("loadCostumes(config, path, modEntry);")
+        resolve = outfit.index("ResolveMountedPath(&g_Menu, path, resolved, sizeof(resolved))")
+        self.assertLess(direct, resolve,
+                        "★ 直接喂必须排在 `ResolveMountedPath` **之前** —— 解析依赖 `ContentManager` 就绪，"
+                        "而真机上「模组脚本之前」那一刻它还没就绪（154 的整条跳过就是这么来的）")
+        # 解析仍然要留着（兜底），不能删。
+        self.assertEqual(outfit.count("ResolveMountedPath(&g_Menu, path, resolved, sizeof(resolved))"), 2,
+                         "解析要留着作兜底（服装 + 音乐各一次）")
+        # 阶段字：跑完 ≠ 喂进去了。
+        self.assertIn("g_ModEngineScanStage = EngineModContentLoaded() ? 2 : 4;", self.cpp,
+                      "★ 阶段 2 必须是「跑完**且容器涨了**」；跑完但一条没涨要记 4 —— "
+                      "154 把「跑完」记成 2，害得我读成「早期时机已经通了」")
+        reader = READER.read_text(encoding="utf-8")
+        self.assertIn("4: '跑完了但**两个容器一条没涨**", reader,
+                      "读数工具要能解释阶段 4（否则看到 4 不知道是什么）")
+
+    def test_unobservable_mod_content_is_fed_once_per_mod(self):
+        """★★ 批次 378：**没有可观测信号**的那一批（`LoadCustomResources` + 12 个 content 文件）
+        必须**每个模组只喂一次** —— 否则重试轮会把"追加语义"的加载器喂出重复条目。
+
+        ## 为什么（批次 378 实施完、主线程复核时发现的实际偏离）
+
+        * 重试那道闸（`slot != 0 && EngineModContentLoaded()`）**只看 `costumes2.xml` / `music.xml`
+          两个容器涨没涨**；那两个容器没涨时，最多 8 轮里**每一轮**都会把那 12 个文件重新喂一遍；
+        * 而引擎那几个加载器里 `LoadChallenges(…, true)`、`EntityConfig::Load`、
+          `LoadCustomResources` 里的 `ANM2::Load` 都是**追加 / 再加一次引用**的语义
+          ⇒ 重复条目、ANM2 引用数虚高；PC 的 `Manager::LoadConfigs` 对这一批**只跑一次**。
+
+        ## 判据
+
+        1. 真条目 + `LoadCustomResources` 的构造与喂法必须挂在 `if (!unobservableFed)` 里；
+        2. 12 行那个分支必须是 `else if (!unobservableFed)`（**不许**无条件 `FeedModContentFile`）；
+        3. 循环之后必须置位 `g_ModContentUnobservableFedMask`（置位必须在喂之后）；
+        4. 服装 / 音乐两行**不许**被这个闩锁挡住 —— 它们有客观信号（容器涨没涨），
+           "没涨就再试一次"是批次 153 定下、真机摔出来过的机制，不能因为这条新闩锁被拿掉。
+        """
+        outfit = function_body(
+            self.cpp, "bool LoadEngineModContent(const TargetModule& module, std::uint32_t trigger) {")
+        self.assertIn("g_ModContentUnobservableFedMask", self.cpp, "闩锁必须存在（见该掩码的注释）")
+        pre_guard = outfit.index("if (!unobservableFed) {")
+        self.assertLess(pre_guard, outfit.index("realEntry = RealModEntryForIndex("),
+                        "★ 真条目只该在「这一批还没喂过」时构造")
+        self.assertLess(pre_guard, outfit.index("FeedModCustomResources(realEntry);"),
+                        "★ `LoadCustomResources` 也要被同一个闩锁挡（它内部会 `ANM2::Load`）")
+        feed = outfit.index("FeedModContentFile(row, manager, realEntry, path, baseLength, sizeof(path));")
+        guard = outfit.index("} else if (!unobservableFed) {")
+        self.assertLess(guard, feed,
+                        "★ 12 个 content 文件必须挂在 `else if (!unobservableFed)` 上 —— "
+                        "无条件喂就等于每轮重试都追加一遍")
+        self.assertLess(feed, outfit.index("g_ModContentUnobservableFedMask |= "),
+                        "置位必须在喂之后（否则这一轮就不喂了）")
+        self.assertIn("if (row == kModFeedRowCostumes) {", outfit)
+        self.assertIn("} else if (row == kModFeedRowMusic) {", outfit)
+        self.assertEqual(outfit.count("FeedModContentFile("), 1,
+                         "★ 12 行只能有**一处**喂法；多出来的那一处会绕过闩锁")
+
+    # ---- 12f) `Music:Play` 的编号保险（2026-09-27 批次 154）--------------------
+
+    def test_music_play_blocks_invalid_ids_instead_of_crashing(self):
+        """★★ 批次 154：`Music:Play` / `MusicManager:Play` 收到**确认无效**的编号时静默挡下。
+
+        **为什么必须挡**：引擎按 `条目 = *(Music + 0x3D8) + id * 0x70` 取曲目
+        （`Music::Play @ 0x427238` 的 `umaddl`）⇒ `id = -1` 是往表**前面**读 0x70 字节，
+        真机就是 `Data Abort`（`Fault Address = 0`）把整个游戏进程打死。
+        `AddNullCostume` 有这条保险（批次 141），音乐**没有** —— 所以这一次是崩，不是"没音乐"。
+
+        ★ 这是与 PC 的**有意偏离**：`MusicManager.md:102` 记着"ID 为负或越界 PC 会崩游戏"，
+        原实现据此**刻意不挡**。之所以现在就挡：PC 上模组拿到的编号**不会是** `-1`
+        （PC 在模组脚本看到它之前就把 `content/music.xml` 加载好了），我们这边会因为**自己的
+        加载时机**而出现那个窗口 ⇒ **那是我们的缺口，不该让玩家承担一次崩溃**。
+        挡法是**静默跳过**（不报 Lua 错，避免把整条回调摘掉）+ 计数，与 `AddNullCostume` 同一套。
+        """
+        music_api = (ROOT / "runtime" / "src" / "interfaces" / "lua" / "music_api.cpp")
+        text = music_api.read_text(encoding="utf-8")
+        play = function_body(text, "int MusicPlay(lua_State* state) {")
+        self.assertIn("CheckMusicId(", play, "`Music:Play` 必须过一遍编号保险")
+        self.assertIn("MusicIdVerdict::Invalid", play, "确认无效时必须走单独的分支")
+        self.assertIn("RecordMusicPlayGuardBlocked()", play, "挡下要计数（否则「没放歌」与「我们挡了」分不开）")
+        # ★ 挡下**不许**报 Lua 错：报错会把整条模组回调摘掉，比"这次没放歌"严重得多。
+        blocked = play.split("MusicIdVerdict::Invalid", 1)[1].split("}", 1)[0]
+        self.assertNotIn("luaL_error", blocked, "编号无效时不许报 Lua 错（会摘掉整条回调）")
+        self.assertIn("return 0;", blocked, "静默返回")
+        # 判定不了 ⇒ 照原样放行（吞掉合法调用比多崩一次更符合本仓既定口径）。
+        self.assertNotIn("Undecidable", blocked,
+                         "`Undecidable` 不许走挡下分支 —— 判定不了就照 PC 那样子调进去")
+        # 判据本身：同一条链、同一份常量（与 `IsaacGetMusicIdByName` 一致）。
+        isaac_api = (ROOT / "runtime" / "src" / "interfaces" / "lua" / "isaac_api.cpp")
+        api_text = isaac_api.read_text(encoding="utf-8")
+        check = function_body(api_text, "MusicIdVerdict CheckMusicId(std::int64_t id) noexcept {")
+        for token in ("kMusicEntryVectorBeginOffset", "kMusicEntryVectorEndOffset",
+                      "kMusicEntrySize", "kMusicEntryMaximumCount", "kManagerMusicOffset"):
+            self.assertIn(token, check, f"判据必须复用曲目表那份常量：{token}")
+        self.assertIn("if (id < 0)", check, "负数必须先判（`-1` 是往表前面读）")
+        # 计数器要能被读数工具按裸名读到。
+        stats = (ROOT / "runtime" / "src" / "interfaces" / "lua" / "api_call_stats.hpp").read_text(
+            encoding="utf-8")
+        self.assertIn("g_MusicPlayGuardBlocked", stats, "计数器要有声明")
+        self.assertIn("g_MusicPlayGuardBlocked{0}", api_text, "计数器要有定义")
+        reader = READER.read_text(encoding="utf-8")
+        self.assertIn("g_MusicPlayGuardBlocked", reader, "读数工具要读它")
 
     # ---- 13) 只改内存，唯一例外是离开页面时那一次落盘 ------------------------
 

@@ -1,3 +1,4 @@
+#include "interfaces/lua/api100_bindings.hpp"
 #include "interfaces/lua/color_api.hpp"
 
 #include "interfaces/lua/owner_binding.hpp"
@@ -16,7 +17,8 @@ namespace {
 using LuaRuntime::ColorHandle;
 using LuaRuntime::kColorMetatable;
 
-constexpr char kColorOwner[] = "KColor";
+constexpr char kColorOwner[] = "Color";
+constexpr LuaHandlerBinding kColorMethods[] = {{0x0E011020, &ColorSetColorize},{0x0E011021, &ColorLerp}};
 
 // The colour fields a Mod reads back. PC exposes the four components as floats in 0..1.
 struct ColorField {
@@ -71,7 +73,7 @@ constexpr ColorConstant kColorConstants[] = {
 }  // namespace
 
 int ColorIndex(lua_State* state) {
-    auto* color = static_cast<ColorHandle*>(luaL_checkudata(state, 1, kColorMetatable));
+    auto* color = RequireColorArgument(state, 1);
     const char* field = luaL_checkstring(state, 2);
     for (const ColorField& candidate : kColorFields) {
         if (std::strcmp(candidate.name, field) == 0) {
@@ -81,12 +83,17 @@ int ColorIndex(lua_State* state) {
             return 1;
         }
     }
-    lua_pushnil(state);
+    if (std::strcmp(field, "__mul") == 0) {
+        lua_pushcfunction(state, ColorMultiply);
+        return 1;
+    }
+    luaL_getmetatable(state,kColorMetatable);lua_getfield(state,-1,"__methods");
+    if(lua_istable(state,-1)){lua_pushvalue(state,2);lua_rawget(state,-2);}else lua_pushnil(state);
     return 1;
 }
 
 int ColorNewIndex(lua_State* state) {
-    auto* color = static_cast<ColorHandle*>(luaL_checkudata(state, 1, kColorMetatable));
+    auto* color = RequireColorArgument(state, 1);
     if (lua_type(state, 2) != LUA_TSTRING) {
         return luaL_error(state, "KColor fields are R, G, B and A");
     }
@@ -124,19 +131,25 @@ int CreateColorHandle(lua_State* state) {
             state, "Color accepts red, green, blue and an optional alpha and three offsets");
     }
     for (int index = 0; index < given; ++index) {
+        // PC main.lua 的构造包装对每个可选参数分别用 `value or default`。
+        if (index >= 3 && !lua_toboolean(state, first + index)) {
+            continue;
+        }
         if (!lua_isnumber(state, first + index)) {
             return luaL_error(
                 state, "Color accepts red, green, blue and an optional alpha and three offsets");
         }
     }
     auto* color = static_cast<ColorHandle*>(lua_newuserdata(state, sizeof(ColorHandle)));
+    *color = {};
     color->red = static_cast<float>(lua_tonumber(state, first));
     color->green = static_cast<float>(lua_tonumber(state, first + 1));
     color->blue = static_cast<float>(lua_tonumber(state, first + 2));
-    color->alpha = given >= 4 ? static_cast<float>(lua_tonumber(state, first + 3)) : 1.0f;
+    color->alpha = given >= 4 && lua_toboolean(state, first + 3)
+                       ? static_cast<float>(lua_tonumber(state, first + 3)) : 1.0f;
     // 后三个（颜色偏移）只在句柄里保存：`font_api` 送给引擎的仍然是起头的 16 字节 RGBA。
-    color->offsetRed = given >= 7 ? static_cast<float>(lua_tonumber(state, first + 4)) : 0.0f;
-    color->offsetGreen = given >= 7 ? static_cast<float>(lua_tonumber(state, first + 5)) : 0.0f;
+    color->offsetRed = given >= 5 ? static_cast<float>(lua_tonumber(state, first + 4)) : 0.0f;
+    color->offsetGreen = given >= 6 ? static_cast<float>(lua_tonumber(state, first + 5)) : 0.0f;
     color->offsetBlue = given >= 7 ? static_cast<float>(lua_tonumber(state, first + 6)) : 0.0f;
     luaL_getmetatable(state, kColorMetatable);
     lua_setmetatable(state, -2);
@@ -147,7 +160,7 @@ std::size_t AttachColorMethods(lua_State* state) noexcept {
     // `KColor` is read through `__index`, so it owns no method table of its own yet; the
     // catalog-driven attach still runs so a future method lands here without touching Lua
     // registration code.
-    return AttachOwnerMethods(state, kColorOwner, nullptr, 0);
+    return AttachApi100Methods(state,"Color") + AttachOwnerMethods(state,kColorOwner,kColorMethods,sizeof(kColorMethods)/sizeof(kColorMethods[0]));
 }
 
 // `KColor` 类表的 `__index`：文档化的 9 个常量。每次读取都产出**新**的颜色值 —— 共享同一个
@@ -158,11 +171,13 @@ int KColorClassIndex(lua_State* state) {
         return 1;
     }
     const char* field = lua_tostring(state, 2);
+    if(std::strcmp(field,"Lerp")==0){PushHandler(state,ColorLerp,0,0x0E011021);return 1;}
     for (const ColorConstant& candidate : kColorConstants) {
         if (std::strcmp(candidate.name, field) != 0) {
             continue;
         }
         auto* color = static_cast<ColorHandle*>(lua_newuserdata(state, sizeof(ColorHandle)));
+        *color = {};
         color->red = candidate.red;
         color->green = candidate.green;
         color->blue = candidate.blue;
@@ -179,4 +194,62 @@ int KColorClassIndex(lua_State* state) {
     return 1;
 }
 
+int ColorSetColorize(lua_State* state) {
+    auto* color=RequireColorArgument(state,1);
+    // PC65AEB0直接存入四个float，不夹值，不改变tint/offset。
+    const float r=static_cast<float>(luaL_checknumber(state,2));
+    const float g=static_cast<float>(luaL_checknumber(state,3));
+    const float b=static_cast<float>(luaL_checknumber(state,4));
+    const float amount=static_cast<float>(luaL_checknumber(state,5));
+    color->colorizeRed=r;color->colorizeGreen=g;color->colorizeBlue=b;color->colorizeAmount=amount;return 0;
+}
+int ColorLerp(lua_State* state) {
+    auto* a=RequireColorArgument(state,1);
+    auto* b=RequireColorArgument(state,2);
+    const float t=static_cast<float>(luaL_checknumber(state,3));
+    auto* out=static_cast<ColorHandle*>(lua_newuserdata(state,sizeof(ColorHandle)));
+    // PC65B210对全部11格做(1-t)*a+t*b，t允许外插，保持独立返回值。
+    static_assert(sizeof(ColorHandle)==11*sizeof(float));
+    float inputA[11],inputB[11],result[11];std::memcpy(inputA,a,sizeof(inputA));std::memcpy(inputB,b,sizeof(inputB));
+    for(unsigned i=0;i<11;++i){const float first=(1.0f-t)*inputA[i];const float second=t*inputB[i];result[i]=first+second;}
+    std::memcpy(out,result,sizeof(result));luaL_getmetatable(state,kColorMetatable);lua_setmetatable(state,-2);return 1;
+}
+
+int ColorMultiply(lua_State* state) {
+    auto* left = RequireColorArgument(state, 1);
+    // PC844990先复制右值；自乘或两个引用指向同一根值时也必须保留原输入。
+    const ColorHandle right = *RequireColorArgument(state, 2);
+    left->red *= right.red;
+    left->green *= right.green;
+    left->blue *= right.blue;
+    left->alpha *= right.alpha;
+    // PC65B0F0：右染色RGB和为零则保留左染色；左和为零则复制右染色，
+    // 否则平均四格。染色强度本身不参与“是否存在染色”的判断。
+    if ((right.colorizeRed + right.colorizeGreen) + right.colorizeBlue != 0.0f) {
+        if ((left->colorizeRed + left->colorizeGreen) + left->colorizeBlue == 0.0f) {
+            left->colorizeRed = right.colorizeRed;
+            left->colorizeGreen = right.colorizeGreen;
+            left->colorizeBlue = right.colorizeBlue;
+            left->colorizeAmount = right.colorizeAmount;
+        } else {
+            left->colorizeRed = (left->colorizeRed + right.colorizeRed) * 0.5f;
+            left->colorizeGreen = (left->colorizeGreen + right.colorizeGreen) * 0.5f;
+            left->colorizeBlue = (left->colorizeBlue + right.colorizeBlue) * 0.5f;
+            left->colorizeAmount = (left->colorizeAmount + right.colorizeAmount) * 0.5f;
+        }
+    }
+    left->offsetRed += right.offsetRed;
+    left->offsetGreen += right.offsetGreen;
+    left->offsetBlue += right.offsetBlue;
+    auto* reference = static_cast<ColorReferenceHandle*>(
+        lua_newuserdata(state, sizeof(ColorReferenceHandle)));
+    reference->value = left;
+    luaL_getmetatable(state, kColorMetatable);
+    lua_setmetatable(state, -2);
+    // 直接持有根对象，避免 a=a*b 的每次调用保留上一层引用而形成长链。
+    if (lua_rawlen(state, 1) == sizeof(ColorReferenceHandle)) lua_getuservalue(state, 1);
+    else lua_pushvalue(state, 1);
+    lua_setuservalue(state, -2);
+    return 1;
+}
 } // namespace isaac::runtime

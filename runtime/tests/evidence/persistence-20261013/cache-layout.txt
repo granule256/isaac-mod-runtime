@@ -1,0 +1,9 @@
+next=0
+namespaceId=8
+slot=16
+encoded=24
+generation=40
+bank=48
+loaded=52
+exists=53
+Cache_size=56 Buffer_size=16 Buffer_length=8

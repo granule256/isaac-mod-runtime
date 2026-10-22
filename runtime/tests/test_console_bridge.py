@@ -348,7 +348,9 @@ class ConsoleStateSurfaceTests(unittest.TestCase):
                          "状态面不能写成 `extern \"C\" inline ... = {}`（gcc -Werror 会判红）")
         reader = READER.read_text(encoding="utf-8")
         self.assertIn("'g_ConsoleState': '_ZN5isaac7runtime7console14g_ConsoleStateE'", reader)
-        self.assertIn("'g_ConsoleState': 0x0", reader)
+        # ELF同步后的真实偏移和待同步占位值都可登记；零不是状态面契约。
+        self.assertRegex(reader, r"'g_ConsoleState':\s*0x[0-9a-fA-F]+")
+        self.assertIn("sync_syms_from_elf", reader)
 
 
 class ConsoleSwitchSurfaceTests(unittest.TestCase):
@@ -371,7 +373,7 @@ class ConsoleSwitchSurfaceTests(unittest.TestCase):
         bridge = BRIDGE.read_text(encoding="utf-8")
         self.assertIn("kDisabledBySwitch", bridge)
         # 拒绝判据必须在"长度上限"那条之前（否则关了开关还会去判命令合法性，语义就不叫"没有控制台"）。
-        self.assertLess(bridge.index("!core.switchEnabled"), bridge.index("length > kCommandLengthLimit"),
+        self.assertLess(bridge.index("!core.switchEnabled"), bridge.index("length == SIZE_MAX", bridge.index("!core.switchEnabled")),
                         "开关判据必须排在执行入口的更前面")
         session = (ROOT / "runtime" / "src" / "infrastructure" / "console"
                    / "console_session.hpp").read_text(encoding="utf-8")

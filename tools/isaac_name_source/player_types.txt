@@ -1,0 +1,27 @@
+# 由 tools/generate_isaac_name_tables.py --import-xml 从游戏 dump 提取。
+# 来源：rp_patch/resources/players.xml（编号+键，权威） + resources/players.xml（补英文原文）
+#       + rp_patch/resources/stringtable.sta（键 → 英文；★ 语言位置要剔除 `Key` 伪语言那一档，见 `parse_stringtable` 的注释）。
+# 格式：名字<TAB>编号[<TAB>堕落编号]，按名字升序。用途：Isaac.GetPlayerTypeByName（PC 契约 tools/pc_contract_docs/Isaac.md）。
+# 第三列只有角色表有（`players.xml` 的 id 21..40 是堕落角色、名字与本体重复）。
+# 名字里的反斜杠/制表符/换行/回车/问号已转义（`\\` / `\t` / `\n` / `\r` / `\?`）。
+\?\?\?	4	25
+Apollyon	15	34
+Azazel	7	28
+Bethany	18	36
+Black Judas	12
+Cain	2	23
+Eden	9	30
+Esau	20
+Eve	5	26
+Isaac	0	21
+Jacob	19	37
+Judas	3	24
+Keeper	14	33
+Lazarus	8	29
+Lazarus II	11
+Lilith	13	32
+Magdalene	1	22
+Samson	6	27
+The Forgotten	16	35
+The Lost	10	31
+The Soul	17	40

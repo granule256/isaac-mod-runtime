@@ -70,6 +70,8 @@ def parse(data: bytes) -> tuple[dict, list[dict]]:
     """返回 (头部字典, 记录列表)；任何自洽性检查不过就抛 ValueError。"""
     if len(data) < HEADER_SIZE:
         raise ValueError(f"文件太短：{len(data)} 字节")
+    if data[:8] == b"ISMODST3":
+        raise ValueError("这是447起每模组/槽的双代次ISMODST3文件；本工具只编辑保留的ISMODST2历史容器，不适用于新文件")
     if data[:8] != MAGIC:
         raise ValueError(f"magic 不对：{data[:8]!r}")
     version, header_size = struct.unpack_from("<HH", data, 8)

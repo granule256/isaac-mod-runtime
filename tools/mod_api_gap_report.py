@@ -19,6 +19,11 @@ EID 只是第一个目标，GoodTrip 是第二个；换成别的模组不需要�
 （第 ⑥ 段，2026-09-16 补 —— 原先只认前者，`Room:GetFrameCount` 就是这么漏掉的）。
 字段面在第 ⑤ 段。口径、判据与假阳性来源都写在各段代码注释里，改之前先读。
 
+★ **扫模组源码一律走 `lua_source()`**（2026-09-29 批次 202 起）：它读文件并**剥掉 Lua 注释**
+（逐字等长，行号与证据不变）。以前不剥，于是注释里的名字会被当成真调用 ——
+`eid_api.lua:1004` 那句文档注释里的 `EntityPlayer:GetName()` 就被当成了调用点。
+**字符串刻意不剥**（字段面的 `obj["Field"]` 靠它），理由见 `lua_source()` 上方那段口径。
+
 用法：
     python3 tools/mod_api_gap_report.py                        # 默认扫发布包里的 EID
     python3 tools/mod_api_gap_report.py --mod <模组目录> --label goodtrip
@@ -99,6 +104,9 @@ def load_catalog_entries() -> dict[str, dict[str, str]]:
         'Global': 0, 'Mod': 1, 'Game': 2, 'Level': 3, 'Room': 4, 'ItemPool': 5,
         'Music': 6, 'Rng': 7, 'Persistence': 8, 'Input': 9, 'Diagnostic': 10,
         'Font': 11, 'Vector': 12, 'Sprite': 13, 'Isaac': 14, 'Seed': 15,
+        # 批次 207（2026-09-29）：`Hud`（域 17，`Game:GetHUD()` 的返回值）、`ModMenu`（16）。
+        # 真值源见 `runtime/src/interfaces/lua/api_descriptor.hpp` 的 `ApiDomain`。
+        'ModMenu': 16, 'Hud': 17,
     }
     entries: dict[str, dict[str, str]] = {}
     pattern = re.compile(
@@ -126,8 +134,14 @@ def load_deviations() -> dict[str, dict[str, str]]:
         return {}
     text = path.read_text(encoding='utf-8', errors='replace')
     deviations: dict[str, dict[str, str]] = {}
+    # ★ 2026-09-28 修：原来那条是 `((?:\s*"…"\s*)+)` —— **两端的 `\s*` 归谁都可以**，
+    # 于是一串拼接字符串之间的每个空白段都有两种归属 ⇒ 失败回溯时组合数**指数爆炸**。
+    # 台账条目在批次 193/194 变长（几十行拼接）之后越过了阈值 ⇒ `test_mod_api_gap_report`
+    # 单模块跑了 25 分钟不出结果（实测栈在 `sre_ucs2_match`），**把所有门禁都挂住了**。
+    # 修法：把分隔空白**只写一次**（`"…"(?:\s*"…")*`），归属唯一 ⇒ 回溯不爆炸。
     pattern = re.compile(
-        r'\{\s*(0x[0-9A-Fa-f]{8})\s*,\s*ApiDeviationKind::(\w+)\s*,\s*((?:\s*"(?:[^"\\]|\\.)*"\s*)+)\}'
+        r'\{\s*(0x[0-9A-Fa-f]{8})\s*,\s*ApiDeviationKind::(\w+)\s*,\s*'
+        r'("(?:[^"\\]|\\.)*"(?:\s*"(?:[^"\\]|\\.)*")*)\s*\}'
     )
     for match in pattern.finditer(text):
         identifier, kind, raw = match.groups()
@@ -148,15 +162,163 @@ def load_runtime_apis() -> set[str]:
     end = text.find('const ApiCatalog g_defaultCatalog', start)
     body = text[start:end if end > start else len(text)]
     # owner 归一（见 `canonical_owner` 的说明）：PC 清单与我们目录对这个族的拼法不同。
-    return {f'{canonical_owner(owner)}:{name}'
-            for owner, name in re.findall(r'"([A-Za-z_][A-Za-z0-9_]*)",\s*"([A-Za-z_][A-Za-z0-9_]*)"', body)}
+    result = {f'{canonical_owner(owner)}:{name}'
+              for owner, name in re.findall(r'"([A-Za-z_][A-Za-z0-9_]*)",\s*"([A-Za-z_][A-Za-z0-9_]*)"', body)}
+    # VectorIndex明确回落元表，显式v:__sub也能访问；它们没有独立catalog ID。
+    # 只读取真实注册代码，禁止将注释/任意源码提及当已实现；不影响其它owner。
+    source = (ROOT / 'runtime/source/lua_runtime.cpp').read_text(encoding='utf-8')
+    block = source.split('void RegisterVectorApi(lua_State* state) {', 1)[1].split('\n}', 1)[0].split('    lua_pop(state, 1);', 1)[0]
+    block = re.sub(r'/\*[\s\S]*?\*/|//[^\n]*', '', block)
+    registered = re.findall(r'PushHandler\([^;]+;\s*lua_setfield\(state, -2, "(__[a-z]+)"\);', block)
+    result.update(f'vector:{name}' for name in registered if name not in ('__index', '__newindex'))
+    return result
+
+
+# --------------------------------------------------------------------------------------------
+# Lua 注释剥离（2026-09-29 批次 202）
+#
+# **为什么要它**：本文件历来"不做词法剥离"，于是**注释里的名字**会被当成真实调用。实测到的那条：
+# `features/eid_api.lua:1004` 是一句文档注释
+# `---This is for modded characters, whose name is best found by doing EntityPlayer:GetName()`
+# —— 分诊器把它读成"模组在 `EntityPlayer` 这个接收者上调了 `GetName`"。那条**只有注释这一次**
+# 调用，于是挂在"待人工"里、卡点写着"调用点在注释里"。危险的不是"多报一条"，是**证据指错地方**：
+# 顺着证据的行号读回去，读到的是一句话，不是代码（谁复核都会被带偏）。
+#
+# **口径（三条，别自己改）**：
+#   1. 只把**注释里的字符换成空格**，**逐字保持长度与换行**。行号、偏移、`文件:行号` 证据
+#      因此全都不变 —— `chain_owner_triage._line_of()` 是靠偏移算行号的，长度一动就全线串位。
+#   2. ★ **只剥注释，不剥字符串**。字符串里确实也可能有假调用（`print("a:GetName()")`），
+#      但**字段面那一路是刻意依赖字符串字面量的**：`load_mod_field_usage()` 认
+#      `obj["Field"]` 这个形态，必须读到 `"Field"` 本身。剥字符串会让整条字段路静默失效
+#      ⇒ 代价远大于收益。**这一条别再"顺手优化"掉。**
+#   3. 长注释 `--[[ … ]]` / `--[==[ … ]==]` 与行注释 `-- …` 都剥；**未闭合的长注释吃到文件尾**
+#      （宁可多剥一整段，也不要留半截内容被后面的正则当成代码）。
+#   4. ★★ **按用途分，不是"一律剥"**：读**代码**（调用点 / 定义 / 赋值 / 循环）用 `lua_source()`；
+#      读**注解**（`---@param` / `---@return` —— 它们本身就是注释）用 `lua_source_raw()`。
+#      混用的前提是两者行号与偏移完全对齐（剥注释是等长替换）。**理由见 `lua_source_raw()`。**
+#
+# **怎么判"剥得对不对"**：把改动前后两侧的 `used` / `defined` / `chained` 各跑一遍做差集 ——
+#   **只许少掉"落在注释里的那些"**，少掉别的一律按回归处理。实测差集见
+#   `dist/change-archive-20260929/202-lua-comment-strip/README.md`。
+# --------------------------------------------------------------------------------------------
+
+#: 长括号的开头 `[[` / `[=[` / `[==[` …（捕获组是中间那串等号，闭合形式由它拼出来）。
+_LONG_BRACKET_RE = re.compile(r'\[(=*)\[')
+
+#: 读过的文件缓存 —— 一份模组会被 5 个 loader 各扫一遍，而剥注释是纯 Python 逐字符循环。
+#: 键里带 `mtime_ns` 与 `size`：测试会把内容换掉再重跑，只按路径缓存会读到上一次的旧内容。
+_LUA_SOURCE_CACHE: dict[tuple[str, int, int], str] = {}
+_LUA_RAW_CACHE: dict[tuple[str, int, int], str] = {}
+
+
+def _skip_long_bracket(text: str, start: int) -> int:
+    """`start` 指向长括号里第一个 `[`；返回闭合之后的下一位（未闭合就停在文件尾）。
+
+    长**注释** `--[[ … ]]` 与长**字符串** `[[ … ]]` / `[==[ … ]==]` 共用这一个跳过器。
+    """
+    match = _LONG_BRACKET_RE.match(text, start)
+    if match is None:
+        return start + 1
+    close = ']' + match.group(1) + ']'
+    found = text.find(close, match.end())
+    return len(text) if found < 0 else found + len(close)
+
+
+def _skip_short_string(text: str, start: int) -> int:
+    """`start` 指向引号；返回这个短串之后的下一位（未闭合就停在行尾 / 文件尾）。
+
+    ★ 它只用来**跳过**字符串，**不剥**它（口径第 2 条）。但"跳过"本身是必须的 ——
+    不做这一步的话，`print("a--b")` 里的那个 `--` 会被当成本行的注释开头，
+    把这一行剩下的代码全吃掉（**静默漏报**，正是本文件最怕的失败方式）。
+    """
+    quote = text[start]
+    index = start + 1
+    while index < len(text):
+        char = text[index]
+        if char == '\\':
+            index += 2                      # 转义：不管下一个是什么，都不结束这个串
+            continue
+        if char == quote:
+            return index + 1
+        if char in '\r\n':
+            return index                    # Lua 短串不许跨行：未闭合就停，别把整份文件吃掉
+        index += 1
+    return len(text)
+
+
+def strip_lua_comments(text: str) -> str:
+    """把 Lua 源码里**落在注释里的字符换成空格**；长度、换行、其余字符逐字不变。
+
+    ★ 返回值与入参**等长**（不是"把注释删掉"）—— 这是 `文件:行号` 证据仍然有效的前提。
+    ★ 字符串是"认出来并跳过"，不是"剥掉"：剥了会把字段面的 `obj["Field"]` 一并毁掉。
+    """
+    characters = list(text)
+    index = 0
+    length = len(text)
+    while index < length:
+        if text.startswith('--', index):
+            # `--[[` / `--[==[` 是长注释；其余 `--…` 是行注释（到行尾，**不含**那个换行）。
+            if _LONG_BRACKET_RE.match(text, index + 2):
+                end = _skip_long_bracket(text, index + 2)
+            else:
+                newline = text.find('\n', index)
+                end = length if newline < 0 else newline
+            for position in range(index, end):
+                if characters[position] not in '\r\n':
+                    characters[position] = ' '
+            index = end
+        elif text[index] in '"\'':
+            index = _skip_short_string(text, index)
+        elif text[index] == '[' and _LONG_BRACKET_RE.match(text, index):
+            index = _skip_long_bracket(text, index)
+        else:
+            index += 1
+    return ''.join(characters)
+
+
+def lua_source(path: pathlib.Path) -> str:
+    """读一份模组 `.lua` 并剥掉注释 —— **扫"调用点 / 定义 / 用法"的都必须走它**。
+
+    统一成一个入口的理由：口径只有一份；将来若真要加"剥字符串"的开关，也只在这里加。
+    """
+    stat = path.stat()
+    key = (str(path), stat.st_mtime_ns, stat.st_size)
+    cached = _LUA_SOURCE_CACHE.get(key)
+    if cached is None:
+        cached = strip_lua_comments(path.read_text(encoding='utf-8', errors='replace'))
+        _LUA_SOURCE_CACHE[key] = cached
+    return cached
+
+
+def lua_source_raw(path: pathlib.Path) -> str:
+    """读一份模组 `.lua` 的**原文（含注释）**。
+
+    ★★ 为什么需要一个"不剥"的入口：**作者写的类型注解本身就是注释** ——
+    `---@param entityPlayer EntityPlayer`、`---@return EntityPlayer?` 都是 `---` 开头。
+    分诊器有两条类型来源（第五种 `@param`、第六种 `@return`）**必须读原文**，剥了它们就全废。
+    2026-09-29（批次 202）实测踩到过：把这两处一起剥掉之后，
+    `entityPlayer:GetName` / `sprite:Render` / `spriteObj:Render` **三条从"不是缺口"退回"待人工"**
+    （`not_a_gap` 18 → 15、`manual` 7 → 9）—— 就是"结论变坏"，当场回退。
+
+    所以口径是**按用途分**，不是"一律剥"：
+      * **代码内容**（调用点、函数定义、赋值表达式、循环）⇒ `lua_source()`（剥注释）；
+      * **注解内容**（`@param` / `@return`）⇒ 本函数（读原文）。
+    两者的行号与偏移**完全对齐**（剥注释是等长替换），所以可以放心混用。
+    """
+    stat = path.stat()
+    key = (str(path), stat.st_mtime_ns, stat.st_size)
+    cached = _LUA_RAW_CACHE.get(key)
+    if cached is None:
+        cached = path.read_text(encoding='utf-8', errors='replace')
+        _LUA_RAW_CACHE[key] = cached
+    return cached
 
 
 def load_mod_definitions(mod: pathlib.Path) -> set[str]:
     """模组**自己定义**的方法（要排除掉，否则会把模组内部函数当成游戏 API）。"""
     defined: set[str] = set()
     for path in mod.rglob('*.lua'):
-        text = path.read_text(encoding='utf-8', errors='replace')
+        text = lua_source(path)
         for m in re.finditer(r'function\s+([A-Za-z_][A-Za-z0-9_]*)\s*[:.]\s*([A-Za-z_][A-Za-z0-9_]*)\s*\(', text):
             defined.add(f'{m.group(1)}:{m.group(2)}')
         for m in re.finditer(r'([A-Za-z_][A-Za-z0-9_]*)\s*[:.]\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*function', text):
@@ -173,7 +335,7 @@ def load_mod_usage(mod: pathlib.Path) -> collections.Counter:
     """
     usage: collections.Counter = collections.Counter()
     for path in mod.rglob('*.lua'):
-        text = path.read_text(encoding='utf-8', errors='replace')
+        text = lua_source(path)
         for m in re.finditer(r'([A-Za-z_][A-Za-z0-9_]*)\s*:\s*([A-Za-z_][A-Za-z0-9_]*)\s*\(', text):
             usage[f'{m.group(1)}:{m.group(2)}'] += 1
     return usage
@@ -197,7 +359,7 @@ def load_mod_dot_usage(mod: pathlib.Path, pc_catalog: dict[str, list[str]]
     """
     usage: collections.Counter = collections.Counter()
     for path in mod.rglob('*.lua'):
-        text = path.read_text(encoding='utf-8', errors='replace')
+        text = lua_source(path)
         for m in re.finditer(r'([A-Za-z_][A-Za-z0-9_]*)\s*\.\s*([A-Za-z_][A-Za-z0-9_]*)\s*\(', text):
             owner, name = m.group(1), m.group(2)
             if owner not in (pc_catalog.get(name) or []):
@@ -241,9 +403,11 @@ def load_mod_dot_usage(mod: pathlib.Path, pc_catalog: dict[str, list[str]]
 #   * `arr[i]:Method()` —— 接收者是**模组自己的表**（实测 EID 的 `EID.coopAllPlayers[i]:GetPlayerType()`、
 #     `icon[1]:Play(...)`）。`]` 收尾同样落进这一路，名字恰好与游戏 API 同名时会被收进来。
 #     判据是"数组里装的是什么"：装的是游戏对象就是真调用，装的是模组自制对象就是假阳性。
-#   * **注释与字符串里的同名字样不会被剥掉**（本文件历来不做词法剥离；字段面那一版的
-#     `.V1.9.7.7` 版本号假阳性同源）。本次在 EID 上实测这一路**没有**这类命中（剥注释前后都是
-#     94 处），但**换一个模组要先看这一条**。
+#   * **字符串里的同名字样仍然会被收进来**（`print("a:GetName()")` 这种）。**这是刻意保留的**：
+#     注释已在批次 202 起由 `lua_source()` 剥掉，但字符串**不能剥** —— 字段面
+#     `load_mod_field_usage()` 的 `obj["Field"]` 形态就靠字符串字面量（理由见上面 `lua_source`
+#     那段口径的第 2 条）。实测 EID 上这一路**没有**字符串命中（剥注释前后都是 94 处），
+#     但**换一个模组要先看这一条**（字段面那个 `.V1.9.7.7` 版本号假阳性同源）。
 #   * `..` 连接符与 `::` 标签：`f(a)..b` 里的 `..` 会被当成"成员访问"，已用 `(?![:.])` 前瞻排除；
 #     排除后没有名字可读 ⇒ 直接中止，不会产生条目（用例里有这条负对照）。
 # --------------------------------------------------------------------------------------------
@@ -347,7 +511,7 @@ def load_mod_chained_usage(mod: pathlib.Path) -> collections.Counter:
     known = load_pc_method_catalog()
     usage: collections.Counter = collections.Counter()
     for path in mod.rglob('*.lua'):
-        text = path.read_text(encoding='utf-8', errors='replace')
+        text = lua_source(path)
         for name in iter_chained_calls(text):
             if name in known:
                 usage[name] += 1
@@ -414,6 +578,9 @@ def audit_chained_calls(mod: pathlib.Path, pc_catalog: dict[str, list[str]] | No
 LEDGER_PATH = 'tools/api_surface_ledger.json'
 LUA_IMPL_DIR = 'runtime/src/interfaces/lua'
 LAYOUT_TABLE_DIR = 'tools/layout_tables'
+#: 语料模组的**范围声明**（target / deferred）—— 见 `load_scope()` 的说明。
+SCOPE_PATH = 'tools/mod_corpus_scope.json'
+CORPUS_DIR = 'analysis/mod-corpus'
 
 #: 模组侧的字段读取形态：`obj.Field` 与 `obj["Field"]`。
 #: 与 `load_mod_usage()` 同一套思路 —— 不做 owner 解析（模组里的对象多是局部变量），
@@ -470,7 +637,7 @@ def load_mod_field_usage(mod: pathlib.Path) -> collections.Counter:
     """模组里 `obj.Field` / `obj["Field"]` 形态的字段读取（按名字计数）。"""
     usage: collections.Counter = collections.Counter()
     for path in mod.rglob('*.lua'):
-        text = path.read_text(encoding='utf-8', errors='replace')
+        text = lua_source(path)
         usage.update(FIELD_DOT_RE.findall(text))
         usage.update(FIELD_BRACKET_RE.findall(text))
     return usage
@@ -586,6 +753,66 @@ def audit_field_surface(mod: pathlib.Path,
     }
 
 
+# --------------------------------------------------------------------------------------------
+# 2026-09-25（批次 131）：把"字段缺口必须被分诊"从**默认模组**扩到**多模组**
+#
+# 为什么：上一版的门禁只拿默认模组（EID）核对"缺口 ↔ 台账"一一对应 ⇒ 语料模组的字段缺口
+# **会被打印、但没有任何闸门逼人分诊**（`EntityPickup.Wait` 就是这么漏过去的，而它还是个
+# "写入即抛错"的真缺陷）。实测 16 个语料模组合计 **146** 处未登记缺口 ⇒ "每个模组都必须
+# 零缺口"这种门禁当场装不上去。
+#
+# 所以改成 **"每个模组必须被显式声明"**（`tools/mod_corpus_scope.json`）：
+#   * `target`   —— 我们在接/已接它 ⇒ 它的缺口必须逐条进台账（未登记即红）；
+#   * `deferred` —— 还没接 ⇒ 只要求点名 + 写理由（沉默消失了，成本也压得住）。
+# 同时把"台账条目过期"的判据从"默认模组不再读"改成"**所有**已声明模组都不再读"，
+# 因为台账是按**字段名**建的、是全局的，而"模组不再读它"是**单个模组**的性质。
+# --------------------------------------------------------------------------------------------
+
+
+def load_scope() -> dict[str, dict]:
+    """读语料模组的范围声明（相对路径 → 那一行）。口径见上面那一段注释。"""
+    path = ROOT / SCOPE_PATH
+    if not path.is_file():
+        return {}
+    table = json.loads(path.read_text(encoding='utf-8'))
+    return {str(row['path']): row for row in table.get('mods', [])}
+
+
+def corpus_mod_paths() -> list[str]:
+    """语料目录下所有模组的相对路径（排序稳定；含**没有**未登记缺口的那些）。"""
+    root = ROOT / CORPUS_DIR
+    if not root.is_dir():
+        return []
+    return sorted(f'{CORPUS_DIR}/{child.name}' for child in root.iterdir() if child.is_dir())
+
+
+def audit_multi_mod_field_surface(mods: list[str], ledger: dict[str, dict] | None = None) -> dict:
+    """跨模组看字段面：每个模组的未登记缺口 + **对哪个模组都不再成立**的台账条目。"""
+    ledger = load_surface_ledger() if ledger is None else ledger
+    per_mod: dict[str, dict] = {}
+    ever_used: set[str] = set()
+    ever_implemented: set[str] = set()
+    for mod_path in mods:
+        report = audit_field_surface(ROOT / mod_path, ledger)
+        per_mod[mod_path] = report
+        ever_used.update(row['name'] for row in report['used'])
+        ever_implemented.update(row['name'] for row in report['implemented'])
+    globally_stale = []
+    for name in ledger:
+        if name in ever_implemented:
+            globally_stale.append(
+                {'name': name, 'why_stale': '运行时已经实现了这个字段，台账条目该删掉'})
+        elif name not in ever_used:
+            globally_stale.append(
+                {'name': name,
+                 'why_stale': '所有已声明的模组都没读到这个字段（或它不在 PC 契约的变量节里）'})
+    return {
+        'mods': list(mods),
+        'per_mod': per_mod,
+        'globally_stale': sorted(globally_stale, key=lambda item: item['name']),
+    }
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument('--mod', default=DEFAULT_MOD)
@@ -655,6 +882,32 @@ def main() -> int:
 
     missing = [r for r in rows if not r['in_runtime'] and r['confident']]
     missing_lowconf = [r for r in rows if not r['in_runtime'] and not r['confident']]
+    # ★★ 批次 162：①b 这一档按**接收者类型**分诊（`tools/chain_owner_triage.py`）。
+    #   为什么必须分诊：这一档原先只能报"方法名 + 所有同名 owner 的候选"，于是 `Update` / `Render` /
+    #   `Get` 这种通用名长期挂着 —— 排期时既不敢做、也不敢划掉。分诊器只从三种来源定类型
+    #   （全局表 / 构造式全局调用 / `<已知类型的根> + 一串方法调用`；赋值形状 `local x = …`、
+    #   `表.字段 = …`、`X = …` 都收 —— 批次 179 把后两种补上，并把"构造式全局调用"真的实现），
+    #   **推不动就停在"待人工"**，绝不写死 owner。
+    #   分诊成"不是缺口"的行从这个清单里移出去，分诊成"真缺口"的并进 ① 主清单。
+    triage_result = None
+    verdict_by_api: dict[str, str] = {}
+    try:
+        import chain_owner_triage
+        triage_result = chain_owner_triage.triage(mod)
+        verdict_by_api = {row['called_as']: row['verdict'] for row in triage_result['triaged']}
+    except (ImportError, OSError, ValueError) as error:
+        print(f'  ⚠ 接收者分诊没跑起来（{error}）⇒ ①b 这一档只有原始候选，没有结论')
+    if verdict_by_api:
+        resolved_gaps = [r for r in missing_lowconf if verdict_by_api.get(r['called_as']) == 'gap']
+        not_a_gap = [r for r in missing_lowconf if verdict_by_api.get(r['called_as']) == 'not_a_gap']
+        missing = missing + resolved_gaps
+        moved = {r['called_as'] for r in resolved_gaps} | {r['called_as'] for r in not_a_gap}
+        missing_lowconf = [r for r in missing_lowconf if r['called_as'] not in moved]
+        lowconf_not_a_gap = len(not_a_gap)
+        lowconf_resolved_gap = len(resolved_gaps)
+    else:
+        lowconf_not_a_gap = 0
+        lowconf_resolved_gap = 0
     weak = [r for r in rows if r['in_runtime'] and r['pc_status'] in ('weak', 'missing')]
     unknown = [r for r in rows if r['in_runtime'] and r['pc_status'] == 'unknown']
     # ④：**EID 确实用到、且我们已知语义有偏离**的条目（每条都带"差在哪"）。
@@ -665,7 +918,10 @@ def main() -> int:
     print(f'{label} 用到的游戏 API：{len(rows)} 条'
           f'（去掉了模组自建方法 {len(defined)} 条、非游戏 owner）')
     print(f'  ① 运行时里找不到（高置信）：{len(missing)} 条  ← 调用会直接报错，落在条件回调里会让整条描述消失')
-    print(f'  ①b 同名方法多 owner、无法凭名字定类型（低置信参考）：{len(missing_lowconf)} 条')
+    print(f'  ①b 同名方法多 owner、无法凭名字定类型（低置信参考）：{len(missing_lowconf)} 条'
+          + (f'（原 {len(missing_lowconf) + lowconf_not_a_gap + lowconf_resolved_gap} 条：'
+             f'**{lowconf_not_a_gap} 条已分诊为"不是缺口"**（接收者类型推得出来、我们都实现了）、'
+             f'{lowconf_resolved_gap} 条分诊成真缺口（已并进 ①））' if triage_result else ''))
     print(f'  ② 有实现但 PC 状态偏弱（Experimental/—）：{len(weak)} 条')
     print(f'  ③ 状态未知（清单里没查到）：{len(unknown)} 条')
     print(f'  ④ 有实现、但**已知与 PC 语义偏离**（② 维的不满足标记）：{len(deviating)} 条')
@@ -695,9 +951,30 @@ def main() -> int:
     for r in surface['unregistered'][:args.top]:
         print(f"      {r['name']:24} 读 {r['calls']:4} 次   候选归属 {'/'.join(r['owners'])}")
     if surface['stale_ledger_rows']:
-        print(f"   ⚠️ 过期台账条目：{len(surface['stale_ledger_rows'])} 条（已实现或模组不再用，应删除）")
+        # ★ 批次 131 起口径修正：台账是**按字段名**建的**全局**台账 ⇒ "**本**模组不再读它"
+        # 不是删除条目的理由（别的模组可能还在读 —— `EntityPickup.Wait` 就属于这种）。
+        # 这里照旧列出来，是为了让读者看到"本模组没用到这些"；`--strict` 用的是全局判据
+        # （所有已声明模组都不再读、或运行时已实现，见本文件"多模组"那一段）。
+        print(f"   ℹ️ 台账条目里本模组没用上的：{len(surface['stale_ledger_rows'])} 条"
+              f"（**不足以判定该删**；全局过期判据见 --strict）")
         for r in surface['stale_ledger_rows'][:args.top]:
             print(f"      {r['name']:24} {r['why_stale']}")
+    # 范围声明（批次 131）：这条模组是被要求"逐条分诊"（target），还是只声明了"还没接"（deferred）。
+    # 不说清这一点，上面那句"必须进台账"就只对默认模组成立，读者会以为对谁都成立。
+    scope = load_scope()
+    try:
+        relative_mod = str(mod.resolve().relative_to(ROOT.resolve()))
+    except ValueError:
+        relative_mod = str(args.mod)
+    scope_row = scope.get(relative_mod)
+    labels = {'target': '我们在接它 ⇒ 它的缺口必须逐条进台账',
+              'deferred': '还没接 ⇒ 只要求声明 + 理由（接它时改成 target）'}
+    if scope_row:
+        status = str(scope_row.get('status'))
+        print(f"   范围声明：status={status}（{labels.get(status, '取值未知 —— 门禁会红')}）")
+    elif relative_mod != DEFAULT_MOD:
+        print(f"   ⚠️ 这个模组**不在** {SCOPE_PATH} 的声明里 ⇒ 它的 {len(surface['unregistered'])} 处"
+              f"缺口没人被要求分诊（门禁会红：每个语料模组都必须被声明）")
 
     # ⑥：**链式调用**（`a:b():c(` 这类，接收者是上一次调用的返回值）——原来整个形态都扫不到。
     # 只报"方法名 + 候选 owner + 候选里的缺口"，不猜 owner（判据与假阳性来源见上面那一段注释）。
@@ -723,6 +1000,11 @@ def main() -> int:
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps({'mod': args.mod, 'label': label, 'used': rows, 'missing_in_runtime': missing,
                                'missing_low_confidence': missing_lowconf,
+                               'chain_owner_triage': ({
+                                   'pc_signatures': triage_result['pc_signatures'],
+                                   'rows': triage_result['rows'],
+                                   'by_verdict': triage_result['by_verdict'],
+                               } if triage_result else None),
                                'weak_status': weak, 'unknown_status': unknown,
                                'semantic_deviations': deviating,
                                'field_surface': surface,
@@ -730,11 +1012,32 @@ def main() -> int:
                               ensure_ascii=False, indent=1), encoding='utf-8')
     print(f'\n报告已写：{out}')
 
-    if args.strict and (surface['unregistered'] or surface['stale_ledger_rows']):
-        print(f"\n门禁未通过：未登记缺口 {len(surface['unregistered'])} 条、"
-              f"过期台账条目 {len(surface['stale_ledger_rows'])} 条（口径见本文件顶部的"
-              f"\"接口面枚举\"一段）", file=sys.stderr)
-        return 1
+    if args.strict:
+        # ★ 批次 131（2026-09-25）：`--strict` 的判据从"只看默认模组"扩到**多模组**：
+        #   * `target` 的模组（含默认模组）⇒ 未登记缺口一律算失败；
+        #   * 台账条目 ⇒ 只有"**所有**已声明模组都不再读 / 都已实现"才算过期
+        #     （台账是按字段名建的、是全局的；只按某一个模组判会把"别的模组在读"的条目误判成过期）。
+        scope = load_scope()
+        ledger_rows = load_surface_ledger(ROOT / args.ledger)
+        all_mods = corpus_mod_paths() + [DEFAULT_MOD]
+        multi = audit_multi_mod_field_surface(all_mods, ledger_rows)
+        must_triage = [name for name in all_mods
+                       if name == DEFAULT_MOD or scope.get(name, {}).get('status') == 'target']
+        offenders = {name: [r['name'] for r in multi['per_mod'][name]['unregistered']]
+                     for name in must_triage}
+        offenders = {name: names for name, names in offenders.items() if names}
+        if offenders or multi['globally_stale']:
+            print('\n门禁未通过（接口面 / 第 0 维）：', file=sys.stderr)
+            for name, names in offenders.items():
+                shown = '、'.join(names[:8]) + (' …' if len(names) > 8 else '')
+                print(f'  {name} 有 {len(names)} 处未登记字段缺口 —— 它是'
+                      f'{"默认模组" if name == DEFAULT_MOD else "target 模组"}，必须逐条进台账：{shown}',
+                      file=sys.stderr)
+            for row in multi['globally_stale']:
+                print(f'  台账条目过期：{row["name"]} —— {row["why_stale"]}', file=sys.stderr)
+            print(f'  （口径见 {SCOPE_PATH} 与 tools/mod_api_gap_report.py 的"多模组"那一段；'
+                  f'接某个模组时把它标成 target）', file=sys.stderr)
+            return 1
     return 0
 
 

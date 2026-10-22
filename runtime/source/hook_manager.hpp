@@ -1,5 +1,10 @@
 #pragma once
 
+#include <cstdint>
+namespace isaac::runtime {
+bool PublishManagerUpdateEntryRelayOriginal(std::uintptr_t original) noexcept;
+}
+
 #include "module_finder.hpp"
 
 #include <cstdint>
@@ -19,9 +24,8 @@ enum class RenderHookInstallResult {
     RelayPublishFailed,
 };
 RenderHookInstallResult TryInstallManagerRenderHook(const TargetModule& module);
-// `MC_POST_RENDER` 的派发点从 `Manager::Render` 入口中继搬到该函数体内最后一次 `Present`
-// 调用之前（补丁种类 `render-present-relay`）。入口中继是在 Present 之后派发的，于是回调里
-// 画的东西进的是下一帧队列，并被实体（以撒）与 HUD 盖住；详见 runtime_constants.hpp。
+// `MC_POST_RENDER`局内从HUD返回后派发，早于暂停等前景；主菜单等无HUD帧由最终Present兜底。
+// ManagerRender入口建立栈上帧scope，三个入口共用该scope防止重复派发。
 enum class RenderPresentRelayInstallResult {
     Success = 0,
     RelayPatchMismatch = 1,
@@ -36,6 +40,8 @@ RenderPresentRelayInstallResult TryInstallManagerPresentRelay(const TargetModule
 // M2b：把 `Present` 的 GOT 槽改写成我们的拦截函数（只改数据、零代码字节），
 // 拦截函数按调用方过滤，只有那**一处**调用点会派发 `MC_POST_RENDER`。
 RenderPresentRelayInstallResult TryInstallManagerPresentGotSlot(const TargetModule& module);
+RenderPresentRelayInstallResult TryInstallNpcUpdateAiGotSlot(const TargetModule& module);
+RenderPresentRelayInstallResult TryInstallHudRenderGotSlot(const TargetModule& module);
 enum class PreGetCollectibleRelayInstallResult {
     Success,
     RelayPatchMismatch,
@@ -157,7 +163,20 @@ bool VerifyManagerIsActionTriggered(const TargetModule& module, uintptr_t* metho
 bool VerifyMusicBindings(const TargetModule& module, uintptr_t* getCurrentMusicId,
                          uintptr_t* pause, uintptr_t* resume);
 bool VerifyRngBindings(const TargetModule& module, uintptr_t* setSeed, uintptr_t* next);
+//: 批次 195：同一条判据的**单入口版本**（`RNG:RandomInt` / `RNG:RandomFloat` 的两条入口用它）。
+bool VerifyRngEntry(const TargetModule& module, uintptr_t offset, const u8* expected,
+                    std::size_t length, uintptr_t* output);
+bool VerifyRngRandomBindings(const TargetModule& module, uintptr_t* randomUint,
+                             uintptr_t* randomFloat);
 bool TryInstallRngBindings(const TargetModule& module);
+//: 批次 195（2026-09-29）：`KAGE::Input::ManagerBase` 上按**按键号**查询的三条入口
+//: （`IsButtonPressed` / `IsButtonTriggered` / `GetButtonValue`）。
+//: ★ 四条按钮/动作入口的头 32 字节完全相同 ⇒ 判据除 16 字节序言外**再比 `entry+0xE0` 的 4 字节**
+//:   （那条"取虚表槽"的指令），否则偏移写串会被静默放过（换到另一条按钮查询 = 给出错语义）。
+//: 三条互相独立：某一条守卫不符只让它自己留 0（handler 报"绑定不可用"），不牵连另外两条。
+bool VerifyInputButtonBindings(const TargetModule& module, uintptr_t* isButtonPressed,
+                               uintptr_t* getButtonValue);
+void TryInstallInputButtonBindings(const TargetModule& module);
 #if defined(EXL_DIAGNOSTIC_STAGE) && EXL_DIAGNOSTIC_STAGE == 48
 enum class Stage48MusicReplayProbeInstallResult {
     Success = 0,
@@ -249,6 +268,26 @@ enum class DefaultManifestInstallResult {
     FileBindingMismatch,
 };
 DefaultManifestInstallResult TryInstallDefaultManifestMod(const TargetModule& module);
+// 批次 370（2026-10-05）：**重活之前**先把"注册模组挂载点"做完（工人线程、有界、失败不回归）。
+//
+// 复用既有的清单/自动发现/挂载服务（`ManifestService` / `ModDiscoveryService` /
+// `ContentMountService`），**只挂挂载点**：不装钩子、不建 Lua 状态、不跑模组脚本。
+// 与 `LoadDefaultManifestModThroughService` 的 Prepare/Mounts 两步逐条一致，差别只有
+// "不读存档侧模组开关"（那条通道是 nnSdk 存档 API，从我们自己的线程调它每次开机必崩，
+// 见 `hook_manager.cpp` 里 `g_CardSwitchProbeAllowed` 上面那条纪律）与"挂完就返回"。
+struct EarlyModMountOutcome {
+    //: ★ 批次 378（2026-10-05）改口径：这里不再是"`RegisterMod` 调了几次"（那条机制已撤除），
+    //: 而是"发布重定向清单时，清单里有几个模组根"（0 = 清单与自动发现都没成功）。
+    std::uint32_t mountsAttempted = 0;
+    //: 其中返回失败的有几次（新机制下：清单为空 ⇒ 发布返回 false，这里记 0）。
+    std::uint32_t mountsFailed = 0;
+    //: 走到"发布清单"这一步了吗（false = 文件绑定不齐 / 清单与自动发现都读不出来）。
+    bool attempted = false;
+};
+EarlyModMountOutcome MountModsBeforeHeavyWork(const TargetModule& module) noexcept;
+// ★ 实验 B（2026-10-05）：**只读清单、一个字节都不碰引擎**（不 `RegisterMod`、不写引擎内存）。
+// 由来与判据写在 `hook_manager.cpp` 里那段实现的注释里；它只给实验卡用，不是生产线的一部分。
+bool ReadManifestOnlyForExperiment(const TargetModule& module) noexcept;
 #if defined(EXL_STARTUP_PROBE_STAGE) && EXL_STARTUP_PROBE_STAGE == 8
 void AllowDefaultManifestInitialization();
 #endif
@@ -265,6 +304,15 @@ Stage13InstallResult TryInstallManifestRequireDiagnostic(const TargetModule& mod
 #if defined(EXL_DIAGNOSTIC_STAGE) && EXL_DIAGNOSTIC_STAGE == 14
 void MarkStage14DiagnosticReady();
 #endif
+// 批次 371（2026-10-05）：一条"这个地址**现在**可执行吗"的判据 —— `svcQueryMemory` 必须答
+// `MemType_ModuleCodeStatic` + `Perm_Rx`，且给定长度落在那一段映射里。
+//
+// 为什么提到头文件：装入口中继之前**必须先过它**（`TryInstallEntryRelay` 第一步就会读目标入口
+// 那 16 字节做守卫比对；地址若还没映射/不可执行，**读它本身就是崩溃**，不是"守卫不符"）。
+// 它一直定义在 `hook_manager.cpp`（与那一排 `Verify*` 邻居同处、在匿名命名空间之外），
+// 批次 371 起 `runtime_entry.cpp` 也要用这条判据 ⇒ 在这里给出声明，**不再各写一份**。
+bool IsMappedRxModuleCodeWindow(uintptr_t address, size_t length);
+
 bool InstallManagerUpdateHook(const TargetModule& module);
 
 // 游戏开局的常驻中继安装结果。与 `ManagerUpdate` 一样，失败**不阻断**加载 Mod：

@@ -1,0 +1,305 @@
+{
+  "schema": "isaac-api-accessor-regions/1",
+  "build_id": "91C73FDD575061318D68886316AFEAC72388B2AB",
+  "struct": "EntityPlayer",
+  "note": "访问器名作为已证明区域的索引；与传统逐条指令layout-table分开schema，完整PC/NS指令/写者与宽度在evidence_files，不用PC偏移平移。置信度来自实际同算法/序列化/写者交叉核定，不来自函数名启发式。",
+  "rows": [
+    {
+      "name": "CanShoot",
+      "kind": "accessor_region",
+      "offset": 7325,
+      "confidence": "confirmed",
+      "semantic": "原API EntityPlayer:CanShoot 所访问的实际引擎区域；以访问器名称索引，具体多字段/位/向量/树操作和读取宽度以原件契约及测试为准，不声称这是C++源成员名字。 逐项字段同算法/写者锚、真实引用和完整宽度；player31/evidence/field-proof-matrix.json。 完整原件和中间失败保存在dist/apis300-20261014，虚调用槽按重定位核，不能按PC位宽翻倍。",
+      "evidence_files": [
+        "dist/apis300-20261014/player31/evidence/field-proof-matrix.json"
+      ],
+      "judgement": "runtime/tests/test_api300_player.py"
+    },
+    {
+      "name": "GetBatteryCharge",
+      "kind": "accessor_region",
+      "offset": 6508,
+      "confidence": "confirmed",
+      "semantic": "原API EntityPlayer:GetBatteryCharge 所访问的实际引擎区域；以访问器名称索引，具体多字段/位/向量/树操作和读取宽度以原件契约及测试为准，不声称这是C++源成员名字。 逐项字段同算法/写者锚、真实引用和完整宽度；player31/evidence/field-proof-matrix.json。 完整原件和中间失败保存在dist/apis300-20261014，虚调用槽按重定位核，不能按PC位宽翻倍。",
+      "evidence_files": [
+        "dist/apis300-20261014/player31/evidence/field-proof-matrix.json"
+      ],
+      "judgement": "runtime/tests/test_api300_player.py"
+    },
+    {
+      "name": "GetBodyColor",
+      "kind": "accessor_region",
+      "offset": 7440,
+      "confidence": "confirmed",
+      "semantic": "原API EntityPlayer:GetBodyColor 所访问的实际引擎区域；以访问器名称索引，具体多字段/位/向量/树操作和读取宽度以原件契约及测试为准，不声称这是C++源成员名字。 逐项字段同算法/写者锚、真实引用和完整宽度；player31/evidence/field-proof-matrix.json。 完整原件和中间失败保存在dist/apis300-20261014，虚调用槽按重定位核，不能按PC位宽翻倍。",
+      "evidence_files": [
+        "dist/apis300-20261014/player31/evidence/field-proof-matrix.json"
+      ],
+      "judgement": "runtime/tests/test_api300_player.py"
+    },
+    {
+      "name": "GetHeadColor",
+      "kind": "accessor_region",
+      "offset": 7436,
+      "confidence": "confirmed",
+      "semantic": "原API EntityPlayer:GetHeadColor 所访问的实际引擎区域；以访问器名称索引，具体多字段/位/向量/树操作和读取宽度以原件契约及测试为准，不声称这是C++源成员名字。 逐项字段同算法/写者锚、真实引用和完整宽度；player31/evidence/field-proof-matrix.json。 完整原件和中间失败保存在dist/apis300-20261014，虚调用槽按重定位核，不能按PC位宽翻倍。",
+      "evidence_files": [
+        "dist/apis300-20261014/player31/evidence/field-proof-matrix.json"
+      ],
+      "judgement": "runtime/tests/test_api300_player.py"
+    },
+    {
+      "name": "GetItemState",
+      "kind": "accessor_region",
+      "offset": 6612,
+      "confidence": "confirmed",
+      "semantic": "原API EntityPlayer:GetItemState 所访问的实际引擎区域；以访问器名称索引，具体多字段/位/向量/树操作和读取宽度以原件契约及测试为准，不声称这是C++源成员名字。 逐项字段同算法/写者锚、真实引用和完整宽度；player31/evidence/field-proof-matrix.json。 完整原件和中间失败保存在dist/apis300-20261014，虚调用槽按重定位核，不能按PC位宽翻倍。",
+      "evidence_files": [
+        "dist/apis300-20261014/player31/evidence/field-proof-matrix.json"
+      ],
+      "judgement": "runtime/tests/test_api300_player.py"
+    },
+    {
+      "name": "GetJarFlies",
+      "kind": "accessor_region",
+      "offset": 5840,
+      "confidence": "confirmed",
+      "semantic": "原API EntityPlayer:GetJarFlies 所访问的实际引擎区域；以访问器名称索引，具体多字段/位/向量/树操作和读取宽度以原件契约及测试为准，不声称这是C++源成员名字。 逐项字段同算法/写者锚、真实引用和完整宽度；player31/evidence/field-proof-matrix.json。 完整原件和中间失败保存在dist/apis300-20261014，虚调用槽按重定位核，不能按PC位宽翻倍。",
+      "evidence_files": [
+        "dist/apis300-20261014/player31/evidence/field-proof-matrix.json"
+      ],
+      "judgement": "runtime/tests/test_api300_player.py"
+    },
+    {
+      "name": "GetLastActionTriggers",
+      "kind": "accessor_region",
+      "offset": 5872,
+      "confidence": "confirmed",
+      "semantic": "原API EntityPlayer:GetLastActionTriggers 所访问的实际引擎区域；以访问器名称索引，具体多字段/位/向量/树操作和读取宽度以原件契约及测试为准，不声称这是C++源成员名字。 逐项字段同算法/写者锚、真实引用和完整宽度；player31/evidence/field-proof-matrix.json。 完整原件和中间失败保存在dist/apis300-20261014，虚调用槽按重定位核，不能按PC位宽翻倍。",
+      "evidence_files": [
+        "dist/apis300-20261014/player31/evidence/field-proof-matrix.json"
+      ],
+      "judgement": "runtime/tests/test_api300_player.py"
+    },
+    {
+      "name": "GetLastDamageFlags",
+      "kind": "accessor_region",
+      "offset": 6816,
+      "confidence": "confirmed",
+      "semantic": "原API EntityPlayer:GetLastDamageFlags 所访问的实际引擎区域；以访问器名称索引，具体多字段/位/向量/树操作和读取宽度以原件契约及测试为准，不声称这是C++源成员名字。 逐项字段同算法/写者锚、真实引用和完整宽度；player31/evidence/field-proof-matrix.json。 完整原件和中间失败保存在dist/apis300-20261014，虚调用槽按重定位核，不能按PC位宽翻倍。",
+      "evidence_files": [
+        "dist/apis300-20261014/player31/evidence/field-proof-matrix.json"
+      ],
+      "judgement": "runtime/tests/test_api300_player.py"
+    },
+    {
+      "name": "GetLastDirection",
+      "kind": "accessor_region",
+      "offset": 6672,
+      "confidence": "confirmed",
+      "semantic": "原API EntityPlayer:GetLastDirection 所访问的实际引擎区域；以访问器名称索引，具体多字段/位/向量/树操作和读取宽度以原件契约及测试为准，不声称这是C++源成员名字。 逐项字段同算法/写者锚、真实引用和完整宽度；player31/evidence/field-proof-matrix.json。 完整原件和中间失败保存在dist/apis300-20261014，虚调用槽按重定位核，不能按PC位宽翻倍。",
+      "evidence_files": [
+        "dist/apis300-20261014/player31/evidence/field-proof-matrix.json"
+      ],
+      "judgement": "runtime/tests/test_api300_player.py"
+    },
+    {
+      "name": "GetMovementVector",
+      "kind": "accessor_region",
+      "offset": 6680,
+      "confidence": "confirmed",
+      "semantic": "原API EntityPlayer:GetMovementVector 所访问的实际引擎区域；以访问器名称索引，具体多字段/位/向量/树操作和读取宽度以原件契约及测试为准，不声称这是C++源成员名字。 逐项字段同算法/写者锚、真实引用和完整宽度；player31/evidence/field-proof-matrix.json。 完整原件和中间失败保存在dist/apis300-20261014，虚调用槽按重定位核，不能按PC位宽翻倍。",
+      "evidence_files": [
+        "dist/apis300-20261014/player31/evidence/field-proof-matrix.json"
+      ],
+      "judgement": "runtime/tests/test_api300_player.py"
+    },
+    {
+      "name": "GetNumBlueFlies",
+      "kind": "accessor_region",
+      "offset": 5860,
+      "confidence": "confirmed",
+      "semantic": "原API EntityPlayer:GetNumBlueFlies 所访问的实际引擎区域；以访问器名称索引，具体多字段/位/向量/树操作和读取宽度以原件契约及测试为准，不声称这是C++源成员名字。 逐项字段同算法/写者锚、真实引用和完整宽度；player31/evidence/field-proof-matrix.json。 完整原件和中间失败保存在dist/apis300-20261014，虚调用槽按重定位核，不能按PC位宽翻倍。",
+      "evidence_files": [
+        "dist/apis300-20261014/player31/evidence/field-proof-matrix.json"
+      ],
+      "judgement": "runtime/tests/test_api300_player.py"
+    },
+    {
+      "name": "GetNumBlueSpiders",
+      "kind": "accessor_region",
+      "offset": 5864,
+      "confidence": "confirmed",
+      "semantic": "原API EntityPlayer:GetNumBlueSpiders 所访问的实际引擎区域；以访问器名称索引，具体多字段/位/向量/树操作和读取宽度以原件契约及测试为准，不声称这是C++源成员名字。 逐项字段同算法/写者锚、真实引用和完整宽度；player31/evidence/field-proof-matrix.json。 完整原件和中间失败保存在dist/apis300-20261014，虚调用槽按重定位核，不能按PC位宽翻倍。",
+      "evidence_files": [
+        "dist/apis300-20261014/player31/evidence/field-proof-matrix.json"
+      ],
+      "judgement": "runtime/tests/test_api300_player.py"
+    },
+    {
+      "name": "GetNumGigaBombs",
+      "kind": "accessor_region",
+      "offset": 9380,
+      "confidence": "confirmed",
+      "semantic": "原API EntityPlayer:GetNumGigaBombs 所访问的实际引擎区域；以访问器名称索引，具体多字段/位/向量/树操作和读取宽度以原件契约及测试为准，不声称这是C++源成员名字。 逐项字段同算法/写者锚、真实引用和完整宽度；player31/evidence/field-proof-matrix.json。 完整原件和中间失败保存在dist/apis300-20261014，虚调用槽按重定位核，不能按PC位宽翻倍。",
+      "evidence_files": [
+        "dist/apis300-20261014/player31/evidence/field-proof-matrix.json"
+      ],
+      "judgement": "runtime/tests/test_api300_player.py"
+    },
+    {
+      "name": "GetRecentMovementVector",
+      "kind": "accessor_region",
+      "offset": 6696,
+      "confidence": "confirmed",
+      "semantic": "原API EntityPlayer:GetRecentMovementVector 所访问的实际引擎区域；以访问器名称索引，具体多字段/位/向量/树操作和读取宽度以原件契约及测试为准，不声称这是C++源成员名字。 逐项字段同算法/写者锚、真实引用和完整宽度；player31/evidence/field-proof-matrix.json。 完整原件和中间失败保存在dist/apis300-20261014，虚调用槽按重定位核，不能按PC位宽翻倍。",
+      "evidence_files": [
+        "dist/apis300-20261014/player31/evidence/field-proof-matrix.json"
+      ],
+      "judgement": "runtime/tests/test_api300_player.py"
+    },
+    {
+      "name": "GetSmoothBodyRotation",
+      "kind": "accessor_region",
+      "offset": 8416,
+      "confidence": "confirmed",
+      "semantic": "原API EntityPlayer:GetSmoothBodyRotation 所访问的实际引擎区域；以访问器名称索引，具体多字段/位/向量/树操作和读取宽度以原件契约及测试为准，不声称这是C++源成员名字。 逐项字段同算法/写者锚、真实引用和完整宽度；player31/evidence/field-proof-matrix.json。 完整原件和中间失败保存在dist/apis300-20261014，虚调用槽按重定位核，不能按PC位宽翻倍。",
+      "evidence_files": [
+        "dist/apis300-20261014/player31/evidence/field-proof-matrix.json"
+      ],
+      "judgement": "runtime/tests/test_api300_player.py"
+    },
+    {
+      "name": "GetTearPoisonDamage",
+      "kind": "accessor_region",
+      "offset": 6496,
+      "confidence": "confirmed",
+      "semantic": "原API EntityPlayer:GetTearPoisonDamage 所访问的实际引擎区域；以访问器名称索引，具体多字段/位/向量/树操作和读取宽度以原件契约及测试为准，不声称这是C++源成员名字。 逐项字段同算法/写者锚、真实引用和完整宽度；player31/evidence/field-proof-matrix.json。 完整原件和中间失败保存在dist/apis300-20261014，虚调用槽按重定位核，不能按PC位宽翻倍。",
+      "evidence_files": [
+        "dist/apis300-20261014/player31/evidence/field-proof-matrix.json"
+      ],
+      "judgement": "runtime/tests/test_api300_player.py"
+    },
+    {
+      "name": "GetTearRangeModifier",
+      "kind": "accessor_region",
+      "offset": 6420,
+      "confidence": "confirmed",
+      "semantic": "原API EntityPlayer:GetTearRangeModifier 所访问的实际引擎区域；以访问器名称索引，具体多字段/位/向量/树操作和读取宽度以原件契约及测试为准，不声称这是C++源成员名字。 逐项字段同算法/写者锚、真实引用和完整宽度；player31/evidence/field-proof-matrix.json。 完整原件和中间失败保存在dist/apis300-20261014，虚调用槽按重定位核，不能按PC位宽翻倍。",
+      "evidence_files": [
+        "dist/apis300-20261014/player31/evidence/field-proof-matrix.json"
+      ],
+      "judgement": "runtime/tests/test_api300_player.py"
+    },
+    {
+      "name": "GetTotalDamageTaken",
+      "kind": "accessor_region",
+      "offset": 6828,
+      "confidence": "confirmed",
+      "semantic": "原API EntityPlayer:GetTotalDamageTaken 所访问的实际引擎区域；以访问器名称索引，具体多字段/位/向量/树操作和读取宽度以原件契约及测试为准，不声称这是C++源成员名字。 逐项字段同算法/写者锚、真实引用和完整宽度；player31/evidence/field-proof-matrix.json。 完整原件和中间失败保存在dist/apis300-20261014，虚调用槽按重定位核，不能按PC位宽翻倍。",
+      "evidence_files": [
+        "dist/apis300-20261014/player31/evidence/field-proof-matrix.json"
+      ],
+      "judgement": "runtime/tests/test_api300_player.py"
+    },
+    {
+      "name": "GetTractorBeam",
+      "kind": "accessor_region",
+      "offset": 6088,
+      "confidence": "confirmed",
+      "semantic": "原API EntityPlayer:GetTractorBeam 所访问的实际引擎区域；以访问器名称索引，具体多字段/位/向量/树操作和读取宽度以原件契约及测试为准，不声称这是C++源成员名字。 逐项字段同算法/写者锚、真实引用和完整宽度；player31/evidence/field-proof-matrix.json。 完整原件和中间失败保存在dist/apis300-20261014，虚调用槽按重定位核，不能按PC位宽翻倍。",
+      "evidence_files": [
+        "dist/apis300-20261014/player31/evidence/field-proof-matrix.json"
+      ],
+      "judgement": "runtime/tests/test_api300_player.py"
+    },
+    {
+      "name": "GetVelocityBeforeUpdate",
+      "kind": "accessor_region",
+      "offset": 6708,
+      "confidence": "confirmed",
+      "semantic": "原API EntityPlayer:GetVelocityBeforeUpdate 所访问的实际引擎区域；以访问器名称索引，具体多字段/位/向量/树操作和读取宽度以原件契约及测试为准，不声称这是C++源成员名字。 逐项字段同算法/写者锚、真实引用和完整宽度；player31/evidence/field-proof-matrix.json。 完整原件和中间失败保存在dist/apis300-20261014，虚调用槽按重定位核，不能按PC位宽翻倍。",
+      "evidence_files": [
+        "dist/apis300-20261014/player31/evidence/field-proof-matrix.json"
+      ],
+      "judgement": "runtime/tests/test_api300_player.py"
+    },
+    {
+      "name": "HasCurseMistEffect",
+      "kind": "accessor_region",
+      "offset": 10208,
+      "confidence": "confirmed",
+      "semantic": "原API EntityPlayer:HasCurseMistEffect 所访问的实际引擎区域；以访问器名称索引，具体多字段/位/向量/树操作和读取宽度以原件契约及测试为准，不声称这是C++源成员名字。 逐项字段同算法/写者锚、真实引用和完整宽度；player31/evidence/field-proof-matrix.json。 完整原件和中间失败保存在dist/apis300-20261014，虚调用槽按重定位核，不能按PC位宽翻倍。",
+      "evidence_files": [
+        "dist/apis300-20261014/player31/evidence/field-proof-matrix.json"
+      ],
+      "judgement": "runtime/tests/test_api300_player.py"
+    },
+    {
+      "name": "IsItemQueueEmpty",
+      "kind": "accessor_region",
+      "offset": 7224,
+      "confidence": "confirmed",
+      "semantic": "原API EntityPlayer:IsItemQueueEmpty 所访问的实际引擎区域；以访问器名称索引，具体多字段/位/向量/树操作和读取宽度以原件契约及测试为准，不声称这是C++源成员名字。 逐项字段同算法/写者锚、真实引用和完整宽度；player31/evidence/field-proof-matrix.json。 完整原件和中间失败保存在dist/apis300-20261014，虚调用槽按重定位核，不能按PC位宽翻倍。",
+      "evidence_files": [
+        "dist/apis300-20261014/player31/evidence/field-proof-matrix.json"
+      ],
+      "judgement": "runtime/tests/test_api300_player.py"
+    },
+    {
+      "name": "IsP2Appearing",
+      "kind": "accessor_region",
+      "offset": 5940,
+      "confidence": "confirmed",
+      "semantic": "原API EntityPlayer:IsP2Appearing 所访问的实际引擎区域；以访问器名称索引，具体多字段/位/向量/树操作和读取宽度以原件契约及测试为准，不声称这是C++源成员名字。 逐项字段同算法/写者锚、真实引用和完整宽度；player31/evidence/field-proof-matrix.json。 完整原件和中间失败保存在dist/apis300-20261014，虚调用槽按重定位核，不能按PC位宽翻倍。",
+      "evidence_files": [
+        "dist/apis300-20261014/player31/evidence/field-proof-matrix.json"
+      ],
+      "judgement": "runtime/tests/test_api300_player.py"
+    },
+    {
+      "name": "SetBloodCharge",
+      "kind": "accessor_region",
+      "offset": 9340,
+      "confidence": "confirmed",
+      "semantic": "原API EntityPlayer:SetBloodCharge 所访问的实际引擎区域；以访问器名称索引，具体多字段/位/向量/树操作和读取宽度以原件契约及测试为准，不声称这是C++源成员名字。 逐项字段同算法/写者锚、真实引用和完整宽度；player31/evidence/field-proof-matrix.json。 完整原件和中间失败保存在dist/apis300-20261014，虚调用槽按重定位核，不能按PC位宽翻倍。",
+      "evidence_files": [
+        "dist/apis300-20261014/player31/evidence/field-proof-matrix.json"
+      ],
+      "judgement": "runtime/tests/test_api300_player.py"
+    },
+    {
+      "name": "SetSoulCharge",
+      "kind": "accessor_region",
+      "offset": 9336,
+      "confidence": "confirmed",
+      "semantic": "原API EntityPlayer:SetSoulCharge 所访问的实际引擎区域；以访问器名称索引，具体多字段/位/向量/树操作和读取宽度以原件契约及测试为准，不声称这是C++源成员名字。 逐项字段同算法/写者锚、真实引用和完整宽度；player31/evidence/field-proof-matrix.json。 完整原件和中间失败保存在dist/apis300-20261014，虚调用槽按重定位核，不能按PC位宽翻倍。",
+      "evidence_files": [
+        "dist/apis300-20261014/player31/evidence/field-proof-matrix.json"
+      ],
+      "judgement": "runtime/tests/test_api300_player.py"
+    },
+    {
+      "name": "AddControlsCooldown",
+      "kind": "accessor_region",
+      "offset": 1028,
+      "confidence": "confirmed",
+      "semantic": "原API EntityPlayer:AddControlsCooldown 所访问的实际引擎区域；以访问器名称索引，具体多字段/位/向量/树操作和读取宽度以原件契约及测试为准，不声称这是C++源成员名字。 逐项字段同算法/写者锚、真实引用和完整宽度；player31/evidence/field-proof-matrix.json。 完整原件和中间失败保存在dist/apis300-20261014，虚调用槽按重定位核，不能按PC位宽翻倍。",
+      "evidence_files": [
+        "dist/apis300-20261014/player31/evidence/field-proof-matrix.json"
+      ],
+      "judgement": "runtime/tests/test_api300_player.py"
+    },
+    {
+      "name": "AreControlsEnabled",
+      "kind": "accessor_region",
+      "offset": 1024,
+      "confidence": "confirmed",
+      "semantic": "原API EntityPlayer:AreControlsEnabled 所访问的实际引擎区域；以访问器名称索引，具体多字段/位/向量/树操作和读取宽度以原件契约及测试为准，不声称这是C++源成员名字。 逐项字段同算法/写者锚、真实引用和完整宽度；player31/evidence/field-proof-matrix.json。 完整原件和中间失败保存在dist/apis300-20261014，虚调用槽按重定位核，不能按PC位宽翻倍。",
+      "evidence_files": [
+        "dist/apis300-20261014/player31/evidence/field-proof-matrix.json"
+      ],
+      "judgement": "runtime/tests/test_api300_player.py"
+    }
+  ]
+}

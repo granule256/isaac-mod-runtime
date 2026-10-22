@@ -24,6 +24,9 @@ void RecordDispatch(CallbackId id) noexcept {
 // `thread_local`（本项目在真机上已被 `thread_local` 坑过一次，见 `lua_runtime.cpp` 的注释）。
 std::uint64_t g_PostUpdateDispatchCount = 0;
 
+//: 帧边界钩子（批次 381）：默认没有；输入层在会话初始化时装上。
+FrameBoundaryHook g_FrameBoundaryHook = nullptr;
+
 } // namespace
 
 void ResetCallbackDispatchCounters() noexcept {
@@ -41,6 +44,14 @@ std::uint32_t CallbackDispatchGeneration() noexcept {
 
 void ManagedFrameClock::MarkPostUpdateDispatch() noexcept {
     ++g_PostUpdateDispatchCount;
+    // 帧号自增之后、调用方派发回调之前 —— 见 `FrameBoundaryHook` 的声明处。
+    if (g_FrameBoundaryHook != nullptr) {
+        g_FrameBoundaryHook(g_PostUpdateDispatchCount);
+    }
+}
+
+void SetFrameBoundaryHook(FrameBoundaryHook hook) noexcept {
+    g_FrameBoundaryHook = hook;
 }
 
 void ManagedFrameClock::Reset() noexcept {
@@ -60,6 +71,10 @@ DispatchReport CallbackDispatcher::Dispatch(CallbackId id, ThreadAffinity curren
         // 每个 update 恰好一次：这是 `Isaac.GetFrameCount()` 的唯一累加点。
         ManagedFrameClock::MarkPostUpdateDispatch();
     }
+    CallbackBatchResult batch{};
+    if(invoker_.InvokeBatch(id,CallbackRegistry::kNoCallbackFilter,&batch)) {
+        report.invoked=batch.invoked;report.failed=batch.failed;report.skippedFilter=batch.skippedFilter;return report;
+    }
     // 顺序按**优先级升序 + 同优先级登记顺序**（见 `CollectCallOrder` 的注释）。
     std::uint8_t order[kCallbackDispatchOrderCapacity];
     const std::size_t total = CollectCallOrder(registry_, id, false, ModHandle{}, current,
@@ -71,11 +86,13 @@ DispatchReport CallbackDispatcher::Dispatch(CallbackId id, ThreadAffinity curren
         if (descriptor == nullptr) {
             continue;
         }
-        if (invoker_.Invoke(*descriptor).ok()) {
-            ++report.invoked;
-        } else {
+        CallbackReturn returned{};
+        if (!invoker_.InvokeCollecting(*descriptor, &returned).ok()) {
             ++report.failed;
+            break; // PC整个_RunCallback保护调用失败，后续登记不继续。
         }
+        ++report.invoked;
+        if (returned.called && returned.nonNil) break; // 即使调用方丢弃结果，Lua也已短路。
     }
     return report;
 }
@@ -86,6 +103,10 @@ DispatchReport CallbackDispatcher::DispatchFiltered(CallbackId id, ThreadAffinit
     DispatchReport report{};
     if (id == kCallbackPostUpdate) {
         ManagedFrameClock::MarkPostUpdateDispatch();
+    }
+    CallbackBatchResult batch{};
+    if(invoker_.InvokeBatch(id,filter,&batch)) {
+        report.invoked=batch.invoked;report.failed=batch.failed;report.skippedFilter=batch.skippedFilter;return report;
     }
     // 过滤器与描述符的平行关系按**全表下标**定义（`CallbackRegistry::FilterAt`），
     // 所以收集也在全表上走；顺序同样按优先级（见 `CollectCallOrder`）。
@@ -98,11 +119,13 @@ DispatchReport CallbackDispatcher::DispatchFiltered(CallbackId id, ThreadAffinit
         if (descriptor == nullptr) {
             continue;
         }
-        if (invoker_.Invoke(*descriptor).ok()) {
-            ++report.invoked;
-        } else {
+        CallbackReturn returned{};
+        if (!invoker_.InvokeCollecting(*descriptor, &returned).ok()) {
             ++report.failed;
+            break; // PC整个_RunCallback保护调用失败，后续登记不继续。
         }
+        ++report.invoked;
+        if (returned.called && returned.nonNil) break; // 即使调用方丢弃结果，Lua也已短路。
     }
     return report;
 }
@@ -111,6 +134,17 @@ CallbackDispatchOutcome CallbackDispatcher::DispatchModifying(CallbackId id, Thr
                                                              std::int64_t filter) noexcept {
     RecordDispatch(id);
     CallbackDispatchOutcome outcome{};
+    CallbackBatchResult batch{};
+    if(invoker_.InvokeBatch(id,filter,&batch)) {
+        outcome.invoked=batch.invoked;outcome.failed=batch.failed;outcome.skippedFilter=batch.skippedFilter;
+        if(batch.failed==0) {
+            outcome.hasTable=batch.returned.hasTable;outcome.anyNonNil=batch.returned.nonNil;
+            outcome.anyTruthy=batch.returned.truthy;outcome.hasInteger=batch.returned.hasInteger;
+            outcome.integer=batch.returned.integer;outcome.hasNumber=batch.returned.hasNumber;
+            outcome.number=batch.returned.number;
+        }
+        return outcome;
+    }
     // 全表遍历的理由同 `DispatchFiltered`（过滤器按全表下标与描述符平行）；
     // 顺序同样按**优先级升序 + 同优先级登记顺序**（见 `CollectCallOrder`）。
     std::uint8_t order[kCallbackDispatchOrderCapacity];
@@ -125,11 +159,14 @@ CallbackDispatchOutcome CallbackDispatcher::DispatchModifying(CallbackId id, Thr
         CallbackReturn returned{};
         if (!invoker_.InvokeCollecting(*descriptor, &returned).ok()) {
             ++outcome.failed;
-            continue;
+            break;
         }
         ++outcome.invoked;
         if (!returned.called) {
             continue;
+        }
+        if ((id == kCallbackPreEntitySpawn || id == kCallbackPreRoomEntitySpawn || id == kCallbackUseItem || id == kCallbackPostPickupSelection) && returned.hasTable) {
+            outcome.hasTable = true; // 完整PC bootstrap遇首个非nil即停，空表也短路。
         }
         if (returned.nonNil) {
             outcome.anyNonNil = true;
@@ -137,13 +174,19 @@ CallbackDispatchOutcome CallbackDispatcher::DispatchModifying(CallbackId id, Thr
         if (returned.truthy) {
             outcome.anyTruthy = true;
         }
-        // "第一条胜出"：`MC_POST_GET_COLLECTIBLE` 的文档写明"返回的值**不会**更新后续回调
-        // 看到的 SelectedCollectible"⇒ 后续回调拿到的仍是同一个原值，因此后一条的返回值
-        // 不会覆盖前一条。写成"第一条胜出"与那个语义一致（且不会让最后一条默默赢）。
+        // 完整PC_RunCallback只返回第一个非nil；整数转换由Lua保护桥完成。
         if (returned.hasInteger && !outcome.hasInteger) {
             outcome.hasInteger = true;
             outcome.integer = returned.integer;
         }
+        // ★ 2026-10-07（批次 390）：数字通道同 `integer` 的口径 —— **第一条胜出**
+        // （`MC_INPUT_ACTION` 的 `GET_ACTION_VALUE` 覆盖值用）。
+        if (returned.hasNumber && !outcome.hasNumber) {
+            outcome.hasNumber = true;
+            outcome.number = returned.number;
+        }
+        // PC main.lua的统一规则：包括Input、空表、false、0，均停止其余登记。
+        if (returned.nonNil) break;
     }
     return outcome;
 }
@@ -153,6 +196,10 @@ DispatchReport CallbackDispatcher::DispatchOwner(ModHandle owner, CallbackId id,
     // 与 `Dispatch` 同一个口径：数的是"这种回调被派发过几次"，与谁来听、听了几个无关。
     RecordDispatch(id);
     DispatchReport report{};
+    CallbackBatchResult batch{};
+    if(invoker_.InvokeBatch(id,CallbackRegistry::kNoCallbackFilter,&batch,&owner)) {
+        report.invoked=batch.invoked;report.failed=batch.failed;report.skippedFilter=batch.skippedFilter;return report;
+    }
     // 与其它入口同一套顺序（优先级升序 + 同优先级登记顺序），只是多一个属主条件。
     std::uint8_t order[kCallbackDispatchOrderCapacity];
     const std::size_t total = CollectCallOrder(registry_, id, true, owner, current,
@@ -164,11 +211,13 @@ DispatchReport CallbackDispatcher::DispatchOwner(ModHandle owner, CallbackId id,
         if (descriptor == nullptr) {
             continue;
         }
-        if (invoker_.Invoke(*descriptor).ok()) {
-            ++report.invoked;
-        } else {
+        CallbackReturn returned{};
+        if (!invoker_.InvokeCollecting(*descriptor, &returned).ok()) {
             ++report.failed;
+            break; // PC整个_RunCallback保护调用失败，后续登记不继续。
         }
+        ++report.invoked;
+        if (returned.called && returned.nonNil) break; // 即使调用方丢弃结果，Lua也已短路。
     }
     return report;
 }

@@ -1,13 +1,17 @@
 #pragma once
+#include "raw_engine_input.hpp"
+#include "domain/callback/use_item_result.hpp"
 
 #include <cstddef>
 #include <cstdint>
+#include <array>
 
 #include "common.hpp"
 // 下面两个绑定记录的字段类型来自 `lua_runtime_state.hpp` 里那一份"引擎入口声明类型"
 // （2026-09-17）：记录本身只是**搬运**——安装期把校验过的入口地址填进来，`Set*Bindings`
 // 再逐个发布到原子槽；调用点用的是同一份类型，于是"声明的签名"与"调用的签名"不可能漂移。
 #include "lua_runtime_state.hpp"
+namespace isaac::runtime { struct ConsoleCommandView; }
 
 #if !defined(EXL_DIAGNOSTIC_STAGE) || EXL_DIAGNOSTIC_STAGE == 13
 #include "game_file_reader.hpp"
@@ -26,26 +30,12 @@ enum class LuaInitResult : u32 {
 };
 
 LuaInitResult Initialize();
+bool UnloadManifestMods() noexcept;
+void DispatchExecuteCommand(const isaac::runtime::ConsoleCommandView&) noexcept;
 LuaInitResult InitializeFromBuffer(const char* script, std::size_t length, const char* chunkName);
 #if !defined(EXL_DIAGNOSTIC_STAGE) || EXL_DIAGNOSTIC_STAGE == 13
-// 把**运行时与自带菜单**建起来，但不加载任何模组。
-//
-// 为什么需要它（2026-09-16 真机暴露的设计缺口）：菜单脚本原先搭在"第一个模组初始化"里跑，
-// 于是**把所有模组都关掉之后**就没有模组可加载、Lua 状态根本不会被创建 —— 菜单自己也进不去，
-// 用户被锁在"关掉的模组打不开、菜单也打不开"的死角里。模组加载失败（脚本报错）时同理。
-// 这里把"建立运行时"与"加载模组"解耦：幂等，已经有状态就直接成功。
+// 幂等建立共享Lua运行时，不额外注册菜单模组；函数名沿用历史接口。
 LuaInitResult EnsureRuntimeWithMenu() noexcept;
-
-// 把**内嵌的模组开关菜单**当成"第一个模组"加载：走与真实模组**完全相同**的路径
-// （`SetStage13Context(modRoot, bindings)` → 建/复用 Lua 状态 → 执行入口脚本 → 登记回调）。
-//
-// 为什么不让它走"只有菜单的运行时"那条特殊路径（2026-09-16 真机结论）：那条路径**没有模组上下文**
-// （不设 stage13 上下文与文件绑定），而真机上恰好只有"开机一个模组都没加载"时才会走到它 ——
-// 那一条件下的症状是**退出对局时 nnSdk 堆断言崩溃**（`Game::Exit → AnmCache::FreeUnreferencedImages`
-// → 堆 free 断言），把模块整个移走则不崩。所以这里改成让菜单和真实模组共用同一条初始化路径，
-// 顺带把"模组全关时菜单也得能用"这件事用同一套机制满足。
-LuaInitResult InitializeEmbeddedMenuMod(const char* modRoot,
-                                        const GameFileReader::Bindings& bindings) noexcept;
 
 LuaInitResult InitializeManifestMod(const char* entry, std::size_t entryLength,
                                     const char* chunkName, const char* modRoot,
@@ -96,13 +86,35 @@ void SetGetRenderPositionHostFunction(RenderPositionHostFunction function) noexc
 void SetLevelIsNextStageAvailableBinding(uintptr_t method);
 void SetItemPoolGetCollectibleBinding(uintptr_t method);
 void SetMusicBindings(uintptr_t getCurrentMusicId, uintptr_t pause, uintptr_t resume);
+// 批次 137：`MusicManager:UpdateVolume()` 的**单方法绑定**（与 `SetLevelIsAscentBinding`
+// 同一个形状：一次 release 存储、handler 一次 acquire 读 ⇒ 不会看到"半个已校验记录"）。
+// 为什么单独一条而不并进 `SetMusicBindings`：那条已经是三参数记录、且有既有调用方与用例，
+// 扩参会让"发布点漏发"这类历史教训重新出现；单方法发布点与其它可选能力同形。
+void SetMusicUpdateVolumeBinding(uintptr_t method);
+// 批次 138：`MusicManager:Play(ID, Volume)` 的单方法绑定（与 `SetMusicUpdateVolumeBinding` 同形）。
+void SetMusicPlayBinding(uintptr_t method);
 
 // Publishes the controller-input bindings resolved during Hook installation. Any of the
 // three may be zero, and the handlers then report an unavailable binding rather than a
 // fabricated reading.
 void SetInputBindings(uintptr_t isActionPressed, uintptr_t isActionTriggered,
                       uintptr_t getActionValue);
+//: 批次 195（2026-09-29）：**按键号**那三条查询的入口（`KAGE::Input::ManagerBase`）。
+//:
+//: 为什么**单独一条**而不并进 `SetInputBindings`：与 `SetRngRandomBindings` 同一条理由 ——
+//: 上面那条已经是三参数记录、且有既有调用方与多个 harness 在按旧形状安装宿主实现，
+//: 改签名会把它们一起卷进来。这三条按同一个"可选能力"口径发布：守卫不符只留 0，
+//: handler 报"绑定不可用"，**绝不编一个 false/0.0** 把偏移写串伪装成"没按下"。
+void SetInputButtonBindings(uintptr_t isButtonPressed, uintptr_t getButtonValue);
 void SetRngBindings(uintptr_t setSeed, uintptr_t next);
+// 批次 195（2026-09-29）：`RNG:RandomInt(Max)` / `RNG:RandomFloat()` 的两个入口。
+//
+// 为什么**单独一条**而不并进 `SetRngBindings`：与 `SetMusicPlayBinding` 同一条理由 ——
+// 上面那条已经是两参数记录、且有既有调用方与两个 harness（`test_starterr_rng.py` /
+// `test_lua_grid_rng_pill.py`）在按旧形状安装宿主实现，改签名会把它们一起卷进来。
+// 两条新入口按同一个"可选能力"口径发布：守卫不符只留 0，handler 报"绑定不可用"，
+// **绝不编一个随机数**。
+void SetRngRandomBindings(uintptr_t randomUint, uintptr_t randomFloat);
 
 // The `Font` family's native entry points, published as one record because an eleven-argument
 // setter would be unreadable at the call site. Every field may stay zero: the Font handlers then
@@ -156,9 +168,23 @@ struct LuaSpriteBindings {
     SpriteUpdateFn update{nullptr};
     SpriteIsPlayingFn isPlaying{nullptr};
     SpriteIsFinishedFn isFinished{nullptr};
+    //: 批次 214：`ANM2::Reset()`（中文版 MCM 的 anm2 探测要用）。
+    SpriteResetFn reset{nullptr};
     SpriteRenderFn render{nullptr};
     SpriteRenderLayerFn renderLayer{nullptr};
     SpritePlayRandomFn playRandom{nullptr};
+    //: 批次 279：overlay 三条（语料里 `Sprite:PlayOverlay` 12 处、`SetLastFrame` 6 处、
+    //: `SetOverlayFrame` 1 处）。
+    SpritePlayOverlayFn playOverlay{nullptr};
+    SpriteSetLastFrameFn setLastFrame{nullptr};
+    SpriteSetOverlayFrameFn setOverlayFrame{nullptr};
+    //: 批次 280：`ANM2::Stop()`（把动画停下）。
+    SpriteStopFn stop{nullptr};
+    //: 批次 283：四条「按名字查询」（语料 6 处，全在 `BOIStageAPI15`）。
+    SpriteIsOverlayPlayingFn isOverlayPlaying{nullptr};
+    SpriteIsOverlayFinishedFn isOverlayFinished{nullptr};
+    SpriteIsEventTriggeredFn isEventTriggered{nullptr};
+    SpriteWasEventTriggeredFn wasEventTriggered{nullptr};
     // 第二步：需要 libc++ `std::string` 的三个入口，外加借来代建字符串的
     // `basic_string::assign(char const*)`（游戏导入的 PLT 桩）。
     SpriteLoadFn load{nullptr};
@@ -193,7 +219,29 @@ void DispatchPostUpdate();
 // 那时候调用模组回调风险高）。真正的派发在下一帧的 `DispatchPostUpdate()` 里做。
 // `isSave`：真 = 读档进游戏，假 = 新开一局（来自中继的事件种类）。
 void NoteGameStarted(bool isSave) noexcept;
+// ★ 批次 417：`LuaStateMemoryBytes()` 的声明**不在这里** —— 消费方
+//   `mod_menu_native.cpp` 包含的是 `lua_runtime_state.hpp`，声明放那边（放这儿会
+//   得到 `'LuaStateMemoryBytes' is not a member of 'LuaRuntime'`）。
 void DispatchPostRender(uintptr_t manager);
+
+// --- 批次 149（2026-09-26）：`MusicManager:` 一族"回调里拿不到 Manager"的兜底 -------------
+//
+// 为什么需要：`MusicManager:` 的每个方法都要一个 Manager 才能定位引擎的 `Music` 对象，
+// 而那个 Manager 以前**只**来自"当前正在派发的那条回调"。可 `MC_POST_UPDATE` 的派发
+// **不带** Manager（`LuaCallbackInvoker{0, false, true}`，那条例行字面量被
+// `test_embedded_lua_runtime.py` 钉着）⇒ 模组在 `MC_POST_UPDATE` 里调
+// `MusicManager():Play(...)` 时恒为空、整族报 "native bindings are unavailable"。
+// 真机实例：The Specialist for Good Items 的"捡到四级物品放歌"（`main.lua:483/488/489`）
+// 全在 `MC_POST_UPDATE`（`OnGameUpdate → OnPogMoment → DoCostume`）里。
+//
+// PC 的绑定层本来就不是"从回调里取 Manager"，而是读引擎自己的全局 Manager ⇒
+// "回调里没有就用本帧的"比"报错"更接近 PC 语义；两者本来就是同一个 Manager 单例
+// （每帧 `Manager::Update` / `Manager::Render` 收到的 `self`）。
+//
+// `provider` 返回**本帧的 Manager**（0 = 不知道）。由 `hook_manager.cpp` 在安装期发布
+// （与 `SetSessionContentMountService` 同一处、同一条理由：模块初始化线程、主循环尚未开始）；
+// 宿主夹具不发 ⇒ 取不到 ⇒ 行为与改动前逐字相同（宿主判据不受影响）。
+void SetFrameManagerProvider(std::uintptr_t (*provider)()) noexcept;
 // MC_PRE_GET_COLLECTIBLE（id 62）：挂在 `ItemPool::GetCollectible` 的入口中继里，
 // **先于**原函数派发；返回值（若有）就是"这次该给的道具"，调用方据此跳过原函数。
 std::uint64_t DispatchPreGetCollectible(void* itemPool, std::uint32_t itemPoolType,
@@ -214,13 +262,77 @@ void DispatchPreGameExit(bool shouldSave);
 [[nodiscard]] bool DispatchPreUseItem(std::uintptr_t player, std::int32_t collectibleType,
                                       std::int32_t useFlags, std::int32_t activeSlot,
                                       std::int32_t customVarData);
-void DispatchUseItem(std::uintptr_t player, std::int32_t collectibleType, std::int32_t useFlags,
+isaac::runtime::UseItemCallbackResult DispatchUseItem(std::uintptr_t player, std::int32_t collectibleType, std::int32_t useFlags,
                      std::int32_t activeSlot, std::int32_t customVarData);
+
+// --- 批次 390（2026-10-07）：`MC_INPUT_ACTION` 的派发入口 --------------------------------------
+//
+// 契约（`analysis/isaacdocs-snapshot/docs/enums/ModCallbacks.md:347-367`）：**引擎每次轮询某个
+// `ButtonAction` 时**触发一次（官方执行信息栏：**每秒约 1470 次**），实参 `(Entity, InputHook,
+// ButtonAction)`；**返回非 nil 即覆盖**这次查询的结果（`GetActionValue` 的覆盖值是 0.0~1.0 的 float）。
+// ⇒ 这是一条**在输入热路径上、每秒上千次**的入口，调用方（三条查询中继）必须**先看 `overridden`**，
+//   只有它为真时才动返回值；平时的开销必须只剩"查一次登记数"。
+struct InputActionOutcome {
+    //: 有可用的覆盖值（第一条返回非 nil 的登记）。false = 照原样返回引擎的结果。
+    bool overridden{false};
+    //: `IS_ACTION_PRESSED(0)` / `IS_ACTION_TRIGGERED(1)` 的覆盖值。
+    bool boolean{false};
+    //: `GET_ACTION_VALUE(2)` 的覆盖值（已按 PC 契约夹到 0.0~1.0）。
+    float value{0.0F};
+};
+
+// `controllerIndex` 目前**不参与**（PC 的回调实参里没有它）；留着是为了将来把 `entity` 精化成
+// "持有那个手柄的那具玩家"。
+[[nodiscard]] InputActionOutcome DispatchInputAction(std::uint32_t action,
+                                                     std::uint32_t controllerIndex,
+                                                     std::int32_t inputHook);
+
+// --- 批次 392（2026-10-07）：`Input` 类读取必须**绕开**上面那条覆盖 -----------------------------
+//
+// ★★★ 真机回归 + 反汇编定案：Lua 的 `Input.IsActionPressed/IsActionTriggered/GetActionValue`
+// 绑的是 `0x3F9B6C/0x3F9B7C/0x3F9B8C`（符号 = `IsaacRepentance::Manager::IsAction*`），而这三条
+// **尾跳**（`b`，不是 `bl`）进 `KAGE::Input::ManagerBase::IsAction*`（`0x4F9920/0x4F9A64/0x4F9BCC`）
+// —— **正是批次 390 挂中继的那三条**（`tools/engine_symbol_signatures.json` 里该符号 offset = 0x4f9920）。
+// 同一个符号另有 35/21/20 个调用点，含 `Entity_Player::get_movement_input` / `control_shooting` /
+// 各菜单类自己的输入处理 ⇒ **我们这侧的读取与引擎自己的读取是同一次调用，在函数入口上区分不了**
+// （连实参都同形：`Entity_Player::Update` 读输入时也是 `mov x3, xzr`，实体为空）。
+//
+// 而 PC 契约（`analysis/isaacdocs-snapshot/docs/enums/ModCallbacks.md:355`）明写：
+//   *"This callback will not affect any custom mod code that is reading user input via the
+//   `Input` class."*
+// ⇒ 不绕的后果（2026-10-07 真机复现）：MCM 菜单可见时对一切动作 `return false`（本意是冻住角色），
+// 结果连**它自己的光标读输入**也被答成 false ⇒ 摇杆推不动光标。
+//
+// 形状：我们这侧每次查输入都进一次这个作用域；三条中继看到标记就**直接调原函数、不派发**。
+// 用 RAII（构造置位 / 析构清除）而不是手工置位，是为了任何早退路径都不会把标记留成"卡住"
+// —— 一旦卡住，**引擎自己的**读取也会失去覆盖（菜单开着还能走，那是更糟的回归）。
+// ★ 计数式 ⇒ 嵌套安全：模组在自己的 `MC_INPUT_ACTION` 处理里再问 `Input.*` 时也走这里。
+
+
 void DispatchUseCard(std::uintptr_t player, std::int32_t card, std::int32_t useFlags);
 void DispatchUsePill(std::uintptr_t player, std::int32_t pillEffect, std::int32_t useFlags);
 // 批次 103：`MC_PRE_PICKUP_COLLISION`（38）。返回 true = **不要跑原函数**
 // （PC 的三态里 `true` 与 `false` 都不执行内部代码、只有 `nil` 才照常执行，所以这里合成一个
 // "非 nil 即拦"。`PickupVariant` 是 PC 给这条回调的可选实参类型 ⇒ `filter` 传掉落物的变体）。
+enum class CollisionOverride : std::int8_t { Continue = -1, Collide = 0, Ignore = 1 };
+[[nodiscard]] CollisionOverride DispatchPreEntityCollision(std::uint32_t callbackId,
+    std::uintptr_t entity, std::uintptr_t collider, bool low, std::int32_t filter);
+[[nodiscard]] std::int32_t DispatchGetPillColor(std::uint32_t seed, std::int32_t selected);
+[[nodiscard]] std::int32_t DispatchGetPillEffect(std::uint32_t color, std::int32_t selected);
+// 66 原生消费者：0=不覆盖；非0=首个返回整数的低32位。RNG 是当批共享自有值快照。
+[[nodiscard]] std::uint32_t DispatchGetTrinket(std::int32_t selected,
+    const std::array<std::uint8_t,16>& rngSnapshot);
+[[nodiscard]] bool DispatchPreEntityDevolve(std::uintptr_t entity);
+[[nodiscard]] bool DispatchPreNpcUpdate(std::uintptr_t npc, std::int32_t entityType);
+struct EntitySpawnOverride {
+    bool present{false};
+    std::int32_t type{0};
+    std::uint32_t variant{0}, subType{0}, seed{0};
+};
+[[nodiscard]] EntitySpawnOverride DispatchPreEntitySpawn(std::int32_t type, std::uint32_t variant,
+    std::uint32_t subType, const void* position, const void* velocity,
+    std::uintptr_t spawner, std::uint32_t seed);
+void DispatchPostNpcRender(std::uintptr_t npc, const void* renderOffset);
 [[nodiscard]] bool DispatchPrePickupCollision(std::uintptr_t pickup, std::uintptr_t collider,
                                              bool low, std::int32_t pickupVariant);
 // 批次 104：`MC_PRE_ROOM_ENTITY_SPAWN`（71）。实参 = PC 的
@@ -232,6 +344,35 @@ void DispatchUsePill(std::uintptr_t player, std::int32_t pillEffect, std::int32_
 void DispatchPreRoomEntitySpawn(std::int32_t entityType, std::int32_t variant,
                                 std::int32_t subType, std::int32_t gridIndex,
                                 std::int32_t seed);
+// 71内部边界使用；present只在最终表的1/2/3至少一个字段非nil时为真。
+struct RoomEntitySpawnOverride {
+    bool present{false};
+    std::int32_t type{0};
+    std::uint16_t variant{0}, subType{0};
+};
+[[nodiscard]] RoomEntitySpawnOverride DispatchPreRoomEntitySpawnModifying(
+    std::int32_t type, std::uint16_t variant, std::uint16_t subType,
+    std::uint32_t gridIndex, std::uint32_t seed);
+// 批次 396（2026-10-07）：`MC_ENTITY_TAKE_DMG`(11)。返回 **true = 不要跑原函数**
+// （PC 契约：只有**返回 `false`** 才取消这次伤害；`true`/`nil` 都照常受伤）。
+// `entityType` 是过滤器（PC 给这条回调的可选实参类型就是 `EntityType`）。
+// `sourceRef` 是引擎那个 `EntityRef const&` 的地址（0 = 没有来源）；`damageFlags`/`countdownFrames`
+// 按 PC 签名压整数。四条入口中继（基类 + 玩家/掉落物/槽位）共用这一个函数。
+[[nodiscard]] bool DispatchEntityTakeDamage(std::uintptr_t entity, float amount,
+                                            std::int32_t damageFlags, std::uintptr_t sourceRef,
+                                            std::int32_t countdownFrames, std::int32_t entityType);
+// 批次 396（2026-10-07）：`MC_EVALUATE_CACHE`(8)。过滤器 = 本次要重算的那个 CacheFlag 位；
+// 调用点把 `Entity_Player + 0x1958` 掩码逐位拆开、一位调一次（入口不带 CacheFlag 实参）。
+void DispatchEvaluateCache(std::uintptr_t player, std::int32_t cacheFlag);
+// 批次 397（2026-10-07）：补全回调（第 2 批）的三条 —— 实参一律照 PC 契约写。
+//   * `MC_POST_ENTITY_KILL`(68)：`(Entity)`，过滤器 = `entityType`；
+//   * `MC_POST_NPC_DEATH`(29)：`(EntityNPC)`，过滤器 = `entityType`；
+//   * `MC_POST_GAME_END`(16)：`(bool IsGameOver)`，无过滤（★ 必须压布尔，见实现处的说明）。
+void DispatchPostEntityKill(std::uintptr_t entity, std::int32_t entityType);
+void DispatchPostNpcDeath(std::uintptr_t npc, std::int32_t entityType);
+void DispatchPostGameEnd(bool isGameOver);
+// `MC_POST_FIRE_TEAR`(61)：`(EntityTear)`，无过滤；实参 = `FireTear` 的返回值（泪弹指针）。
+void DispatchPostFireTear(std::uintptr_t tear);
 //: 调用点**先**读 `RoomConfig::Entry` 的前三个字段（`ReadRoomConfigEntryFields`）；
 //: 读不到就**不要调**上面那个派发函数 —— 不编造 Type/Variant/SubType（EID 拿它们去建索引，
 //: 给错的比给不到更糟；理由与 `runtime_constants.hpp` 里那段靶点证据同一节）。
@@ -292,3 +433,27 @@ u64 CallbackFailureDetail();
 #endif
 
 } // namespace LuaRuntime
+
+namespace LuaRuntime {
+// PC70参数按值，同一Lua派发批共享；取消采用Lua真值，不改引擎seed/position。
+bool DispatchPreSpawnCleanAward(const std::array<std::uint8_t,16>& snapshot, float x, float y);
+}
+
+namespace LuaRuntime { void DispatchPostEntityRemove(std::uintptr_t entity, std::int32_t entityType); }
+
+namespace LuaRuntime {
+std::uint32_t DispatchPostCurseEval(std::uint32_t curses);
+void DispatchPostPickupSelection(std::uintptr_t pickup,std::uint32_t* variant,std::uint32_t* subType);
+}
+
+namespace LuaRuntime {
+bool IsOnGameThread() noexcept;
+void ObserveGameThread() noexcept;
+bool CanDispatchGetCard() noexcept;
+std::uint32_t DispatchGetCard(void*,std::uint32_t,bool,bool,bool);
+}
+
+namespace isaac::runtime {struct ShaderProgramView;}
+namespace LuaRuntime {bool FillShaderParameters(const isaac::runtime::ShaderProgramView&,float*,std::uintptr_t) noexcept;}
+
+namespace LuaRuntime { void DispatchPressurePlateAnimationPinEvent(std::uintptr_t,bool beforeDestroy) noexcept; }

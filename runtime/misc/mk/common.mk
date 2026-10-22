@@ -110,10 +110,11 @@ CFLAGS	+= $(EXL_CFLAGS) -I"$(DEVKITPRO)/libnx/include" -I$(ROOT_SOURCE) \
 
 CXXFLAGS  := $(CFLAGS) $(EXL_CXXFLAGS) -fno-rtti -fno-exceptions -std=gnu++23
 
-# The Lua bridge is callback-only control code.  Keeping this translation unit
-# size-optimized preserves the hardware-verified module LOAD boundary while
-# allowing the general RNG API to remain available in the default Runtime.
-lua_runtime.o: CXXFLAGS += -Oz
+# The callback dispatcher and Lua API bindings execute every frame. Production
+# builds use speed optimization; the linker still enforces the RX budget.
+ifneq ($(PROBE_BREAK),1)
+lua_runtime.o: CXXFLAGS += -O3
+endif
 
 # The per-family Lua API units were split out of `lua_runtime.o` (which is
 # `-Oz`) and only exist in layered builds.  Without this they would compile at
@@ -122,7 +123,12 @@ lua_runtime.o: CXXFLAGS += -Oz
 # Keep this list in sync when a family moves to its own translation unit.
 LUA_FAMILY_OPTIMIZED_CPPFILES := mod_api.o game_api.o remaining_api.o music_api.o \
 	rng_api.o input_api.o font_api.o color_api.o vector_api.o sprite_api.o json_api.o
-$(LUA_FAMILY_OPTIMIZED_CPPFILES): CXXFLAGS += -Oz
+ifneq ($(PROBE_BREAK),1)
+$(LUA_FAMILY_OPTIMIZED_CPPFILES): CXXFLAGS += -O3
+endif
+# 2026-10-10 correction to the historical size rationale above: these units
+# contain per-frame bindings, not only load-time code. Keep the list together
+# and measure the production ELF budget after changing optimization.
 
 # 探针 TU 与 API 族叠加时，探针构建曾把只读段推过 `link.ld` 当时的 0x75000 历史闸门
 # （放宽后实测只读段结束 0x763b8，多出 0x13b8）。那条闸门已于 2026-09-12 换成失控增长闸门
@@ -142,7 +148,7 @@ hook_manager.o: CXXFLAGS += -Oz
 # The Lua C API starts only from the worker after target-module discovery and
 # Hook installation.  Compacting this C-only unit recovers RX headroom without
 # changing exl_init(), .init_array, or the exl_main() startup code shape.
-lapi.o: CFLAGS += -Oz
+# 2026-10-10: Lua C API calls also occur in every frame; include lapi below.
 
 # The remaining Lua compile-time units (lexer, parser, code generator, dump
 # loaders, debug support, auxiliary/string/table libraries) run during Mod load
@@ -152,7 +158,14 @@ lapi.o: CFLAGS += -Oz
 LUA_SIZE_OPTIMIZED_CFILES := lauxlib.o lbaselib.o lcode.o lcorolib.o lctype.o ldebug.o \
 	ldump.o lfunc.o llex.o lmathlib.o lmem.o lobject.o lopcodes.o lparser.o lstate.o \
 	lstring.o lstrlib.o ltable.o ltablib.o ltm.o lundump.o lutf8lib.o lzio.o
-$(LUA_SIZE_OPTIMIZED_CFILES): CFLAGS += -Oz
+LUA_HOT_CFILES := lapi.o ltable.o lstring.o lobject.o lmem.o lstate.o \
+	lstrlib.o lmathlib.o ltablib.o lauxlib.o
+$(filter-out $(LUA_HOT_CFILES),$(LUA_SIZE_OPTIMIZED_CFILES)): CFLAGS += -Oz
+ifneq ($(PROBE_BREAK),1)
+$(LUA_HOT_CFILES): CFLAGS += -O3
+endif
+# The historical claim above does not apply to table/string/math/auxiliary
+# operations reached by per-frame mod callbacks. Probe builds retain global -Oz.
 
 # Stage145 trace code is diagnostic-only and must remain below the verified
 # default Runtime RX LOAD boundary without changing unrelated startup code.
@@ -168,6 +181,12 @@ SPECS_PATH := $(TOPDIR)/misc/specs
 
 ASFLAGS	:=	-g $(ARCH)
 LDFLAGS     :=  -specs=$(SPECS_PATH)/$(SPECS_NAME) -g $(ARCH) -Wl,-Map,$(notdir $*.map) -nostartfiles -Wl,--eh-frame-hdr
+
+# 2026-09-29（批次 196，L4 钩子隔离·甲案）：把本模块内的 `__cxa_throw` 调用重定向到
+# `__wrap___cxa_throw`（记录抛出位置），真实现仍由 `__real___cxa_throw` 调用。
+# ★ 纯链接期重定向：**不导出任何全局同名符号**、不改游戏侧符号解析（这正是用户选"甲案"的理由）。
+# ★ 已实测 devkitA64 支持（`aarch64-none-elf-g++ -Wl,--wrap=__cxa_throw` 编译与链接均通过）。
+LDFLAGS     +=  -Wl,--wrap=__cxa_throw
 
 LIBS	:=	-lnx
 
@@ -223,6 +242,27 @@ CPPFILES := $(filter-out saltynx_external_plugin_runtime_state_probe.cpp,$(CPPFI
 CPPFILES := $(filter-out saltynx_external_plugin_runtime_state_persist_probe.cpp,$(CPPFILES))
 CPPFILES += saltynx_runtime_bridge.cpp
 CPPFILES += test_run_observer.cpp
+# 2026-09-25（批次 134）：`source/` 根目录下的文件不会被上面的 wildcard 收（`SOURCES` 只含子目录），
+# 必须像上面两行那样显式登记。这个 TU 负责把本模块的 `.eh_frame` 登记给展开器 ——
+# 没有它，本模块里任何 C++ 异常都会走 `abort()` + `_exit` 自旋（无声卡死）。原因见该文件头部注释。
+CPPFILES += eh_frame_registration.cpp
+# 2026-09-29（批次 196，L4 钩子隔离·甲案）：记录 C++ 异常的**抛出位置**。
+# 它必须显式登记（同上一行的理由），并且依赖链接层的 `-Wl,--wrap=__cxa_throw`（见 LDFLAGS）。
+# 只记录、不改行为、不导出任何全局同名符号 —— 这是"甲案介入面小"的兑现方式。
+CPPFILES += throw_forensics.cpp
+# 2026-10-04（批次 363）：`ANM2::Load` 入口中继（模组覆盖本体资源的最后一环）。
+# 与上面两行同一个理由 —— `source/` **根目录**下的文件不�� `SOURCES` 的 wildcard 收
+# （`SOURCES` 只含各模块子目录），必须显式登记，否则会以"未定义符号"的形式在链接期暴露。
+CPPFILES += anm2_load_override_hook.cpp
+# 2026-10-09：71内部桥同样位于source根目录，必须显式进入生产链接。
+CPPFILES += room_spawn_internal_hook.cpp
+# 2026-10-10：66双内部钩位于source根目录，同样必须显式进入生产链接。
+CPPFILES += trinket_internal_hook.cpp
+CPPFILES += clear_award_internal_hook.cpp
+# 压力板字符串寿命事件位于source根目录，显式进入生产链接。
+CPPFILES += pressure_plate_animation_hook.cpp
+CPPFILES += main_module_load_hook.cpp
+CPPFILES += entity_remove_hook.cpp cold_callbacks_internal_hook.cpp card_hook.cpp console_callback_hook.cpp
 ifeq ($(PERSISTENCE_TRACE),1)
 CPPFILES += persistence_trace.cpp
 CPPFILES += manager_update_hook_audit.cpp
@@ -301,6 +341,7 @@ UNDEFINED_SYMBOL_TOOL := ../tools/check_runtime_elf_symbols.py
 
 $(BUILD):
 	@[ -d $@ ] || mkdir -p $@
+	@mkdir -p "$(EXL_ARTIFACT_DIR)"
 	@$(SHELL) $(SCRIPTS_PATH)/check-build-id.sh "$@" '$(EXL_CFLAGS) $(EXL_CXXFLAGS)'
 	@$(MAKE) --no-print-directory -C $(BUILD) -f ../$(MK_PATH)/common.mk
 	@$(PYTHON) $(READ_ONLY_BUDGET_TOOL) --elf $(OUTPUT).elf || { \

@@ -101,7 +101,8 @@ RUNTIME_FILES = ("subsdk9", "main.npdm")
 RUNTIME_OVERLAY_RELATIVE = Path("atmosphere/contents") / CONTENT_ID / "romfs"
 #: **必须**进包的 IPS 补丁（理由见模块 docstring）。名字 = 构建产物
 #: `atmosphere/nro_patches/<名字>/` 这个目录名；目录里的 `.ips` 文件名带游戏 build id，原样拷。
-REQUIRED_RELAY_PATCHES = ("isaac-repentance-lifecycle-relay",)
+# 2026-10-13追加：449预算与本包NSO必须成对；只打运行时而漏预算会复发stage12内存失败。
+REQUIRED_RELAY_PATCHES = ("isaac-repentance-lifecycle-relay", "isaac-repentance-static-callbacks", "isaac-repentance-native-heap-budget")
 #: **不许**进包的旧 IPS 后端遗留（带上去会让所有挂点失效，见模块 docstring）。
 #: 这里显式列出来是为了让门禁能断言"包里没有它们"，而不是靠"我们没拷"这种沉默保证。
 FORBIDDEN_RELAY_PATCHES = (
@@ -129,21 +130,26 @@ def mod_entry(directory: str, source: Path) -> str | None:
 
 
 def write_manifest(output: Path, sources: list[Path]) -> int:
-    """把"包内实际带上的模组"写成 `isaac_mods/manifest.json`（覆盖同名文件）。"""
-    mods = []
-    for source in sources:
-        entry = mod_entry(source.name, source)
-        item: dict[str, object] = {"directory": source.name, "enabled": True}
-        if entry is not None:
-            item["entry"] = entry
-        mods.append(item)
-        if entry is None:
-            print(f"  ⚠ {source.name}：顶层没有 .lua ⇒ 清单里不写 entry（按纯资源模组处理）")
-    path = output / MANIFEST_RELATIVE
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps({"schema_version": 1, "mods": mods}, ensure_ascii=False, indent=2)
-                    + "\n", encoding="utf-8")
-    print(f"模组清单  {len(mods)} 条 → {MANIFEST_RELATIVE.as_posix()}")
+    """**不再生成 `isaac_mods/manifest.json`**（2026-10-01 用户指令）。
+
+    ## 为什么可以不要它
+
+    这份清单曾经是运行时**唯一**的加载依据（第一条必须是模组配置菜单，加载顺序写死在里面）。
+    后来两步把它降级成了可选项：
+
+    * 2026-09-16：运行时支持"自己扫 `isaac_mods/mods` 下的子目录"（`ModDiscoveryService::Discover`）；
+    * 2026-09-21：清单存在时也会把"清单里没列出的目录"追加进来（`AppendUnlisted`）。
+
+    ## 用户裁定（2026-10-01）
+
+    「manifest.json 给删了，**以后也不准再出现**；所有的模组都必须走扫描文件夹查询加载。」
+
+    ⇒ 本函数只打印一行说明，不再写文件。加载顺序改由运行时的扫描排序决定 ——
+    ★ 那里已经保证"**模组配置菜单排最前**"（`mod_discovery_service.cpp` 的 `ModPriorityRank`），
+    因为 GoodTrip / TheSpecialist 是在加载那一刻靠全局 `ModConfigMenu` 决定要不要注册设置页的。
+    """
+    print(f"模组目录  {len(sources)} 个（★ 不再生成 manifest.json：按 2026-10-01 指令，"
+          f"加载一律走扫描 `isaac_mods/mods` 下的子目录）")
     return 0
 
 
@@ -163,6 +169,78 @@ def is_junk(path: Path) -> bool:
     return path.name in JUNK_NAMES or path.name.startswith("._")
 
 
+def _approved_entry_patch(source: Path) -> Path:
+    """只替换逐字核过的DPS旧入口；新作者版本保持原样，不改源目录。"""
+    if source.stat().st_size != 6514:
+        return source
+    if hashlib.sha256(source.read_bytes()).hexdigest() != (
+        "01bf6f70012f1c3ec25303a2eb058aae130a4614259cdea33b22c7cad445c3ec"
+    ):
+        return source
+    patch = ROOT / "runtime/mod-patches/whatsmydps/main.lua"
+    if hashlib.sha256(patch.read_bytes()).hexdigest() != (
+        "8a2bbc484b89de6b5923b000fa54d9ca381a599d1b33d504da3b8a3af1a5f158"
+    ):
+        raise ValueError("DPS字体补丁已变化，需要重新审查并更新打包身份")
+    return patch
+
+
+def _approved_dss_patch(source: Path) -> Path:
+    """只替换已核作者版本的DSS资源，其它版本保持原样。"""
+    if source.stat().st_size != 116028 or hashlib.sha256(source.read_bytes()).hexdigest() != (
+        "69d7a3a59a33c1e40f8dbc68e5cf83cec83bd1a8a5035f8cb23de7bf5e8f69d2"
+    ):
+        return source
+    patch = ROOT / "runtime/mod-patches/repentanceplus/scripts/dssmenucore.lua"
+    if hashlib.sha256(patch.read_bytes()).hexdigest() != (
+        "47be21f322dd1e63053cf7e58f20cf39e5c7c9389ff212c52f014c315086613b"
+    ):
+        raise ValueError("DSS裁剪补丁已变化，需要重新审查并更新打包身份")
+    return patch
+
+
+def _approved_stageapi_grid_patch(source: Path) -> Path:
+    """复用已核StageAPI版本的同格类型读取；未审版本不改。"""
+    if source.stat().st_size != 79237 or hashlib.sha256(source.read_bytes()).hexdigest() != (
+        "b4d5bf2d661e917bb689e2444d61e2cde64bf754050d91d89707e18efe0ab4c6"
+    ):
+        return source
+    patch = ROOT / "runtime/mod-patches/StageAPI/scripts/stageapi/core/callbacks.lua"
+    if hashlib.sha256(patch.read_bytes()).hexdigest() != (
+        "6afdd9711dcb00dc6107d49a65fd425e956bf55f789addc9fd30f1dc459c4f97"
+    ):
+        raise ValueError("StageAPI网格补丁已变化，需要重新审查并更新打包身份")
+    return patch
+
+
+def _approved_stageapi_shared_patch(source: Path) -> Path:
+    """重新打包时保留已部署的StageAPI首次对象初始化修正。"""
+    if source.stat().st_size != 983 or hashlib.sha256(source.read_bytes()).hexdigest() != (
+        "df39061cf095dd860dcc15864f87d8fa27343b899d8e227f4e1809c77b148ffb"
+    ):
+        return source
+    patch = ROOT / "runtime/mod-patches/StageAPI/scripts/stageapi/shared.lua"
+    if hashlib.sha256(patch.read_bytes()).hexdigest() != (
+        "9b64b5c30980dd6b53c2858483e0bea5bbe9fdcd868b9b016f023e6f1348aba5"
+    ):
+        raise ValueError("StageAPI初始化补丁已变化，需要重新审查并更新打包身份")
+    return patch
+
+
+def _approved_challenge_goal_patch(source: Path) -> Path:
+    """仅修已核ChallengeAPI目标图标定位；未审作者版本不替换。"""
+    if source.stat().st_size != 2682 or hashlib.sha256(source.read_bytes()).hexdigest() != (
+        "620e1c909b91e6347684cfeb4245ff3edeac4130b44f59fec7f978f3826fee5e"
+    ):
+        return source
+    patch = ROOT / "runtime/mod-patches/ChallengeAPI/scripts/challengeapi/hud/challenge_goal.lua"
+    if hashlib.sha256(patch.read_bytes()).hexdigest() != (
+        "8a7357580a27b1a7b58b0256120eb81d75e79afd48fec88cf4eed9fef405c787"
+    ):
+        raise ValueError("ChallengeAPI目标图标补丁已变化，需要重新审查并更新打包身份")
+    return patch
+
+
 def copy_tree(source: Path, target: Path, *, drop_pcx: bool = False) -> int:
     """拷贝模组树。`drop_pcx=True` 时**跳过** `.pcx`（2026-09-21 起可选）。
 
@@ -179,7 +257,16 @@ def copy_tree(source: Path, target: Path, *, drop_pcx: bool = False) -> int:
         relative = item.relative_to(source)
         destination = target / relative
         destination.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(item, destination)
+        copied_source = _approved_entry_patch(item) if relative == Path("main.lua") else item
+        if relative == Path("scripts/dssmenucore.lua"):
+            copied_source = _approved_dss_patch(item)
+        elif relative == Path("scripts/stageapi/core/callbacks.lua"):
+            copied_source = _approved_stageapi_grid_patch(item)
+        elif relative == Path("scripts/stageapi/shared.lua"):
+            copied_source = _approved_stageapi_shared_patch(item)
+        elif relative == Path("scripts/challengeapi/hud/challenge_goal.lua"):
+            copied_source = _approved_challenge_goal_patch(item)
+        shutil.copy2(copied_source, destination)
         count += 1
     return count
 
@@ -252,6 +339,24 @@ def check_png_convertibility(source: Path) -> int:
     return unacceptable
 
 
+def verify_native_heap_budget(runtime: Path) -> None:
+    from native_heap_budget_patch import (
+        runtime_footprint, BASE_CPU_RESERVE, MAIN_HEAP_OFFSET, MODULE_ID,
+        CPU_RESERVE_ALIGNMENT,
+    )
+    from nro_ips import encode_ips
+    try:
+        footprint = runtime_footprint((runtime / EXEFS_RELATIVE / "subsdk9").read_bytes())
+        patch = (runtime / "atmosphere/nro_patches/isaac-repentance-native-heap-budget" / (MODULE_ID + ".ips")).read_bytes()
+    except (OSError, ValueError) as error:
+        raise ValueError(f"本包NSO或原生预算不可验证：{error}") from error
+    minimum = BASE_CPU_RESERVE + footprint
+    reserve = (minimum + CPU_RESERVE_ALIGNMENT - 1) & ~(CPU_RESERVE_ALIGNMENT - 1)
+    expected = encode_ips([(MAIN_HEAP_OFFSET, reserve.to_bytes(4, "little"))])
+    if patch != expected:
+        raise ValueError("原生预算IPS不对应本包NSO的实际映射占用，必须重新构建配套预算")
+
+
 def build(args: argparse.Namespace) -> int:
     output = Path(args.output) if args.output else Path("dist") / args.name
     if output.exists():
@@ -260,6 +365,12 @@ def build(args: argparse.Namespace) -> int:
 
     # 1) 运行时
     runtime = Path(args.runtime)
+    if args.relay_patches:
+        try:
+            verify_native_heap_budget(runtime)
+        except ValueError as error:
+            print(str(error), file=sys.stderr)
+            return 2
     exefs = output / EXEFS_RELATIVE
     exefs.mkdir(parents=True, exist_ok=True)
     for name in RUNTIME_FILES:
@@ -333,7 +444,7 @@ def build(args: argparse.Namespace) -> int:
         print(f"模组    {source.name}：{count} 个文件"
               + ("" if not missing_pcx else f"（★ {missing_pcx} 张图缺 .pcx，已按 --allow-asset-problems 放行）"))
 
-    # 2.5) 模组清单（必须有，理由见模块 docstring）
+    # 2.5) 模组清单：**不再生成**（2026-10-01 用户指令；理由见 `write_manifest` 的 docstring）
     write_manifest(output, mod_sources)
 
     # 3) 安装说明（可选；不传就提醒，别让包"悄悄没有说明书"）

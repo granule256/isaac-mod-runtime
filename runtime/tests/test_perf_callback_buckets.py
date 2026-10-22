@@ -140,6 +140,23 @@ int main() {
     // tick 频率必须是常量（读 `cntfrq_el0` 会陷入，批次 081/082）。
     expect(perf::RuntimePerfTicksPerSecond() == 19200000ULL, "19.2 MHz 常量");
 
+    // ★★ 批次 241：直方图三档上界**按 tick 核死**（19.2 tick = 1 µs ⇒ 1 ms = 19 200 tick）。
+    // 这一条是补一个真机事故的判据：原来后两档写成 `1 * 19200000` / `5 * 19200000`
+    // （= 1 秒 / 5 秒）⇒ 毫秒级样本全掉进第二档，"<5ms / >=5ms" 永远 0%，
+    // 与同一个桶里的 `ticks`/`maxTicks` 自相矛盾。
+    expect(perf::kRuntimePerfBinBounds[0] == 4800ULL, "第一档上界 = 250 µs = 4800 tick");
+    expect(perf::kRuntimePerfBinBounds[1] == 19200ULL, "第二档上界 = 1 ms = 19200 tick");
+    expect(perf::kRuntimePerfBinBounds[2] == 96000ULL, "第三档上界 = 5 ms = 96000 tick");
+    {
+        std::uint32_t bins[4] = {0, 0, 0, 0};
+        perf::RecordRuntimePerfBin(bins, 100ULL * 19200ULL / 1000ULL);  // 100 µs ⇒ 第一档
+        perf::RecordRuntimePerfBin(bins, 600ULL * 19200ULL / 1000ULL);  // 600 µs ⇒ 第二档
+        perf::RecordRuntimePerfBin(bins, 2ULL * 19200ULL);              // 2 ms   ⇒ 第三档
+        perf::RecordRuntimePerfBin(bins, 6ULL * 19200ULL);              // 6 ms   ⇒ 第四档
+        expect(bins[0] == 1 && bins[1] == 1 && bins[2] == 1 && bins[3] == 1,
+               "四个样本必须各落一档（6 ms 必须落在第四档）");
+    }
+
     if (failures == 0) {
         std::printf("ALL OK\n");
     }

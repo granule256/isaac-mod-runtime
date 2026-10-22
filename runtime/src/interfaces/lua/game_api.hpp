@@ -26,6 +26,10 @@ int GameIndex(lua_State* state);
 // `Seeds` 家族的方法表（`Game:GetSeeds()` 的返回值：`IsCustomRun` / `GetStartSeed`）。
 [[nodiscard]] std::size_t AttachSeedsMethods(lua_State* state) noexcept;
 
+// `HUD` 家族的方法表（`Game:GetHUD()` 的返回值：`IsVisible` / `SetVisible(bool)`，批次 207）。
+// 与 `AttachSeedsMethods` 同形：句柄不持地址，元表在 `lua_runtime.cpp` 的 `RegisterGameApi` 建。
+[[nodiscard]] std::size_t AttachHudMethods(lua_State* state) noexcept;
+
 // `Game:IsPaused()` 最后一次是否返回 true（探针读：EID 用它决定是否隐藏描述）。
 [[nodiscard]] std::uint32_t LastIsPausedForProbe() noexcept;
 
@@ -33,3 +37,15 @@ int GameIndex(lua_State* state);
 [[nodiscard]] std::uint32_t LastNumPlayersForProbe() noexcept;
 
 } // namespace isaac::runtime
+
+#if !defined(__SWITCH__)
+namespace isaac::runtime {
+struct HudNativeTestBindings {
+ void (*render)(void*){};
+ void (*text)(void*,const char*,const char*,bool,bool){};
+ void (*fortune)(void*,const void*){};
+ void (*item)(void*,void*,const void*){};
+};
+void SetHudNativeTestBindings(HudNativeTestBindings) noexcept;
+}
+#endif
