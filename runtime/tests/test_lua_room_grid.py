@@ -157,9 +157,10 @@ int main(int argc, char** argv) {
             " print('INDEX='..center..','..pair..','..last..','..edge..','..corner..','"
             " ..bigx..','..bigy..','..negpair)";
     } else if (std::strcmp(scenario, "unreadable") == 0) {
+        // 批次 250：口径从"报错"改成"回退值" ⇒ 这里改成打印**返回值**（而不是错误文本）。
         script =
-            "local ok, err = pcall(function() return Game():GetRoom():GetGridWidth() end)"
-            " print('UNREADABLE ok='..tostring(ok)..' err='..tostring(err))";
+            "local ok, value = pcall(function() return Game():GetRoom():GetGridWidth() end)"
+            " print('UNREADABLE ok='..tostring(ok)..' value='..tostring(value))";
     } else {
         return 91;
     }
@@ -231,12 +232,22 @@ class LuaRoomGridTests(unittest.TestCase):
         edge = GRID_WIDTH * 3 + 0          # x=19 仍在第 0 列
         self.assertIn(f"INDEX={center},{center},{last},{edge},-1,-1,-1,-1", result.stdout)
 
-    def test_unreadable_room_reports_an_error_instead_of_a_dimension(self):
-        """读不到房间 ⇒ 报错。编一个 13 会让 EID 的下标算出别的格子，且**不报错**。"""
+    def test_unreadable_room_yields_a_fallback_value_not_an_error(self):
+        """读不到房间 ⇒ 给**回退值 0**、不报错（批次 250 改的口径）。
+
+        ★ 本条与批次 098 的原断言相反，**理由要写清楚**：旧断言的依据是"编一个 13 会让 EID 的
+        下标算出别的格子，且不报错"。但权衡的另一端更重 —— **抛 Lua 错误会摘掉整条模组回调**，
+        真机代价是"整个模组的功能在加载期消失"（2026-10-01 的 GoodTrip，`scripts/floor.lua:12`）。
+        而回退值只是"这一个数不对"，并且**回退次数有探针**（`NativeFallbackProbe`），
+        不是"悄悄失真"。更根本的是：**PC 上这些调用根本不失败**（PC 拿的是模组手上那个
+        有效对象，没有"解析"这一步），所以抛错等于让模组行为偏离 PC。
+
+        旧断言：`assertIn("could not read", ...)`。
+        """
         result = self.run_scenario("unreadable")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertIn("UNREADABLE ok=false", result.stdout)
-        self.assertIn("could not read", result.stdout)
+        self.assertIn("UNREADABLE ok=true", result.stdout)
+        self.assertIn("value=0", result.stdout)
 
     def test_placeholder_implementation_cannot_come_back(self):
         """源码层面钉住口径：旧的恒值占位不许回来，新常量必须带证据注释。

@@ -119,10 +119,10 @@ int main() {
         self.assertLess(render.index("PrimeDefaultCallbacks"), render.index("LuaRuntime::DispatchPostRender"))
 
         # 渲染钩子体已抽成两条后端共用的 `RenderHookBody`（Task 4），断言对象随之移动；
-        # 语义不变：先跑原函数，再由 `IsRenderPresentRelayInstalled()` 决定是否回退派发。
+        # 原函数期间HUD优先、Present兜底，返回后再由共享帧标记决定是否回退派发。
         relay_start = hook.index("void RenderHookBody(IsaacRepentance::Manager* self")
         relay = hook[relay_start:hook.index('extern "C" void EntryRelayManagerRenderCallback', relay_start)]
-        self.assertLess(relay.index("call_original(self)"), relay.index("DispatchModPostRender(self)"))
+        self.assertLess(relay.index("call_original(self)"), relay.index("g_RenderFrameCoordinator.Dispatch(DispatchModPostRender)"))
         self.assertIn("IsRenderPresentRelayInstalled()", relay)
 
         # 旧后端（exlaunch 蹦床）仍把原函数经 `Orig` 交给共享钩子体。

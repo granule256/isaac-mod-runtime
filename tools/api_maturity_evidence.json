@@ -296,6 +296,4937 @@
           "quote": "用户目视确认两行 ASCII 都在"
         }
       ]
+    },
+    "MusicManager:UpdateVolume": {
+      "maturity": "Experimental",
+      "evidence": [],
+      "note": "批次 137（2026-09-26）：为 The Specialist for Good Items 接的（放歌后同步音量）。宿主上由 test_lua_music_mute_on_pause.py 验过（回调里到达引擎 / 回调外报错 / 参数个数错报错）；尚无真机证据 ⇒ Experimental。"
+    },
+    "EntityPlayer:AddNullCostume": {
+      "maturity": "Experimental",
+      "evidence": [],
+      "note": "批次 137（2026-09-26）：为 The Specialist for Good Items 的舞蹈段落接的（引擎方法数据行）。宿主上由 test_lua_entity_player.py 验过边界（合法调用不报错 / 参数类型错报错 / 失效句柄静默降级）；尚无真机证据 ⇒ Experimental。"
+    },
+    "EntityPlayer:TryRemoveNullCostume": {
+      "maturity": "Experimental",
+      "evidence": [],
+      "note": "批次 137（2026-09-26）：同上（跳舞结束/物品丢掉时摘掉临时服装）。底座 = Entity_Player 下三条 TryRemoveCostume 重载里的 eNullItemID 那条 @ 0x2F2170；宿主边界判据同 AddNullCostume。尚无真机证据 ⇒ Experimental。"
+    },
+    "MusicManager:Play": {
+      "maturity": "Experimental",
+      "evidence": [],
+      "note": "批次 138（2026-09-26）：The Specialist for Good Items 放歌的主路径。底座 Music::Play(eMusic, float) @ 0x427238（与 kStage48MusicPlayOffset 同址）。宿主上由 test_lua_music_mute_on_pause.py 验过（回调里 ID/Volume 原样到达引擎、Volume 省缺传 1.0、类型错报错、回调外报错）；尚无真机证据 ⇒ Experimental。"
+    },
+    "Isaac:GetCostumeIdByPath": {
+      "maturity": "Experimental",
+      "evidence": [],
+      "note": "批次 139（2026-09-26）：The Specialist for Good Items 加载期就用它建两张服装表（缺它整个模组加载失败）。真值来源 = 直读引擎字段（null 道具向量 + 条目 +0x88），偏移有写入/读取两函数互证 + 布局表 tools/layout_tables/item_config_item.json（证据可复现）。宿主上由 test_lua_item_config.py 验过（命中返回 id / 逐字节不匹配返回 -1 / 只搜 null 向量）；尚无真机证据 ⇒ Experimental。"
+    },
+    "Isaac:GetMusicIdByName": {
+      "maturity": "Experimental",
+      "evidence": [],
+      "note": "批次 148（2026-09-26）：同一模组\"放歌\"那半条路要用它把 `music.xml` 的 track 名换成引擎的曲目编号（编号再喂给 `MusicManager():Play`）。真值来源 = 直读引擎字段（`Manager + 0x36068` 派生出的 `Music` 对象里 `+0x3D8` 那张 `vector<Music::Entry>`，步长 `0x70`，比条目起点的名字串），偏移有两条静态互证（`Music::Play` 取条目 = `begin + id*0x70`；`Music::Play` 与 `Music::StreamSet::Load` 两条读路径都不碰 `+0x00..+0x1F`）+ 布局表 `tools/layout_tables/music_entry.json`（证据可复现）。宿主上由 test_lua_item_config.py 的 `music_id_by_name` 场景验过（三条命中返回各自下标 / 逐字节不匹配返回 -1 / `+0x20`+`+0x38` 诱饵不被命中 / 数字参数不报错 / 缺参数报错）并逐格对账埋点；尚无真机证据 ⇒ Experimental。"
+    },
+    "Game:GetPlayer": {
+      "maturity": "Experimental",
+      "evidence": [],
+      "note": "批次 140（2026-09-26）：The Specialist for Good Items 的 MC_POST_NEW_ROOM 回调里 main.lua:447 用它取玩家（缺它整条回调被摘 ⇒ 跳舞/放歌都跑不到，真机已见 attempt to call a nil value）。与 Isaac.GetPlayer 同一条链（ResolveEnginePlayerAt），越界口径按 Game.md:338 正文夹到最后一个。宿主上由 test_lua_entity_player.py 验过（单人局 0/1/99/-1 给同一个玩家、无玩家场景给 nil、非整数给 nil 不抛错）；尚无真机证据 ⇒ Experimental。"
+    },
+    "RNG:RandomInt": {
+      "maturity": "Experimental",
+      "note": "批次 195（2026-09-29）新增。宿主侧有注入实现（`runtime/tests/test_lua_entity_rng_and_fields.py` 用 `SetRngRandomBindings` 装宿主函数）⇒ 钉住了「参数按 PC 签名到达引擎 / 返回值原样压回 / 操作的是句柄快照」，**没有真机证据**（真机上这条走的是 `RNG::Random(uint)`）⇒ 只能 `Experimental`。"
+    },
+    "RNG:RandomFloat": {
+      "maturity": "Experimental",
+      "note": "批次 195（2026-09-29）新增，同 `RNG:RandomInt`：宿主注入实现验过调用形状与快照语义，真机未验（引擎侧 `RNG::Random()` @ `0x44E4C0`）⇒ `Experimental`。"
+    },
+    "Isaac:ScreenToWorld": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "analysis/api-restore-transforms/spec.json",
+          "quote": "公式=确证（PC handler 反汇编 + 引擎全局逐一落实）；引擎入口=没查到（见 no_engine_screen_to_world）"
+        },
+        {
+          "file": "analysis/api-restore-transforms/spec.json",
+          "quote": "结论性对照：Switch 掌机 = 426×240（不是 480×270，也不是 1280×720）；PC 默认 = 480×270；窗口物理像素 = 960×540（PC 默认）/ 1280×720（掌机）"
+        }
+      ]
+    },
+    "Entity:IsActiveEnemy": {
+      "maturity": "Experimental",
+      "note": "批次 207（2026-09-29）新增：引擎方法数据行（入口 `0x5F028`，形状 `BoolOpt1`）。宿主行为测试 `runtime/tests/test_lua_api_gap_mcm.py` 验过调用形状（省略尾参 = `false`）、参数校验与「无引擎入口时安静答 false」；引擎返回值本身只能真机验 ⇒ `Experimental`。"
+    },
+    "Entity:HasEntityFlags": {
+      "maturity": "Experimental",
+      "note": "批次 207（2026-09-29）新增：读 `Entity + 0x1B8` 的 64 位标志字、按「全都置着」判。宿主测试 `test_lua_api_gap_mcm.py` 用伪造内存验过读法与语义（混进一个没置的位必须答 false）；真机未验 ⇒ `Experimental`。"
+    },
+    "Entity:ToProjectile": {
+      "maturity": "Experimental",
+      "note": "批次 207（2026-09-29）新增：`Type == 9` 且 vptr 精确等于投射物 vtable。宿主测试 `test_lua_api_gap_mcm.py` 验过 nil 路径、投射物路径与身份相等；真机未验 ⇒ `Experimental`。"
+    },
+    "Game:GetHUD": {
+      "maturity": "Experimental",
+      "note": "批次 207（2026-09-29）新增：`HUD* = Game* + 0xE8468`（内嵌子对象）。宿主测试 `runtime/tests/test_lua_hud_visibility.py` 验过可重复调用、参数校验与句柄不存原生指针；真机未验 ⇒ `Experimental`。"
+    },
+    "HUD:IsVisible": {
+      "maturity": "Experimental",
+      "note": "批次 207（2026-09-29）新增：读 `HUD + 0xC53FA` 这一个字节。宿主测试 `runtime/tests/test_lua_hud_visibility.py` 在伪造内存上验过读值、错 self 拦下与无引擎基址降级；真机未验 ⇒ `Experimental`。"
+    },
+    "HUD:SetVisible": {
+      "maturity": "Experimental",
+      "note": "批次 207（2026-09-29）新增：写 `HUD + 0xC53FA`。宿主测试 `runtime/tests/test_lua_hud_visibility.py` 验过「真的写进引擎内存」（C++ 侧读回复核）与跨帧仍然成立，缺省参数按 PC 契约等于 `false`；真机未验 ⇒ `Experimental`。"
+    },
+    "Isaac:GetEntityTypeByName": {
+      "maturity": "Experimental",
+      "note": "批次 207（2026-09-29）新增：编译进去的静态名字快照（本体 `entities2.xml`），非引擎真值。宿主测试 `test_lua_api_gap_mcm.py` 验过查表结果、表外名字与参数口径；★ 该用例第一次跑就抓到「下标按 `len + 2` 累加导致恒返回 0」的真缺陷并已修。真机未验 ⇒ `Experimental`。"
+    },
+    "Isaac:GetEntityVariantByName": {
+      "maturity": "Experimental",
+      "note": "批次 207（2026-09-29）新增：与 `GetEntityTypeByName` 同一张静态快照，查不到答 `-1`。宿主测试 `test_lua_api_gap_mcm.py` 验过变体维（`Lokii → 1`）与表外名字（`Potato Dummy → -1`）；真机未验 ⇒ `Experimental`。"
+    },
+    "Isaac:GetScreenHeight": {
+      "maturity": "Experimental",
+      "note": "批次 207（2026-09-29）新增：GOT 槽 `0xAAC658` → 指针 → float。宿主测试 `test_lua_api_gap_mcm.py` 用伪造槽验过读值与无引擎基址降级（答 0 不报错）；真机未验 ⇒ `Experimental`。"
+    },
+    "Isaac:GetScreenWidth": {
+      "maturity": "Experimental",
+      "note": "批次 207（2026-09-29）新增：GOT 槽 `0xAAC650` → 指针 → float（与 `Isaac:ScreenToWorld` 同一个槽）。宿主测试 `test_lua_api_gap_mcm.py` 用伪造槽验过读值与降级形状；真机未验 ⇒ `Experimental`。"
+    },
+    "Room:IsClear": {
+      "maturity": "Experimental",
+      "note": "批次 207（2026-09-29）新增：`Room + 0x8` → 描述符 `+0x50` 的 bit0。宿主测试 `test_lua_api_gap_mcm.py` 验过两种情况（位 = 1/0）与「描述符读不到要报错」；真机未验 ⇒ `Experimental`。"
+    },
+    "Seeds:HasSeedEffect": {
+      "maturity": "Experimental",
+      "evidence": [],
+      "note": "批次 214（2026-09-30）为两个 MCM 变体补的（`OpenConfigMenu()` 路径上、不在 pcall 里）。宿主上由 test_lua_api_gap_batch3.py 验过红黑树四种走法与参数形状；尚无真机证据 ⇒ Experimental。"
+    },
+    "Seeds:AddSeedEffect": {
+      "maturity": "Experimental",
+      "evidence": [],
+      "note": "批次 214（2026-09-30）为两个 MCM 变体补的。宿主上验过「不抛错 + 参数形状 + 探针次数」；按设计不生效（引擎侧没有可信实现路径，见 api_deviation.cpp 的 0x0F010005）；尚无真机证据 ⇒ Experimental。"
+    },
+    "Seeds:RemoveSeedEffect": {
+      "maturity": "Experimental",
+      "evidence": [],
+      "note": "批次 214（2026-09-30）为两个 MCM 变体补的。与 `AddSeedEffect` 同一组宿主断言；按设计不生效（api_deviation.cpp 的 0x0F010006）；尚无真机证据 ⇒ Experimental。"
+    },
+    "Sprite:Reset": {
+      "maturity": "Experimental",
+      "evidence": [],
+      "note": "批次 214（2026-09-30）为中文版 MCM 的 `filepathhelper.lua` 补的（那三行不在 pcall 里）。宿主上验过「恰好调原生入口一次 + 多余参数报错」；尚无真机证据 ⇒ Experimental。"
+    },
+    "Sprite:GetLayerCount": {
+      "maturity": "Experimental",
+      "evidence": [],
+      "note": "批次 214（2026-09-30）为中文版 MCM 补的。宿主上验过读 `ANM2+0xB0` 与参数形状；尚无真机证据 ⇒ Experimental。"
+    },
+    "Sprite:GetDefaultAnimationName": {
+      "maturity": "Experimental",
+      "evidence": [],
+      "note": "批次 214（2026-09-30）为中文版 MCM 补的。宿主上验过「取动画表第一条 + 参数形状」；口径是我们主动选的（已登记 design 偏离 0x0D010015）；尚无真机证据 ⇒ Experimental。"
+    },
+    "Entity:IsBoss": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "docs/问题与解决记录.md",
+          "quote": "这 46 条在**真机对着实际状态看过之前**一律留在 `Experimental`。"
+        }
+      ]
+    },
+    "Entity:IsEnemy": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "docs/问题与解决记录.md",
+          "quote": "这 46 条在**真机对着实际状态看过之前**一律留在 `Experimental`。"
+        }
+      ]
+    },
+    "Entity:Kill": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "docs/问题与解决记录.md",
+          "quote": "这 46 条在**真机对着实际状态看过之前**一律留在 `Experimental`。"
+        }
+      ]
+    },
+    "Entity:Remove": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "docs/问题与解决记录.md",
+          "quote": "这 46 条在**真机对着实际状态看过之前**一律留在 `Experimental`。"
+        }
+      ]
+    },
+    "Entity:Update": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "docs/问题与解决记录.md",
+          "quote": "这 46 条在**真机对着实际状态看过之前**一律留在 `Experimental`。"
+        }
+      ]
+    },
+    "EntityPlayer:AddBrokenHearts": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "docs/问题与解决记录.md",
+          "quote": "这 46 条在**真机对着实际状态看过之前**一律留在 `Experimental`。"
+        }
+      ]
+    },
+    "EntityPlayer:AddCard": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "docs/问题与解决记录.md",
+          "quote": "这 46 条在**真机对着实际状态看过之前**一律留在 `Experimental`。"
+        }
+      ]
+    },
+    "EntityPlayer:AddEternalHearts": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "docs/问题与解决记录.md",
+          "quote": "这 46 条在**真机对着实际状态看过之前**一律留在 `Experimental`。"
+        }
+      ]
+    },
+    "EntityPlayer:AddHearts": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "docs/问题与解决记录.md",
+          "quote": "这 46 条在**真机对着实际状态看过之前**一律留在 `Experimental`。"
+        }
+      ]
+    },
+    "EntityPlayer:AddTrinket": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "docs/问题与解决记录.md",
+          "quote": "这 46 条在**真机对着实际状态看过之前**一律留在 `Experimental`。"
+        }
+      ]
+    },
+    "EntityPlayer:EvaluateItems": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "docs/问题与解决记录.md",
+          "quote": "这 46 条在**真机对着实际状态看过之前**一律留在 `Experimental`。"
+        }
+      ]
+    },
+    "EntityPlayer:GetExtraLives": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "docs/问题与解决记录.md",
+          "quote": "这 46 条在**真机对着实际状态看过之前**一律留在 `Experimental`。"
+        }
+      ]
+    },
+    "EntityPlayer:NeedsCharge": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "docs/问题与解决记录.md",
+          "quote": "这 46 条在**真机对着实际状态看过之前**一律留在 `Experimental`。"
+        }
+      ]
+    },
+    "EntityPlayer:Revive": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "docs/问题与解决记录.md",
+          "quote": "这 46 条在**真机对着实际状态看过之前**一律留在 `Experimental`。"
+        }
+      ]
+    },
+    "EntityPlayer:SetActiveCharge": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "docs/问题与解决记录.md",
+          "quote": "这 46 条在**真机对着实际状态看过之前**一律留在 `Experimental`。"
+        }
+      ]
+    },
+    "EntityPlayer:SetCard": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "docs/问题与解决记录.md",
+          "quote": "这 46 条在**真机对着实际状态看过之前**一律留在 `Experimental`。"
+        }
+      ]
+    },
+    "EntityPlayer:TryRemoveTrinket": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "docs/问题与解决记录.md",
+          "quote": "这 46 条在**真机对着实际状态看过之前**一律留在 `Experimental`。"
+        }
+      ]
+    },
+    "EntityPlayer:UseCard": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "docs/问题与解决记录.md",
+          "quote": "这 46 条在**真机对着实际状态看过之前**一律留在 `Experimental`。"
+        }
+      ]
+    },
+    "Game:AddDevilRoomDeal": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "docs/问题与解决记录.md",
+          "quote": "这 46 条在**真机对着实际状态看过之前**一律留在 `Experimental`。"
+        }
+      ]
+    },
+    "Game:GetGreedBossWaveNum": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "docs/问题与解决记录.md",
+          "quote": "这 46 条在**真机对着实际状态看过之前**一律留在 `Experimental`。"
+        }
+      ]
+    },
+    "Game:Update": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "docs/问题与解决记录.md",
+          "quote": "这 46 条在**真机对着实际状态看过之前**一律留在 `Experimental`。"
+        }
+      ]
+    },
+    "Level:GetPlanetariumChance": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "docs/问题与解决记录.md",
+          "quote": "这 46 条在**真机对着实际状态看过之前**一律留在 `Experimental`。"
+        }
+      ]
+    },
+    "Level:GetRandomRoomIndex": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "docs/问题与解决记录.md",
+          "quote": "这 46 条在**真机对着实际状态看过之前**一律留在 `Experimental`。"
+        }
+      ]
+    },
+    "Level:SetNextStage": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "docs/问题与解决记录.md",
+          "quote": "这 46 条在**真机对着实际状态看过之前**一律留在 `Experimental`。"
+        }
+      ]
+    },
+    "Level:SetStage": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "docs/问题与解决记录.md",
+          "quote": "这 46 条在**真机对着实际状态看过之前**一律留在 `Experimental`。"
+        }
+      ]
+    },
+    "Level:Update": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "docs/问题与解决记录.md",
+          "quote": "这 46 条在**真机对着实际状态看过之前**一律留在 `Experimental`。"
+        }
+      ]
+    },
+    "Level:UpdateVisibility": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "docs/问题与解决记录.md",
+          "quote": "这 46 条在**真机对着实际状态看过之前**一律留在 `Experimental`。"
+        }
+      ]
+    },
+    "MusicManager:DisableLayer": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "docs/问题与解决记录.md",
+          "quote": "这 46 条在**真机对着实际状态看过之前**一律留在 `Experimental`。"
+        }
+      ]
+    },
+    "MusicManager:EnableLayer": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "docs/问题与解决记录.md",
+          "quote": "这 46 条在**真机对着实际状态看过之前**一律留在 `Experimental`。"
+        }
+      ]
+    },
+    "MusicManager:GetQueuedMusicID": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "docs/问题与解决记录.md",
+          "quote": "这 46 条在**真机对着实际状态看过之前**一律留在 `Experimental`。"
+        }
+      ]
+    },
+    "MusicManager:IsLayerEnabled": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "docs/问题与解决记录.md",
+          "quote": "这 46 条在**真机对着实际状态看过之前**一律留在 `Experimental`。"
+        }
+      ]
+    },
+    "MusicManager:PitchSlide": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "docs/问题与解决记录.md",
+          "quote": "这 46 条在**真机对着实际状态看过之前**一律留在 `Experimental`。"
+        }
+      ]
+    },
+    "MusicManager:ResetPitch": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "docs/问题与解决记录.md",
+          "quote": "这 46 条在**真机对着实际状态看过之前**一律留在 `Experimental`。"
+        }
+      ]
+    },
+    "MusicManager:VolumeSlide": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "docs/问题与解决记录.md",
+          "quote": "这 46 条在**真机对着实际状态看过之前**一律留在 `Experimental`。"
+        }
+      ]
+    },
+    "Room:DestroyGrid": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "docs/问题与解决记录.md",
+          "quote": "这 46 条在**真机对着实际状态看过之前**一律留在 `Experimental`。"
+        }
+      ]
+    },
+    "Room:GetGridCollision": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "docs/问题与解决记录.md",
+          "quote": "这 46 条在**真机对着实际状态看过之前**一律留在 `Experimental`。"
+        }
+      ]
+    },
+    "Room:GetRoomConfigStage": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "docs/问题与解决记录.md",
+          "quote": "这 46 条在**真机对着实际状态看过之前**一律留在 `Experimental`。"
+        }
+      ]
+    },
+    "Room:HasCurseMist": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "docs/问题与解决记录.md",
+          "quote": "这 46 条在**真机对着实际状态看过之前**一律留在 `Experimental`。"
+        }
+      ]
+    },
+    "Room:IsAmbushActive": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "docs/问题与解决记录.md",
+          "quote": "这 46 条在**真机对着实际状态看过之前**一律留在 `Experimental`。"
+        }
+      ]
+    },
+    "Room:IsCurrentRoomLastBoss": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "docs/问题与解决记录.md",
+          "quote": "这 46 条在**真机对着实际状态看过之前**一律留在 `Experimental`。"
+        }
+      ]
+    },
+    "Room:RemoveDoor": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "docs/问题与解决记录.md",
+          "quote": "这 46 条在**真机对着实际状态看过之前**一律留在 `Experimental`。"
+        }
+      ]
+    },
+    "Room:RemoveGridEntity": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "docs/问题与解决记录.md",
+          "quote": "这 46 条在**真机对着实际状态看过之前**一律留在 `Experimental`。"
+        }
+      ]
+    },
+    "Room:SetGridPath": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "docs/问题与解决记录.md",
+          "quote": "这 46 条在**真机对着实际状态看过之前**一律留在 `Experimental`。"
+        }
+      ]
+    },
+    "Room:SpawnClearAward": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "docs/问题与解决记录.md",
+          "quote": "这 46 条在**真机对着实际状态看过之前**一律留在 `Experimental`。"
+        }
+      ]
+    },
+    "Room:TurnGold": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "docs/问题与解决记录.md",
+          "quote": "这 46 条在**真机对着实际状态看过之前**一律留在 `Experimental`。"
+        }
+      ]
+    },
+    "Room:Update": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "docs/问题与解决记录.md",
+          "quote": "这 46 条在**真机对着实际状态看过之前**一律留在 `Experimental`。"
+        }
+      ]
+    },
+    "Isaac:GetItemIdByName": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "docs/问题与解决记录.md",
+          "quote": "《批次 238 / 239 / 240 的引擎方法数据行与名字表 API：成熟度为什么统一标 `Experimental`》"
+        }
+      ]
+    },
+    "Isaac:GetCardIdByName": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "docs/问题与解决记录.md",
+          "quote": "《批次 238 / 239 / 240 的引擎方法数据行与名字表 API：成熟度为什么统一标 `Experimental`》"
+        }
+      ]
+    },
+    "Isaac:GetPillEffectByName": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "docs/问题与解决记录.md",
+          "quote": "《批次 238 / 239 / 240 的引擎方法数据行与名字表 API：成熟度为什么统一标 `Experimental`》"
+        }
+      ]
+    },
+    "Isaac:GetPlayerTypeByName": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "docs/问题与解决记录.md",
+          "quote": "《批次 238 / 239 / 240 的引擎方法数据行与名字表 API：成熟度为什么统一标 `Experimental`》"
+        }
+      ]
+    },
+    "Isaac:GetChallengeIdByName": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "docs/问题与解决记录.md",
+          "quote": "《批次 238 / 239 / 240 的引擎方法数据行与名字表 API：成熟度为什么统一标 `Experimental`》"
+        }
+      ]
+    },
+    "ItemConfig_Item:IsRune": {
+      "maturity": "Experimental",
+      "evidence": [],
+      "note": "批次 240（2026-09-30）：为 EID 的三处无保护调用 `GetCard(id):IsRune()` 补的（缺它时每帧一个 Lua 错误、EID 的渲染回调吃掉 90% 的回调时间）。宿主上由 test_lua_item_config.py 验过 true/false 映射与参数形状；尚无真机证据 ⇒ Experimental。"
+    },
+    "Entity:ToNPC": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "docs/问题与解决记录.md",
+          "quote": "**这一节是 51 条 API"
+        }
+      ]
+    },
+    "Entity:ToTear": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "docs/问题与解决记录.md",
+          "quote": "**这一节是 51 条 API"
+        }
+      ]
+    },
+    "Entity:ToLaser": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "docs/问题与解决记录.md",
+          "quote": "**这一节是 51 条 API"
+        }
+      ]
+    },
+    "Entity:ToEffect": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "docs/问题与解决记录.md",
+          "quote": "**这一节是 51 条 API"
+        }
+      ]
+    },
+    "Entity:ToKnife": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "docs/问题与解决记录.md",
+          "quote": "**这一节是 51 条 API"
+        }
+      ]
+    },
+    "Room:GetCenterPos": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "docs/问题与解决记录.md",
+          "quote": "**这一节是 51 条 API"
+        }
+      ]
+    },
+    "Room:GetGridPosition": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "docs/问题与解决记录.md",
+          "quote": "**这一节是 51 条 API"
+        }
+      ]
+    },
+    "Room:GetRandomPosition": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "docs/问题与解决记录.md",
+          "quote": "**这一节是 51 条 API"
+        }
+      ]
+    },
+    "MusicManager:Queue": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/contract/test_engine_row_api_surface.py",
+          "quote": "\"MusicManager:Queue\": \"Void1\""
+        }
+      ]
+    },
+    "MusicManager:Crossfade": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/contract/test_engine_row_api_surface.py",
+          "quote": "\"MusicManager:Crossfade\": \"VoidIntFloatOpt1\""
+        }
+      ]
+    },
+    "Game:ShowHallucination": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/contract/test_engine_row_api_surface.py",
+          "quote": "\"Game:ShowHallucination\": \"Void2\""
+        }
+      ]
+    },
+    "Room:SpawnGridEntity": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/contract/test_engine_row_api_surface.py",
+          "quote": "\"Room:SpawnGridEntity\": \"VoidIntIntIntIntInt\""
+        }
+      ]
+    },
+    "EntityPlayer:RemoveCollectible": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/contract/test_engine_row_api_surface.py",
+          "quote": "\"EntityPlayer:RemoveCollectible\": \"VoidIntBoolIntBoolOpt3\""
+        }
+      ]
+    },
+    "Room:IsPositionInRoom": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/contract/test_engine_row_api_surface.py",
+          "quote": "\"Room:IsPositionInRoom\": \"BoolVector2RefFloat\""
+        }
+      ]
+    },
+    "Game:CharmFart": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/contract/test_engine_row_api_surface.py",
+          "quote": "\"Game:CharmFart\": \"VoidVector2RefFloatHandle\""
+        }
+      ]
+    },
+    "Game:MoveToRandomRoom": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/contract/test_engine_row_api_surface.py",
+          "quote": "\"Game:MoveToRandomRoom\": \"VoidBoolIntHandle\""
+        }
+      ]
+    },
+    "ItemPool:RemoveCollectible": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/contract/test_engine_row_api_surface.py",
+          "quote": "\"ItemPool:RemoveCollectible\": \"BoolIntBoolBoolOpt2\""
+        }
+      ]
+    },
+    "EntityPlayer:AddKeys": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/contract/test_engine_row_api_surface.py",
+          "quote": "\"EntityPlayer:AddKeys\": \"Void1\""
+        }
+      ]
+    },
+    "EntityPlayer:AddGoldenKey": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/contract/test_engine_row_api_surface.py",
+          "quote": "\"EntityPlayer:AddGoldenKey\": \"Void0\""
+        }
+      ]
+    },
+    "EntityPlayer:AddGoldenBomb": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/contract/test_engine_row_api_surface.py",
+          "quote": "\"EntityPlayer:AddGoldenBomb\": \"Void0\""
+        }
+      ]
+    },
+    "Room:FindFreePickupSpawnPosition": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_room_position_methods.py",
+          "quote": "(\"FindFreePickupSpawnPosition\", 0x0020, 0x455BFC, 0xD10303FF, \"Room.md:78\")"
+        }
+      ]
+    },
+    "Room:GetClampedPosition": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_room_position_methods.py",
+          "quote": "(\"GetClampedPosition\", 0x0021, 0x4842A0, 0xD10243FF, \"Room.md:152\")"
+        }
+      ]
+    },
+    "Room:FindFreeTilePosition": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_room_position_methods.py",
+          "quote": "(\"FindFreeTilePosition\", 0x0022, 0x488050, 0xD10203FF, \"Room.md:83\")"
+        }
+      ]
+    },
+    "Room:GetDoorSlotPosition": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_room_position_methods.py",
+          "quote": "(\"GetDoorSlotPosition\", 0x0023, 0x464B8C, 0xD10083FF, \"Room.md:291\")"
+        }
+      ]
+    },
+    "Isaac:GetChallenge": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_isaac_glue_compose.py",
+          "quote": "(\"GetChallenge\", 0x0088, \"Isaac.md:171\")"
+        }
+      ]
+    },
+    "Isaac:ConsoleOutput": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_isaac_glue_compose.py",
+          "quote": "(\"ConsoleOutput\", 0x0089, \"Isaac.md:42\")"
+        }
+      ]
+    },
+    "Isaac:HasModData": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_isaac_glue_compose.py",
+          "quote": "(\"HasModData\", 0x008A, \"Isaac.md:491\")"
+        }
+      ]
+    },
+    "Isaac:GetFreeNearPosition": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_isaac_compose.py",
+          "quote": "(\"GetFreeNearPosition\", 0x008B, \"Isaac.md:263\")"
+        }
+      ]
+    },
+    "Isaac:GridSpawn": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_isaac_compose.py",
+          "quote": "(\"GridSpawn\", 0x008C, \"Isaac.md:472\")"
+        }
+      ]
+    },
+    "Isaac:GetSoundIdByName": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_isaac_sound_id.py",
+          "quote": "API = (\"GetSoundIdByName\", 0x008D, \"Isaac.md:424\")"
+        }
+      ]
+    },
+    "Game:SpawnParticles": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_game_spawn_particles.py",
+          "quote": "self.assertIn(\"Game.md:546\", GAME_API.read_text(encoding=\"utf-8\"),"
+        }
+      ]
+    },
+    "Isaac:CountEntities": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_isaac_glue_compose.py",
+          "quote": "(\"CountEntities\", 0x008E, \"Isaac.md:72\"),"
+        }
+      ]
+    },
+    "Isaac:RunCallbackWithParam": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_callback_authority.py",
+          "quote": "RunCallbackWithParam"
+        }
+      ]
+    },
+    "Isaac:RenderText": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_room_render_placeholders.py",
+          "quote": "    (\"Isaac\", \"RenderText\", 0x0090, \"Isaac.md:561\"),"
+        }
+      ]
+    },
+    "Isaac:GetTextWidth": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_room_render_placeholders.py",
+          "quote": "    (\"Isaac\", \"GetTextWidth\", 0x0091, \"Isaac.md:439\"),"
+        }
+      ]
+    },
+    "Room:GetRenderMode": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_room_render_placeholders.py",
+          "quote": "    (\"Room\", \"GetRenderMode\", 0x0024, \"Room.md:468\"),"
+        }
+      ]
+    },
+    "Room:GetRenderSurfaceTopLeft": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_room_render_placeholders.py",
+          "quote": "    (\"Room\", \"GetRenderSurfaceTopLeft\", 0x0025, \"Room.md:478\"),"
+        }
+      ]
+    },
+    "Level:QueryRoomTypeIndex": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_level_query_room_type_index.py",
+          "quote": "class LevelQueryRoomTypeIndexTests(unittest.TestCase):"
+        }
+      ]
+    },
+    "Entity:SetColor": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_entity_methods_batch271.py",
+          "quote": "class EntityMethodBatch271Tests(unittest.TestCase):"
+        }
+      ]
+    },
+    "Entity:AddCharmed": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_entity_methods_batch271.py",
+          "quote": "class EntityMethodBatch271Tests(unittest.TestCase):"
+        }
+      ]
+    },
+    "EntityPlayer:UseActiveItem": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_entity_methods_batch271.py",
+          "quote": "class EntityMethodBatch271Tests(unittest.TestCase):"
+        }
+      ]
+    },
+    "GridEntity:Init": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_grid_entity_init_batch272.py",
+          "quote": "class GridEntityInitBatch272Tests(unittest.TestCase):"
+        }
+      ]
+    },
+    "Entity:AddFreeze": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_entity_methods_batch273.py",
+          "quote": "class EntityMethodBatch273Tests(unittest.TestCase):"
+        }
+      ]
+    },
+    "Entity:AddPoison": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_entity_methods_batch273.py",
+          "quote": "class EntityMethodBatch273Tests(unittest.TestCase):"
+        }
+      ]
+    },
+    "EntityPlayer:AddBlueSpider": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_entity_methods_batch273.py",
+          "quote": "class EntityMethodBatch273Tests(unittest.TestCase):"
+        }
+      ]
+    },
+    "EntityPlayer:AddGoldenHearts": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_entity_methods_batch273.py",
+          "quote": "class EntityMethodBatch273Tests(unittest.TestCase):"
+        }
+      ]
+    },
+    "EntityPlayer:AddMinisaac": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_entity_methods_batch273.py",
+          "quote": "class EntityMethodBatch273Tests(unittest.TestCase):"
+        }
+      ]
+    },
+    "EntityPlayer:AddPill": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_entity_methods_batch273.py",
+          "quote": "class EntityMethodBatch273Tests(unittest.TestCase):"
+        }
+      ]
+    },
+    "EntityPlayer:AnimateAppear": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_entity_methods_batch273.py",
+          "quote": "class EntityMethodBatch273Tests(unittest.TestCase):"
+        }
+      ]
+    },
+    "EntityPlayer:DropTrinket": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_entity_methods_batch273.py",
+          "quote": "class EntityMethodBatch273Tests(unittest.TestCase):"
+        }
+      ]
+    },
+    "Entity:AddFear": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_entity_cleanup_batch274.py",
+          "quote": "class CleanupBatch274Tests(unittest.TestCase):"
+        }
+      ]
+    },
+    "Entity:AddHealth": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_entity_cleanup_batch274.py",
+          "quote": "class CleanupBatch274Tests(unittest.TestCase):"
+        }
+      ]
+    },
+    "Entity:RemoveStatusEffects": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_entity_cleanup_batch274.py",
+          "quote": "class CleanupBatch274Tests(unittest.TestCase):"
+        }
+      ]
+    },
+    "EntityPlayer:AddBoneHearts": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_entity_cleanup_batch274.py",
+          "quote": "class CleanupBatch274Tests(unittest.TestCase):"
+        }
+      ]
+    },
+    "EntityPlayer:AddFriendlyDip": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_entity_cleanup_batch274.py",
+          "quote": "class CleanupBatch274Tests(unittest.TestCase):"
+        }
+      ]
+    },
+    "EntityPlayer:AddPrettyFly": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_entity_cleanup_batch274.py",
+          "quote": "class CleanupBatch274Tests(unittest.TestCase):"
+        }
+      ]
+    },
+    "EntityPlayer:AnimateTrapdoor": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_entity_cleanup_batch274.py",
+          "quote": "class CleanupBatch274Tests(unittest.TestCase):"
+        }
+      ]
+    },
+    "EntityPlayer:CanPickSoulHearts": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_entity_cleanup_batch274.py",
+          "quote": "class CleanupBatch274Tests(unittest.TestCase):"
+        }
+      ]
+    },
+    "EntityPlayer:DonateLuck": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_entity_cleanup_batch274.py",
+          "quote": "class CleanupBatch274Tests(unittest.TestCase):"
+        }
+      ]
+    },
+    "EntityPlayer:RemoveGoldenBomb": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_entity_cleanup_batch274.py",
+          "quote": "class CleanupBatch274Tests(unittest.TestCase):"
+        }
+      ]
+    },
+    "EntityPlayer:RemoveGoldenKey": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_entity_cleanup_batch274.py",
+          "quote": "class CleanupBatch274Tests(unittest.TestCase):"
+        }
+      ]
+    },
+    "Seeds:ForgetStageSeed": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_entity_cleanup_batch274.py",
+          "quote": "class CleanupBatch274Tests(unittest.TestCase):"
+        }
+      ]
+    },
+    "Entity:AddEntityFlags": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_entity_flags_batch275.py",
+          "quote": "class EntityFlagsBatch275Tests(unittest.TestCase):"
+        }
+      ]
+    },
+    "Entity:ClearEntityFlags": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_entity_flags_batch275.py",
+          "quote": "class EntityFlagsBatch275Tests(unittest.TestCase):"
+        }
+      ]
+    },
+    "GridEntity:GetGridIndex": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_grid_entity_cast_batch276.py",
+          "quote": "class GridEntityCastBatch276Tests(unittest.TestCase):"
+        }
+      ]
+    },
+    "GridEntity:ToPit": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_grid_entity_cast_batch276.py",
+          "quote": "class GridEntityCastBatch276Tests(unittest.TestCase):"
+        }
+      ]
+    },
+    "GridEntity:ToRock": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_grid_entity_cast_batch276.py",
+          "quote": "class GridEntityCastBatch276Tests(unittest.TestCase):"
+        }
+      ]
+    },
+    "GridEntity:ToDoor": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_grid_entity_cast_batch276.py",
+          "quote": "class GridEntityCastBatch276Tests(unittest.TestCase):"
+        }
+      ]
+    },
+    "GridEntity:ToTNT": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_grid_entity_cast_batch276.py",
+          "quote": "class GridEntityCastBatch276Tests(unittest.TestCase):"
+        }
+      ]
+    },
+    "GridEntity:ToPoop": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_grid_entity_cast_batch276.py",
+          "quote": "class GridEntityCastBatch276Tests(unittest.TestCase):"
+        }
+      ]
+    },
+    "GridEntity:ToPressurePlate": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_grid_entity_cast_batch276.py",
+          "quote": "class GridEntityCastBatch276Tests(unittest.TestCase):"
+        }
+      ]
+    },
+    "GridEntity:ToSpikes": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_grid_entity_cast_batch276.py",
+          "quote": "class GridEntityCastBatch276Tests(unittest.TestCase):"
+        }
+      ]
+    },
+    "Entity:GetEntityFlags": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_entity_get_flags_batch277.py",
+          "quote": "class EntityGetFlagsBatch277Tests(unittest.TestCase):"
+        }
+      ]
+    },
+    "EntityPlayer:ThrowHeldEntity": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_entity_player_batch278.py",
+          "quote": "class EntityPlayerBatch278Tests(unittest.TestCase):"
+        }
+      ]
+    },
+    "EntityPlayer:AddSwarmFlyOrbital": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_entity_player_batch278.py",
+          "quote": "class EntityPlayerBatch278Tests(unittest.TestCase):"
+        }
+      ]
+    },
+    "EntityPlayer:AddItemWisp": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_entity_player_batch278.py",
+          "quote": "class EntityPlayerBatch278Tests(unittest.TestCase):"
+        }
+      ]
+    },
+    "EntityPlayer:UsePill": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_entity_player_batch278.py",
+          "quote": "class EntityPlayerBatch278Tests(unittest.TestCase):"
+        }
+      ]
+    },
+    "EntityPlayer:AddBlueFlies": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_entity_player_batch278.py",
+          "quote": "class EntityPlayerBatch278Tests(unittest.TestCase):"
+        }
+      ]
+    },
+    "Sprite:PlayOverlay": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_sprite.py",
+          "quote": "SPRITE_OVERLAY overlay=Anim0/1 last=1 oframe=Walk/3"
+        }
+      ]
+    },
+    "Sprite:SetLastFrame": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_sprite.py",
+          "quote": "SPRITE_OVERLAY overlay=Anim0/1 last=1 oframe=Walk/3"
+        }
+      ]
+    },
+    "Sprite:SetOverlayFrame": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_sprite.py",
+          "quote": "SPRITE_OVERLAY overlay=Anim0/1 last=1 oframe=Walk/3"
+        }
+      ]
+    },
+    "Sprite:GetDefaultAnimation": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_sprite.py",
+          "quote": "GetDefaultAnimation must agree with GetDefaultAnimationName"
+        }
+      ]
+    },
+    "Sprite:Stop": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_sprite.py",
+          "quote": "SPRITE_OVERLAY overlay=Anim0/1 last=1 oframe=Walk/3 stop=1"
+        }
+      ]
+    },
+    "EntityTear:ChangeVariant": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_entity_tear_view_batch281.py",
+          "quote": "def test_view_is_wired_in_every_place(self):"
+        }
+      ]
+    },
+    "EntityLaser:SetActiveRotation": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_entity_laser_view_batch282.py",
+          "quote": "def test_view_is_wired_in_every_place(self):"
+        }
+      ]
+    },
+    "Sprite:IsOverlayPlaying": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_sprite.py",
+          "quote": "SPRITE_QUERY overlay=3/3 event=2/2 empty=2 last=Nope"
+        }
+      ]
+    },
+    "Sprite:IsOverlayFinished": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_sprite.py",
+          "quote": "SPRITE_QUERY overlay=3/3 event=2/2 empty=2 last=Nope"
+        }
+      ]
+    },
+    "Sprite:IsEventTriggered": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_sprite.py",
+          "quote": "SPRITE_QUERY overlay=3/3 event=2/2 empty=2 last=Nope"
+        }
+      ]
+    },
+    "Sprite:WasEventTriggered": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_sprite.py",
+          "quote": "SPRITE_QUERY overlay=3/3 event=2/2 empty=2 last=Nope"
+        }
+      ]
+    },
+    "EntityPlayer:IsHoldingItem": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_batch284_receivers.py",
+          "quote": "def test_wiring"
+        }
+      ]
+    },
+    "EntityPlayer:IsExtraAnimationFinished": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_batch284_receivers.py",
+          "quote": "def test_wiring"
+        }
+      ]
+    },
+    "GridEntityDoor:Open": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_batch284_receivers.py",
+          "quote": "def test_wiring"
+        }
+      ]
+    },
+    "GridEntityDoor:Close": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_batch284_receivers.py",
+          "quote": "def test_wiring"
+        }
+      ]
+    },
+    "GridEntityDoor:IsTargetRoomArcade": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_batch284_receivers.py",
+          "quote": "def test_wiring"
+        }
+      ]
+    },
+    "EntityNPC:Morph": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_batch285_receivers.py",
+          "quote": "def test_wiring"
+        }
+      ]
+    },
+    "EntityPickup:Morph": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_batch285_receivers.py",
+          "quote": "def test_wiring"
+        }
+      ]
+    },
+    "Entity:IsVulnerableEnemy": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_batch286_vulnerable_enemy.py",
+          "quote": "def test_wiring"
+        }
+      ]
+    },
+    "EntityPlayer:GetBoneHearts": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_batch287_player_hearts.py",
+          "quote": "def test_wiring"
+        }
+      ]
+    },
+    "EntityPlayer:GetEternalHearts": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_batch287_player_hearts.py",
+          "quote": "def test_wiring"
+        }
+      ]
+    },
+    "EntityPlayer:HasGoldenKey": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_batch287_player_hearts.py",
+          "quote": "def test_wiring"
+        }
+      ]
+    },
+    "EntityPlayer:GetHeadDirection": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_batch288_directions.py",
+          "quote": "def test_wiring"
+        }
+      ]
+    },
+    "EntityPlayer:GetFireDirection": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_batch288_directions.py",
+          "quote": "def test_wiring"
+        }
+      ]
+    },
+    "EntityPlayer:GetMovementDirection": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_batch288_directions.py",
+          "quote": "def test_wiring"
+        }
+      ]
+    },
+    "Room:GetTopLeftPos": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_batch289_room_bounds.py",
+          "quote": "def test_wiring"
+        }
+      ]
+    },
+    "Room:GetBottomRightPos": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_batch289_room_bounds.py",
+          "quote": "def test_wiring"
+        }
+      ]
+    },
+    "Room:GetRoomShape": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_batch290_room_shape.py",
+          "quote": "def test_wiring"
+        }
+      ]
+    },
+    "Room:GetBossID": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_batch291_room_state.py",
+          "quote": "def test_wiring"
+        }
+      ]
+    },
+    "Room:IsFirstVisit": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_batch291_room_state.py",
+          "quote": "def test_wiring"
+        }
+      ]
+    },
+    "Room:IsAmbushDone": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_batch291_room_state.py",
+          "quote": "def test_wiring"
+        }
+      ]
+    },
+    "Room:HasWaterPits": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_batch291_room_state.py",
+          "quote": "def test_wiring"
+        }
+      ]
+    },
+    "Room:GetBackdropType": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_batch292_backdrop_and_setclear.py",
+          "quote": "def test_wiring"
+        }
+      ]
+    },
+    "Room:SetClear": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_batch292_backdrop_and_setclear.py",
+          "quote": "def test_wiring"
+        }
+      ]
+    },
+    "Entity:IsVisible": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_batch293_entity_flags.py",
+          "quote": "def test_wiring"
+        }
+      ]
+    },
+    "Entity:Exists": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_batch293_entity_flags.py",
+          "quote": "def test_wiring"
+        }
+      ]
+    },
+    "Entity:IsDead": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_batch293_entity_flags.py",
+          "quote": "def test_wiring"
+        }
+      ]
+    },
+    "Level:GetPreviousRoomIndex": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_batch294_level_room_index.py",
+          "quote": "def test_wiring"
+        }
+      ]
+    },
+    "Level:GetLastBossRoomListIndex": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_batch294_level_room_index.py",
+          "quote": "def test_wiring"
+        }
+      ]
+    },
+    "GridEntityDoor:IsRoomType": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_batch294_level_room_index.py",
+          "quote": "def test_wiring"
+        }
+      ]
+    },
+    "Room:GetDecorationSeed": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_batch295_room_seeds.py",
+          "quote": "def test_wiring"
+        }
+      ]
+    },
+    "Room:GetSpawnSeed": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_batch295_room_seeds.py",
+          "quote": "def test_wiring"
+        }
+      ]
+    },
+    "EntityNPC:GetChampionColorIdx": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_batch296_npc_colors_and_charge.py",
+          "quote": "def test_wiring"
+        }
+      ]
+    },
+    "EntityNPC:GetBossColorIdx": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_batch296_npc_colors_and_charge.py",
+          "quote": "def test_wiring"
+        }
+      ]
+    },
+    "EntityPlayer:GetActiveCharge": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_batch296_npc_colors_and_charge.py",
+          "quote": "def test_wiring"
+        }
+      ]
+    },
+    "Game:GetStateFlag": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_batch297_state_flags.py",
+          "quote": "def test_wiring"
+        }
+      ]
+    },
+    "Level:GetStateFlag": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_batch297_state_flags.py",
+          "quote": "def test_wiring"
+        }
+      ]
+    },
+    "GridEntity:GetSprite": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_batch298_grid_entity_sprite.py",
+          "quote": "def test_wiring"
+        }
+      ]
+    },
+    "EntityPlayer:HasFullHearts": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_batch299_has_full_hearts.py",
+          "quote": "def test_wiring"
+        }
+      ]
+    },
+    "Game:SetStateFlag": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_batch300_state_flag_writes.py",
+          "quote": "def test_wiring"
+        }
+      ]
+    },
+    "Level:SetStateFlag": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_batch300_state_flag_writes.py",
+          "quote": "def test_wiring"
+        }
+      ]
+    },
+    "EntityPlayer:AddCacheFlags": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_batch301_cache_flags.py",
+          "quote": "def test_wiring"
+        }
+      ]
+    },
+    "Room:SetFloorColor": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_batch302_room_colors.py",
+          "quote": "def test_wiring"
+        }
+      ]
+    },
+    "Room:SetWallColor": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_batch302_room_colors.py",
+          "quote": "def test_wiring"
+        }
+      ]
+    },
+    "Entity:CanShutDoors": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_batch303_vtable_calls.py",
+          "quote": "def test_wiring"
+        }
+      ]
+    },
+    "EntityNPC:CanShutDoors": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_batch303_vtable_calls.py",
+          "quote": "def test_wiring"
+        }
+      ]
+    },
+    "GridEntity:Destroy": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_batch304_grid_entity_vtable.py",
+          "quote": "def test_wiring"
+        }
+      ]
+    },
+    "GridEntity:PostInit": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_batch304_grid_entity_vtable.py",
+          "quote": "def test_wiring"
+        }
+      ]
+    },
+    "MusicManager:Disable": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_batch305_music_enabled.py",
+          "quote": "def test_wiring"
+        }
+      ]
+    },
+    "MusicManager:Enable": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_batch305_music_enabled.py",
+          "quote": "def test_wiring"
+        }
+      ]
+    },
+    "MusicManager:IsEnabled": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_batch305_music_enabled.py",
+          "quote": "def test_wiring"
+        }
+      ]
+    },
+    "Seeds:GetStageSeed": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_batch306_seeds.py",
+          "quote": "def test_wiring"
+        }
+      ]
+    },
+    "Seeds:GetNextSeed": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_batch306_seeds.py",
+          "quote": "def test_wiring"
+        }
+      ]
+    },
+    "Room:GetGridEntityFromPos": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_batch307_grid_from_pos.py",
+          "quote": "def test_wiring"
+        }
+      ]
+    },
+    "GridEntity:SetType": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_batch308_set_type.py",
+          "quote": "def test_wiring"
+        }
+      ]
+    },
+    "Sprite:GetFilename": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_batch309_get_filename.py",
+          "quote": "def test_wiring"
+        }
+      ]
+    },
+    "Room:GetAliveBossesCount": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_batch310_alive_bosses.py",
+          "quote": "def test_wiring"
+        }
+      ]
+    },
+    "Room:GetAliveEnemiesCount": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_batch311_alive_enemies.py",
+          "quote": "def test_wiring"
+        }
+      ]
+    },
+    "EntityPlayer:IsCoopGhost": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_batch312_coop_ghost.py",
+          "quote": "def test_wiring"
+        }
+      ]
+    },
+    "Level:HasBossChallenge": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_batch313_level_flags.py",
+          "quote": "def test_wiring"
+        }
+      ]
+    },
+    "Level:GetCanSeeEverything": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_batch313_level_flags.py",
+          "quote": "def test_wiring"
+        }
+      ]
+    },
+    "EntityNPC:IsChampion": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_batch314_is_champion.py",
+          "quote": "def test_wiring"
+        }
+      ]
+    },
+    "Entity:Die": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_batch315_die.py",
+          "quote": "def test_wiring"
+        }
+      ]
+    },
+    "Entity:GetDropRNG": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_batch316_drop_rng.py",
+          "quote": "def test_wiring"
+        }
+      ]
+    },
+    "GridEntity:Update": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_batch321_grid_entity_update.py",
+          "quote": "def test_wiring"
+        }
+      ]
+    },
+    "EntityNPC:ThrowSpider": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_batch324_throw_spider.py",
+          "quote": "def test_wiring"
+        }
+      ]
+    },
+    "EntityLaser:ShootAngle": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_batch325_shoot_angle.py",
+          "quote": "def test_wiring"
+        }
+      ]
+    },
+    "EntityPlayer:FireTechLaser": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_batch326_fire_tech_laser.py",
+          "quote": "def test_wiring"
+        }
+      ]
+    },
+    "Room:IsDoorSlotAllowed": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_batch327_door_slot_allowed.py",
+          "quote": "def test_wiring"
+        }
+      ]
+    },
+    "EntityPlayer:GetShootingInput": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_batch328_shooting_input.py",
+          "quote": "def test_wiring"
+        }
+      ]
+    },
+    "EntityPlayer:GetShootingJoystick": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_batch328_shooting_input.py",
+          "quote": "def test_wiring"
+        }
+      ]
+    },
+    "EntityFamiliar:FollowParent": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_batch330_familiar_view.py",
+          "quote": "def test_wiring"
+        }
+      ]
+    },
+    "EntityFamiliar:AddToFollowers": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_batch330_familiar_view.py",
+          "quote": "def test_wiring"
+        }
+      ]
+    },
+    "EntityPlayer:GetMovementJoystick": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_batch332_movement_joystick.py",
+          "quote": "def test_wiring"
+        }
+      ]
+    },
+    "Entity:MultiplyFriction": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_batch333_multiply_friction.py",
+          "quote": "def test_wiring"
+        }
+      ]
+    },
+    "EntityPlayer:CheckFamiliar": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_batch334_check_familiar.py",
+          "quote": "def test_wiring"
+        }
+      ]
+    },
+    "EntityPlayer:ChangePlayerType": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_batch335_player_api_rows.py",
+          "quote": "def test_wiring"
+        }
+      ]
+    },
+    "EntityPlayer:DischargeActiveItem": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_batch335_player_api_rows.py",
+          "quote": "def test_wiring"
+        }
+      ]
+    },
+    "Seeds:SetStartSeed": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_batch335_player_api_rows.py",
+          "quote": "def test_wiring"
+        }
+      ]
+    },
+    "Room:GetTintedRockIdx": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_batch336_field_rows.py",
+          "quote": "def test_wiring"
+        }
+      ]
+    },
+    "Entity:CollidesWithGrid": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_batch336_field_rows.py",
+          "quote": "def test_wiring"
+        }
+      ]
+    },
+    "EntityPlayer:FireTear": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_batch337_fire_tear.py",
+          "quote": "def test_wiring"
+        }
+      ]
+    },
+    "EntityFamiliar:FireProjectile": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_batch339_fire_projectile.py",
+          "quote": "def test_wiring"
+        }
+      ]
+    },
+    "Game:Spawn": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_batch340_spawn.py",
+          "quote": "def test_wiring"
+        }
+      ]
+    },
+    "Isaac:Spawn": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_batch340_spawn.py",
+          "quote": "def test_wiring"
+        }
+      ]
+    },
+    "Entity:IsInvincible": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_batch341_field_rows.py",
+          "quote": "def test_wiring"
+        }
+      ]
+    },
+    "EntityLaser:SetMaxDistance": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_batch341_field_rows.py",
+          "quote": "def test_wiring"
+        }
+      ]
+    },
+    "EntityPlayer:TryRemoveTrinketCostume": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_batch341_field_rows.py",
+          "quote": "def test_wiring"
+        }
+      ]
+    },
+    "EntityFamiliar:FollowPosition": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_batch341_field_rows.py",
+          "quote": "def test_wiring"
+        }
+      ]
+    },
+    "GridEntity:GetSaveState": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_batch342_field_rows.py",
+          "quote": "def test_wiring"
+        }
+      ]
+    },
+    "EntityPlayer:StopExtraAnimation": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_batch342_field_rows.py",
+          "quote": "def test_wiring"
+        }
+      ]
+    },
+    "Game:Darken": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_batch342_field_rows.py",
+          "quote": "def test_wiring"
+        }
+      ]
+    },
+    "Entity:GetColor": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_batch343_get_color_and_lists.py",
+          "quote": "def test_wiring"
+        }
+      ]
+    },
+    "ItemConfig:GetCollectibles": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_batch343_get_color_and_lists.py",
+          "quote": "def test_wiring"
+        }
+      ]
+    },
+    "ItemConfig:GetTrinkets": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_batch343_get_color_and_lists.py",
+          "quote": "def test_wiring"
+        }
+      ]
+    },
+    "EntityPlayer:AnimateCollectible": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_batch344_animate_collectible_and_pathfinder.py",
+          "quote": "B344 anim1=true"
+        }
+      ]
+    },
+    "PathFinder:HasPathToPos": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_batch344_animate_collectible_and_pathfinder.py",
+          "quote": "B344 callval=false"
+        }
+      ]
+    },
+    "Isaac:Explode": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_batch345_explode.py",
+          "quote": "B345 niln=0"
+        }
+      ]
+    },
+    "Entity:AddVelocity": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_batch346_add_velocity.py",
+          "quote": "(\"a\", 0.0, 0.0, 3.0, 4.0, 2.0, 1.0, 1.5, 2.0),"
+        }
+      ]
+    },
+    "RoomConfigSpawn:PickEntry": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_batch347_roomconfig_pickentry.py",
+          "quote": "B347 e0variant=-1"
+        }
+      ]
+    },
+    "TemporaryEffects:HasCollectibleEffect": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_entity_player.py",
+          "quote": "player:GetEffects() must answer an object, got "
+        }
+      ]
+    },
+    "TemporaryEffects:HasTrinketEffect": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_entity_player.py",
+          "quote": "player:GetEffects() must answer an object, got "
+        }
+      ]
+    },
+    "TemporaryEffects:HasNullEffect": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_entity_player.py",
+          "quote": "player:GetEffects() must answer an object, got "
+        }
+      ]
+    },
+    "TemporaryEffects:GetCollectibleEffectNum": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_entity_player.py",
+          "quote": "player:GetEffects() must answer an object, got "
+        }
+      ]
+    },
+    "TemporaryEffects:GetTrinketEffectNum": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_entity_player.py",
+          "quote": "player:GetEffects() must answer an object, got "
+        }
+      ]
+    },
+    "TemporaryEffects:GetNullEffectNum": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_entity_player.py",
+          "quote": "player:GetEffects() must answer an object, got "
+        }
+      ]
+    },
+    "TemporaryEffects:AddCollectibleEffect": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_entity_player.py",
+          "quote": "player:GetEffects() must answer an object, got "
+        }
+      ]
+    },
+    "TemporaryEffects:AddTrinketEffect": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_entity_player.py",
+          "quote": "player:GetEffects() must answer an object, got "
+        }
+      ]
+    },
+    "TemporaryEffects:AddNullEffect": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_entity_player.py",
+          "quote": "player:GetEffects() must answer an object, got "
+        }
+      ]
+    },
+    "TemporaryEffects:RemoveCollectibleEffect": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_entity_player.py",
+          "quote": "player:GetEffects() must answer an object, got "
+        }
+      ]
+    },
+    "TemporaryEffects:RemoveTrinketEffect": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_entity_player.py",
+          "quote": "player:GetEffects() must answer an object, got "
+        }
+      ]
+    },
+    "TemporaryEffects:RemoveNullEffect": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_entity_player.py",
+          "quote": "player:GetEffects() must answer an object, got "
+        }
+      ]
+    },
+    "TemporaryEffects:ClearEffects": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_entity_player.py",
+          "quote": "player:GetEffects() must answer an object, got "
+        }
+      ]
+    },
+    "TemporaryEffects:GetCollectibleEffect": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_entity_player.py",
+          "quote": "player:GetEffects() must answer an object, got "
+        }
+      ]
+    },
+    "TemporaryEffects:GetNullEffect": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_entity_player.py",
+          "quote": "player:GetEffects() must answer an object, got "
+        }
+      ]
+    },
+    "TemporaryEffects:GetTrinketEffect": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_entity_player.py",
+          "quote": "player:GetEffects() must answer an object, got "
+        }
+      ]
+    },
+    "TemporaryEffects:GetEffectsList": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_entity_player.py",
+          "quote": "player:GetEffects() must answer an object, got "
+        }
+      ]
+    },
+    "SFXManager:AdjustPitch": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "docs/离线修复计划与进度-20261009.md",
+          "quote": "剩余七个音效接口已接入原生函数，尚未真机验证声音。"
+        }
+      ]
+    },
+    "SFXManager:AdjustVolume": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "docs/离线修复计划与进度-20261009.md",
+          "quote": "剩余七个音效接口已接入原生函数，尚未真机验证声音。"
+        }
+      ]
+    },
+    "SFXManager:GetAmbientSoundVolume": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "docs/离线修复计划与进度-20261009.md",
+          "quote": "剩余七个音效接口已接入原生函数，尚未真机验证声音。"
+        }
+      ]
+    },
+    "SFXManager:Preload": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "docs/离线修复计划与进度-20261009.md",
+          "quote": "剩余七个音效接口已接入原生函数，尚未真机验证声音。"
+        }
+      ]
+    },
+    "SFXManager:SetAmbientSound": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "docs/离线修复计划与进度-20261009.md",
+          "quote": "剩余七个音效接口已接入原生函数，尚未真机验证声音。"
+        }
+      ]
+    },
+    "SFXManager:Stop": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "docs/离线修复计划与进度-20261009.md",
+          "quote": "剩余七个音效接口已接入原生函数，尚未真机验证声音。"
+        }
+      ]
+    },
+    "SFXManager:StopLoopingSounds": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "docs/离线修复计划与进度-20261009.md",
+          "quote": "剩余七个音效接口已接入原生函数，尚未真机验证声音。"
+        }
+      ]
+    },
+    "PersistentGameData:Unlocked": {
+      "maturity": "Experimental",
+      "evidence": [],
+      "note": "2026-10-09恢复REPENTOGON原生成就查询；宿主证参数与结果，NS原生查询游戏状态尚无同包真机证据。"
+    },
+    "Global:BitSet128": {
+      "maturity": "Experimental",
+      "evidence": [],
+      "note": "2026-10-09真机缺失已复现；现有宿主128位行为验证，待新包同机验证。"
+    },
+    "Global:TearFlags": {
+      "maturity": "Experimental",
+      "evidence": [],
+      "note": "2026-10-09真机缺失已复现；现有宿主128位行为验证，待新包同机验证。"
+    },
+    "BitSet128:Get": {
+      "maturity": "Experimental",
+      "evidence": [],
+      "note": "2026-10-09真机缺失已复现；现有宿主128位行为验证，待新包同机验证。"
+    },
+    "BitSet128:Set": {
+      "maturity": "Experimental",
+      "evidence": [],
+      "note": "2026-10-09真机缺失已复现；现有宿主128位行为验证，待新包同机验证。"
+    },
+    "Isaac:GetBuiltInCallbackState": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_callback_authority.py",
+          "quote": "GetBuiltInCallbackState"
+        }
+      ]
+    },
+    "Isaac:SetBuiltInCallbackState": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_callback_authority.py",
+          "quote": "SetBuiltInCallbackState"
+        }
+      ]
+    },
+    "Isaac:AddCallback": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_callback_authority.py",
+          "quote": "AddCallback"
+        }
+      ]
+    },
+    "Isaac:AddPriorityCallback": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_callback_authority.py",
+          "quote": "AddPriorityCallback"
+        }
+      ]
+    },
+    "Isaac:RemoveCallback": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_callback_authority.py",
+          "quote": "RemoveCallback"
+        }
+      ]
+    },
+    "Isaac:GetCallbacks": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_callback_authority.py",
+          "quote": "GetCallbacks"
+        }
+      ]
+    },
+    "Isaac:RunCallback": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_callback_authority.py",
+          "quote": "RunCallback"
+        }
+      ]
+    },
+    "PersistentGameData:GetBestiaryKillCount": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_pgd_bestiary.py",
+          "quote": "GetBestiaryKillCount"
+        }
+      ]
+    },
+    "PersistentGameData:GetBestiaryDeathCount": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_pgd_bestiary.py",
+          "quote": "GetBestiaryDeathCount"
+        }
+      ]
+    },
+    "PersistentGameData:GetBestiaryEncounterCount": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_pgd_bestiary.py",
+          "quote": "GetBestiaryEncounterCount"
+        }
+      ]
+    },
+    "PersistentGameData:AddBestiaryKill": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_pgd_bestiary_write.py",
+          "quote": "AddBestiaryKill"
+        }
+      ]
+    },
+    "PersistentGameData:AddBossKilled": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_pgd_bestiary_write.py",
+          "quote": "AddBossKilled"
+        }
+      ]
+    },
+    "PersistentGameData:IsBossKilled": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_pgd_bestiary_write.py",
+          "quote": "IsBossKilled"
+        }
+      ]
+    },
+    "EntityFamiliar:GetOrbitPosition": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_familiar_orbit.py",
+          "quote": "GetOrbitPosition"
+        }
+      ]
+    },
+    "EntityFamiliar:RecalculateOrbitOffset": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_familiar_orbit.py",
+          "quote": "RecalculateOrbitOffset"
+        }
+      ]
+    },
+    "EntityFamiliar:AddToOrbit": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_familiar_orbit.py",
+          "quote": "AddToOrbit"
+        }
+      ]
+    },
+    "EntityFamiliar:RemoveFromOrbit": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_familiar_orbit.py",
+          "quote": "RemoveFromOrbit"
+        }
+      ]
+    },
+    "Entity:GetData": {
+      "maturity": "HostVerified",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_entity_data_lifecycle.py",
+          "quote": "300活实体、房间/活表移动、生成帧改变不丢表"
+        },
+        {
+          "file": "runtime/tests/test_entity_remove_bridge.py",
+          "quote": "67真实Lua：Exists清0/data仍在的时机、重复Remove、析构及地址复用"
+        },
+        {
+          "file": "runtime/tests/test_entity_lifetime_memory.py",
+          "quote": "真实Lua GC/coroutine/OOM"
+        }
+      ],
+      "note": "恢复PC实体寿命与移除时机；无主机，未获真机结果。"
+    },
+    "EntityPlayer:GetData": {
+      "maturity": "HostVerified",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_entity_data_lifecycle.py",
+          "quote": "300活实体、房间/活表移动、生成帧改变不丢表"
+        },
+        {
+          "file": "runtime/tests/test_entity_remove_bridge.py",
+          "quote": "67真实Lua：Exists清0/data仍在的时机、重复Remove、析构及地址复用"
+        },
+        {
+          "file": "runtime/tests/test_entity_lifetime_memory.py",
+          "quote": "真实Lua GC/coroutine/OOM"
+        }
+      ],
+      "note": "恢复PC实体寿命与移除时机；无主机，未获真机结果。"
+    },
+    "Room:GetGridCollisionAtPos": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_agony_native_queries.py",
+          "quote": "Agony房间碰撞、NPC目标、overlay帧"
+        }
+      ],
+      "note": "仅静态/宿主，未部署未真机。"
+    },
+    "EntityNPC:GetPlayerTarget": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_agony_native_queries.py",
+          "quote": "Agony房间碰撞、NPC目标、overlay帧"
+        }
+      ],
+      "note": "仅静态/宿主，未部署未真机。"
+    },
+    "Sprite:GetOverlayFrame": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_agony_native_queries.py",
+          "quote": "Agony房间碰撞、NPC目标、overlay帧"
+        }
+      ],
+      "note": "仅静态/宿主，未部署未真机。"
+    },
+    "Entity:SetSpriteFrame": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_static_entity_methods.py",
+          "quote": "typed tear返回与寿命"
+        }
+      ],
+      "note": "宿主与实际AArch64混合参数已验证；未连接主机，未验真机动画/音效。"
+    },
+    "Entity:ToBomb": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_static_entity_methods.py",
+          "quote": "typed tear返回与寿命"
+        }
+      ],
+      "note": "宿主与实际AArch64混合参数已验证；未连接主机，未验真机动画/音效。"
+    },
+    "EntityTear:ResetSpriteScale": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_static_entity_methods.py",
+          "quote": "typed tear返回与寿命"
+        }
+      ],
+      "note": "宿主与实际AArch64混合参数已验证；未连接主机，未验真机动画/音效。"
+    },
+    "EntityNPC:PlaySound": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_static_entity_methods.py",
+          "quote": "typed tear返回与寿命"
+        }
+      ],
+      "note": "宿主与实际AArch64混合参数已验证；未连接主机，未验真机动画/音效。"
+    },
+    "EntityNPC:AnimWalkFrame": {
+      "maturity": "Experimental",
+      "evidence": [
+        {
+          "file": "runtime/tests/test_lua_static_entity_methods.py",
+          "quote": "typed tear返回与寿命"
+        }
+      ],
+      "note": "宿主与实际AArch64混合参数已验证；未连接主机，未验真机动画/音效。"
+    },
+    "EntityPlayer:GetSubPlayer": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityPlayer:GetDamageCooldown": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityPlayer:SetMinDamageCooldown": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityPlayer:ResetDamageCooldown": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityPlayer:GetJarHearts": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityPlayer:AddSoulCharge": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityPlayer:AddBloodCharge": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityPlayer:AddJarHearts": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityPlayer:GetMovementInput": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "HUD:Render": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "HUD:ShowItemText": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "HUD:ShowFortuneText": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Options:AnnouncerVoiceMode": {
+      "maturity": "HostVerified",
+      "evidence": []
+    },
+    "Entity:AddBurn": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Entity:AddConfusion": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Entity:AddMidasFreeze": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Entity:AddShrink": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Entity:AddSlowing": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Entity:HasMortalDamage": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityBomb:AddTearFlags": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityKnife:AddTearFlags": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityLaser:AddTearFlags": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityTear:AddTearFlags": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityBomb:SetExplosionCountdown": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityPlayer:AddCostume": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityPlayer:AddWisp": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityPlayer:AnimateCard": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityPlayer:AnimatePickup": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityPlayer:CanPickupItem": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityPlayer:FireBomb": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityPlayer:FlushQueueItem": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityPlayer:FullCharge": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityPlayer:GetAimDirection": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityPlayer:GetMaxTrinkets": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityPlayer:GetTearMovementInheritance": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityPlayer:RemoveCostume": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityPlayer:SetPill": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityPlayer:SetPocketActiveItem": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityPlayer:ThrowBlueSpider": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityPlayer:WillPlayerRevive": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityProjectile:HasProjectileFlags": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Game:ClearStagesWithoutHeartsPicked": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Game:Fart": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Game:ShakeScreen": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "GridEntity:SetVariant": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "GridEntityDoor:Bar": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "PathFinder:FindGridPath": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Room:GetAwardSeed": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Color:SetColorize": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Color:Lerp": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityPlayer:AddBlackHearts": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityPlayer:AddMaxHearts": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityPlayer:AddRottenHearts": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityPlayer:AddSoulHearts": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityPlayer:CanPickBlackHearts": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityPlayer:CanPickBoneHearts": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityPlayer:CanPickGoldenHearts": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityPlayer:CanPickRottenHearts": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityPlayer:GetGoldenHearts": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityPlayer:GetHeartLimit": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityPlayer:GetRottenHearts": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityPlayer:HasFullHeartsAndSoulHearts": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityPlayer:IsBlackHeart": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityPlayer:IsBoneHeart": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityPlayer:RemoveBlackHeart": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityPlayer:SetFullHearts": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityPlayer:AddBombs": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityPlayer:AddGigaBombs": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityPlayer:AddJarFlies": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityPlayer:AddPoopMana": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityPlayer:AddDeadEyeCharge": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityPlayer:ClearDeadEyeCharge": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityPlayer:ClearCostumes": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityPlayer:ClearTemporaryEffects": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityPlayer:GetEffectiveBloodCharge": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityPlayer:GetEffectiveSoulCharge": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityPlayer:GetMaxPocketItems": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityPlayer:GetMaxPoopMana": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityPlayer:HasTimedItem": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityPlayer:IsHeldItemVisible": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityPlayer:RemoveBlueFly": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityPlayer:RemoveBlueSpider": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityPlayer:CanAddCollectible": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityPlayer:AnimateLightTravel": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityPlayer:TryUseKey": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityPlayer:GetGreedDonationBreakChance": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Entity:BloodExplode": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Entity:GetLastParent": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Entity:GetLastChild": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Entity:HasFullHealth": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Entity:IsFrame": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityFamiliar:AddCoins": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityFamiliar:AddHearts": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityFamiliar:AddKeys": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityFamiliar:RemoveFromFollowers": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityFamiliar:RemoveFromDelayed": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityFamiliar:AddToDelayed": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityFamiliar:MoveDelayed": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityFamiliar:MoveDiagonally": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityFamiliar:PlayChargeAnim": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityFamiliar:PlayFloatAnim": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityFamiliar:PlayShootAnim": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityFamiliar:Shoot": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityPickup:PlayPickupSound": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityPickup:PlayDropSound": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityPickup:AppearFast": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityPickup:GetCoinValue": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "GridEntity:Hurt": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "GridEntityDoor:CanBlowOpen": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "GridEntityDoor:SetLocked": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "GridEntityDoor:SetRoomTypes": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "GridEntityDoor:SpawnDust": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "GridEntityRock:GetBigRockFrame": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "GridEntityRock:SetBigRockFrame": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "GridEntityRock:UpdateAnimFrame": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "ItemPool:AddBibleUpgrade": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "ItemPool:ForceAddPillEffect": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "ItemPool:GetCard": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "ItemPool:GetPill": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "ItemPool:GetTrinket": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "ItemPool:RemoveTrinket": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "ItemPool:ResetRoomBlacklist": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "ItemPool:ResetTrinkets": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Level:ApplyBlueMapEffect": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Level:ApplyCompassEffect": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Level:ApplyMapEffect": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Level:CanOpenChallengeRoom": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Level:CanSpawnDevilRoom": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Level:CanStageHaveCurseOfLabyrinth": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Level:ChangeRoom": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Level:GetCurseName": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Level:GetName": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Level:InitializeDevilAngelRoom": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Level:MakeRedRoomDoor": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Level:RemoveCompassEffect": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Level:SetRedHeartDamage": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Level:ShowMap": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Level:ShowName": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Level:UncoverHiddenDoor": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Room:DamageGrid": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Room:GetBrokenWatchState": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Room:GetDevilRoomChance": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Room:GetDungeonRockIdx": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Room:GetLightingAlpha": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Room:GetRandomTileIndex": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Room:HasLava": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Room:HasWater": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Room:IsLShapedRoom": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Room:RespawnEnemies": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Room:SetBrokenWatchState": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Room:ShopReshuffle": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Room:ShopRestockFull": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Room:ShopRestockPartial": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Room:TriggerClear": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Room:TrySpawnBlueWombDoor": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Room:TrySpawnBossRushDoor": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Room:TrySpawnMegaSatanRoomDoor": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Room:TrySpawnSecretExit": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Room:TrySpawnTheVoidDoor": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Color:SetOffset": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Color:SetTint": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Color:Reset": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Sprite:Reload": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Sprite:RemoveOverlay": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "MusicManager:Fadein": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "MusicManager:Fadeout": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Entity:HasCommonParentWithEntity": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Entity:SetSize": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityFamiliar:GetOrbitDistance": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityFamiliar:PickEnemyTarget": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityKnife:Reset": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityKnife:Shoot": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityPlayer:AddCurseMistEffect": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityPlayer:AddDollarBillEffect": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityPlayer:AddPlayerFormCostume": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityPlayer:AnimatePitfallIn": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityPlayer:AnimatePitfallOut": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityPlayer:AnimateTeleport": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityPlayer:DoZitEffect": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityPlayer:DropPocketItem": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityPlayer:FireBrimstone": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityPlayer:FireDelayedBrimstone": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityPlayer:FireKnife": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityPlayer:FireTechXLaser": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityPlayer:GetBombFlags": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityPlayer:GetFlyingOffset": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityPlayer:GetLaserOffset": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityPlayer:GetNPCTarget": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityPlayer:HasInvincibility": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityPlayer:InitBabySkin": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityPlayer:IsFullSpriteRendering": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityPlayer:IsPosInSpotLight": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityPlayer:PlayExtraAnimation": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityPlayer:QueueItem": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityPlayer:RemoveCurseMistEffect": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityPlayer:RemoveSkinCostume": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityPlayer:ResetItemState": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityPlayer:RespawnFamiliars": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityPlayer:ShootRedCandle": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityPlayer:SpawnMawOfVoid": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityPlayer:ThrowFriendlyDip": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityPlayer:TriggerBookOfVirtues": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityPlayer:TryHoldEntity": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityPlayer:TryHoldTrinket": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityPlayer:UpdateCanShoot": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityPlayer:UsePoopSpell": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityTear:SetDeadEyeIntensity": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Game:AddEncounteredBoss": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Game:ButterBeanFart": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Game:DonateAngel": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Game:DonateGreed": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Game:End": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Game:Fadein": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Game:Fadeout": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Game:FinishChallenge": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Game:GetGreedWavesNum": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Game:GetNearestPlayer": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Game:GetRandomPlayer": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Game:HasEncounteredBoss": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Game:MakeShockwave": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Game:NextVictoryLap": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Game:RerollEnemy": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Game:RerollLevelCollectibles": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Game:RerollLevelPickups": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Game:StartStageTransition": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "GridEntityDoor:TryBlowOpen": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "GridEntityDoor:TryUnlock": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "GridEntityPit:MakeBridge": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "GridEntityPit:SetLadder": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "GridEntityPit:UpdateCollision": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "GridEntityPoop:RespawnRedPoop": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "GridEntityPressurePlate:Reward": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "HUD:AssignPlayerHUDs": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "HUD:FlashChargeBar": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "HUD:InvalidateActiveItem": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "HUD:InvalidateCraftingItem": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "HUD:PostUpdate": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "HUD:Update": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "ItemConfig:GetNullItem": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Level:ForceHorsemanBoss": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Level:GetEnterPosition": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Level:GetNonCompleteRoomIndex": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "PathFinder:EvadeTarget": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "PathFinder:GetGridIndex": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "PathFinder:MoveRandomly": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "PathFinder:MoveRandomlyAxisAligned": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "PathFinder:MoveRandomlyBoss": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "PathFinder:Reset": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "PathFinder:ResetMovementTarget": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "PathFinder:UpdateGridIndex": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Room:CheckLine": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Room:GetClampedGridIndex": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Room:GetLaserTarget": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Room:GetSeededCollectible": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Room:MamaMegaExplosion": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Room:TryMakeBridge": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Room:TrySpawnDevilRoomDoor": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Room:TrySpawnSecretShop": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Room:TrySpawnSpecialQuestDoor": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Seeds:CanAddSeedEffect": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Seeds:CountUnlockedSeedEffects": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Seeds:InitSeedInfo": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Seeds:RemoveBlockingSeedEffects": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Seeds:Reset": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Seeds:Restart": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Sprite:SetOverlayAnimation": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityPlayer:CanShoot": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityPlayer:CanTurnHead": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityPlayer:RenderBody": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityPlayer:GetActiveWeaponEntity": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityPlayer:GetBatteryCharge": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityPlayer:GetBodyColor": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityPlayer:GetHeadColor": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityPlayer:GetItemState": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityPlayer:GetJarFlies": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityPlayer:GetLastActionTriggers": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityPlayer:GetLastDamageFlags": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityPlayer:GetLastDirection": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityPlayer:GetMovementVector": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityPlayer:GetNumBlueFlies": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityPlayer:GetNumBlueSpiders": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityPlayer:GetNumGigaBombs": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityPlayer:GetRecentMovementVector": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityPlayer:GetSmoothBodyRotation": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityPlayer:GetTearPoisonDamage": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityPlayer:GetTearRangeModifier": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityPlayer:GetTotalDamageTaken": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityPlayer:GetTractorBeam": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityPlayer:GetVelocityBeforeUpdate": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityPlayer:HasCurseMistEffect": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityPlayer:IsItemQueueEmpty": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityPlayer:IsP2Appearing": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityPlayer:SetBloodCharge": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityPlayer:SetSoulCharge": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityPlayer:RenderHead": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityPlayer:AddControlsCooldown": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityPlayer:AreControlsEnabled": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Game:AddPixelation": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Game:AddStageWithoutDamage": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Game:AddStageWithoutHeartsPicked": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Game:AddTreasureRoomsVisited": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Game:ClearDonationModAngel": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Game:ClearDonationModGreed": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Game:ClearStagesWithoutDamage": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Game:GetDarknessModifier": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Game:GetDevilRoomDeals": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Game:GetDonationModAngel": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Game:GetDonationModGreed": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityKnife:GetRenderZ": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityLaser:GetRenderZ": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityNPC:GetAliveEnemyCount": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Game:GetNumEncounteredBosses": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Game:GetStagesWithoutDamage": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Game:GetStagesWithoutHeartsPicked": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Game:GetTargetDarkness": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Game:GetTreasureRoomVisitCount": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Game:HasHallucination": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Game:SetLastDevilRoomStage": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Game:SetLastLevelWithDamage": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Game:SetLastLevelWithoutHalfHp": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Game:GetScreenShakeCountdown": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityTear:ClearTearFlags": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityTear:HasTearFlags": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Room:GetGridPathFromPos": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityBomb:ClearTearFlags": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Room:GetRedHeartDamage": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Room:GetSecondBossID": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityBomb:HasTearFlags": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Room:GetWaterCurrent": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityKnife:ClearTearFlags": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Room:HasTriggerPressurePlates": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityLaser:ClearTearFlags": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Room:IsInitialized": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Room:IsSacrificeDone": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Room:KeepDoorsClosed": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Room:SetAmbushDone": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Room:SetCardAgainstHumanity": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityLaser:HasTearFlags": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Room:SetRedHeartDamage": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Room:SetSacrificeDone": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityKnife:HasTearFlags": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Room:StopRain": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "PathFinder:GetEvadeMovementCountdown": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "PathFinder:HasDirectPath": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "PathFinder:SetCanCrushRocks": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Seeds:CountSeedEffects": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Seeds:ClearSeedEffects": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Seeds:ClearStartSeed": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Seeds:GetPlayerInitSeed": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Seeds:GetStartSeedString": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Seeds:IsInitialized": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Seeds:IsSeedComboBanned": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Level:AddAngelRoomChance": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Level:DisableDevilRoom": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Level:GetAngelRoomChance": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Level:GetDungeonPlacementSeed": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Level:GetHeartPicked": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Level:GetRoomCount": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Level:IsDevilRoomDisabled": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Level:SetCanSeeEverything": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Level:SetHeartPicked": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityEffect:IsPlayerCreep": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "ItemConfig:IsValidCollectible": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityNPC:CalcTargetPosition": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityNPC:CanBeDamagedFromVelocity": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityNPC:CanReroll": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Global:Random": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Options:FoundHUD": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityPlayer:RenderGlow": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityNPC:KillUnique": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityNPC:MakeChampion": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityNPC:MakeSplat": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityPickup:TryOpenChest": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Entity:GetBossID": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Entity:SetSpriteOverlayFrame": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityEffect:FollowParent": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityEffect:SetDamageSource": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityEffect:SetRadii": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityEffect:SetTimeout": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityKnife:GetKnifeDistance": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityKnife:GetKnifeVelocity": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityKnife:SetPathFollowSpeed": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityLaser:GetEndPoint": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityLaser:IsCircleLaser": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityLaser:IsSampleLaser": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityLaser:SetBlackHpDropChance": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityLaser:SetHomingType": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityLaser:SetMultidimensionalTouched": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityLaser:SetOneHit": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityLaser:SetTimeout": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityNPC:ResetPathFinderTarget": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityPlayer:RenderTop": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Entity:RenderShadowLayer": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityProjectile:AddChangeFlags": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityProjectile:AddFallingAccel": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityProjectile:AddFallingSpeed": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityProjectile:AddHeight": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityProjectile:AddProjectileFlags": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityProjectile:AddScale": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityProjectile:ClearProjectileFlags": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityTear:SetKnockbackMultiplier": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityTear:SetParentOffset": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityTear:SetWaitFrames": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityNPC:FireProjectiles": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "EntityNPC:FireBossProjectiles": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Seeds:Seed2String": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Seeds:String2Seed": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "Seeds:IsStringValidSeed": {
+      "maturity": "Experimental",
+      "evidence": []
+    },
+    "ItemConfigCard:IsCard": {
+      "maturity": "Experimental",
+      "evidence": [],
+      "note": "第五批仅静态取证、真实Lua宿主消费与构建，未上机；详见dist/apis500-20261016。"
+    },
+    "ItemPool:IdentifyPill": {
+      "maturity": "Experimental",
+      "evidence": [],
+      "note": "第五批仅静态取证、真实Lua宿主消费与构建，未上机；详见dist/apis500-20261016。"
+    },
+    "EntityPlayer:GetTearHitParams": {
+      "maturity": "Experimental",
+      "evidence": [],
+      "note": "第六批只静态/生产Lua宿主与交叉构建，未经真机；dist/apis600-20261016完整证据。"
+    },
+    "EntityPlayer:GetActiveSubCharge": {
+      "maturity": "Experimental",
+      "evidence": [],
+      "note": "第六批只静态/生产Lua宿主与交叉构建，未经真机；dist/apis600-20261016完整证据。"
+    },
+    "EntityPlayer:GetBombVariant": {
+      "maturity": "Experimental",
+      "evidence": [],
+      "note": "第六批只静态/生产Lua宿主与交叉构建，未经真机；dist/apis600-20261016完整证据。"
+    },
+    "EntityPlayer:AreOpposingShootDirectionsPressed": {
+      "maturity": "Experimental",
+      "evidence": [],
+      "note": "第六批只静态/生产Lua宿主与交叉构建，未经真机；dist/apis600-20261016完整证据。"
+    },
+    "EntityPlayer:HasWeaponType": {
+      "maturity": "Experimental",
+      "evidence": [],
+      "note": "第六批只静态/生产Lua宿主与交叉构建，未经真机；dist/apis600-20261016完整证据。"
+    },
+    "EntityPlayer:GetMultiShotParams": {
+      "maturity": "Experimental",
+      "evidence": [],
+      "note": "第六批只静态/生产Lua宿主与交叉构建，未经真机；dist/apis600-20261016完整证据。"
+    },
+    "EntityPlayer:GetMultiShotPositionVelocity": {
+      "maturity": "Experimental",
+      "evidence": [],
+      "note": "第六批只静态/生产Lua宿主与交叉构建，未经真机；dist/apis600-20261016完整证据。"
+    },
+    "ItemConfig:GetCards": {
+      "maturity": "Experimental",
+      "evidence": [],
+      "note": "第六批只静态/生产Lua宿主与交叉构建，未经真机；dist/apis600-20261016完整证据。"
+    },
+    "ItemConfig:GetPillEffects": {
+      "maturity": "Experimental",
+      "evidence": [],
+      "note": "第六批只静态/生产Lua宿主与交叉构建，未经真机；dist/apis600-20261016完整证据。"
+    },
+    "ItemConfig:GetNullItems": {
+      "maturity": "Experimental",
+      "evidence": [],
+      "note": "第六批只静态/生产Lua宿主与交叉构建，未经真机；dist/apis600-20261016完整证据。"
+    },
+    "ItemConfig_Item:IsNull": {
+      "maturity": "Experimental",
+      "evidence": [],
+      "note": "第六批只静态/生产Lua宿主与交叉构建，未经真机；dist/apis600-20261016完整证据。"
+    },
+    "ItemConfig:ShouldAddCostumeOnPickup": {
+      "maturity": "Experimental",
+      "evidence": [],
+      "note": "第六批只静态/生产Lua宿主与交叉构建，未经真机；dist/apis600-20261016完整证据。"
+    },
+    "CardConfigList:Get": {
+      "maturity": "Experimental",
+      "evidence": [],
+      "note": "第六批只静态/生产Lua宿主与交叉构建，未经真机；dist/apis600-20261016完整证据。"
+    },
+    "CardConfigList:__len": {
+      "maturity": "Experimental",
+      "evidence": [],
+      "note": "第六批只静态/生产Lua宿主与交叉构建，未经真机；dist/apis600-20261016完整证据。"
+    },
+    "PillConfigList:Get": {
+      "maturity": "Experimental",
+      "evidence": [],
+      "note": "第六批只静态/生产Lua宿主与交叉构建，未经真机；dist/apis600-20261016完整证据。"
+    },
+    "PillConfigList:__len": {
+      "maturity": "Experimental",
+      "evidence": [],
+      "note": "第六批只静态/生产Lua宿主与交叉构建，未经真机；dist/apis600-20261016完整证据。"
+    },
+    "EntityPtr:SetReference": {
+      "maturity": "Experimental",
+      "evidence": [],
+      "note": "第六批只静态/生产Lua宿主与交叉构建，未经真机；dist/apis600-20261016完整证据。"
+    },
+    "Game:BombDamage": {
+      "maturity": "Experimental",
+      "evidence": [],
+      "note": "第六批只静态/生产Lua宿主与交叉构建，未经真机；dist/apis600-20261016完整证据。"
+    },
+    "Game:BombExplosionEffects": {
+      "maturity": "Experimental",
+      "evidence": [],
+      "note": "第六批只静态/生产Lua宿主与交叉构建，未经真机；dist/apis600-20261016完整证据。"
+    },
+    "Game:BombTearflagEffects": {
+      "maturity": "Experimental",
+      "evidence": [],
+      "note": "第六批只静态/生产Lua宿主与交叉构建，未经真机；dist/apis600-20261016完整证据。"
+    },
+    "Game:UpdateStrangeAttractor": {
+      "maturity": "Experimental",
+      "evidence": [],
+      "note": "第六批只静态/生产Lua宿主与交叉构建，未经真机；dist/apis600-20261016完整证据。"
+    },
+    "Game:Render": {
+      "maturity": "Experimental",
+      "evidence": [],
+      "note": "第六批只静态/生产Lua宿主与交叉构建，未经真机；dist/apis600-20261016完整证据。"
+    },
+    "Room:Render": {
+      "maturity": "Experimental",
+      "evidence": [],
+      "note": "第六批只静态/生产Lua宿主与交叉构建，未经真机；dist/apis600-20261016完整证据。"
+    },
+    "GridEntityDoor:IsBusted": {
+      "maturity": "Experimental",
+      "evidence": [],
+      "note": "第六批只静态/生产Lua宿主与交叉构建，未经真机；dist/apis600-20261016完整证据。"
+    },
+    "GridEntityDoor:IsLocked": {
+      "maturity": "Experimental",
+      "evidence": [],
+      "note": "第六批只静态/生产Lua宿主与交叉构建，未经真机；dist/apis600-20261016完整证据。"
+    },
+    "GridEntityDoor:IsKeyFamiliarTarget": {
+      "maturity": "Experimental",
+      "evidence": [],
+      "note": "第六批只静态/生产Lua宿主与交叉构建，未经真机；dist/apis600-20261016完整证据。"
+    },
+    "GridEntityDoor:GetSpriteOffset": {
+      "maturity": "Experimental",
+      "evidence": [],
+      "note": "第六批只静态/生产Lua宿主与交叉构建，未经真机；dist/apis600-20261016完整证据。"
+    },
+    "GridEntityRock:GetRubbleAnim": {
+      "maturity": "Experimental",
+      "evidence": [],
+      "note": "第六批只静态/生产Lua宿主与交叉构建，未经真机；dist/apis600-20261016完整证据。"
+    },
+    "Game:GetLastDevilRoomStage": {
+      "maturity": "Experimental",
+      "evidence": [],
+      "note": "第六批只静态/生产Lua宿主与交叉构建，未经真机；dist/apis600-20261016完整证据。"
+    },
+    "Game:GetLastLevelWithDamage": {
+      "maturity": "Experimental",
+      "evidence": [],
+      "note": "第六批只静态/生产Lua宿主与交叉构建，未经真机；dist/apis600-20261016完整证据。"
+    },
+    "Game:GetLastLevelWithoutHalfHp": {
+      "maturity": "Experimental",
+      "evidence": [],
+      "note": "第六批只静态/生产Lua宿主与交叉构建，未经真机；dist/apis600-20261016完整证据。"
+    },
+    "Room:GetShopLevel": {
+      "maturity": "Experimental",
+      "evidence": [],
+      "note": "第六批只静态/生产Lua宿主与交叉构建，未经真机；dist/apis600-20261016完整证据。"
+    },
+    "Room:GetLavaIntensity": {
+      "maturity": "Experimental",
+      "evidence": [],
+      "note": "第六批只静态/生产Lua宿主与交叉构建，未经真机；dist/apis600-20261016完整证据。"
+    },
+    "Room:HasSlowDown": {
+      "maturity": "Experimental",
+      "evidence": [],
+      "note": "第六批只静态/生产Lua宿主与交叉构建，未经真机；dist/apis600-20261016完整证据。"
+    },
+    "Room:SetSlowDown": {
+      "maturity": "Experimental",
+      "evidence": [],
+      "note": "第六批只静态/生产Lua宿主与交叉构建，未经真机；dist/apis600-20261016完整证据。"
+    },
+    "Room:IsFirstEnemyDead": {
+      "maturity": "Experimental",
+      "evidence": [],
+      "note": "第六批只静态/生产Lua宿主与交叉构建，未经真机；dist/apis600-20261016完整证据。"
+    },
+    "Room:SetFirstEnemyDead": {
+      "maturity": "Experimental",
+      "evidence": [],
+      "note": "第六批只静态/生产Lua宿主与交叉构建，未经真机；dist/apis600-20261016完整证据。"
+    },
+    "Room:InvalidatePickupVision": {
+      "maturity": "Experimental",
+      "evidence": [],
+      "note": "第六批只静态/生产Lua宿主与交叉构建，未经真机；dist/apis600-20261016完整证据。"
+    },
+    "Room:EmitBloodFromWalls": {
+      "maturity": "Experimental",
+      "evidence": [],
+      "note": "第六批只静态/生产Lua宿主与交叉构建，未经真机；dist/apis600-20261016完整证据。"
+    },
+    "Sprite:GetOverlayAnimation": {
+      "maturity": "Experimental",
+      "evidence": [],
+      "note": "第六批只静态/生产Lua宿主与交叉构建，未经真机；dist/apis600-20261016完整证据。"
+    },
+    "Sprite:SetOverlayRenderPriority": {
+      "maturity": "Experimental",
+      "evidence": [],
+      "note": "第六批只静态/生产Lua宿主与交叉构建，未经真机；dist/apis600-20261016完整证据。"
+    },
+    "Global:RandomVector": {
+      "maturity": "Experimental",
+      "evidence": [],
+      "note": "第六批只静态/生产Lua宿主与交叉构建，未经真机；dist/apis600-20261016完整证据。"
+    },
+    "RoomConfigEntries:Get": {
+      "maturity": "Experimental",
+      "evidence": [],
+      "note": "第六批只静态/生产Lua宿主与交叉构建，未经真机；dist/apis600-20261016完整证据。"
+    },
+    "RoomConfigEntries:__len": {
+      "maturity": "Experimental",
+      "evidence": [],
+      "note": "第六批只静态/生产Lua宿主与交叉构建，未经真机；dist/apis600-20261016完整证据。"
+    },
+    "RoomConfigSpawns:__len": {
+      "maturity": "Experimental",
+      "evidence": [],
+      "note": "第六批只静态/生产Lua宿主与交叉构建，未经真机；dist/apis600-20261016完整证据。"
+    },
+    "Room:GetDeliriumDistance": {
+      "maturity": "Experimental",
+      "evidence": [],
+      "note": "第六批只静态/生产Lua宿主与交叉构建，未经真机；dist/apis600-20261016完整证据。"
+    },
+    "EntityPlayer:AnimatePill": {
+      "maturity": "Experimental",
+      "evidence": [],
+      "note": "第七批固定PC版本真实缺口；仅静态与宿主生产Lua及交叉构建，未部署真机。"
+    },
+    "EntityPlayer:AnimateTrinket": {
+      "maturity": "Experimental",
+      "evidence": [],
+      "note": "第七批固定PC版本真实缺口；仅静态与宿主生产Lua及交叉构建，未部署真机。"
+    },
+    "EntityPlayer:SwapActiveItems": {
+      "maturity": "Experimental",
+      "evidence": [],
+      "note": "第七批固定PC版本真实缺口；仅静态与宿主生产Lua及交叉构建，未部署真机。"
+    },
+    "EntityPlayer:TryRemoveCollectibleCostume": {
+      "maturity": "Experimental",
+      "evidence": [],
+      "note": "第七批固定PC版本真实缺口；仅静态与宿主生产Lua及交叉构建，未部署真机。"
+    },
+    "EntityPlayer:GetCostumeNullPos": {
+      "maturity": "Experimental",
+      "evidence": [],
+      "note": "第七批固定PC版本真实缺口；仅静态与宿主生产Lua及交叉构建，未部署真机。"
+    },
+    "EntityPlayer:ReplaceCostumeSprite": {
+      "maturity": "Experimental",
+      "evidence": [],
+      "note": "第七批固定PC版本真实缺口；仅静态与宿主生产Lua及交叉构建，未部署真机。"
+    },
+    "EntityPlayer:QueueExtraAnimation": {
+      "maturity": "Experimental",
+      "evidence": [],
+      "note": "第七批固定PC版本真实缺口；仅静态与宿主生产Lua及交叉构建，未部署真机。"
+    },
+    "EntityPlayer:GetLastDamageSource": {
+      "maturity": "Experimental",
+      "evidence": [],
+      "note": "第七批固定PC版本真实缺口；仅静态与宿主生产Lua及交叉构建，未部署真机。"
+    },
+    "EntityPlayer:GetPocketItem": {
+      "maturity": "Experimental",
+      "evidence": [],
+      "note": "第七批固定PC版本真实缺口；仅静态与宿主生产Lua及交叉构建，未部署真机。"
+    },
+    "Room:ScreenWrapPosition": {
+      "maturity": "Experimental",
+      "evidence": [],
+      "note": "第七批固定PC版本真实缺口；仅静态与宿主生产Lua及交叉构建，未部署真机。"
+    },
+    "EntityLaser:CalculateEndPoint": {
+      "maturity": "Experimental",
+      "evidence": [],
+      "note": "第七批固定PC版本真实缺口；仅静态与宿主生产Lua及交叉构建，未部署真机。"
+    },
+    "Seeds:GetSeedEffect": {
+      "maturity": "Experimental",
+      "evidence": [],
+      "note": "第七批固定PC版本真实缺口；仅静态与宿主生产Lua及交叉构建，未部署真机。"
+    },
+    "Seeds:IsSpecialSeed": {
+      "maturity": "Experimental",
+      "evidence": [],
+      "note": "第七批固定PC版本真实缺口；仅静态与宿主生产Lua及交叉构建，未部署真机。"
+    },
+    "Isaac:AddPillEffectToPool": {
+      "maturity": "Experimental",
+      "evidence": [],
+      "note": "第七批固定PC版本真实缺口；仅静态与宿主生产Lua及交叉构建，未部署真机。"
+    },
+    "Isaac:WorldToScreenDistance": {
+      "maturity": "Experimental",
+      "evidence": [],
+      "note": "第七批固定PC版本真实缺口；仅静态与宿主生产Lua及交叉构建，未部署真机。"
+    },
+    "Room:GetLRoomAreaDesc": {
+      "maturity": "Experimental",
+      "evidence": [],
+      "note": "第七批固定PC版本真实缺口；仅静态与宿主生产Lua及交叉构建，未部署真机。"
+    },
+    "Room:GetLRoomTileDesc": {
+      "maturity": "Experimental",
+      "evidence": [],
+      "note": "第七批固定PC版本真实缺口；仅静态与宿主生产Lua及交叉构建，未部署真机。"
+    },
+    "ItemPool:AddRoomBlacklist": {
+      "maturity": "Experimental",
+      "evidence": [],
+      "note": "第七批固定PC版本真实缺口；仅静态与宿主生产Lua及交叉构建，未部署真机。"
+    },
+    "Level:GetDevilAngelRoomRNG": {
+      "maturity": "Experimental",
+      "evidence": [],
+      "note": "第七批固定PC版本真实缺口；仅静态与宿主生产Lua及交叉构建，未部署真机。"
+    },
+    "Game:GetFont": {
+      "maturity": "Experimental",
+      "evidence": [],
+      "note": "第七批固定PC版本真实缺口；仅静态与宿主生产Lua及交叉构建，未部署真机。"
+    },
+    "Game:GetAmbush": {
+      "maturity": "Experimental",
+      "evidence": [],
+      "note": "第七批固定PC版本真实缺口；仅静态与宿主生产Lua及交叉构建，未部署真机。"
+    },
+    "Game:GetItemOverlay": {
+      "maturity": "Experimental",
+      "evidence": [],
+      "note": "第七批固定PC版本真实缺口；仅静态与宿主生产Lua及交叉构建，未部署真机。"
+    },
+    "Game:ShowFortune": {
+      "maturity": "Experimental",
+      "evidence": [],
+      "note": "第七批固定PC版本真实缺口；仅静态与宿主生产Lua及交叉构建，未部署真机。"
+    },
+    "Game:ShowRule": {
+      "maturity": "Experimental",
+      "evidence": [],
+      "note": "第七批固定PC版本真实缺口；仅静态与宿主生产Lua及交叉构建，未部署真机。"
+    },
+    "Isaac:RemoveModData": {
+      "maturity": "Experimental",
+      "evidence": [],
+      "note": "第七批固定PC版本真实缺口；仅静态与宿主生产Lua及交叉构建，未部署真机。"
+    },
+    "Isaac:GetCurseIdByName": {
+      "maturity": "Experimental",
+      "evidence": [],
+      "note": "第七批固定PC版本真实缺口；仅静态与宿主生产Lua及交叉构建，未部署真机。"
+    },
+    "Isaac:ScreenToWorldDistance": {
+      "maturity": "Experimental",
+      "evidence": [],
+      "note": "第七批固定PC版本真实缺口；仅静态与宿主生产Lua及交叉构建，未部署真机。"
+    },
+    "Isaac:GetScreenPointScale": {
+      "maturity": "Experimental",
+      "evidence": [],
+      "note": "第七批固定PC版本真实缺口；仅静态与宿主生产Lua及交叉构建，未部署真机。"
+    },
+    "Entity:Render": {
+      "maturity": "Experimental",
+      "evidence": [],
+      "note": "第七批固定PC版本真实缺口；仅静态与宿主生产Lua及交叉构建，未部署真机。"
+    },
+    "Entity:PostRender": {
+      "maturity": "Experimental",
+      "evidence": [],
+      "note": "第七批固定PC版本真实缺口；仅静态与宿主生产Lua及交叉构建，未部署真机。"
+    },
+    "GridEntity:Render": {
+      "maturity": "Experimental",
+      "evidence": [],
+      "note": "第七批固定PC版本真实缺口；仅静态与宿主生产Lua及交叉构建，未部署真机。"
+    },
+    "EntityLaser:GetSamples": {
+      "maturity": "Experimental",
+      "evidence": [],
+      "note": "第七批固定PC版本真实缺口；仅静态与宿主生产Lua及交叉构建，未部署真机。"
+    },
+    "EntityLaser:GetNonOptimizedSamples": {
+      "maturity": "Experimental",
+      "evidence": [],
+      "note": "第七批固定PC版本真实缺口；仅静态与宿主生产Lua及交叉构建，未部署真机。"
+    },
+    "EntityNPC:QueryNPCsType": {
+      "maturity": "Experimental",
+      "evidence": [],
+      "note": "第七批固定PC版本真实缺口；仅静态与宿主生产Lua及交叉构建，未部署真机。"
+    },
+    "EntityNPC:QueryNPCsSpawnerType": {
+      "maturity": "Experimental",
+      "evidence": [],
+      "note": "第七批固定PC版本真实缺口；仅静态与宿主生产Lua及交叉构建，未部署真机。"
+    },
+    "EntityNPC:QueryNPCsGroup": {
+      "maturity": "Experimental",
+      "evidence": [],
+      "note": "第七批固定PC版本真实缺口；仅静态与宿主生产Lua及交叉构建，未部署真机。"
+    },
+    "Room:GetEntities": {
+      "maturity": "Experimental",
+      "evidence": [],
+      "note": "第七批固定PC版本真实缺口；仅静态与宿主生产Lua及交叉构建，未部署真机。"
+    },
+    "EntityList:Get": {
+      "maturity": "Experimental",
+      "evidence": [],
+      "note": "第七批固定PC版本真实缺口；仅静态与宿主生产Lua及交叉构建，未部署真机。"
+    },
+    "EntityList:__len": {
+      "maturity": "Experimental",
+      "evidence": [],
+      "note": "第七批固定PC版本真实缺口；仅静态与宿主生产Lua及交叉构建，未部署真机。"
+    },
+    "VectorList:Get": {
+      "maturity": "Experimental",
+      "evidence": [],
+      "note": "第七批固定PC版本真实缺口；仅静态与宿主生产Lua及交叉构建，未部署真机。"
+    },
+    "VectorList:__len": {
+      "maturity": "Experimental",
+      "evidence": [],
+      "note": "第七批固定PC版本真实缺口；仅静态与宿主生产Lua及交叉构建，未部署真机。"
+    },
+    "GridEntityPoop:ReduceSpawnRate": {
+      "maturity": "Experimental",
+      "evidence": [],
+      "note": "第七批固定PC版本真实缺口；仅静态与宿主生产Lua及交叉构建，未部署真机。"
+    },
+    "Game:SpawnEntityDesc": {
+      "maturity": "Experimental",
+      "evidence": [],
+      "note": "第七批固定PC版本真实缺口；仅静态与宿主生产Lua及交叉构建，未部署真机。"
     }
-  }
+  },
+  "history": [
+    {
+      "date": "2026-10-10",
+      "rows": {
+        "Isaac:RunCallbackWithParam": {
+          "maturity": "Experimental",
+          "evidence": [
+            {
+              "file": "runtime/tests/test_lua_isaac_glue_compose.py",
+              "quote": "(\"RunCallbackWithParam\", 0x008F, \"Isaac.md:584\"),"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "date": "2026-10-14",
+      "detail": "100个新增方法均Experimental，静态/宿主不能升格硬件。"
+    },
+    {
+      "date": "2026-10-14",
+      "detail": "第二批100项全Experimental，未部署或声明真机通过。"
+    },
+    {
+      "date": "2026-10-14",
+      "detail": "第三批100全Experimental，仅静态/宿主；未部署或完成硬件验收。"
+    },
+    {
+      "date": "2026-10-16",
+      "detail": "第四批100公开API含39新方法/61新字段；此方法台账新增39，字段独立tools/api400_field_evidence.json，均Experimental，构造器不计100。"
+    },
+    {
+      "date": "2026-10-16",
+      "detail": "主审更正本批方法40/字段60。CurveStrength候选只有Init清零而未核独立语义，未发布计数；换原生IsStringValidSeed，原稿保留dist/apis400-20261016/before-curve-review。"
+    },
+    {
+      "date": "2026-10-16",
+      "note": "新增IsCard和IdentifyPill，均Experimental，不以静态/宿主升格真机。"
+    },
+    {
+      "date": "2026-10-16",
+      "note": "第六批46方法54字段全Experimental；不以宿主/静态替代真机，构造器不计数。"
+    },
+    {
+      "date": "2026-10-16",
+      "note": "2026-10-16第六批最终更正：100计数为44方法56字段；2条PC Vector Get异常包装保持试验实现但不计数，DoD含这2条仍新增46条。旧Type/Variant原生排布修正不计新增。"
+    }
+  ]
 }

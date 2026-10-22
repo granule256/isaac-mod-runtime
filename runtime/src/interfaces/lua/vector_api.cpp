@@ -1,12 +1,19 @@
+#include "infrastructure/call/engine_call_access.hpp"
+#include "interfaces/lua/field_api.hpp"
+#include "interfaces/lua/entity_lifetime.hpp"
+#include "interfaces/lua/isaac_api.hpp"
+#include "infrastructure/memory/engine_field_access.hpp"
 #include "interfaces/lua/vector_api.hpp"
 
 #include "interfaces/lua/owner_binding.hpp"
 
 #include "lua_object_handles.hpp"
+#include "lua_runtime.hpp"
 
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <utility>
 
 extern "C" {
 #include <lauxlib.h>
@@ -25,7 +32,9 @@ constexpr char kVectorOwner[] = "Vector";
 constexpr float kPi = 3.14159265358979323846f;
 
 VectorHandle* CheckVector(lua_State* state, int index) {
-    return static_cast<VectorHandle*>(luaL_checkudata(state, index, kVectorMetatable));
+    auto* value=TryVectorArgument(state,index);
+    if(!value)luaL_argerror(state,index,"expected a live Vector");
+    return value;
 }
 
 void PushVector(lua_State* state, float x, float y) {
@@ -137,6 +146,7 @@ int VectorGetAngleDegrees(lua_State* state) {
 }
 
 int VectorNormalize(lua_State* state) {
+    luaL_checkudata(state,1,kVectorMetatable); // PC const向量不允许原地修改。
     VectorHandle* vector = CheckVector(state, 1);
     if (lua_gettop(state) != 1) {
         return luaL_error(state, "Vector:Normalize accepts no arguments");
@@ -156,6 +166,7 @@ int VectorNormalized(lua_State* state) {
 }
 
 int VectorResize(lua_State* state) {
+    luaL_checkudata(state,1,kVectorMetatable); // PC const向量不允许原地修改。
     VectorHandle* vector = CheckVector(state, 1);
     if (lua_gettop(state) != 2 || !lua_isnumber(state, 2)) {
         return luaL_error(state, "Vector:Resize accepts a new length");
@@ -188,6 +199,7 @@ int VectorRotated(lua_State* state) {
 // PC: "clamps the vector based on left, top, right, bottom boundings; doesn't keep direction",
 // i.e. each component is clamped independently.
 int VectorClamp(lua_State* state) {
+    luaL_checkudata(state,1,kVectorMetatable); // PC const向量不允许原地修改。
     VectorHandle* vector = CheckVector(state, 1);
     if (lua_gettop(state) != 5 || !lua_isnumber(state, 2) || !lua_isnumber(state, 3) ||
         !lua_isnumber(state, 4) || !lua_isnumber(state, 5)) {
@@ -220,6 +232,7 @@ int VectorClamped(lua_State* state) {
 
 // PC: in place, `t = 0` leaves the receiver at the first vector, `t = 1` moves it to the second.
 int VectorLerp(lua_State* state) {
+    luaL_checkudata(state,1,kVectorMetatable); // PC const向量不允许原地修改。
     VectorHandle* vector = CheckVector(state, 1);
     VectorHandle* other = CheckVector(state, 2);
     if (lua_gettop(state) != 3 || !lua_isnumber(state, 3)) {
@@ -278,7 +291,7 @@ int CreateVectorHandle(lua_State* state) {
 }
 
 int VectorIndex(lua_State* state) {
-    auto* vector = static_cast<VectorHandle*>(luaL_checkudata(state, 1, kVectorMetatable));
+    auto* vector=CheckVector(state,1);
     if (lua_type(state, 2) != LUA_TSTRING) {
         lua_pushnil(state);
         return 1;
@@ -370,6 +383,13 @@ int VectorSub(lua_State* state) {
 }
 
 int VectorMul(lua_State* state) {
+    // Lua也会在number*Vector时调用右操作数的__mul；不能假定第一个一定是Vector。
+    if (lua_isnumber(state, 1)) {
+        const float factor = static_cast<float>(lua_tonumber(state, 1));
+        const VectorHandle* right = CheckVector(state, 2);
+        PushVector(state, right->x * factor, right->y * factor);
+        return 1;
+    }
     VectorHandle* left = CheckVector(state, 1);
     if (lua_isnumber(state, 2)) {
         const float factor = static_cast<float>(lua_tonumber(state, 2));
@@ -400,7 +420,7 @@ int VectorUnaryMinus(lua_State* state) {
 
 int VectorEqual(lua_State* state) {
     VectorHandle* left = CheckVector(state, 1);
-    if (luaL_testudata(state, 2, kVectorMetatable) == nullptr) {
+    if (TryVectorArgument(state,2) == nullptr) {
         lua_pushboolean(state, 0);
         return 1;
     }
@@ -458,4 +478,59 @@ std::size_t AttachVectorMethods(lua_State* state) noexcept {
                               sizeof(kVectorHandlers) / sizeof(kVectorHandlers[0]));
 }
 
+namespace {
+constexpr char kVectorReferenceMetatable[]="IsaacRuntime.ConstVector";
+struct EntityVectorReference {
+    VectorHandle value;
+    LuaRuntime::EntityLifetimeToken* lifetime;
+    std::uintptr_t entity;
+    std::uintptr_t offset;
+    std::uintptr_t module;
+    std::uint8_t grid; // 0=entity, 1=grid, 2=external; external reuses offset for resolver bits.
+};
+static_assert(sizeof(EntityVectorReference)==48,"const Vector metadata must not increase existing userdata allocations");
+}
+VectorHandle* TryVectorArgument(lua_State* state,int index) {
+    if(auto* vector=static_cast<VectorHandle*>(luaL_testudata(state,index,kVectorMetatable)))return vector;
+    auto* reference=static_cast<EntityVectorReference*>(luaL_testudata(state,index,kVectorReferenceMetatable));
+    if(!reference)return nullptr;
+    if(reference->grid==2){lua_getuservalue(state,index);engine_call::AsFunction<ExternalVectorResolver>(reference->offset)(state,lua_gettop(state),reference->entity,&reference->value);lua_pop(state,1);return &reference->value;}
+    bool live=false;
+    if(reference->grid){
+        if(reference->module==LuaRuntime::EngineModuleBase()){lua_getuservalue(state,index);live=ResolveEngineReceiver(state,FieldReceipt::GridEntity,-1)==reference->entity;lua_pop(state,1);}
+    }else live=EntityLifetimeAlive(reference->lifetime)&&IsLiveEntityPointer(reference->entity);
+    if(!live ||
+       !engine_memory::ReadField(reference->entity,reference->offset,&reference->value,engine_memory::EngineMemoryReadable))
+        luaL_error(state,"Vector reference owner is no longer available");
+    return &reference->value;
+}
+VectorHandle* RequireVectorArgument(lua_State* state,int index) {
+    auto* vector=TryVectorArgument(state,index);if(!vector)luaL_argerror(state,index,"expected a live Vector");
+    return vector;
+}
+void PushEntityVectorReference(lua_State* state,std::uintptr_t entity,std::uintptr_t offset) {
+    if(!IsLiveEntityPointer(entity))luaL_error(state,"Vector reference owner is unavailable");
+    auto* lifetime=PushEntityLifetimeToken(state,entity);const int token=lua_gettop(state);
+    auto* view=static_cast<EntityVectorReference*>(lua_newuserdata(state,sizeof(EntityVectorReference)));
+    *view={{},lifetime,entity,offset,0,false};luaL_getmetatable(state,kVectorReferenceMetatable);lua_setmetatable(state,-2);
+    lua_pushvalue(state,token);lua_setuservalue(state,-2);lua_remove(state,token);
+}
+void PushGridVectorReference(lua_State*state,std::uintptr_t grid,std::uintptr_t offset){
+    if(!grid||!IsLiveGridEntityPointer(grid))luaL_error(state,"Vector reference grid owner is unavailable");
+    auto*view=static_cast<EntityVectorReference*>(lua_newuserdata(state,sizeof(EntityVectorReference)));
+    *view={{},nullptr,grid,offset,LuaRuntime::EngineModuleBase(),true};luaL_getmetatable(state,kVectorReferenceMetatable);lua_setmetatable(state,-2);
+    lua_pushvalue(state,1);lua_setuservalue(state,-2);
+}
+void PushExternalVectorReference(lua_State*L,int owner,std::uintptr_t address,ExternalVectorResolver resolver){owner=lua_absindex(L,owner);auto*v=static_cast<EntityVectorReference*>(lua_newuserdata(L,sizeof(EntityVectorReference)));*v={{},nullptr,address,engine_call::AddressOfFunction(resolver),LuaRuntime::EngineModuleBase(),2};luaL_getmetatable(L,kVectorReferenceMetatable);lua_setmetatable(L,-2);lua_pushvalue(L,owner);lua_setuservalue(L,-2);}
+void RegisterVectorReferenceMetatable(lua_State* state) {
+    luaL_newmetatable(state,kVectorReferenceMetatable);
+    for(const auto& row : {std::pair<const char*,lua_CFunction>{"__index",VectorIndex},
+        {"__newindex",VectorNewIndex},{"__add",VectorAdd},{"__sub",VectorSub},
+        {"__mul",VectorMul},{"__div",VectorDiv},{"__unm",VectorUnaryMinus},
+        {"__eq",VectorEqual},{"__tostring",VectorToString}}) {
+        lua_pushcfunction(state,row.second);lua_setfield(state,-2,row.first);
+    }
+    lua_newtable(state);static_cast<void>(AttachVectorMethods(state));lua_setfield(state,-2,"__methods");
+    lua_pop(state,1);
+}
 }  // namespace isaac::runtime

@@ -1,0 +1,48 @@
+{
+  "schema": "isaac-layout-table/1",
+  "build_id": "91C73FDD575061318D68886316AFEAC72388B2AB",
+  "struct": "GridEntityDoor",
+  "source_table": "grid_entity_door",
+  "note": [
+    "`GridEntity_Door` 的**两个房型字段**：`+0x1A4` = 门**当前所在**房间的房型、`+0x1A8` = 门**通向**房间的房型。",
+    "为什么单开一张表：`runtime_constants.hpp` 里这两个常量早就有了（批次 276 起，供 `door.CurrentRoomType` /",
+    "  `door.TargetRoomType` 两个**字段视图**用），但从来没有『可复核的一行』；而批次 294 的",
+    "  `GridEntityDoor:IsRoomType(RoomType)` 要按 PC 的做法『拿实参跟这两格比』⇒ 台账的",
+    "  `provenance.field` 需要有这一行（`engine_field` 要求布局表里 `confirmed`）。",
+    "★ 本表**不生成头文件**（与 `music_entry.json` 同一条处置）：C++ 侧用的是 `runtime_constants.hpp`",
+    "  里那两个既有常量，本表服务的是台账与复核（`build_layout_table.py --verify`）。",
+    "门禁：证据反汇编复核走 `tools/build_layout_table.py --table tools/layout_tables/grid_entity_door.json --verify`。",
+    "★ 两条**语义锚点**落在同一个函数里（`GridEntity_Door::load_animation_file`）：它把 0x1A4 与 0x1A8",
+    "  分别与**同一个常量 10** 比较 —— 这一条同时说明『两格是同一枚举量』（否则不会用同一个值去比）。"
+  ],
+  "rows": [
+    {
+      "name": "CurrentRoomType",
+      "kind": "u32",
+      "offset": 420,
+      "width": 4,
+      "confidence": "confirmed",
+      "semantic": "**这扇门当前所在房间的房型**（`eRoomType`）。★ 写入方是 `GridEntity_Door::SetRoomTypes(eRoomType, eRoomType) @ 0x385A78`：**第一个参数**写进这一格（`str w21,[x19,#0x1a4]`）、第二个写进 `+0x1A8` ⇒ 两格的顺序由**实参顺序**定死；构造期由 `InitSubclass` 清零。★ 读者里函数名最直白的两个：`GridEntity_Door::load_animation_file()`（按房型挑门动画，且把这一格与 `0x1A8` 用**同一个常量 10** 比较）与 `GridEntity_Door::GetSecretExitType()`。★ PC 侧的对应：`GridEntityDoor:IsRoomType` 的绑定本体读 `[ecx+0x158]`（PC 偏移，与本格不同 —— 不许平移）。",
+      "evidence": [
+        {"kind": "access", "function": "_ZN15IsaacRepentance15GridEntity_Door12SetRoomTypesENS_9eRoomTypeES1_", "address": "0x00385aac", "offset": 420, "width": 4, "why": "**写入方**：函数的**第一个实参**（`w21`）写进这一格 ⇒ 它与 `+0x1A8` 的分工由实参顺序定死（`SetRoomTypes(current, target)`）"},
+        {"kind": "access", "function": "_ZN15IsaacRepentance15GridEntity_Door19load_animation_fileEv", "address": "0x00382d38", "offset": 420, "width": 4, "why": "**具名读者**：`GridEntity_Door::load_animation_file()` 读它（按房型挑动画）—— 紧接着 0x382D3C 与常量 10 比较"},
+        {"kind": "access", "function": "_ZN15IsaacRepentance15GridEntity_Door6UpdateEv", "address": "0x003818f8", "offset": 420, "width": 4, "why": "**第二处独立读者**：门的 `Update` 也读它（每帧按房型决定行为）"},
+        {"kind": "semantic", "function": "_ZN15IsaacRepentance15GridEntity_Door19load_animation_fileEv", "address": "0x00382d3c", "immediate": 10, "why": "★ **取值锚点**：`cmp w8, #0xa` —— 与 `+0x1A8` 那一格用的是**同一个常量 10**（两格同一枚举 ⇒ 都是房型）"}
+      ]
+    },
+    {
+      "name": "TargetRoomType",
+      "kind": "u32",
+      "offset": 424,
+      "width": 4,
+      "confidence": "confirmed",
+      "semantic": "**这扇门通向房间的房型**（`eRoomType`）。★ 写入方同上（`SetRoomTypes` 的**第二个实参**，`str w20,[x19,#0x1a8]`）。★ 读者里最直白的是 `GridEntity_Door::IsTargetRoomArcade() const @ 0x386038`：读这一格后 `cmp w8, #0x18`（24）再 `b.hi` 出界 ⇒ 它在拿这一格与房型常量比（函数名即语义：『门通向的是不是街机房』）。★ 批次 294 的 `GridEntityDoor:IsRoomType(t)` 就是『`t` == 这一格 **或** == `+0x1A4`』（PC 绑定本体 `0x5B7550` 逐字如此）。",
+      "evidence": [
+        {"kind": "access", "function": "_ZNK15IsaacRepentance15GridEntity_Door18IsTargetRoomArcadeEv", "address": "0x00386048", "offset": 424, "width": 4, "why": "**具名读者**：`GridEntity_Door::IsTargetRoomArcade() const` 里唯一的访存就是这一条（`ldr w8,[x0,#0x1a8]`），随后 0x386058 与 24 比较 —— 函数名 + 取值域把它钉成『门通向房间的房型』"},
+        {"kind": "access", "function": "_ZN15IsaacRepentance15GridEntity_Door12SetRoomTypesENS_9eRoomTypeES1_", "address": "0x00385ab4", "offset": 424, "width": 4, "why": "**写入方**：`SetRoomTypes` 的**第二个实参**（`w20`）写进这一格"},
+        {"kind": "access", "function": "_ZN15IsaacRepentance15GridEntity_Door19load_animation_fileEv", "address": "0x00382d44", "offset": 424, "width": 4, "why": "**第二处独立读者**：`load_animation_file` 在读完 `+0x1A4` 之后紧接着读这一格（两个房型一起参与挑动画）"},
+        {"kind": "semantic", "function": "_ZNK15IsaacRepentance15GridEntity_Door18IsTargetRoomArcadeEv", "address": "0x00386058", "immediate": 24, "why": "★ **取值锚点**：`cmp w8, #0x18`（24）+ `b.hi` —— 与房型常量比较、且把有效域上界钉在 24（与 `eRoomType` 的规模一致）"}
+      ]
+    }
+  ]
+}

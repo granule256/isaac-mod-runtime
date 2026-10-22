@@ -1,0 +1,80 @@
+{
+  "schema": "isaac-layout-table/1",
+  "build_id": "91C73FDD575061318D68886316AFEAC72388B2AB",
+  "struct": "EntityFamiliar",
+  "note": [
+    "固定PC property注册getter/setter与NS具名方法完整交叉证据；不是按字段名字猜类型。原件dist/familiar-orbit-static-20261010/，Lua读写/同地址reuse/原始Soulmates消费见test_lua_familiar_orbit.py。"
+  ],
+  "rows": [
+    {
+      "name": "OrbitDistance",
+      "kind": "vector2",
+      "offset": 3448,
+      "width": 8,
+      "confidence": "confirmed",
+      "semantic": "轨道距离两个float，Lua getter独立快照，setter复制8B；PC CB4 property getter/setter完整复制证据，NSget_orbit_position以同Vector引用乘轨道坐标。",
+      "evidence": [
+        {
+          "kind": "access",
+          "function": "_ZN15IsaacRepentance15Entity_Familiar18get_orbit_positionERKN4KAGE4Math7Vector2E",
+          "address": "0x000aff6c",
+          "offset": 3448,
+          "width": 8,
+          "why": "add x1,this,#0xD78，交Vector2乘法const引用，两个float；PC859ECD/DC拷贝两word到userdata+8。"
+        },
+        {
+          "kind": "access",
+          "function": "_ZN15IsaacRepentance15Entity_Familiar12add_to_orbitEi",
+          "address": "0x000ae894",
+          "offset": 3448,
+          "width": 8,
+          "why": "目标this+0xD78交Vector2::operator=，对应PC OrbitDistance真实property CB4。"
+        }
+      ]
+    },
+    {
+      "name": "OrbitSpeed",
+      "kind": "float",
+      "offset": 3456,
+      "width": 4,
+      "confidence": "confirmed",
+      "semantic": "轨道速度float；PC CBC property checknumber后fstp f32，NS在轨道角度计算中作为帧乘数。",
+      "evidence": [
+        {
+          "kind": "access",
+          "function": "_ZN15IsaacRepentance15Entity_Familiar18get_orbit_positionERKN4KAGE4Math7Vector2E",
+          "address": "0x000afed0",
+          "offset": 3456,
+          "width": 4,
+          "why": "ldr s1,[this,#0xD80]，随后fmul帧×速度；PC859E28 checknumber，859E33 fstp f32，859E3C写字段。"
+        }
+      ]
+    },
+    {
+      "name": "OrbitLayer",
+      "kind": "int",
+      "offset": 3460,
+      "width": 4,
+      "confidence": "confirmed",
+      "semantic": "轨道层signed int32，默认/移除-1；PC CC0 checkinteger写低32，NS符号位分支与AddToOrbit实参写入均对应。",
+      "evidence": [
+        {
+          "kind": "access",
+          "function": "_ZN15IsaacRepentance15Entity_Familiar18get_orbit_positionERKN4KAGE4Math7Vector2E",
+          "address": "0x000aff28",
+          "offset": 3460,
+          "width": 4,
+          "why": "ldr w8层后检查bit31；正常负层返回Pos。"
+        },
+        {
+          "kind": "access",
+          "function": "_ZN15IsaacRepentance15Entity_Familiar12add_to_orbitEi",
+          "address": "0x000ae880",
+          "offset": 3460,
+          "width": 4,
+          "why": "str w19,[this,#0xD84]，w19是Layer参数；AE874先存-1，PC setter859D73写checkinteger低32。"
+        }
+      ]
+    }
+  ]
+}

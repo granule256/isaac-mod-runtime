@@ -1,0 +1,60 @@
+#pragma once
+#include <cstdint>
+struct lua_State;
+namespace isaac::runtime {
+int Api200EntityHasCommonParentWithEntity(lua_State*);
+int Api200EntitySetSize(lua_State*);
+int Api200EntityFamiliarGetOrbitDistance(lua_State*);
+int Api200EntityFamiliarPickEnemyTarget(lua_State*);
+int Api200EntityKnifeReset(lua_State*);
+int Api200EntityKnifeShoot(lua_State*);
+int Api200EntityTearSetDeadEyeIntensity(lua_State*);
+int Api200GridEntityDoorTryBlowOpen(lua_State*);
+int Api200GridEntityDoorTryUnlock(lua_State*);
+int Api200GridEntityPitMakeBridge(lua_State*);
+int Api200GridEntityPitSetLadder(lua_State*);
+int Api200GridEntityPitUpdateCollision(lua_State*);
+int Api200GridEntityPoopRespawnRedPoop(lua_State*);
+int Api200GridEntityPressurePlateReward(lua_State*);
+int Api200HUDAssignPlayerHUDs(lua_State*);
+int Api200HUDFlashChargeBar(lua_State*);
+int Api200HUDInvalidateActiveItem(lua_State*);
+int Api200HUDInvalidateCraftingItem(lua_State*);
+int Api200HUDPostUpdate(lua_State*);
+int Api200HUDUpdate(lua_State*);
+int Api200ItemConfigGetNullItem(lua_State*);
+int Api200LevelForceHorsemanBoss(lua_State*);
+int Api200LevelGetEnterPosition(lua_State*);
+int Api200LevelGetNonCompleteRoomIndex(lua_State*);
+int Api200PathFinderEvadeTarget(lua_State*);
+int Api200PathFinderGetGridIndex(lua_State*);
+int Api200PathFinderMoveRandomly(lua_State*);
+int Api200PathFinderMoveRandomlyAxisAligned(lua_State*);
+int Api200PathFinderMoveRandomlyBoss(lua_State*);
+int Api200PathFinderReset(lua_State*);
+int Api200PathFinderResetMovementTarget(lua_State*);
+int Api200PathFinderUpdateGridIndex(lua_State*);
+int Api200RoomCheckLine(lua_State*);
+int Api200RoomGetClampedGridIndex(lua_State*);
+int Api200RoomGetLaserTarget(lua_State*);
+int Api200RoomGetSeededCollectible(lua_State*);
+int Api200RoomMamaMegaExplosion(lua_State*);
+int Api200RoomTryMakeBridge(lua_State*);
+int Api200RoomTrySpawnDevilRoomDoor(lua_State*);
+int Api200RoomTrySpawnSecretShop(lua_State*);
+int Api200RoomTrySpawnSpecialQuestDoor(lua_State*);
+int Api200SeedsCanAddSeedEffect(lua_State*);
+int Api200SeedsCountUnlockedSeedEffects(lua_State*);
+int Api200SeedsInitSeedInfo(lua_State*);
+int Api200SeedsRemoveBlockingSeedEffects(lua_State*);
+int Api200SeedsReset(lua_State*);
+int Api200SeedsRestart(lua_State*);
+int Api200SpriteSetOverlayAnimation(lua_State*);
+enum class Api200MainNative:unsigned{EntityHasCommonParentWithEntity,EntitySetSize,EntityFamiliarGetOrbitDistance,EntityFamiliarPickEnemyTarget,EntityKnifeReset,EntityKnifeShoot,EntityTearSetDeadEyeIntensity,GridEntityDoorTryBlowOpen,GridEntityDoorTryUnlock,GridEntityPitMakeBridge,GridEntityPitSetLadder,GridEntityPitUpdateCollision,GridEntityPoopRespawnRedPoop,GridEntityPressurePlateReward,HUDAssignPlayerHUDs,HUDFlashChargeBar,HUDInvalidateActiveItem,HUDInvalidateCraftingItem,HUDPostUpdate,HUDUpdate,ItemConfigGetNullItem,LevelForceHorsemanBoss,LevelGetEnterPosition,LevelGetNonCompleteRoomIndex,PathFinderEvadeTarget,PathFinderGetGridIndex,PathFinderMoveRandomly,PathFinderMoveRandomlyAxisAligned,PathFinderMoveRandomlyBoss,PathFinderReset,PathFinderResetMovementTarget,PathFinderUpdateGridIndex,RoomCheckLine,RoomGetClampedGridIndex,RoomGetLaserTarget,RoomGetSeededCollectible,RoomMamaMegaExplosion,RoomTryMakeBridge,RoomTrySpawnDevilRoomDoor,RoomTrySpawnSecretShop,RoomTrySpawnSpecialQuestDoor,SeedsCanAddSeedEffect,SeedsCountUnlockedSeedEffects,SeedsInitSeedInfo,SeedsRemoveBlockingSeedEffects,SeedsReset,SeedsRestart,SpriteSetOverlayAnimation,Count};
+#if !defined(__SWITCH__)
+struct Api200MainNativeTestBindings{std::uintptr_t methods[48];};
+void SetApi200MainNativeTestBindings(Api200MainNativeTestBindings)noexcept;
+#endif
+std::uintptr_t Api200ItemConfigReceiver(lua_State*,int);
+int Api200PushNullItemView(lua_State*,std::uintptr_t,std::int32_t);
+}

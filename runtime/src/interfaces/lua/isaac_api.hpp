@@ -31,6 +31,15 @@ namespace isaac::runtime {
 // 单独导出是为了让契约测试能像其它家族一样核对绑定表与 Catalog 的 id 一致。
 [[nodiscard]] std::size_t AttachIsaacMethods(lua_State* state) noexcept;
 
+// 批次 340（2026-10-04）：`Game:Spawn(Type, Variant, Position, Velocity, Spawner, SubType, Seed)`。
+// **为什么由 `isaac_api.hpp` 导出**：它和 `Isaac.Spawn` 共用同一份实现（都在 `isaac_api.cpp`），
+// 而 `Game` 族的手写绑定表住在 `game_api.cpp`（另一个 TU）⇒ 必须从这里导出那一行绑定要有名字。
+//
+// ★★ 这条**不能走数据行**：引擎 `Game::SpawnEx` 的第 8 个形参**走栈**
+// （`ldr w8,[x29,#0x60]`），而通用跳板只填 `x0..x7`/`d0..d7` ⇒ 栈上那格会是垃圾。
+// 手写时由编译器按编译期签名把第 9 个参数量放到栈上 ✓。
+[[nodiscard]] int GameSpawn(lua_State* state);
+
 // 引擎 `Game` 的**玩家向量**（`std::vector<Entity_Player*>`）的解析结果。
 //
 // 为什么把它单独抽出来给 `game_api.cpp` 用：真机报告 `01789207110` 暴露的缺陷正是
@@ -48,6 +57,15 @@ struct EnginePlayerArray {
 
 // 解析引擎的玩家向量。`index` 用不到时传 0。任何一环不可读都返回 `readable == false`。
 [[nodiscard]] EnginePlayerArray ResolveEnginePlayerArray() noexcept;
+
+// 玩家向量的**逐元素**解析：返回第 `index` 个 `Entity_Player*`，拿不到返回 0。
+//
+// 为什么单开这个入口：`Game:GetPlayer(index)` 与 `Isaac.GetPlayer(index)` 在 PC 上是**同一个函数**
+// （`tools/pc_contract_docs/Game.md:340` 明文），而"什么算一个可用的玩家下标"（vptr 校验、空槽、
+// 越界阶段码）只应该有一份实现 —— 真机 `01789207110` 的根因正是"同一个引擎事实被两条 API
+// 各自解释一遍"。`Game:GetPlayer` 的**越界夹取**由调用方做（PC 正文里两条 API 的越界口径不同），
+// 这里只负责"给定一个已夹好的下标，把玩家指针取出来"。
+[[nodiscard]] std::uintptr_t ResolveEnginePlayerAt(std::size_t index) noexcept;
 
 // `Entity_Player` 指针判据（`*(u64*)ptr == 模块基址 + Entity_Player vtable 偏移`）。
 [[nodiscard]] bool IsEnginePlayerPointer(std::uintptr_t candidate) noexcept;
@@ -167,6 +185,10 @@ struct PlayerLookupProbe {
 // `EntityPlayer` 的 `__index` 会回落到 `Entity` 的方法表（PC 里就是继承）。
 [[nodiscard]] std::size_t AttachEntityMethods(lua_State* state) noexcept;
 [[nodiscard]] std::size_t AttachEntityPlayerMethods(lua_State* state) noexcept;
+//: 批次 281：`EntityTear` 视图（`Entity:ToTear()` 的返回值）的方法表。
+[[nodiscard]] std::size_t AttachEntityTearMethods(lua_State* state) noexcept;
+//: 批次 282：`EntityLaser` 视图（`Entity:ToLaser()` 的返回值）的方法表。
+[[nodiscard]] std::size_t AttachEntityLaserMethods(lua_State* state) noexcept;
 // `EntityPickup` 的方法表（批次 4）：目前只有 `IsShopItem`（安全 stub，见 `isaac_api.cpp`）。
 [[nodiscard]] std::size_t AttachEntityPickupMethods(lua_State* state) noexcept;
 
@@ -186,6 +208,29 @@ struct PlayerLookupProbe {
 // 那一条。返回 `true` 表示可以安全地按 `Entity` 布局读它的字段。
 [[nodiscard]] bool IsLiveEntityPointer(std::uintptr_t candidate) noexcept;
 
+// 网格实体存活判据（`vptr` 落在 `[base + kGridEntityVtableRangeBeginOffset, …End)` 的
+// `GridEntity` 家族区间内、且该地址可读）—— 批次 298（2026-10-03）。
+//
+// 与上面那条**同形、同一份理由**：`GridEntity:GetSprite()` 交出去的 `Sprite` 句柄指向
+// **引擎网格实体内部**的内存（`GridEntity + 0x48` 那个内嵌 `ANM2`），所以每次访问都要重新确认
+// "借出 sprite 的那个网格实体还在"。★ 两条判据**刻意分成两份**：`Entity` 与 `GridEntity` 的
+// vtable 区间**有重叠**，合成一条会让"网格实体被当成实体"或反之——各自一份才好按类收紧。
+[[nodiscard]] bool IsLiveGridEntityPointer(std::uintptr_t candidate) noexcept;
+
+// 从栈上第 `index` 格取"网格实体句柄"里的引擎指针；不是那两张元表 ⇒ 返回 **nullptr**
+// （**不抛错** —— 手写路径用它做"参数类型不对就退回 nil"）。批次 304（2026-10-03）从
+// `remaining_api.cpp` 的 `GridEntityArgument` 提上来，为的是**只有一份判据**：
+// 现在的两个使用者是"手写处理器（`GridEntity:GetVariant` 一族）"与"数据行的接收者解析
+// （`FieldReceipt::GridEntity`）"，而它们住在**两个不同的 TU** 里。
+//
+// 接受两张元表：`IsaacRuntime.GridEntity`（`GridEntityHandle`）与 `IsaacRuntime.GridEntityDoor`
+// （`DoorHandle` —— 门除了引擎指针还记着自己的槽位，所以是另一个结构体）。
+[[nodiscard]] void* GridEntityHandleArgument(lua_State* state, int index) noexcept;
+
+// 同上，但**不是网格实体句柄时直接抛 Lua 错误**（"参数类型写错了"，与 `CheckEntityHandle` 同口径）。
+// 数据行的接收者解析用这一条：模组把一张表当 `self` 传进来时报错比静默降级更接近 PC。
+[[nodiscard]] void* CheckGridEntityHandle(lua_State* state, int index);
+
 // 从栈上第 `index` 个实参取"活着的实体指针"；不是实体句柄、或底层指针已失效 ⇒ 返回 0。
 //
 // 为什么单开一个入口：PC 有若干签名里带**可空** `EntityPlayer` 的方法（例如
@@ -199,6 +244,7 @@ struct PlayerLookupProbe {
 // `confirmed` 的）。`EntityRef` 的替身缓冲区要用这两个值填 `+0x08`/`+0x00` 两格，
 // 而"读引擎字段前先判可读"那套判据在 `isaac_api.cpp` 里才有一份，所以从这里导出。
 // 任一字段读不到 ⇒ 返回 false（调用方按"留空"处理，不猜）。
+[[nodiscard]] bool ReadEntitySubType(std::uintptr_t entity, std::uint32_t* subtype) noexcept;
 [[nodiscard]] bool ReadEntityIdentity(std::uintptr_t entity, std::uint32_t* type,
                                       std::uint32_t* variant) noexcept;
 
@@ -217,6 +263,15 @@ struct PlayerLookupProbe {
 [[nodiscard]] bool ReadRoomConfigEntryFields(std::uintptr_t entry, std::int32_t* type,
                                             std::int32_t* variant,
                                             std::int32_t* subType) noexcept;
+
+// 批次 396（2026-10-07）：读 `Entity_Player` 的 CacheFlag 掩码（`Entity_Player + 0x1958`，
+// 偏移与两条独立证据见 `runtime_constants.hpp` 的 `kEntityPlayerCacheFlagsOffset`）。
+// 给 `MC_EVALUATE_CACHE` 的入口中继用：`EvaluateItems` 的入口**不带** CacheFlag 实参，
+// 中继要自己快照这张掩码、逐位派发一次。从 `isaac_api.cpp` 导出的理由与
+// `ReadEntityIdentity`/`ReadRoomConfigEntryFields` 相同：**"读引擎字段前先判可读"那套判据
+// 只有那一份实现**。读不到 ⇒ 返回 false（调用方按"不派发"处理，不编造掩码）。
+[[nodiscard]] bool ReadEntityPlayerCacheFlags(std::uintptr_t player,
+                                              std::uint32_t* cacheFlags) noexcept;
 
 #if !defined(__SWITCH__)
 // 宿主测试注入点。**设备构建（`-D__SWITCH__`）里不存在这个类型和这个函数。**
@@ -247,6 +302,13 @@ void SetCurrentLanguageCodeHostImplementation(
 using ItemConfigIsAvailableHostImplementation = bool (*)(int kind, void* entry, std::int64_t flags);
 void SetItemConfigIsAvailableHostImplementation(
     ItemConfigIsAvailableHostImplementation function) noexcept;
+
+// `ItemConfig_Item:IsRune()`（PC 的类名是 `ItemConfig_Card`）在真机上是**直读卡片条目的一格**
+// （`ItemConfig::Card + 0x58` == 2 ⇒ 符文，见 `runtime_constants.hpp` 的 `kItemConfigCardTypeOffset`）。
+// 宿主构建没有引擎映像 ⇒ 注入一个"给我这个条目的答案"的实现，让门禁能钉住 true/false 的映射。
+using ItemConfigCardIsRuneHostImplementation = bool (*)(void* card);
+void SetItemConfigCardIsRuneHostImplementation(
+    ItemConfigCardIsRuneHostImplementation function) noexcept;
 #endif
 
 // 全局 `Options` 表。EID 只读 `HUDOffset` 与 `Language` 两个字段，缺了它们 EID 一加载就报错。
@@ -288,6 +350,8 @@ void VisitPlayerEntities(EntityVisitFn visit, void* context) noexcept;
 // 玩家实体给 `EntityPlayer` 元表，其余给 `Entity`）。模组把回调参数直接当实体用，
 // 视图不一致会让 `player:HasCollectible()` 这类调用在回调里失败。
 void PushEntityCallbackArgument(lua_State* state, std::uintptr_t entity) noexcept;
+// 在调用者的Lua保护桥内压真实道具RNG，复用玩家/容器寿命验证。
+void PushCollectibleRngCallbackArgument(lua_State*,std::uintptr_t player,std::int32_t item);
 
 // --- 实体族回调（2026-09-18）需要的"这个实体属于哪一类" ---------------------------
 //
@@ -311,6 +375,22 @@ enum class CallbackEntityClass : std::uint32_t {
 
 // 分类判据逐条写在实现处。判不出（指针不合法 / vptr 不在 `Entity` 家族区间 / 类型不属于上面
 // 任何一类，例如 `ENTITY_SLOT(6)`）一律返回 `None` —— 宁可这次不派发，也不猜。
-[[nodiscard]] CallbackEntityClass ClassifyCallbackEntity(std::uintptr_t candidate) noexcept;
+[[nodiscard]] CallbackEntityClass ClassifyCallbackEntity(std::uintptr_t candidate,
+                                                       std::int64_t* callbackFilter = nullptr) noexcept;
 
 } // namespace isaac::runtime
+
+namespace isaac::runtime {
+// 重用配置向量身份校验，供HUD的玩家/道具重载消费，失效句柄返回0。
+std::uintptr_t ItemConfigPointerArgument(lua_State*,int) noexcept;
+}
+
+namespace isaac::runtime {
+enum class FieldReceipt : std::uint8_t;
+// 所有API共用既有接收者判据；不会在扩展模块另造Game/Room/实体地址链。
+std::uintptr_t ResolveEngineReceiver(lua_State*,FieldReceipt,int index=1);
+}
+
+namespace isaac::runtime {std::uintptr_t ResolveContentConfigRoot(bool entityConfig) noexcept;}
+
+namespace isaac::runtime {void ApplyUseItemCallbackAnimation(lua_State*,std::uintptr_t,std::int32_t);}

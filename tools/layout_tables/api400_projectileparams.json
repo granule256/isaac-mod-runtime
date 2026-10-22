@@ -1,0 +1,263 @@
+{
+  "schema": "isaac-layout-table/1",
+  "build_id": "91C73FDD575061318D68886316AFEAC72388B2AB",
+  "struct": "ProjectileParams",
+  "note": [
+    "仅本批新公开字段，原件证据与消费者独立保存；非推测相邻偏移。"
+  ],
+  "rows": [
+    {
+      "name": "GridCollision",
+      "kind": "Bool",
+      "offset": 0,
+      "confidence": "confirmed",
+      "semantic": "固定PC真实属性getter/setter与NS同算法消费者；拥有的ProjectileParams为公共POD布局，其余为真实引擎对象读写。",
+      "evidence_files": [
+        "dist/apis400-20261016/field-proof-matrix.json"
+      ],
+      "judgement": "runtime/tests/test_api400_params.py"
+    },
+    {
+      "name": "HeightModifier",
+      "kind": "Float",
+      "offset": 4,
+      "confidence": "confirmed",
+      "semantic": "固定PC真实属性getter/setter与NS同算法消费者；拥有的ProjectileParams为公共POD布局，其余为真实引擎对象读写。",
+      "evidence_files": [
+        "dist/apis400-20261016/field-proof-matrix.json"
+      ],
+      "judgement": "runtime/tests/test_api400_params.py"
+    },
+    {
+      "name": "FallingSpeedModifier",
+      "kind": "Float",
+      "offset": 8,
+      "confidence": "confirmed",
+      "semantic": "固定PC真实属性getter/setter与NS同算法消费者；拥有的ProjectileParams为公共POD布局，其余为真实引擎对象读写。",
+      "evidence_files": [
+        "dist/apis400-20261016/field-proof-matrix.json"
+      ],
+      "judgement": "runtime/tests/test_api400_params.py"
+    },
+    {
+      "name": "FallingAccelModifier",
+      "kind": "Float",
+      "offset": 12,
+      "confidence": "confirmed",
+      "semantic": "固定PC真实属性getter/setter与NS同算法消费者；拥有的ProjectileParams为公共POD布局，其余为真实引擎对象读写。",
+      "evidence_files": [
+        "dist/apis400-20261016/field-proof-matrix.json"
+      ],
+      "judgement": "runtime/tests/test_api400_params.py"
+    },
+    {
+      "name": "VelocityMulti",
+      "kind": "Float",
+      "offset": 16,
+      "confidence": "confirmed",
+      "semantic": "固定PC真实属性getter/setter与NS同算法消费者；拥有的ProjectileParams为公共POD布局，其余为真实引擎对象读写。",
+      "evidence_files": [
+        "dist/apis400-20261016/field-proof-matrix.json"
+      ],
+      "judgement": "runtime/tests/test_api400_params.py"
+    },
+    {
+      "name": "Scale",
+      "kind": "Float",
+      "offset": 20,
+      "confidence": "confirmed",
+      "semantic": "固定PC真实属性getter/setter与NS同算法消费者；拥有的ProjectileParams为公共POD布局，其余为真实引擎对象读写。",
+      "evidence_files": [
+        "dist/apis400-20261016/field-proof-matrix.json"
+      ],
+      "judgement": "runtime/tests/test_api400_params.py"
+    },
+    {
+      "name": "CircleAngle",
+      "kind": "Float",
+      "offset": 24,
+      "confidence": "confirmed",
+      "semantic": "固定PC真实属性getter/setter与NS同算法消费者；拥有的ProjectileParams为公共POD布局，其余为真实引擎对象读写。",
+      "evidence_files": [
+        "dist/apis400-20261016/field-proof-matrix.json"
+      ],
+      "judgement": "runtime/tests/test_api400_params.py"
+    },
+    {
+      "name": "HomingStrength",
+      "kind": "Float",
+      "offset": 28,
+      "confidence": "confirmed",
+      "semantic": "固定PC真实属性getter/setter与NS同算法消费者；拥有的ProjectileParams为公共POD布局，其余为真实引擎对象读写。",
+      "evidence_files": [
+        "dist/apis400-20261016/field-proof-matrix.json"
+      ],
+      "judgement": "runtime/tests/test_api400_params.py"
+    },
+    {
+      "name": "CurvingStrength",
+      "kind": "Float",
+      "offset": 32,
+      "confidence": "confirmed",
+      "semantic": "固定PC真实属性getter/setter与NS同算法消费者；拥有的ProjectileParams为公共POD布局，其余为真实引擎对象读写。",
+      "evidence_files": [
+        "dist/apis400-20261016/field-proof-matrix.json"
+      ],
+      "judgement": "runtime/tests/test_api400_params.py"
+    },
+    {
+      "name": "Acceleration",
+      "kind": "Float",
+      "offset": 36,
+      "confidence": "confirmed",
+      "semantic": "固定PC真实属性getter/setter与NS同算法消费者；拥有的ProjectileParams为公共POD布局，其余为真实引擎对象读写。",
+      "evidence_files": [
+        "dist/apis400-20261016/field-proof-matrix.json"
+      ],
+      "judgement": "runtime/tests/test_api400_params.py"
+    },
+    {
+      "name": "Spread",
+      "kind": "Float",
+      "offset": 40,
+      "confidence": "confirmed",
+      "semantic": "固定PC真实属性getter/setter与NS同算法消费者；拥有的ProjectileParams为公共POD布局，其余为真实引擎对象读写。",
+      "evidence_files": [
+        "dist/apis400-20261016/field-proof-matrix.json"
+      ],
+      "judgement": "runtime/tests/test_api400_params.py"
+    },
+    {
+      "name": "Color",
+      "kind": "Color",
+      "offset": 44,
+      "confidence": "confirmed",
+      "semantic": "固定PC真实属性getter/setter与NS同算法消费者；拥有的ProjectileParams为公共POD布局，其余为真实引擎对象读写。",
+      "evidence_files": [
+        "dist/apis400-20261016/field-proof-matrix.json"
+      ],
+      "judgement": "runtime/tests/test_api400_params.py"
+    },
+    {
+      "name": "BulletFlags",
+      "kind": "U64",
+      "offset": 88,
+      "confidence": "confirmed",
+      "semantic": "固定PC真实属性getter/setter与NS同算法消费者；拥有的ProjectileParams为公共POD布局，其余为真实引擎对象读写。",
+      "evidence_files": [
+        "dist/apis400-20261016/field-proof-matrix.json"
+      ],
+      "judgement": "runtime/tests/test_api400_params.py"
+    },
+    {
+      "name": "PositionOffset",
+      "kind": "Vector",
+      "offset": 96,
+      "confidence": "confirmed",
+      "semantic": "固定PC真实属性getter/setter与NS同算法消费者；拥有的ProjectileParams为公共POD布局，其余为真实引擎对象读写。",
+      "evidence_files": [
+        "dist/apis400-20261016/field-proof-matrix.json"
+      ],
+      "judgement": "runtime/tests/test_api400_params.py"
+    },
+    {
+      "name": "TargetPosition",
+      "kind": "Vector",
+      "offset": 104,
+      "confidence": "confirmed",
+      "semantic": "固定PC真实属性getter/setter与NS同算法消费者；拥有的ProjectileParams为公共POD布局，其余为真实引擎对象读写。",
+      "evidence_files": [
+        "dist/apis400-20261016/field-proof-matrix.json"
+      ],
+      "judgement": "runtime/tests/test_api400_params.py"
+    },
+    {
+      "name": "FireDirectionLimit",
+      "kind": "Vector",
+      "offset": 112,
+      "confidence": "confirmed",
+      "semantic": "固定PC真实属性getter/setter与NS同算法消费者；拥有的ProjectileParams为公共POD布局，其余为真实引擎对象读写。",
+      "evidence_files": [
+        "dist/apis400-20261016/field-proof-matrix.json"
+      ],
+      "judgement": "runtime/tests/test_api400_params.py"
+    },
+    {
+      "name": "DotProductLimit",
+      "kind": "Float",
+      "offset": 120,
+      "confidence": "confirmed",
+      "semantic": "固定PC真实属性getter/setter与NS同算法消费者；拥有的ProjectileParams为公共POD布局，其余为真实引擎对象读写。",
+      "evidence_files": [
+        "dist/apis400-20261016/field-proof-matrix.json"
+      ],
+      "judgement": "runtime/tests/test_api400_params.py"
+    },
+    {
+      "name": "WiggleFrameOffset",
+      "kind": "Int",
+      "offset": 124,
+      "confidence": "confirmed",
+      "semantic": "固定PC真实属性getter/setter与NS同算法消费者；拥有的ProjectileParams为公共POD布局，其余为真实引擎对象读写。",
+      "evidence_files": [
+        "dist/apis400-20261016/field-proof-matrix.json"
+      ],
+      "judgement": "runtime/tests/test_api400_params.py"
+    },
+    {
+      "name": "ChangeFlags",
+      "kind": "U64",
+      "offset": 128,
+      "confidence": "confirmed",
+      "semantic": "固定PC真实属性getter/setter与NS同算法消费者；拥有的ProjectileParams为公共POD布局，其余为真实引擎对象读写。",
+      "evidence_files": [
+        "dist/apis400-20261016/field-proof-matrix.json"
+      ],
+      "judgement": "runtime/tests/test_api400_params.py"
+    },
+    {
+      "name": "ChangeVelocity",
+      "kind": "Float",
+      "offset": 136,
+      "confidence": "confirmed",
+      "semantic": "固定PC真实属性getter/setter与NS同算法消费者；拥有的ProjectileParams为公共POD布局，其余为真实引擎对象读写。",
+      "evidence_files": [
+        "dist/apis400-20261016/field-proof-matrix.json"
+      ],
+      "judgement": "runtime/tests/test_api400_params.py"
+    },
+    {
+      "name": "ChangeTimeout",
+      "kind": "Int",
+      "offset": 140,
+      "confidence": "confirmed",
+      "semantic": "固定PC真实属性getter/setter与NS同算法消费者；拥有的ProjectileParams为公共POD布局，其余为真实引擎对象读写。",
+      "evidence_files": [
+        "dist/apis400-20261016/field-proof-matrix.json"
+      ],
+      "judgement": "runtime/tests/test_api400_params.py"
+    },
+    {
+      "name": "DepthOffset",
+      "kind": "Float",
+      "offset": 144,
+      "confidence": "confirmed",
+      "semantic": "固定PC真实属性getter/setter与NS同算法消费者；拥有的ProjectileParams为公共POD布局，其余为真实引擎对象读写。",
+      "evidence_files": [
+        "dist/apis400-20261016/field-proof-matrix.json"
+      ],
+      "judgement": "runtime/tests/test_api400_params.py"
+    },
+    {
+      "name": "Variant",
+      "kind": "Int",
+      "offset": 148,
+      "confidence": "confirmed",
+      "semantic": "固定PC真实属性getter/setter与NS同算法消费者；拥有的ProjectileParams为公共POD布局，其余为真实引擎对象读写。",
+      "evidence_files": [
+        "dist/apis400-20261016/field-proof-matrix.json"
+      ],
+      "judgement": "runtime/tests/test_api400_params.py"
+    }
+  ]
+}

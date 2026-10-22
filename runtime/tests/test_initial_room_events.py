@@ -17,6 +17,9 @@
 
 PC 的语义是：开局时 `POST_GAME_STARTED` → `POST_NEW_LEVEL` → `POST_NEW_ROOM` **都发**。
 
+★ 2026-10-14 更正：上面的历史顺序写反；PC 官方 NEW_LEVEL 总在 NEW_ROOM 之后。
+本次只纠正这两条回调的相对顺序，GAME_STARTED 时机不改。
+
 ## 两半断言
 
 1. **行为（宿主真跑）**：`DecideFrameRoomEvents()` 是纯函数，逐条验三个口径 ——
@@ -89,10 +92,14 @@ int main() {
         const FrameRoomDecision d = DecideFrameRoomEvents(true, true, true, true, false, 0);
         Check(d.newRoom && !d.newLevel, "换房间只发 NEW_ROOM");
     }
-    // 正常换层：层变了、房间也不同 ⇒ 两条都发（顺序由调用方按结构体字段顺序保证）。
+    // 正常换层：层变了、房间也不同 ⇒ 两条都发（顺序由调用方保证先 NEW_ROOM 再 NEW_LEVEL）。
     {
         const FrameRoomDecision d = DecideFrameRoomEvents(true, true, true, false, false, 0);
         Check(d.newLevel && d.newRoom, "换层时两条都要发");
+    }
+    {
+        const auto d = DecideFrameRoomEvents(true, true, true, false, true, 0);
+        Check(d.newLevel && d.newRoom, "同房号跨层也必须刷新房间缓存");
     }
     // 稳定帧：同层同房 ⇒ 什么都不发（否则就成了"每帧一次"）。
     {
@@ -168,11 +175,11 @@ class InitialRoomWiringTests(unittest.TestCase):
         self.assertIn("g_FrameEventState.initialRoomPending = 0;", window,
                       "补派之后必须清掉标志（否则会每帧发一次）")
 
-    def test_dispatch_order_is_level_before_room(self):
-        """派发顺序照 PC：`NEW_LEVEL` 在 `NEW_ROOM` 之前。"""
+    def test_dispatch_order_is_room_before_level(self):
+        """派发顺序照 PC 官方：`NEW_ROOM` 在 `NEW_LEVEL` 之前。"""
         level = self.runtime.index("kCallbackPostNewLevel,\n                                              isaac::runtime::ThreadAffinity::Any")
         room = self.runtime.index("kCallbackPostNewRoom,\n                                              isaac::runtime::ThreadAffinity::Any")
-        self.assertLess(level, room, "NEW_LEVEL 必须先于 NEW_ROOM 派发")
+        self.assertLess(room, level, "NEW_ROOM 必须先于 NEW_LEVEL 派发")
 
 
 if __name__ == "__main__":

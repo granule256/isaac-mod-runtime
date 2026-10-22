@@ -162,7 +162,8 @@ int main() {
     //    伪造的映像里放不了机器码，所以这里用"真函数的地址"当映像里的那个入口：
     //    把它的地址塞进映像的 0x40 处不可能（那 16 字节是序言，不是地址）——
     //    因此分两步验：解析给出地址、AsFunction 让地址可调用。
-    AddFn direct = ec::AsFunction<AddFn>(reinterpret_cast<std::uintptr_t>(&AddPair));
+    check(ec::AddressOfFunction(static_cast<AddFn>(nullptr)) == 0, "function-address-null-is-zero");
+    AddFn direct = ec::AsFunction<AddFn>(ec::AddressOfFunction(&AddPair));
     check(direct != nullptr, "as-function-roundtrip-not-null");
     if (direct != nullptr) {
         check(direct(2, 3) == 5, "as-function-roundtrip-callable");
@@ -316,6 +317,16 @@ class EngineCallAccessTests(unittest.TestCase):
         output = build.stdout + build.stderr
         self.assertIn("函数指针", output,
                       f"编译确实失败了，但报错不像是被那条 `static_assert` 拦下的（改法变了？）：{output}")
+
+    def test_object_pointer_cannot_be_published_as_a_callback(self):
+        snippet = Path(self.temporary.name) / "object_is_not_callback.cpp"
+        snippet.write_text('#include "infrastructure/call/engine_call_access.hpp"\n'
+                           'int main(){int object=0;return isaac::runtime::engine_call::'
+                           'AddressOfFunction(&object)==0;}\n')
+        build = subprocess.run(self.compile_flags + ["-fsyntax-only", str(snippet)],
+                               text=True, capture_output=True)
+        self.assertNotEqual(build.returncode, 0)
+        self.assertIn("函数指针", build.stdout + build.stderr)
 
 
 if __name__ == "__main__":

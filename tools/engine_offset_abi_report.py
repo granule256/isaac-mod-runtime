@@ -250,6 +250,114 @@ ENGINE_CALL_SHAPE_PARAMS = {
                                "std::int32_t"],
     # 批次 063：`bool(this)`（无参、返回布尔）——`Entity:IsFlying()`。
     "Bool0": [],
+    # 批次 141（2026-09-26）：ABI 与 `Void1` 相同（`void(this, i32)`），区别只在**共享处理器会先把
+    # 无效的 null 服装编号挡下再不放行**（`EntityPlayer:AddNullCostume` / `TryRemoveNullCostume`）。
+    # ★ 这一条当时漏登记 ⇒ 那两个偏移常量成了"工具读不出声明"，被
+    #   `test_engine_offset_signatures` 的台账门禁判红 —— 正是本文件上面那句注释预警的情况。
+    "VoidNullId1": ["std::int32_t"],
+    # 批次 177（2026-09-28）：`i32(this, i32)` —— `EntityPlayer:GetPill(int)` / `GetCard(int)`。
+    "Int1": ["std::int32_t"],
+    # 批次 177（2026-09-28）：`bool(this, i32)` —— `EntityPlayer:HasPlayerForm(ePlayerForm)`。
+    # ★ 上面两条又是**同一个坑**（与 141 的 `VoidNullId1` 一模一样）：新形状不登记 ⇒
+    #   工具读不出那三个常量（`GetPill`/`GetCard`/`HasPlayerForm`）的声明 ⇒
+    #   `test_engine_offset_signatures` 的欠账台账门禁判红。加形状时**同时**改这里。
+    "Bool1": ["std::int32_t"],
+    # 批次 207（2026-09-29）：`bool(this, bool 可选)` —— `Entity:IsActiveEnemy(bool includeDead)`。
+    # 引擎侧签名是 `IsaacRepentance::Entity::IsActiveEnemy(bool) const`
+    # （`_ZNK15IsaacRepentance6Entity13IsActiveEnemyEb`，偏移 `0x5F028`，取自
+    # `tools/engine_symbol_signatures.json`）⇒ 引擎 1 个参数、我们声明 1 个参数 + 隐式 `this` == 2，
+    # 正好命中 `our == engine + 1` 的"一致"判据。
+    # ★ **第四次提醒**（141 的 `VoidNullId1`、177 的 `Int1`/`Bool1`、184 的 `Ref2U32Pair`）：
+    #   新形状不登记**不会让构建失败**，但 ABI 体检会读不出走这条形状的常量声明 ⇒
+    #   `test_engine_offset_signatures` 判红。
+    "BoolOpt1": ["bool"],
+    # 批次 184（2026-09-28）：`void(this, u32& 入出参, u32& 入出参)` ——
+    # `EntityPlayer:GetGlyphOfBalanceDrop(variant, subtype)`（引擎 `0x2FE574`）。
+    # ★★ **第三次提醒**（141 的 `VoidNullId1`、177 的 `Int1`/`Bool1` 都漏在这里）：
+    #   新形状不登记**不会让构建失败**，但 ABI 体检会读不出走这条形状的那些常量的声明 ⇒
+    #   `test_engine_offset_signatures` 的欠账台账门禁判红。
+    #   这一次是**提前**登记的（写形状的同一批就写进来），不是等门禁红了再补。
+    "Ref2U32Pair": ["std::uint32_t&", "std::uint32_t&"],
+    # 批次 239（2026-09-30）：语料模组适配第二波 A 批的 9 种新形状。
+    # ★ 本批是**写形状的同一批就把这 9 行登记齐**（不重复 141 / 177 那两次"等门禁红了再补"）。
+    # 参数表按 `isaac_api.cpp` 的 `kEngineCallShapes` 描述符逐格写（`Bool` ⇒ `bool`）。
+    "VoidIntIntBool": ["std::int32_t", "std::int32_t", "bool"],
+    "BoolIntIntInt": ["std::int32_t", "std::int32_t", "std::int32_t"],
+    "BoolIntBoolBool": ["std::int32_t", "bool", "bool"],
+    "Float0": [],
+    "IntBoolInt": ["bool", "std::int32_t"],
+    "VoidIntOpt1": ["std::int32_t"],
+    "BoolIntOpt1": ["std::int32_t"],
+    "VoidIntBoolOpt2": ["std::int32_t", "bool"],
+    "VoidFloatFloatOpt1": ["double", "double"],
+    # 批次 252（2026-10-01）：3 种新形状（`MusicManager:Crossfade` / `Room:SpawnGridEntity` /
+    # `EntityPlayer:RemoveCollectible`）。★ 第 **五** 次提醒（141 的 `VoidNullId1`、177 的
+    # `Int1`/`Bool1`、184 的 `Ref2U32Pair`、207 的 `BoolOpt1`）：新形状**不登记不会让构建失败**，
+    # 但 ABI 体检会读不出走这条形状的那几个偏移常量的声明 ⇒ `test_engine_offset_signatures` 判红。
+    "VoidIntFloatOpt1": ["std::int32_t", "double"],
+    "VoidIntIntIntIntInt": ["std::int32_t", "std::int32_t", "std::int32_t", "std::int32_t",
+                            "std::int32_t"],
+    "VoidIntBoolIntBoolOpt3": ["std::int32_t", "bool", "std::int32_t", "bool"],
+    # 批次 253（2026-10-01）：两条带 `Vector2 const&` 参数的形状。
+    # ★ 引擎收的是**引用** ⇒ ABI 上是 `std::uintptr_t`（指针，走 `x` 寄存器），
+    #   不是按值的 HFA —— 所以**不需要**任何跳板改动（`Vector2Ref` 在共享处理器里
+    #   把 Lua 的 Vector 拷进我们栈上的槽、再把槽地址当参数）。
+    "BoolVector2RefFloat": ["std::uintptr_t", "double"],
+    "VoidVector2RefFloatHandle": ["std::uintptr_t", "double", "std::uintptr_t"],
+    # 批次 254（2026-10-01）：ItemPool 接收者 + 2 种新形状。★ 第 **六** 次提醒（141 的
+    # `VoidNullId1`、177 的 `Int1`/`Bool1`、184 的 `Ref2U32Pair`、207 的 `BoolOpt1`、252 的
+    # 那 3 条）：新形状**不登记不会让构建失败**，但 ABI 体检会读不出走这条形状的偏移常量的
+    # 声明 ⇒ `test_engine_offset_signatures` 的欠账台账门禁判红。写形状的同一批就登记齐。
+    # `VoidBoolIntHandle`：`void(this, bool, i32, EntityPlayer*)` —— `Game:MoveToRandomRoom`
+    # （`bool` 走 `x`、`EntityPlayer*` 走 `x` ⇒ ABI 上是 `bool` + `int32` + `uintptr`）。
+    "VoidBoolIntHandle": ["bool", "std::int32_t", "std::uintptr_t"],
+    # `BoolIntBoolBoolOpt2`：`bool(this, i32, bool, bool)` —— `ItemPool:RemoveCollectible`
+    # （两个 `bool` 各自走一个 `x` 寄存器；返回 `bool` 取 `x0`）。
+    "BoolIntBoolBoolOpt2": ["std::int32_t", "bool", "bool"],
+    # 批次 285（2026-10-02）：两种新形状（`EntityNPC:Morph` / `EntityPickup:Morph`）。
+    # ★ 第 **七** 次提醒（141 的 `VoidNullId1`、177 的 `Int1`/`Bool1`、184 的 `Ref2U32Pair`、
+    #   207 的 `BoolOpt1`、252 的 3 条、254 的 2 条）：新形状**不登记不会让构建失败**，但 ABI
+    #   体检查不出走这条形状的偏移常量的声明 ⇒ `test_engine_offset_signatures` 的欠账台账门禁判红。
+    #   写形状的同一批就登记齐。
+    #   `BoolIntIntIntInt`：`bool(this, i32×4)` —— `EntityNPC:Morph`（引擎
+    #     `_ZN…Entity_NPC5MorphENS_11eEntityTypeEjji`；`EntityType` 在 ABI 上就是 `i32`）。
+    "BoolIntIntIntInt": ["std::int32_t", "std::int32_t", "std::int32_t", "std::int32_t"],
+    #   `VoidIntIntIntBoolBoolBoolOpt3`：`void(this, i32×3, bool×3)`，尾部 3 个可省 ——
+    #     `EntityPickup:Morph`（引擎 `_ZN…Entity_Pickup5MorphENS_11eEntityTypeEjjbbb`；
+    #     三个 `bool` 各走一个 `x` 寄存器）。
+    "VoidIntIntIntBoolBoolBoolOpt3": ["std::int32_t", "std::int32_t", "std::int32_t", "bool", "bool",
+                                      "bool"],
+    # 批次 335（2026-10-03）：一种新形状 —— `void(this, i32, bool)`、尾部 1 个可省
+    # （`EntityPlayer:ChangePlayerType` / `EntityPlayer:DischargeActiveItem`）。
+    # ★ 第 **八** 次提醒（141 的 `VoidNullId1`、177 的 `Int1`/`Bool1`、184 的 `Ref2U32Pair`、
+    #   207 的 `BoolOpt1`、252 的 3 条、254 的 2 条、285 的 2 条）：新形状**不登记不会让构建失败**，
+    #   但 ABI 体检读不出走这条形状的偏移常量的声明 ⇒ `test_engine_offset_signatures` 的
+    #   欠账台账门禁判红（本批第一版就真的红了，只有两条）。
+    #   ★★ 另一种"补法"是把那两条常量塞进 `tools/engine_abi_backlog.json` 的 A 类（303~326
+    #   那几批走的就是那条路）——**但那条路是欠账**：登记形状才是**把工具教会**，
+    #   一次性销掉"以后每加一条走这条形状的行都要再记账"这件事。以后加形状请优先走这一条。
+    "VoidIntBool": ["std::int32_t", "bool"],
+    "VoidSeed1": ["std::uint32_t"],
+    "VoidIntBoolOpt1": ["std::int32_t", "bool"],
+    # 批次 341（2026-10-04）：一种新形状 —— `void(this, Vector2 const&)`，无实参缺省。
+    # （`EntityFamiliar:FollowPosition(Vector Pos)`，引擎 `follow_position(Vector2 const&) @ 0xAFCC0`。）
+    # ★ 第 **九** 次提醒（141 的 `VoidNullId1`、177 的 `Int1`/`Bool1`、184 的 `Ref2U32Pair`、
+    #   207 的 `BoolOpt1`、252 的 3 条、254 的 2 条、285 的 2 条、335 的 1 条）：
+    #   新形状**不登记不会让构建失败**，但 ABI 体检读不出走这条形状的偏移常量的声明
+    #   ⇒ `test_engine_offset_signatures` 的欠账台账门禁判红。写形状的同一批就登记齐。
+    # ★ 引用 ⇒ ABI 上是 `std::uintptr_t`（走 `x1`），与批次 253 那两条同一口径。
+    "VoidVector2Ref": ["std::uintptr_t"],
+    # 批次 344（2026-10-04）：一种新形状 —— `bool(this, Vector2 const&, bool)`，两格都必填。
+    # （`PathFinder:HasPathToPos(Vector Pos, boolean IgnorePoop)`，引擎
+    #  `NPCAI_Pathfinder::HasPathToPos(Vector2 const&, bool) const @ 0x42F6CC`。
+    #  ★ 与同族的 3 参重载 `@ 0x42FAFC` 区分开：契约逐参对应的是 **2 参**那条。）
+    # ★ 第 **十** 次提醒（141 的 `VoidNullId1`、177 的 `Int1`/`Bool1`、184 的 `Ref2U32Pair`、
+    #   207 的 `BoolOpt1`、252 的 3 条、254 的 2 条、285 的 2 条、335 的 1 条、341 的 1 条）：
+    #   新形状**不登记不会让构建失败**，但 ABI 体检读不出走这条形状的偏移常量的声明
+    #   ⇒ `test_engine_offset_signatures` 的欠账台账门禁判红。写形状的同一批就登记齐
+    #   （本批第一版就真的红了，正是这条）。
+    # ★ `Vector2 const&` ⇒ ABI 上是 `std::uintptr_t`（走 `x1`）；第 2 格 `bool` 走 `w2` ⇒ `bool`。
+    "BoolVector2RefBool": ["std::uintptr_t", "bool"],
 }
 GUARDED_DECLTYPE_RE = re.compile(r"Guarded<\s*decltype\(\s*([A-Za-z_]\w*)\.([A-Za-z_]\w*)\s*\)\s*>")
 #: 绑定表行：`{kSpritePlayOffset, offsetof(LuaRuntime::LuaSpriteBindings, play), &kSpritePlayExpectedBytes},`
@@ -916,6 +1024,35 @@ def find_member_declaration(text: str, field: str) -> str | None:
     return fn_ptr.group(0) if fn_ptr is not None else None
 
 
+def virtual_trampoline_signature(text: str, spans: list[tuple[int, int]], constant: str):
+    """虚调用经寄存器数组桥接；须逐步核动态方法守卫、数组变量和float32装载。"""
+    for call in re.finditer(r"EngineCallTrampoline\(\s*(\w+)\s*,\s*(\w+)\s*,\s*(\w+)\s*,", text):
+        method, integers, floats = call.groups()
+        candidates = []
+        for start, end in spans:
+            if not start <= call.start() <= end:
+                continue
+            body = text[start:end]
+            guard = re.search(r"\b" + re.escape(method) + r"\s*==\s*\w+\s*\+\s*" + re.escape(constant) + r"\b", body)
+            if guard:
+                candidates.append(body)
+        if not candidates:
+            continue
+        body = min(candidates, key=len)
+        # 真实虚表读取必须仍在同一调用体；不把文字里的偏移当成直接调用证据。
+        if not re.search(r"ReadEngine\(\s*\w+\s*\+\s*9\s*\*\s*sizeof\(std::uintptr_t\)\s*,\s*&" + re.escape(method) + r"\s*\)", body):
+            continue
+        integer_array = re.search(r"std::uint64_t\s+" + re.escape(integers) + r"\s*\[8\]\s*=\s*\{([^{}]*)\}", body)
+        float_array = re.search(r"double\s+" + re.escape(floats) + r"\s*\[8\]\s*=\s*\{([^{}]*)\}", body)
+        if not integer_array or not float_array:
+            continue
+        xs = split_parameters(integer_array.group(1)); vs = split_parameters(float_array.group(1))
+        if not xs or not vs or not all(re.fullmatch(r"EngineFloatArgument\(.*\)", value, re.S) for value in vs):
+            continue
+        return ["std::uintptr_t"] + ["std::uint64_t"] * (len(xs)-1) + ["float"] * len(vs)
+    return None
+
+
 def declared_signature(constant: str) -> tuple[str, list[str], str] | None:
     """找 `k…Offset` 的调用点，并读出**我们声明的函数指针参数表**。
 
@@ -927,6 +1064,9 @@ def declared_signature(constant: str) -> tuple[str, list[str], str] | None:
             if constant not in text:
                 continue
             relative = str(path.relative_to(ROOT))
+            virtual_params = virtual_trampoline_signature(text, spans, constant)
+            if virtual_params is not None:
+                return relative, virtual_params, "EngineCallTrampoline/guarded virtual register inputs"
             # 形态 A：`reinterpret_cast<XxxFn>(…)`，XxxFn 可能是别名或内联的函数指针类型；
             # ★ 引擎交互层的写法同样算（类型写在**模板实参**上，见 `LAYERED_TYPE_PRIMITIVES`）：
             #   `AsFunction<XxxFn>(操作数)` / `ResolveFunction<XxxFn>(…)` / `CallUnaryMethod<XxxFn>(操作数, …)`。
@@ -963,7 +1103,28 @@ def declared_signature(constant: str) -> tuple[str, list[str], str] | None:
                 if not matched:
                     continue
                 declared = match.group(1).strip()
-                type_text = resolve_alias(declared, text) or declared
+                # 同文件的多个函数可各自声明Fn；先查调用所在的最内层作用域，
+                # 再找外层，避免HUD.ShowItemText误用HUD.Render的单参数类型。
+                scoped_type = None
+                for scope in sorted((sp for sp in spans
+                                     if sp[0] <= match.start() <= sp[1]),
+                                    key=lambda sp: sp[1] - sp[0]):
+                    aliases = list(re.finditer(
+                        r"using\s+" + re.escape(declared) + r"\s*=\s*([^;]+);",
+                        text[scope[0]:match.start()], re.S))
+                    for alias in reversed(aliases):
+                        alias_position = scope[0] + alias.start()
+                        # 已结束的if分支中的同名别名不再可见。
+                        closed_scope = any(
+                            alias_position < balanced(text, opening.start(), "{", "}") < match.start()
+                            for opening in re.finditer(r"\{", text[:alias_position])
+                            if opening.start() >= scope[0])
+                        if not closed_scope:
+                            scoped_type = alias.group(1).strip()
+                            break
+                    if scoped_type is not None:
+                        break
+                type_text = scoped_type or resolve_alias(declared, text) or declared
                 params = parameters_of_function_pointer(type_text)
                 if params is not None:
                     return relative, params, type_text
@@ -1192,6 +1353,19 @@ def classify(entry: dict, our_params: list[str] | None) -> dict:
 #   * 返回值：从函数收尾往回扫，**第一条**"写 x0/w0"的指令 ⇒ 有返回值；
 #     第一条是 `bl/blr` ⇒ 那个 x0 是调用的残留（void 函数）⇒ 判 void。两边不一致就判红。
 RELAY_CALLBACK_TARGETS: tuple[tuple[str, str], ...] = (
+    ("EntryRelayPressurePlateAnimationCallback", "kPressurePlateAnimationWriterOffset"),
+    ("EntryRelayGameSpawnExCallback", "kGameSpawnExOffset"),
+    ("EntryRelayItemPoolGetPillCallback", "kItemPoolGetPillOffset"),
+    ("EntryRelayItemPoolGetPillEffectCallback", "kItemPoolGetPillEffectOffset"),
+    ("EntryRelayGameDevolveEnemyCallback", "kGameDevolveEnemyOffset"),
+    ("EntryRelayFamiliarCollisionCallback", "kEntityFamiliarHandleCollisionOffset"),
+    ("EntryRelayNpcCollisionCallback", "kEntityNpcHandleCollisionOffset"),
+    ("EntryRelayPlayerCollisionCallback", "kEntityPlayerHandleCollisionOffset"),
+    ("EntryRelayTearCollisionCallback", "kEntityTearHandleCollisionOffset"),
+    ("EntryRelayProjectileCollisionCallback", "kEntityProjectileHandleCollisionOffset"),
+    ("EntryRelayKnifeCollisionCallback", "kEntityKnifeHandleCollisionOffset"),
+    ("EntryRelayBombCollisionCallback", "kEntityBombHandleCollisionOffset"),
+    ("EntryRelayNpcRenderCallback", "kEntityNpcRenderOffset"),
     # (回调函数名, 靶点偏移常量名) —— 与 `entry_relay_hook_adapter.cpp` 的登记逐条对应。
     ("EntryRelayManagerUpdateCallback", "kManagerUpdateFileOffset"),
     ("EntryRelayManagerRenderCallback", "kManagerRenderFileOffset"),
@@ -1221,12 +1395,13 @@ RELAY_CALLBACK_TARGETS: tuple[tuple[str, str], ...] = (
 #: `mod_menu_native.cpp` —— 与它们的状态机同处，便于对照注释）。**两个都要扫**：
 #: 只扫一个的话，"另一处的回调声明错了"就会静默不判（门禁看起来在跑、其实少比了几条）。
 RELAY_SOURCES: tuple[pathlib.Path, ...] = (
+    ROOT / "runtime" / "source" / "pressure_plate_animation_hook.cpp",
     ROOT / "runtime" / "source" / "hook_manager.cpp",
     ROOT / "runtime" / "source" / "mod_menu_native.cpp",
 )
-RELAY_SOURCE = RELAY_SOURCES[0]  # 单文件调用点的向后兼容（新代码请用 `RELAY_SOURCES`）
+RELAY_SOURCE = ROOT / "runtime" / "source" / "hook_manager.cpp"  # 单文件调用点的向后兼容（新代码请用 `RELAY_SOURCES`）
 RELAY_CALLBACK_RE = re.compile(
-    r'extern\s+"C"\s+([A-Za-z_][A-Za-z0-9_:<>\s]*?)\s+(EntryRelay\w+Callback)\s*\(([^)]*)\)\s*\{',
+    r'extern\s+"C"\s+([A-Za-z_][A-Za-z0-9_:<>*\s]*?)\s+(EntryRelay\w+Callback)\s*\(([^)]*)\)\s*\{',
     re.S,
 )
 

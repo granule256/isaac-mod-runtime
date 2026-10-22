@@ -1,0 +1,88 @@
+---
+tags:
+  - Class
+---
+# Class "PersistentGameData"
+
+???+ info
+    You can get this class by using the following functions:
+
+    * [Isaac.GetPersistentGameData()](Isaac.md#getpersistentgamedata)
+
+    ???+ example "Example Code"
+        ```lua
+        local persistentGameData = Isaac.GetPersistentGameData()
+        ```
+???+ warning "Warning"
+    This class' functions should not be called until the game fully initializes! Make sure not to try using them outside of callbacks
+    
+## Functions
+
+### AddBestiaryKill () {: aria-label='Functions' }
+#### void AddBestiaryKill ( int Type, int Variant = 0 ) {: .copyable aria-label='Functions' }
+
+___
+### AddBossKilled () {: aria-label='Functions' }
+#### void AddBossKilled ( [BossType](enums/BossType.md) Boss) {: .copyable aria-label='Functions' }
+Marks this boss as killed and unlocks its relevant alternate floor if conditions are met.
+
+___
+### GetBestiaryDeathCount () {: aria-label='Functions' }
+#### int GetBestiaryDeathCount ( int Type, int Variant ) {: .copyable aria-label='Functions' }
+
+___
+### GetBestiaryEncounterCount () {: aria-label='Functions' }
+#### int GetBestiaryEncounterCount ( int Type, int Variant ) {: .copyable aria-label='Functions' }
+
+___
+### GetBestiaryKillCount () {: aria-label='Functions' }
+#### int GetBestiaryKillCount ( int Type, int Variant ) {: .copyable aria-label='Functions' }
+
+___
+### GetEventCounter () {: aria-label='Functions' }
+#### int GetEventCounter ( [EventCounter](enums/EventCounter.md) EventCounter ) {: .copyable aria-label='Functions' }
+
+___
+### IncreaseEventCounter () {: aria-label='Functions' }
+#### void IncreaseEventCounter ( [EventCounter](enums/EventCounter.md) EventCounter, int Count ) {: .copyable aria-label='Functions' }
+
+___
+### IsBossKilled () {: aria-label='Functions' }
+#### boolean IsBossKilled ( [BossType](enums/BossType.md) Boss) {: .copyable aria-label='Functions' }
+Returns whether this boss was marked as killed (for purposes of unlock tracking).
+
+___
+### IsChallengeCompleted () {: aria-label='Functions' }
+#### boolean IsChallengeCompleted ( [Challenge](https://wofsauge.github.io/IsaacDocs/rep/enums/Challenge.html) ChallengeId ) {: .copyable aria-label='Functions' }
+Checks if a challenge is completed.
+
+___
+### IsItemInCollection () {: aria-label='Functions' }
+#### boolean IsItemInCollection ( [CollectibleType](https://wofsauge.github.io/IsaacDocs/rep/enums/CollectibleType.html) CollectibleId ) {: .copyable aria-label='Functions' }
+Checks if an item is in the collection. Aka. its at least picked up once in any run.
+
+___
+### TryUnlock () {: aria-label='Functions' }
+#### boolean TryUnlock ( [Achievement](enums/Achievement.md) Unlock, boolean BlockPaperPopup = false ) {: .copyable aria-label='Functions' }
+Returns `true` if successful, `false` if unlocking failed or the secret was already unlocked. Will fail if achievements are disabled.
+
+Setting `BlockPaperPopup` to `true` prevents popping up the achievement paper for modded achievements.
+
+___
+### Unlock () {: aria-label='Functions' }
+#### boolean Unlock ( [Achievement](enums/Achievement.md) Unlock, boolean BlockPaperPopup = false ) {: .copyable aria-label='Functions' }
+Returns `true` if successful, `false` if unlocking failed or the secret was already unlocked. It will almost never fail tho, unlike TryUnlock, which will fail if achievements are disabled.
+
+Setting `BlockPaperPopup` to `true` prevents popping up the achievement paper for modded achievements.
+___
+### Unlocked () {: aria-label='Functions' }
+#### boolean Unlocked ( [Achievement](enums/Achievement.md) Unlock ) {: .copyable aria-label='Functions' }
+Checks if achievement is unlocked.
+
+___
+
+
+
+### ★ 2026-10-10 源码契约更正（保留上方原文）
+
+上方AddBestiaryKill第22行的void是文档旧签名，固定REPENTOGON LuaPersistentGameData.cpp:149..157实际lua_pushboolean(pgd->AddBestiaryKill(Type,Variant))并返回1，因此运行时返回原生布尔值。Type经luaL_checkinteger转int，Variant经luaL_optinteger默认0（缺省/nil）；两个Boss方法均先转int低32后限制1..103，AddBossKilled返回0个Lua值，IsBossKilled返回bosses[id]布尔值。旧文档原文不删；固定源和NS证据见dist/pgd-bestiary-write-static-20261010/。

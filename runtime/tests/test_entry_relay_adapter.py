@@ -38,7 +38,7 @@ def forbidden_tokens_in(text):
 class EntryRelayAdapterContractTests(unittest.TestCase):
     def test_adapter_only_installs_through_entry_relay(self):
         text = (RELAY / "entry_relay_hook_adapter.cpp").read_text(encoding="utf-8")
-        self.assertIn("TryInstallEntryRelay(", text)
+        self.assertIn("TryInstallEntryRelayWithPublisher(", text)
         for legacy in ("TryInstallManagerUpdateHook", "TryInstallManagerRenderHook",
                        "TryInstallPreGetCollectibleRelay", "TryInstallManagerPresentRelay",
                        "TryInstallRebuildMountPointsRelay"):
@@ -57,9 +57,15 @@ class EntryRelayAdapterContractTests(unittest.TestCase):
         self.assertIn("EntryRelayFailure::WriteVerifyFailed", text,
                       "WriteVerifyFailed 是不可恢复语义，必须显式处理而不是重试")
         body = text.split("Status EntryRelayHookAdapter::Install")[1]
+        # ★ 批次 396（2026-10-07）：**必须只取 `Install` 这一个函数体**。
+        #   批次 385 在同文件后半加了**另一条平行路径** `TryInstallEntryRelayEarly`（早装），
+        #   它里面也有一次 `TryInstallEntryRelay(`。不切开就会把两个函数的计数混在一起
+        #   ⇒ 这条断言从 385 起就恒假（1 → 2）。判据本身没变：仍是"每个挂点只尝试安装一次、
+        #   失败即返回、不得循环重试"，只是把范围钉到它真正要检的那个函数上。
+        body = body.split("bool EntryRelayHookAdapter::IsInstalled")[0]
         self.assertNotIn("for (", body, "安装失败不得重试")
         self.assertNotIn("while (", body, "安装失败不得重试")
-        self.assertEqual(body.count("TryInstallEntryRelay("), 1,
+        self.assertEqual(body.count("TryInstallEntryRelayWithPublisher("), 1,
                          "每个挂点只允许尝试安装一次（失败即返回，不得循环重试）")
 
     def test_pure_evaluator_is_host_testable(self):
@@ -122,6 +128,10 @@ class EntryRelayAdapterContractTests(unittest.TestCase):
 ADAPTER_DRIVER = r"""
 #include "infrastructure/relay/entry_relay_hook_adapter.hpp"
 #include "relay/smart_pointer_shim.hpp"
+// 批次 397：桩函数的签名要用 `RelayVector2Hfa`（`FireTear` 的按值 HFA 形参）⇒ 需要常量头。
+// 适配器实现本身也 include 它，所以这里引同一个头是与生产构建一致的写法。
+#include "runtime_constants.hpp"
+#include "relay/entry_relay.hpp"
 
 #include <cstdint>
 #include <cstdio>
@@ -141,10 +151,13 @@ namespace isaac::runtime::relay {
 
 bool g_stubResult = false;
 std::uint32_t g_stubFailure = 0;
+isaac::runtime::HookId g_expectedPublishedHook = isaac::runtime::HookId::ImagePcxLoad;
+bool g_originalVisibleWhenArmed = false;
 std::size_t g_stubCalls = 0;
 std::uintptr_t g_stubTarget = 0;
 std::uintptr_t g_stubCallback = 0;
 const void* g_stubExpected = nullptr;
+void (*g_afterPublication)() = nullptr;
 
 bool TryInstallEntryRelay(std::uintptr_t target, const void* expectedEntry16,
                           std::uintptr_t callback, std::uintptr_t* outOriginalEntry) {
@@ -156,6 +169,15 @@ bool TryInstallEntryRelay(std::uintptr_t target, const void* expectedEntry16,
         return false;
     }
     *outOriginalEntry = 0x7100A00020u;  // 槽 + kSlotFallbackOffset
+    g_originalVisibleWhenArmed = isaac::runtime::EntryRelayFallbackEntry(g_expectedPublishedHook) == *outOriginalEntry;
+    return true;
+}
+
+bool TryInstallEntryRelayWithPublisher(std::uintptr_t target,const void* expected,
+    std::uintptr_t callback,EntryRelayOriginalPublisher publish,void* context,std::uintptr_t* out) {
+    if (!TryInstallEntryRelay(target,expected,callback,out)) return false;
+    if (!publish(*out,context)) {g_stubFailure=ToFailureCode(EntryRelayFailure::OriginalPublicationRejected);return false;}
+    if (g_afterPublication != nullptr) g_afterPublication();
     return true;
 }
 
@@ -192,7 +214,9 @@ extern "C" std::uint32_t EntryRelayPreGetCollectibleCallback(void* itemPool, std
 extern "C" void EntryRelayRebuildMountPointsCallback() {}
 
 // 批次 102 加的四路事件中继（同样只编译适配器 ⇒ 桩定义满足链接）。
-extern "C" void EntryRelayUseActiveItemCallback(void* player, std::uint32_t item,
+extern "C" void EntryRelayPressurePlateAnimationCallback(void*,bool){}
+
+extern "C" std::uint64_t EntryRelayUseActiveItemCallback(void* player, std::uint32_t item,
                                                 std::uint32_t useFlags, std::int32_t activeSlot,
                                                 std::int32_t customVarData) {
     (void)player;
@@ -200,6 +224,7 @@ extern "C" void EntryRelayUseActiveItemCallback(void* player, std::uint32_t item
     (void)useFlags;
     (void)activeSlot;
     (void)customVarData;
+    return 0;
 }
 
 extern "C" void EntryRelayUseCardCallback(void* player, std::uint32_t card,
@@ -222,14 +247,15 @@ extern "C" void EntryRelayGameExitCallback(void* game, std::uint32_t shouldSave)
     (void)shouldSave;
 }
 
-extern "C" void EntryRelayPickupCollisionCallback(void* pickup, void* collider,
+extern "C" std::uint64_t EntryRelayPickupCollisionCallback(void* pickup, void* collider,
                                                   std::uint32_t low) {
     (void)pickup;
     (void)collider;
     (void)low;
+    return 0;
 }
 
-extern "C" void EntryRelayRoomEntitySpawnCallback(void* room, std::uint32_t gridIndex,
+extern "C" std::uint64_t EntryRelayRoomEntitySpawnCallback(void* room, std::uint32_t gridIndex,
                                                   const void* entry, std::uint32_t seed,
                                                   void** outEntity, std::uint32_t flags) {
     (void)room;
@@ -238,6 +264,7 @@ extern "C" void EntryRelayRoomEntitySpawnCallback(void* room, std::uint32_t grid
     (void)seed;
     (void)outEntity;
     (void)flags;
+    return 0;
 }
 
 // 贴图桥（2026-09-21）：`.pcx` 缺失而同名 `.png` 存在时在内存里转码兜底。宿主驱动只验证接线，
@@ -295,6 +322,127 @@ extern "C" void EntryRelayPersistentGameDataSetReadOnlyCallback(void* self,
     (void)readOnly;
 }
 
+// 批次 147（模组 content 加载闸门，挂 `ModManager::LoadConfigs` 入口）：夹具同样只验证接线
+// （`g_hookCallbacks` 那一格应当等于这个函数的地址），不跑真机逻辑 ——
+// 它要求"读引擎的 `ModEntry` 表 + 调原函数"，宿主机上没有。
+extern "C" void EntryRelayModManagerLoadConfigsCallback(void* self) { (void)self; }
+
+// 批次 363（`ANM2::Load` 入口中继）：同样只满足链接（夹具只验证接线 —— `g_hookCallbacks`
+// 那一格应当等于这个函数的地址），不跑真机逻辑：它要读引擎的挂载点表与动画缓存，
+// 宿主机上没有那些东西。
+extern "C" void EntryRelayAnm2LoadCallback(void* anm2, const void* name,
+                                           std::uint32_t loadGraphics) {
+    (void)anm2;
+    (void)name;
+    (void)loadGraphics;
+}
+
+// 批次 390（2026-10-07，`MC_INPUT_ACTION` 的三条查询中继）：★ 那批**漏了这三个桩**，
+// 于是这个用例从 390 起就是"链接失败"的存量红（`--only hook_` 匹配不到本模块名，没人发现）。
+// 批次 396 一并补齐：同 Anm2Load 一样，只满足链接（夹具只验证 `g_hookCallbacks` 那一格
+// 等于这个函数的地址），不跑真机逻辑。
+extern "C" bool EntryRelayManagerIsActionPressedCallback(void* manager, std::uint32_t action,
+                                                         std::uint32_t controller,
+                                                         std::uint32_t* out) {
+    (void)manager; (void)action; (void)controller; (void)out; return false;
+}
+extern "C" bool EntryRelayManagerIsActionTriggeredCallback(void* manager, std::uint32_t action,
+                                                           std::uint32_t controller,
+                                                           std::uint32_t* out) {
+    (void)manager; (void)action; (void)controller; (void)out; return false;
+}
+extern "C" float EntryRelayManagerGetActionValueCallback(void* manager, std::uint32_t action,
+                                                         std::uint32_t controller,
+                                                         std::uint32_t* out) {
+    (void)manager; (void)action; (void)controller; (void)out; return 0.0F;
+}
+
+// 批次 396（2026-10-07，`MC_ENTITY_TAKE_DMG` 的四条 + `MC_EVALUATE_CACHE`）：同样只满足链接。
+// 真机逻辑要读引擎实体（`ReadEntityIdentity`）与玩家缓存掩码，宿主机上没有那些东西。
+extern "C" std::uint64_t EntryRelayEntityTakeDamageCallback(void* entity, float amount,
+                                                            std::uint64_t damageFlags,
+                                                            const void* sourceRef,
+                                                            std::int32_t countdownFrames) {
+    (void)entity; (void)amount; (void)damageFlags; (void)sourceRef; (void)countdownFrames;
+    return 0;
+}
+extern "C" std::uint64_t EntryRelayEntityPlayerTakeDamageCallback(void* entity, float amount,
+                                                                  std::uint64_t damageFlags,
+                                                                  const void* sourceRef,
+                                                                  std::int32_t countdownFrames) {
+    (void)entity; (void)amount; (void)damageFlags; (void)sourceRef; (void)countdownFrames;
+    return 0;
+}
+extern "C" std::uint64_t EntryRelayEntityPickupTakeDamageCallback(void* entity, float amount,
+                                                                  std::uint64_t damageFlags,
+                                                                  const void* sourceRef,
+                                                                  std::int32_t countdownFrames) {
+    (void)entity; (void)amount; (void)damageFlags; (void)sourceRef; (void)countdownFrames;
+    return 0;
+}
+extern "C" std::uint64_t EntryRelayEntitySlotTakeDamageCallback(void* entity, float amount,
+                                                                std::uint64_t damageFlags,
+                                                                const void* sourceRef,
+                                                                std::int32_t countdownFrames) {
+    (void)entity; (void)amount; (void)damageFlags; (void)sourceRef; (void)countdownFrames;
+    return 0;
+}
+extern "C" void EntryRelayEvaluateItemsCallback(void* player) { (void)player; }
+
+// 批次 397（2026-10-07，补全回调第 2 批）：同样只满足链接（夹具只验证 `g_hookCallbacks` 那一格
+// 等于这个函数的地址）。真机逻辑要读引擎实体（`ReadEntityIdentity`）与游戏结束状态，宿主机上没有。
+extern "C" void EntryRelayEntityKillCallback(void* entity) { (void)entity; }
+#include "room_spawn_internal_hook.hpp"
+namespace isaac::runtime {
+std::uint32_t RoomFixSpawnCtorInternalCallback(relay::InternalHookContext&,const void*) noexcept {return 0;}
+static std::uintptr_t g_managerOriginal=0;
+bool PublishManagerUpdateEntryRelayOriginal(std::uintptr_t original)noexcept{g_managerOriginal=original;return true;}
+}
+extern "C" std::uint64_t EntryRelayFamiliarCollisionCallback(void*, void*, std::uint32_t) { return 0; }
+extern "C" std::uint64_t EntryRelayNpcCollisionCallback(void*, void*, std::uint32_t) { return 0; }
+extern "C" std::uint64_t EntryRelayPlayerCollisionCallback(void*, void*, std::uint32_t) { return 0; }
+extern "C" std::uint64_t EntryRelayTearCollisionCallback(void*, void*, std::uint32_t) { return 0; }
+extern "C" std::uint64_t EntryRelayProjectileCollisionCallback(void*, void*, std::uint32_t) { return 0; }
+extern "C" std::uint64_t EntryRelayKnifeCollisionCallback(void*, void*, std::uint32_t) { return 0; }
+extern "C" std::uint64_t EntryRelayBombCollisionCallback(void*, void*, std::uint32_t) { return 0; }
+extern "C" std::int32_t EntryRelayItemPoolGetPillCallback(void*, std::uint32_t) { return 0; }
+extern "C" std::int32_t EntryRelayItemPoolGetPillEffectCallback(void*, std::uint32_t, void*) { return 0; }
+extern "C" std::uint64_t EntryRelayGameDevolveEnemyCallback(void*, void*) { return 0; }
+extern "C" void* EntryRelayGameSpawnExCallback(void*, std::int32_t, std::uint32_t, const void*, const void*, void*, std::uint32_t, std::uint32_t, std::uint32_t) { return nullptr; }
+extern "C" void EntryRelayNpcRenderCallback(void*, const void*) {}
+extern "C" void EntryRelayNpcDeathRemoveCallback(void* npc, void* forwarded) {
+    (void)npc;
+    (void)forwarded;
+}
+extern "C" void EntryRelayGameEndCallback(void* game, std::int32_t ending) {
+    (void)game;
+    (void)ending;
+}
+extern "C" void* EntryRelayFireTearCallback(void* player, const void* position,
+                                            RelayVector2Hfa velocity, std::uint32_t flags,
+                                            void* source, float damageMultiplier) {
+    (void)player; (void)position; (void)velocity; (void)flags; (void)source; (void)damageMultiplier;
+    return nullptr;
+}
+
+// 适配器里 `RebuildMountPoints` 那一格会把安装结果交给贴图桥的记账函数
+// （批次 357；定义在 `source/image_pcx_bridge_hook.cpp`）。夹具只编译适配器本身，
+// 所以这里同样给一个桩满足链接 —— 它不参与任何判定。
+namespace isaac::runtime::bridge {
+void NoteRebuildMountPointsEntryRelay(bool installed, unsigned failureCode) noexcept {
+    (void)installed;
+    (void)failureCode;
+}
+// 适配器里 `Anm2Load` 那一格同样会把安装结果交给记账函数
+// （批次 365；定义在 `source/anm2_load_override_hook.cpp`。批次 363 只定义、没有调用点
+//  ⇒ 读数里"中继装上没有"恒写"未试"，是 2026-10-05 真机读数当场抓到的自相矛盾）。
+// 夹具只编译适配器本身，所以这里同样给一个桩满足链接 —— 它不参与任何判定。
+void NoteAnm2LoadRelayInstalled(bool installed, unsigned failureCode) noexcept {
+    (void)installed;
+    (void)failureCode;
+}
+}  // namespace isaac::runtime::bridge
+
 static int g_failures = 0;
 
 static void Check(bool condition, const char* label) {
@@ -335,6 +483,13 @@ int main() {
     Check(present.code() == StatusCode::Rejected, "ManagerPresent 不属于本后端");
     Check(isaac::runtime::relay::g_stubCalls == 0, "ManagerPresent 不得调用 entry_relay");
     Check(adapter.LastFailureCode() == 1, "ManagerPresent 拒绝时失败码 = 1");
+
+    isaac::runtime::relay::g_stubCalls = 0;
+    Check(adapter.Install(HookId::RoomEntitySpawn,target).code() == StatusCode::Rejected,
+          "71内部上下文ABI不能绕过routing安装到旧Roomspawn入口");
+    Check(isaac::runtime::relay::g_stubCalls == 0 && adapter.LastFailureCode() == 1 &&
+          !adapter.IsInstalled(HookId::RoomEntitySpawn) && EntryRelayFallbackEntry(HookId::RoomEntitySpawn) == 0,
+          "旧后端直接调用71必须拒绝且不改入口/回退记录");
 
     // 非法 id 是参数错误；空 target 走纯判定 → Rejected（失败码 1），同样不碰 entry_relay。
     Check(adapter.Install(HookId::Count, target).code() == StatusCode::InvalidArgument,
@@ -397,6 +552,22 @@ int main() {
     wrapping.codeSize = 0x700000u;
     Check(EvaluateEntryRelayBinding(good, wrapping, &address) == BindingVerdict::Rejected,
           "地址回绕必须拒绝");
+
+    isaac::runtime::RegisterEntryRelayCallbacks();
+    isaac::runtime::relay::g_afterPublication=+[]{
+        Check(EntryRelayFallbackEntry(HookId::ManagerUpdate)==0x7100A00020u &&
+              isaac::runtime::g_managerOriginal==0x7100A00020u,
+              "入口可达时registry与ManagerUpdate::Orig已经发布");
+    };
+    std::uintptr_t roomOut=0x1234;
+    isaac::runtime::relay::g_stubCalls=0;
+    Check(!isaac::runtime::TryInstallEntryRelayEarly(HookId::RoomEntitySpawn,target,&roomOut) &&
+          isaac::runtime::relay::g_stubCalls==0 && roomOut==0x1234 &&
+          EntryRelayFallbackEntry(HookId::RoomEntitySpawn)==0 && !isaac::runtime::EntryRelayInstalledEarly(HookId::RoomEntitySpawn),
+          "71禁止early旧ABI安装且不许写任何安装内容");
+    isaac::runtime::relay::g_stubResult=true;
+    Check(adapter.Install(HookId::ManagerUpdate,target).ok() && adapter.IsInstalled(HookId::ManagerUpdate),
+          "ManagerUpdate在publisher发布后完成安装");
 
     if (g_failures == 0) {
         std::printf("ADAPTER_DRIVER_OK\n");

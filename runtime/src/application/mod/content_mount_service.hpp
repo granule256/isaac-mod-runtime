@@ -73,6 +73,15 @@ public:
     [[nodiscard]] std::size_t mod_count() const noexcept { return count_; }
     [[nodiscard]] std::string_view mod_directory(std::size_t index) const noexcept;
 
+    // 批次 354（2026-10-04）：**挂载失败在哪个叶子**（`kLeaves` 的下标；`kNoFailedLeaf` = 没有失败）。
+    //
+    // 为什么要它：`MountLeaves` 在**第一个失败的叶子**上就返回（see `.cpp`），而这个失败此前只
+    // 变成 `RegisterMod` 的一个 `Status` 码 —— 看不出"是哪个叶子挂不上"。真机读数需要一个能区分
+    // "环境不对"（端口直接 fail closed）与"模组自身某个目录不存在"（按契约不算失败）的抓手。
+    // ★ 只读诊断，不影响任何判定。
+    static constexpr std::uint32_t kNoFailedLeaf = 0xFFFFFFFFu;
+    [[nodiscard]] std::uint32_t last_failed_leaf() const noexcept { return lastFailedLeaf_; }
+
 private:
     struct Entry {
         std::array<char, kMaxDirectoryLength> directory{};
@@ -85,6 +94,8 @@ private:
     IContentMountPort& port_;
     std::array<Entry, kMaxMods> entries_{};
     std::size_t count_{0};
+    // 批次 354：最近一次 `MountLeaves` 失败落在哪个叶子（只读诊断用）。
+    std::uint32_t lastFailedLeaf_{kNoFailedLeaf};
 };
 
 // The session-scoped instance the rebuild relay reports through. It is published by

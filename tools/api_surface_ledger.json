@@ -1,6 +1,6 @@
 {
   "schema": "isaac-api-surface-ledger/1",
-  "note": "接口面（字段）人工分诊台账。工具（tools/eid_api_gap_report.py 第 ⑤ 段）只能说出\"模组读了哪个字段、我们没实现\"；要不要补、为什么不补是人的判断，就落在这里。门禁 runtime/tests/test_api_surface_ledger.py 要求两者一一对应：没有台账条目的缺口 ⇒ 红；台账里已实现或模组不再用的条目 ⇒ 也红（过期条目要删）。**字段一旦实现就从这里删掉**（处置过程与证据写在 docs/问题与解决记录.md 与代码注释里，台账只记\"还没做完的\"）。口径与已知局限见 docs/开发规范.md 第 28 条与 CONTRIBUTING.md 的\"第 0 维\"。 **2026-09-16 引擎写通道批次**：`Sprite.Color`/`Sprite.FlipX`（写）+ `Scale`（模组自己的表那条假阳性条目）随实现一起删除；工具同时补认第三种载体写法（命名常量 + `strcmp`），见 `tools/eid_api_gap_report.py` 的 `CARRIER_NAMED_CONSTANT_RE`。",
+  "note": "接口面（字段）人工分诊台账。工具（tools/eid_api_gap_report.py 第 ⑤ 段）只能说出\"模组读了哪个字段、我们没实现\"；要不要补、为什么不补是人的判断，就落在这里。门禁 runtime/tests/test_api_surface_ledger.py 要求两者一一对应：没有台账条目的缺口 ⇒ 红；台账里已实现或模组不再用的条目 ⇒ 也红（过期条目要删）。**字段一旦实现就从这里删掉**（处置过程与证据写在 docs/问题与解决记录.md 与代码注释里，台账只记\"还没做完的\"）。口径与已知局限见 docs/开发规范.md 第 28 条与 CONTRIBUTING.md 的\"第 0 维\"。 **2026-09-16 引擎写通道批次**：`Sprite.Color`/`Sprite.FlipX`（写）+ `Scale`（模组自己的表那条假阳性条目）随实现一起删除；工具同时补认第三种载体写法（命名常量 + `strcmp`），见 `tools/eid_api_gap_report.py` 的 `CARRIER_NAMED_CONSTANT_RE`。 **2026-09-29 批次 202（Lua 注释剥离）**：扫描器不再把注释里的字当代码，于是 `Entries`（只在注释里出现过）**全局过期 ⇒ 条目已删**；`V1` 的 EID 来源（注释里的版本号）也消失，条目因 BOIStageAPI15 的真实读法保留。 **2026-10-04 批次 341**：**删** `MaxDistance`（原为 wontfix 条目，理由写的是「假阳性：`EID.Config[\"MaxDistance\"]`（`main.lua:1466`）是模组配置项」）。本批把 `EntityLaser:SetMaxDistance(float)` 真实现了（PC 绑定 `0x4275B0` ⇒ 写 `Entity_Laser+0x4F8`，布局表 `tools/layout_tables/entity_laser.json` 的 `MaxDistance` 行**本批新建且 `confirmed`**）⇒ 按本文件开头那条口径「**字段一旦实现就从这里删掉**」，以及门禁的「运行时已实现 ⇒ 条目过期」判定（`load_implemented_fields` 第 4 条认 confirmed 的布局表行），这一条必须下线。★ 注意这**不是**说原来那条判断错了 —— EID 读的确实是它自己的配置项；是「同名」把两者绑在了一起，实现之后台账按名字整体下线。",
   "dispositions": {
     "planned": "确认是缺口，要补（可能要先取证偏移）",
     "blocked": "确认是缺口，但有前置条件没满足，写明缺什么",
@@ -18,14 +18,6 @@
       "why": "`eid_api.lua:2373-2375` 读 `player.QueuedItem.Item.ID`；但 `QueuedItem` 整族现在**有意**返回空的只读表（理由见 `runtime/src/interfaces/lua/isaac_api.cpp` 里 `PushEntityField` 的 `QueuedItem` 分支）⇒ 要先把那一族做实，`Item` 才有意义。"
     },
     {
-      "name": "Entries",
-      "owners": [
-        "RoomConfigSpawn"
-      ],
-      "disposition": "wontfix",
-      "why": "假阳性：只出现在描述文件的注释里（`descriptions/rep/en_us.lua:750`），不是代码。"
-    },
-    {
       "name": "Priority",
       "owners": [
         "ItemConfigCostume"
@@ -34,29 +26,12 @@
       "why": "假阳性：`EID.ModuleBehaviors[...].Priority`（`eid_modular_descriptions.lua:425`）是模组自己的模块排序字段。"
     },
     {
-      "name": "MaxDistance",
-      "owners": [
-        "EntityKnife",
-        "EntityLaser"
-      ],
-      "disposition": "wontfix",
-      "why": "假阳性：`EID.Config[\"MaxDistance\"]`（`main.lua:1466`）是模组配置项。"
-    },
-    {
-      "name": "Pathfinder",
-      "owners": [
-        "EntityNPC"
-      ],
-      "disposition": "wontfix",
-      "why": "假阳性：`EID.Pathfinder = require(\"features.pathfinder.luafinding\")`（`eid_api.lua:40`）是模组自带的寻路库。"
-    },
-    {
       "name": "V1",
       "owners": [
         "EntityNPC"
       ],
       "disposition": "wontfix",
-      "why": "假阳性：命中的是注释里的版本号 `.V1.9.7.7`（`main.lua:9`）。这条同时是工具的待改进点 —— 应该先剔除 Lua 注释再扫（本次未做，先登记）。"
+      "why": "假阳性：命中的是 **BOIStageAPI15 自己的表字段**（`minecarts.lua:34` 的 `minecart.V1 = vec`，不是 `EntityNPC.V1`）。★ 这条原来还有第二个来源 —— EID 的**注释**里那个版本号 `.V1.9.7.7`（`main.lua:9`）；**批次 202（2026-09-29）给扫描加上 Lua 注释剥离后，那个来源已经消失**，所以本条目保留的理由只剩下 BOIStageAPI15 这一处。"
     },
     {
       "name": "Spawns",
@@ -90,6 +65,75 @@
       ],
       "disposition": "wontfix",
       "why": "假阳性：`eid_modular_descriptions.lua:36` 的模组表键。注：`player.ShotSpeed` 目前没人读，将来若读到就是真缺口（那时改判 planned）。"
+    },
+    {
+      "name": "Wait",
+      "owners": [
+        "EntityPickup"
+      ],
+      "disposition": "planned",
+      "why": "真缺口（2026-09-25 批次 129 登记、批次 131 收进多模组口径）：PC 文档 `tools/pc_contract_docs/EntityPickup.md:133` 写明 `int Wait`（\"New collectibles spawn with a `Wait` value of 20 … decrement as game frames pass\"）；CyclingItemsAPI 的 `main.lua:394` 写 `entityPickup.Wait = 0`（Morph 之后清掉拾取缓冲），TBOI_Better-Voiding 也读到它。⚠️ **这是写**，而且我们的 `EntityPickup` 元表**没有 `__newindex`**（`isaac_api.cpp` 的 `RegisterViewMetatables` 里只有 `kEntityPlayerMetatable` 挂了它）⇒ 那一句现在会抛 \"attempt to index a userdata value\"，整条回调被派发器**静默摘掉**。要做实：① 定位 `EntityPickup` 的 `Wait` 偏移（读通道）；② 给 `EntityPickup` 元表加写通道（与 `ControlsCooldown` 同一形状）。"
+    },
+    {
+      "name": "PickupSubtype",
+      "owners": [
+        "ItemConfigCard"
+      ],
+      "disposition": "planned",
+      "why": "minimapi `custom_icons.lua:96-112` 读 **16 次**（`itemConfig:GetCard(p.SubType).PickupSubtype == N`，用来选卡/符文的具体图标）。PC 契约 `tools/pc_contract_docs/ItemConfig_Card.md:98-100`。**没有偏移证据**（我们只有 `kItemConfigCardTypeOffset=0x58` 与 `kItemConfigCardMimicChargeOffset=0x64`）⇒ 要先取证。读错后果：专属图标缺失、回落通用图标，`nil == N` 不抛错。"
+    },
+    {
+      "name": "Subtype",
+      "owners": [
+        "RoomConfigRoom"
+      ],
+      "disposition": "planned",
+      "why": "minimapi `main.lua:704/715/719/863/873/877/1062/1071/1075` 与 `nicejourney.lua:143` 读 **10 次**（特殊房型专属图标；传送进挑战房是否扣血）。★ **owner 对不上**：我们实现的是 **RoomConfigEntry.SubType**（大写 T、另一个 owner，`kRoomConfigEntrySubTypeOffset=0x06`，`remaining_api.cpp:4002-4012`）；`RoomConfigRoom`（模组真正访问的 `.Data.Subtype`）只有 `{Type, Shape}` 两个字段（`remaining_api.cpp:2306-2312`）⇒ 读它得 `nil`。要取证 `RoomConfigRoom.Subtype` 的偏移。"
+    },
+    {
+      "name": "ChallengeDone",
+      "owners": [
+        "RoomDescriptor"
+      ],
+      "disposition": "planned",
+      "why": "minimapi `nicejourney.lua:122/130` 读 2 次（挑战房未完成时判断能否传送）。★ **底座现成**：它就是 `RoomDescriptor.Flags` 的 **bit3**（`remaining_api.cpp:4412`、`field_api.hpp:213`、`runtime_constants.hpp:1104/1120`），已有对外出口 `Room:IsAmbushDone()`（`remaining_api.cpp:4410-4419`）⇒ **只差一个具名字段**。"
+    },
+    {
+      "name": "LeaveDoor",
+      "owners": [
+        "Level"
+      ],
+      "disposition": "planned",
+      "why": "minimapi `nicejourney.lua:169` 是**写**（`Game:GetLevel().LeaveDoor = -1`，PC 语义 = 到站不播开门动画，`tools/pc_contract_docs/Level.md:486-491`）。现状：`Level`/`Game` 的 `__newindex` 是 `IgnoredObjectFieldWrite`（`remaining_api.cpp:4208-4236`）⇒ **接受但忽略**。偏移**没有证据**（`remaining_api.hpp:159` 明写）⇒ 要取证。"
+    },
+    {
+      "name": "MapOpacity",
+      "owners": [
+        "Options"
+      ],
+      "disposition": "planned",
+      "why": "minimapi `main.lua:1430` 读 1 次（大地图透明度；`nil` 时 `or` 回落到模组自己的配置）。PC 契约 `tools/pc_contract_docs/Options.md:114-117`。**没有偏移证据**（`Options` 目前只实现了 `Language` 与静态 `HUDOffset`，`isaac_api.cpp:12022-12053`）⇒ 要取证。"
+    },
+    {
+      "name": "Slot",
+      "owners": [
+        "GridEntityDoor"
+      ],
+      "disposition": "wontfix",
+      "why": "**假阳性**：minimapi 唯一命中处是 `data.lua:310` 的 `[\"Slot\"] = {IconID=\"Slot\",...}` —— 那是**它自己图标注册表里的表键**，不是读门对象的字段（同段 `:305-312` 一整片同类键）。工具的正则 `FIELD_BRACKET_RE` 把表键算成了字段读。★ 附注：门的槽位偏移其实**已取证** `kGridEntityDoorSlotOffset=0x1A0`（`runtime_constants.hpp:1625`），但没有视图用它 —— 与本条无关，另计。"
+    },
+    {
+      "name": "State",
+      "owners": [
+        "EntityEffect",
+        "EntityFamiliar",
+        "EntityNPC",
+        "EntityPickup",
+        "GridEntity",
+        "GridEntityDesc"
+      ],
+      "disposition": "wontfix",
+      "why": "**假阳性**：minimapi 唯一命中处是 `main.lua:2242` 的 `StageAPI.TransitionAnimationData.State` —— 读的是 **StageAPI 自己的全局表**（判断过场动画是否进行中），不是引擎实体的 `State`。工具的 `FIELD_DOT_RE` 抓 `.State` 才命中。"
     }
   ]
 }

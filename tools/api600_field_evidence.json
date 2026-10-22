@@ -1,0 +1,1455 @@
+{
+  "schema": "isaac-api-field-evidence/1",
+  "note": "第六批最终100个独立新增=44方法56字段；另2个Vector Get试验实现与EntityPtr构造器不计100。全部Experimental。",
+  "rows": [
+    {
+      "owner": "TearParams",
+      "name": "TearVariant",
+      "key": "TearParams:TearVariant",
+      "kind": "field",
+      "pc": {
+        "registration": "pc-registration-params.txt",
+        "range": "0x804D2A..0x804D8D",
+        "offset": "0x0",
+        "writable": true,
+        "copy": "pc-tear-copy.txt"
+      },
+      "switch": {
+        "symbol": "Entity_Player::GetTearHitParams",
+        "entry": "0x2AD63C",
+        "file": "ns-GetTearHitParams.txt",
+        "offset": "0x0",
+        "type": "int32"
+      },
+      "contract": {
+        "page": "tools/pc_contract_docs/TearParams.md",
+        "line": 53,
+        "quote": "#### [int](enums/TearVariant.md) TearVariant {: .copyable aria-label='Variables' }"
+      },
+      "status": "statically_restored",
+      "evidence_group": "player/selected-23.json",
+      "maturity": "Experimental",
+      "hardware_verified": false,
+      "judgement": "runtime/tests/test_api600_player.py",
+      "evidence": "dist/apis600-20261016/field-proof-matrix.json",
+      "previous_status": "implemented_pending_final_verification"
+    },
+    {
+      "owner": "TearParams",
+      "name": "BombVariant",
+      "key": "TearParams:BombVariant",
+      "kind": "field",
+      "pc": {
+        "registration": "pc-registration-params.txt",
+        "range": "0x804D2A..0x804D8D",
+        "offset": "0x4",
+        "writable": true,
+        "copy": "pc-tear-copy.txt"
+      },
+      "switch": {
+        "symbol": "Entity_Player::GetTearHitParams",
+        "entry": "0x2AD63C",
+        "file": "ns-GetTearHitParams.txt",
+        "offset": "0x4",
+        "type": "int32"
+      },
+      "contract": {
+        "page": "tools/pc_contract_docs/TearParams.md",
+        "line": 23,
+        "quote": "#### [int](enums/BombVariant.md) BombVariant {: .copyable aria-label='Variables' }"
+      },
+      "status": "statically_restored",
+      "evidence_group": "player/selected-23.json",
+      "maturity": "Experimental",
+      "hardware_verified": false,
+      "judgement": "runtime/tests/test_api600_player.py",
+      "evidence": "dist/apis600-20261016/field-proof-matrix.json",
+      "previous_status": "implemented_pending_final_verification"
+    },
+    {
+      "owner": "TearParams",
+      "name": "TearColor",
+      "key": "TearParams:TearColor",
+      "kind": "field",
+      "pc": {
+        "registration": "pc-registration-params.txt",
+        "range": "0x804D2A..0x804D8D",
+        "offset": "0x8",
+        "writable": true,
+        "copy": "pc-tear-copy.txt"
+      },
+      "switch": {
+        "symbol": "Entity_Player::GetTearHitParams",
+        "entry": "0x2AD63C",
+        "file": "ns-GetTearHitParams.txt",
+        "offset": "0x8",
+        "type": "ColorMod44"
+      },
+      "contract": {
+        "page": "tools/pc_contract_docs/TearParams.md",
+        "line": 28,
+        "quote": "#### [Color](Color.md) TearColor  {: .copyable aria-label='Variables' }"
+      },
+      "status": "statically_restored",
+      "evidence_group": "player/selected-23.json",
+      "maturity": "Experimental",
+      "hardware_verified": false,
+      "judgement": "runtime/tests/test_api600_player.py",
+      "evidence": "dist/apis600-20261016/field-proof-matrix.json",
+      "previous_status": "implemented_pending_final_verification"
+    },
+    {
+      "owner": "TearParams",
+      "name": "TearFlags",
+      "key": "TearParams:TearFlags",
+      "kind": "field",
+      "pc": {
+        "registration": "pc-registration-params.txt",
+        "range": "0x804D2A..0x804D8D",
+        "offset": "0x38",
+        "writable": true,
+        "copy": "pc-tear-copy.txt"
+      },
+      "switch": {
+        "symbol": "Entity_Player::GetTearHitParams",
+        "entry": "0x2AD63C",
+        "file": "ns-GetTearHitParams.txt",
+        "offset": "0x38",
+        "type": "bitset128"
+      },
+      "contract": {
+        "page": "tools/pc_contract_docs/TearParams.md",
+        "line": 38,
+        "quote": "#### [TearFlags](enums/TearFlags.md) TearFlags  {: .copyable aria-label='Variables' }"
+      },
+      "status": "statically_restored",
+      "evidence_group": "player/selected-23.json",
+      "maturity": "Experimental",
+      "hardware_verified": false,
+      "judgement": "runtime/tests/test_api600_player.py",
+      "evidence": "dist/apis600-20261016/field-proof-matrix.json",
+      "previous_status": "implemented_pending_final_verification"
+    },
+    {
+      "owner": "TearParams",
+      "name": "TearDamage",
+      "key": "TearParams:TearDamage",
+      "kind": "field",
+      "pc": {
+        "registration": "pc-registration-params.txt",
+        "range": "0x804D2A..0x804D8D",
+        "offset": "0x48",
+        "writable": true,
+        "copy": "pc-tear-copy.txt"
+      },
+      "switch": {
+        "symbol": "Entity_Player::GetTearHitParams",
+        "entry": "0x2AD63C",
+        "file": "ns-GetTearHitParams.txt",
+        "offset": "0x48",
+        "type": "float"
+      },
+      "contract": {
+        "page": "tools/pc_contract_docs/TearParams.md",
+        "line": 33,
+        "quote": "#### float TearDamage  {: .copyable aria-label='Variables' }"
+      },
+      "status": "statically_restored",
+      "evidence_group": "player/selected-23.json",
+      "maturity": "Experimental",
+      "hardware_verified": false,
+      "judgement": "runtime/tests/test_api600_player.py",
+      "evidence": "dist/apis600-20261016/field-proof-matrix.json",
+      "previous_status": "implemented_pending_final_verification"
+    },
+    {
+      "owner": "TearParams",
+      "name": "TearScale",
+      "key": "TearParams:TearScale",
+      "kind": "field",
+      "pc": {
+        "registration": "pc-registration-params.txt",
+        "range": "0x804D2A..0x804D8D",
+        "offset": "0x4c",
+        "writable": true,
+        "copy": "pc-tear-copy.txt"
+      },
+      "switch": {
+        "symbol": "Entity_Player::GetTearHitParams",
+        "entry": "0x2AD63C",
+        "file": "ns-GetTearHitParams.txt",
+        "offset": "0x4c",
+        "type": "float"
+      },
+      "contract": {
+        "page": "tools/pc_contract_docs/TearParams.md",
+        "line": 48,
+        "quote": "#### float TearScale  {: .copyable aria-label='Variables' }"
+      },
+      "status": "statically_restored",
+      "evidence_group": "player/selected-23.json",
+      "maturity": "Experimental",
+      "hardware_verified": false,
+      "judgement": "runtime/tests/test_api600_player.py",
+      "evidence": "dist/apis600-20261016/field-proof-matrix.json",
+      "previous_status": "implemented_pending_final_verification"
+    },
+    {
+      "owner": "TearParams",
+      "name": "TearHeight",
+      "key": "TearParams:TearHeight",
+      "kind": "field",
+      "pc": {
+        "registration": "pc-registration-params.txt",
+        "range": "0x804D2A..0x804D8D",
+        "offset": "0x50",
+        "writable": true,
+        "copy": "pc-tear-copy.txt"
+      },
+      "switch": {
+        "symbol": "Entity_Player::GetTearHitParams",
+        "entry": "0x2AD63C",
+        "file": "ns-GetTearHitParams.txt",
+        "offset": "0x50",
+        "type": "float"
+      },
+      "contract": {
+        "page": "tools/pc_contract_docs/TearParams.md",
+        "line": 43,
+        "quote": "#### float TearHeight  {: .copyable aria-label='Variables' }"
+      },
+      "status": "statically_restored",
+      "evidence_group": "player/selected-23.json",
+      "maturity": "Experimental",
+      "hardware_verified": false,
+      "judgement": "runtime/tests/test_api600_player.py",
+      "evidence": "dist/apis600-20261016/field-proof-matrix.json",
+      "previous_status": "implemented_pending_final_verification"
+    },
+    {
+      "owner": "EntityPlayer",
+      "name": "HeadFrameDelay",
+      "key": "EntityPlayer:HeadFrameDelay",
+      "kind": "field",
+      "pc": {
+        "owner": "EntityPlayer",
+        "name": "HeadFrameDelay",
+        "values": [
+          1,
+          4744,
+          11873500
+        ],
+        "registrar": "0x8203c0",
+        "call": "0x806cf8",
+        "ret": 12,
+        "native_or_field": "0x1288",
+        "wrapper": "0x8597a0"
+      },
+      "switch": {
+        "offset": "0x16b0",
+        "type": "int32",
+        "evidence": "ns-control_shooting.txt:0x2B424C..0x2B427C 与PC745A0C..745A2A同算法"
+      },
+      "contract": {
+        "page": "tools/pc_contract_docs/EntityPlayer.md",
+        "line": 1946,
+        "quote": "#### int HeadFrameDelay  {: .copyable aria-label='Variables' }"
+      },
+      "status": "statically_restored",
+      "evidence_group": "player/selected-23.json",
+      "maturity": "Experimental",
+      "hardware_verified": false,
+      "judgement": "runtime/tests/test_api600_player.py",
+      "evidence": "dist/apis600-20261016/field-proof-matrix.json",
+      "previous_status": "implemented_pending_final_verification"
+    },
+    {
+      "owner": "EntityPlayer",
+      "name": "IBSCharge",
+      "key": "EntityPlayer:IBSCharge",
+      "kind": "field",
+      "pc": {
+        "owner": "EntityPlayer",
+        "name": "IBSCharge",
+        "values": [
+          1,
+          8064,
+          11874160
+        ],
+        "registrar": "0x81fad0",
+        "call": "0x806e1e",
+        "ret": 12,
+        "native_or_field": "0x1f80",
+        "wrapper": "0x859160"
+      },
+      "switch": {
+        "offset": "0x2844",
+        "type": "float",
+        "evidence": "ns-add_ibs_charge.txt"
+      },
+      "contract": {
+        "page": "tools/pc_contract_docs/EntityPlayer.md",
+        "line": 1953,
+        "quote": "#### float IBSCharge  {: .copyable aria-label='Variables' }"
+      },
+      "status": "statically_restored",
+      "evidence_group": "player/selected-23.json",
+      "maturity": "Experimental",
+      "hardware_verified": false,
+      "judgement": "runtime/tests/test_api600_player.py",
+      "evidence": "dist/apis600-20261016/field-proof-matrix.json",
+      "previous_status": "implemented_pending_final_verification"
+    },
+    {
+      "owner": "EntityPlayer",
+      "name": "SamsonBerserkCharge",
+      "key": "EntityPlayer:SamsonBerserkCharge",
+      "kind": "field",
+      "pc": {
+        "owner": "EntityPlayer",
+        "name": "SamsonBerserkCharge",
+        "values": [
+          1,
+          8060,
+          11874204
+        ],
+        "registrar": "0x8203c0",
+        "call": "0x806e17",
+        "ret": 12,
+        "native_or_field": "0x1f7c",
+        "wrapper": "0x8597a0"
+      },
+      "switch": {
+        "offset": "0x2840",
+        "type": "int32",
+        "evidence": "ns-add_samson_berserk_charge.txt"
+      },
+      "contract": {
+        "page": "tools/pc_contract_docs/EntityPlayer.md",
+        "line": 2023,
+        "quote": "#### int SamsonBerserkCharge  {: .copyable aria-label='Variables' }"
+      },
+      "status": "statically_restored",
+      "evidence_group": "player/selected-23.json",
+      "maturity": "Experimental",
+      "hardware_verified": false,
+      "judgement": "runtime/tests/test_api600_player.py",
+      "evidence": "dist/apis600-20261016/field-proof-matrix.json",
+      "previous_status": "implemented_pending_final_verification"
+    },
+    {
+      "owner": "EntityPlayer",
+      "name": "LaserColor",
+      "key": "EntityPlayer:LaserColor",
+      "kind": "field",
+      "pc": {
+        "owner": "EntityPlayer",
+        "name": "LaserColor",
+        "values": [
+          1,
+          5132,
+          11873360
+        ],
+        "registrar": "0x81fdc0",
+        "call": "0x806cce",
+        "ret": 12,
+        "native_or_field": "0x140c",
+        "wrapper": "0x859360"
+      },
+      "switch": {
+        "offset": "0x1894",
+        "type": "ColorMod44",
+        "evidence": "ns-EvaluateItems.txt:0x2864A8..0x2864E8"
+      },
+      "contract": {
+        "page": "tools/pc_contract_docs/EntityPlayer.md",
+        "line": 1963,
+        "quote": "#### [Color](Color.md) LaserColor  {: .copyable aria-label='Variables' }"
+      },
+      "status": "statically_restored",
+      "evidence_group": "player/selected-23.json",
+      "maturity": "Experimental",
+      "hardware_verified": false,
+      "judgement": "runtime/tests/test_api600_player.py",
+      "evidence": "dist/apis600-20261016/field-proof-matrix.json",
+      "previous_status": "implemented_pending_final_verification"
+    },
+    {
+      "owner": "EntityPlayer",
+      "name": "TearsOffset",
+      "key": "EntityPlayer:TearsOffset",
+      "kind": "field",
+      "pc": {
+        "owner": "EntityPlayer",
+        "name": "TearsOffset",
+        "values": [
+          7608336,
+          7471360,
+          11870732
+        ],
+        "registrar": "0x81db40",
+        "call": "0x8068b4",
+        "ret": 12,
+        "native_or_field": "0x720100",
+        "wrapper": "0x8386b0"
+      },
+      "switch": {
+        "offset": "0x1a20",
+        "type": "ConstVector borrowed",
+        "evidence": "ns-Init.txt:0x27976C..0x27977C"
+      },
+      "contract": {
+        "page": "tools/pc_contract_docs/EntityPlayer.md",
+        "line": 2112,
+        "quote": "#### [Vector](Vector.md) TearsOffset  {: .copyable aria-label='Variables' }"
+      },
+      "status": "statically_restored",
+      "evidence_group": "player/selected-23.json",
+      "maturity": "Experimental",
+      "hardware_verified": false,
+      "judgement": "runtime/tests/test_api600_player.py",
+      "evidence": "dist/apis600-20261016/field-proof-matrix.json",
+      "previous_status": "implemented_pending_final_verification"
+    },
+    {
+      "owner": "EntityPlayer",
+      "name": "FriendBallEnemy",
+      "key": "EntityPlayer:FriendBallEnemy",
+      "kind": "field",
+      "pc": {
+        "owner": "EntityPlayer",
+        "name": "FriendBallEnemy",
+        "values": [
+          5994208,
+          5994256,
+          11872776
+        ],
+        "registrar": "0x81ef40",
+        "call": "0x806b77",
+        "ret": 12,
+        "native_or_field": "0x5b7710",
+        "wrapper": "0x8383f0"
+      },
+      "switch": {
+        "offset": "0x1d88",
+        "type": "ConstEntityDesc borrowed28",
+        "evidence": "ns-control_shooting.txt:0x2B6A24/0x2B6E38..0x2B6E6C"
+      },
+      "contract": {
+        "page": "tools/pc_contract_docs/EntityPlayer.md",
+        "line": 1939,
+        "quote": "#### const EntityDesc FriendBallEnemy  {: .copyable aria-label='Variables' }"
+      },
+      "status": "statically_restored",
+      "evidence_group": "player/selected-23.json",
+      "maturity": "Experimental",
+      "hardware_verified": false,
+      "judgement": "runtime/tests/test_api600_player.py",
+      "evidence": "dist/apis600-20261016/field-proof-matrix.json",
+      "previous_status": "implemented_pending_final_verification"
+    },
+    {
+      "owner": "EntityPlayer",
+      "name": "FireDelay",
+      "key": "EntityPlayer:FireDelay",
+      "kind": "field",
+      "pc": {
+        "owner": "EntityPlayer",
+        "name": "FireDelay",
+        "values": [
+          7649440,
+          7649376,
+          11873228
+        ],
+        "registrar": "0x81f950",
+        "call": "0x806c81",
+        "ret": 12,
+        "native_or_field": "0x74b860",
+        "wrapper": "0x837f30"
+      },
+      "switch": {
+        "offset": "0x1758",
+        "type": "weapon lookup",
+        "evidence": "ns-control_shooting.txt:0x2B28E0..0x2B28EC；ns-Weapon-Update.txt:0x4A7910..0x4A7938"
+      },
+      "contract": {
+        "page": "tools/pc_contract_docs/EntityPlayer.md",
+        "line": 1930,
+        "quote": "#### float FireDelay  {: .copyable aria-label='Variables' }"
+      },
+      "status": "statically_restored",
+      "evidence_group": "player/selected-23.json",
+      "maturity": "Experimental",
+      "hardware_verified": false,
+      "judgement": "runtime/tests/test_api600_player.py",
+      "evidence": "dist/apis600-20261016/field-proof-matrix.json",
+      "previous_status": "implemented_pending_final_verification"
+    },
+    {
+      "owner": "PlayerTypesPosVel",
+      "name": "Position",
+      "key": "PlayerTypesPosVel:Position",
+      "kind": "field",
+      "pc": {
+        "registration": "pc-registration-params.txt:0x80513E..0x80517C",
+        "registrar": "pc-posvel-registrar.txt",
+        "wrapper": "pc-posvel-wrapper.txt",
+        "offset": "0x0",
+        "value_copy": true,
+        "writable": true
+      },
+      "switch": {
+        "evidence": "ns-GetMultiShotPositionVelocity.txt",
+        "type": "HFA4float",
+        "offset": "0x0"
+      },
+      "contract": {
+        "page": "tools/pc_contract_docs/PlayerTypes_PosVel.md",
+        "line": 17,
+        "quote": "#### [Vector](Vector.md) Position {: .copyable aria-label='Variables' }"
+      },
+      "status": "statically_restored",
+      "evidence_group": "player/selected-23.json",
+      "maturity": "Experimental",
+      "hardware_verified": false,
+      "judgement": "runtime/tests/test_api600_player.py",
+      "evidence": "dist/apis600-20261016/field-proof-matrix.json",
+      "previous_status": "implemented_pending_final_verification"
+    },
+    {
+      "owner": "PlayerTypesPosVel",
+      "name": "Velocity",
+      "key": "PlayerTypesPosVel:Velocity",
+      "kind": "field",
+      "pc": {
+        "registration": "pc-registration-params.txt:0x80513E..0x80517C",
+        "registrar": "pc-posvel-registrar.txt",
+        "wrapper": "pc-posvel-wrapper.txt",
+        "offset": "0x8",
+        "value_copy": true,
+        "writable": true
+      },
+      "switch": {
+        "evidence": "ns-GetMultiShotPositionVelocity.txt",
+        "type": "HFA4float",
+        "offset": "0x8"
+      },
+      "contract": {
+        "page": "tools/pc_contract_docs/PlayerTypes_PosVel.md",
+        "line": 22,
+        "quote": "#### [Vector](Vector.md) Velocity {: .copyable aria-label='Variables' }"
+      },
+      "status": "statically_restored",
+      "evidence_group": "player/selected-23.json",
+      "maturity": "Experimental",
+      "hardware_verified": false,
+      "judgement": "runtime/tests/test_api600_player.py",
+      "evidence": "dist/apis600-20261016/field-proof-matrix.json",
+      "previous_status": "implemented_pending_final_verification"
+    },
+    {
+      "owner": "RoomConfigSpawn",
+      "name": "Entries",
+      "key": "RoomConfigSpawn:Entries",
+      "pc": {
+        "registration": "pc-registration-container.txt:0x808792..0x808797",
+        "accessor": "pc-entries-accessor.txt:0x80E4C0",
+        "shape": "returns ArrayProxy{u32 size, Entry*begin}"
+      },
+      "switch": {
+        "file": "ns-RoomConfig-parse_room_node-0x48f480.txt",
+        "range": "0x48FF18..0x48FF40",
+        "pointer": 8,
+        "count": 16,
+        "count_type": "u8"
+      },
+      "contract": {
+        "page": "tools/pc_contract_docs/RoomConfig_Spawn.md",
+        "line": 34,
+        "quote": "#### [RoomConfigEntries](CppContainer_ArrayProxy_RoomConfigEntries.md) Entries  {: .copyable aria-label='Variables' }"
+      },
+      "status": "statically_restored",
+      "kind": "field",
+      "evidence_group": "containers/selected-7.json",
+      "maturity": "Experimental",
+      "hardware_verified": false,
+      "judgement": "runtime/tests/test_api600_containers.py",
+      "evidence": "dist/apis600-20261016/field-proof-matrix.json",
+      "previous_status": "implemented_pending_final_verification"
+    },
+    {
+      "owner": "RoomConfigSpawn",
+      "name": "X",
+      "key": "RoomConfigSpawn:X",
+      "pc": {
+        "registration": "pc-registration-container.txt:0x80879C..0x8087A9",
+        "wrapper": "pc-wrapper-85c880.txt:0x85C8C3 movsx word"
+      },
+      "switch": {
+        "file": "ns-RoomConfig-parse_room_node-0x48f480.txt",
+        "write": "0x48FF1C/0x48FF24",
+        "mirror": "ns-RoomConfig-CreateMirroredRoom-0x495238.txt:0x495464..0x49547C",
+        "offset": 0,
+        "type": "signed16"
+      },
+      "contract": {
+        "page": "tools/pc_contract_docs/RoomConfig_Spawn.md",
+        "line": 50,
+        "quote": "#### int X  {: .copyable aria-label='Variables' }"
+      },
+      "status": "statically_restored",
+      "kind": "field",
+      "evidence_group": "containers/selected-7.json",
+      "maturity": "Experimental",
+      "hardware_verified": false,
+      "judgement": "runtime/tests/test_api600_containers.py",
+      "evidence": "dist/apis600-20261016/field-proof-matrix.json",
+      "previous_status": "implemented_pending_final_verification"
+    },
+    {
+      "owner": "RoomConfigSpawn",
+      "name": "Y",
+      "key": "RoomConfigSpawn:Y",
+      "pc": {
+        "registration": "pc-registration-container.txt:0x80879C..0x8087A9",
+        "wrapper": "pc-wrapper-85c880.txt:0x85C8C3 movsx word"
+      },
+      "switch": {
+        "file": "ns-RoomConfig-parse_room_node-0x48f480.txt",
+        "write": "0x48FF1C/0x48FF24",
+        "mirror": "ns-RoomConfig-CreateMirroredRoom-0x495238.txt:0x495464..0x49547C",
+        "offset": 2,
+        "type": "signed16"
+      },
+      "contract": {
+        "page": "tools/pc_contract_docs/RoomConfig_Spawn.md",
+        "line": 55,
+        "quote": "#### int Y  {: .copyable aria-label='Variables' }"
+      },
+      "status": "statically_restored",
+      "kind": "field",
+      "evidence_group": "containers/selected-7.json",
+      "maturity": "Experimental",
+      "hardware_verified": false,
+      "judgement": "runtime/tests/test_api600_containers.py",
+      "evidence": "dist/apis600-20261016/field-proof-matrix.json",
+      "previous_status": "implemented_pending_final_verification"
+    },
+    {
+      "owner": "RoomConfigEntries",
+      "name": "Size",
+      "key": "RoomConfigEntries:Size",
+      "pc": {
+        "registration": "pc-container-registrars.txt:0x829A10..0x829CD0",
+        "get_native": "pc-container-get-native.txt:0x83C360",
+        "get_wrapper": "pc-wrapper-85ffa0.txt",
+        "size_len_wrapper": "pc-wrapper-85dc50.txt"
+      },
+      "switch": {
+        "entry_stride": 12,
+        "pointer": "Spawn+8",
+        "count": "Spawn+0x10 u8",
+        "evidence": "ns-RoomConfig-CreateMirroredRoom-0x495238.txt:0x495488..0x4954C4"
+      },
+      "contract": {
+        "page": "tools/pc_contract_docs/CppContainer_ArrayProxy_RoomConfigEntries.md",
+        "line": 41,
+        "quote": "#### const int Size  {: .copyable aria-label='Variables' }"
+      },
+      "status": "statically_restored",
+      "kind": "field",
+      "evidence_group": "containers/selected-7.json",
+      "maturity": "Experimental",
+      "hardware_verified": false,
+      "judgement": "runtime/tests/test_api600_containers.py",
+      "evidence": "dist/apis600-20261016/field-proof-matrix.json",
+      "previous_status": "implemented_pending_final_verification"
+    },
+    {
+      "owner": "EntityPtr",
+      "name": "Ref",
+      "key": "EntityPtr:Ref",
+      "pc": {
+        "registration": "pc-ref-registrar.txt:0x811410..0x811502",
+        "getter": "pc-ref-native.txt:0x4076F0",
+        "wrapper": "pc-ref-wrapper.txt:0x83C240..0x83C2DF",
+        "setter": false
+      },
+      "contract": {
+        "page": "tools/pc_contract_docs/EntityPtr.md",
+        "line": 59,
+        "quote": "#### [Entity](Entity.md) Ref {: .copyable aria-label='Variables' }"
+      },
+      "switch": {
+        "evidence": [
+          "ns-dtorEntity-0x589bc.txt",
+          "ns-ClearReferences-0x5d400.txt",
+          "ns-reference-tree-destroy.txt"
+        ],
+        "runtime_chain": "runtime/source/entity_remove_hook.cpp EntityDestructorRemoveInternalCallback -> RetireEntityLifetime",
+        "implementation": "不向引擎引用树挂Lua内存；复用已安装D2身份失效token，uservalue强持"
+      },
+      "status": "statically_restored",
+      "kind": "field",
+      "evidence_group": "entityptr/selected-3.json",
+      "maturity": "Experimental",
+      "hardware_verified": false,
+      "judgement": "runtime/tests/test_api600_entityptr.py",
+      "evidence": "dist/apis600-20261016/field-proof-matrix.json",
+      "previous_status": "implemented_pending_final_verification"
+    },
+    {
+      "key": "Entity:Mass",
+      "owner": "Entity",
+      "name": "Mass",
+      "offset": 848,
+      "value_kind": "float",
+      "writable": true,
+      "kind": "field",
+      "evidence_group": "entity-selected.json",
+      "status": "statically_restored",
+      "maturity": "Experimental",
+      "hardware_verified": false,
+      "contract": {
+        "page": "tools/pc_contract_docs/Entity.md",
+        "line": 768,
+        "quote": "#### float Mass  {: .copyable aria-label='Variables' }"
+      },
+      "judgement": "runtime/tests/test_api600_entities.py",
+      "evidence": "dist/apis600-20261016/field-proof-matrix.json",
+      "previous_status": "implemented_pending_final_verification"
+    },
+    {
+      "key": "Entity:RenderZOffset",
+      "owner": "Entity",
+      "name": "RenderZOffset",
+      "offset": 808,
+      "value_kind": "int",
+      "writable": true,
+      "kind": "field",
+      "evidence_group": "entity-selected.json",
+      "status": "statically_restored",
+      "maturity": "Experimental",
+      "hardware_verified": false,
+      "contract": {
+        "page": "tools/pc_contract_docs/Entity.md",
+        "line": 796,
+        "quote": "#### int RenderZOffset  {: .copyable aria-label='Variables' }"
+      },
+      "judgement": "runtime/tests/test_api600_entities.py",
+      "evidence": "dist/apis600-20261016/field-proof-matrix.json",
+      "previous_status": "implemented_pending_final_verification"
+    },
+    {
+      "key": "Entity:SortingLayer",
+      "owner": "Entity",
+      "name": "SortingLayer",
+      "offset": 816,
+      "value_kind": "int",
+      "writable": true,
+      "kind": "field",
+      "evidence_group": "entity-selected.json",
+      "status": "statically_restored",
+      "maturity": "Experimental",
+      "hardware_verified": false,
+      "contract": {
+        "page": "tools/pc_contract_docs/Entity.md",
+        "line": 817,
+        "quote": "#### [SortingLayer](enums/SortingLayer.md) SortingLayer  {: .copyable aria-label='Variables' }"
+      },
+      "judgement": "runtime/tests/test_api600_entities.py",
+      "evidence": "dist/apis600-20261016/field-proof-matrix.json",
+      "previous_status": "implemented_pending_final_verification"
+    },
+    {
+      "key": "Entity:SpawnGridIndex",
+      "owner": "Entity",
+      "name": "SpawnGridIndex",
+      "offset": 832,
+      "value_kind": "int",
+      "writable": false,
+      "kind": "field",
+      "evidence_group": "entity-selected.json",
+      "status": "statically_restored",
+      "maturity": "Experimental",
+      "hardware_verified": false,
+      "contract": {
+        "page": "tools/pc_contract_docs/Entity.md",
+        "line": 839,
+        "quote": "#### const int SpawnGridIndex  {: .copyable aria-label='Variables' }"
+      },
+      "judgement": "runtime/tests/test_api600_entities.py",
+      "evidence": "dist/apis600-20261016/field-proof-matrix.json",
+      "previous_status": "implemented_pending_final_verification"
+    },
+    {
+      "key": "Entity:SpriteRotation",
+      "owner": "Entity",
+      "name": "SpriteRotation",
+      "offset": 308,
+      "value_kind": "float",
+      "writable": true,
+      "kind": "field",
+      "evidence_group": "entity-selected.json",
+      "status": "statically_restored",
+      "maturity": "Experimental",
+      "hardware_verified": false,
+      "contract": {
+        "page": "tools/pc_contract_docs/Entity.md",
+        "line": 862,
+        "quote": "#### float SpriteRotation  {: .copyable aria-label='Variables' }"
+      },
+      "judgement": "runtime/tests/test_api600_entities.py",
+      "evidence": "dist/apis600-20261016/field-proof-matrix.json",
+      "previous_status": "implemented_pending_final_verification"
+    },
+    {
+      "key": "Entity:FlipX",
+      "owner": "Entity",
+      "name": "FlipX",
+      "offset": 449,
+      "value_kind": "bool",
+      "writable": true,
+      "kind": "field",
+      "evidence_group": "entity-selected.json",
+      "status": "statically_restored",
+      "maturity": "Experimental",
+      "hardware_verified": false,
+      "contract": {
+        "page": "tools/pc_contract_docs/Entity.md",
+        "line": 727,
+        "quote": "#### boolean FlipX  {: .copyable aria-label='Variables' }"
+      },
+      "judgement": "runtime/tests/test_api600_entities.py",
+      "evidence": "dist/apis600-20261016/field-proof-matrix.json",
+      "previous_status": "implemented_pending_final_verification"
+    },
+    {
+      "key": "Entity:SizeMulti",
+      "owner": "Entity",
+      "name": "SizeMulti",
+      "offset": 840,
+      "value_kind": "vector",
+      "writable": true,
+      "kind": "field",
+      "evidence_group": "entity-selected.json",
+      "status": "statically_restored",
+      "maturity": "Experimental",
+      "hardware_verified": false,
+      "contract": {
+        "page": "tools/pc_contract_docs/Entity.md",
+        "line": 810,
+        "quote": "#### [Vector](Vector.md) SizeMulti  {: .copyable aria-label='Variables' }"
+      },
+      "judgement": "runtime/tests/test_api600_entities.py",
+      "evidence": "dist/apis600-20261016/field-proof-matrix.json",
+      "previous_status": "implemented_pending_final_verification"
+    },
+    {
+      "key": "Entity:TargetPosition",
+      "owner": "Entity",
+      "name": "TargetPosition",
+      "offset": 800,
+      "value_kind": "refvector",
+      "writable": true,
+      "kind": "field",
+      "evidence_group": "entity-selected.json",
+      "status": "statically_restored",
+      "maturity": "Experimental",
+      "hardware_verified": false,
+      "contract": {
+        "page": "tools/pc_contract_docs/Entity.md",
+        "line": 891,
+        "quote": "#### [Vector](Vector.md) TargetPosition  {: .copyable aria-label='Variables' }"
+      },
+      "judgement": "runtime/tests/test_api600_entities.py",
+      "evidence": "dist/apis600-20261016/field-proof-matrix.json",
+      "previous_status": "implemented_pending_final_verification"
+    },
+    {
+      "owner": "Game",
+      "name": "BossRushParTime",
+      "key": "Game:BossRushParTime",
+      "offset": 2423204,
+      "value_kind": "Int",
+      "guard": 4614960,
+      "writable": true,
+      "kind": "field",
+      "evidence_group": "world-selected.json",
+      "status": "statically_restored",
+      "maturity": "Experimental",
+      "hardware_verified": false,
+      "contract": {
+        "page": "tools/pc_contract_docs/Game.md",
+        "line": 614,
+        "quote": "#### int BossRushParTime  {: .copyable aria-label='Variables' }"
+      },
+      "judgement": "runtime/tests/test_api600_world.py",
+      "evidence": "dist/apis600-20261016/field-proof-matrix.json",
+      "previous_status": "implemented_pending_final_verification"
+    },
+    {
+      "owner": "Game",
+      "name": "BlueWombParTime",
+      "key": "Game:BlueWombParTime",
+      "offset": 2423208,
+      "value_kind": "Int",
+      "guard": 4661508,
+      "writable": true,
+      "kind": "field",
+      "evidence_group": "world-selected.json",
+      "status": "statically_restored",
+      "maturity": "Experimental",
+      "hardware_verified": false,
+      "contract": {
+        "page": "tools/pc_contract_docs/Game.md",
+        "line": 609,
+        "quote": "#### int BlueWombParTime  {: .copyable aria-label='Variables' }"
+      },
+      "judgement": "runtime/tests/test_api600_world.py",
+      "evidence": "dist/apis600-20261016/field-proof-matrix.json",
+      "previous_status": "implemented_pending_final_verification"
+    },
+    {
+      "owner": "Level",
+      "name": "LeaveDoor",
+      "key": "Level:LeaveDoor",
+      "offset": 136556,
+      "value_kind": "Int",
+      "guard": 4037504,
+      "writable": true,
+      "kind": "field",
+      "evidence_group": "world-selected.json",
+      "status": "statically_restored",
+      "maturity": "Experimental",
+      "hardware_verified": false,
+      "contract": {
+        "page": "tools/pc_contract_docs/Level.md",
+        "line": 486,
+        "quote": "#### int LeaveDoor  {: .copyable aria-label='Variables' }"
+      },
+      "judgement": "runtime/tests/test_api600_world.py",
+      "evidence": "dist/apis600-20261016/field-proof-matrix.json",
+      "previous_status": "implemented_pending_final_verification"
+    },
+    {
+      "owner": "Level",
+      "name": "DungeonReturnPosition",
+      "key": "Level:DungeonReturnPosition",
+      "offset": 136564,
+      "value_kind": "Vector",
+      "guard": 4065728,
+      "writable": true,
+      "kind": "field",
+      "evidence_group": "world-selected.json",
+      "status": "statically_restored",
+      "maturity": "Experimental",
+      "hardware_verified": false,
+      "contract": {
+        "page": "tools/pc_contract_docs/Level.md",
+        "line": 462,
+        "quote": "#### [Vector](Vector.md) DungeonReturnPosition {: .copyable aria-label='Variables' }"
+      },
+      "judgement": "runtime/tests/test_api600_world.py",
+      "evidence": "dist/apis600-20261016/field-proof-matrix.json",
+      "previous_status": "implemented_pending_final_verification"
+    },
+    {
+      "owner": "Level",
+      "name": "GreedModeWave",
+      "key": "Level:GreedModeWave",
+      "offset": 136584,
+      "value_kind": "UInt",
+      "guard": 4064852,
+      "writable": true,
+      "kind": "field",
+      "evidence_group": "world-selected.json",
+      "status": "statically_restored",
+      "maturity": "Experimental",
+      "hardware_verified": false,
+      "contract": {
+        "page": "tools/pc_contract_docs/Level.md",
+        "line": 481,
+        "quote": "#### int GreedModeWave  {: .copyable aria-label='Variables' }"
+      },
+      "judgement": "runtime/tests/test_api600_world.py",
+      "evidence": "dist/apis600-20261016/field-proof-matrix.json",
+      "previous_status": "implemented_pending_final_verification"
+    },
+    {
+      "owner": "RoomDescriptor",
+      "name": "ClearCount",
+      "key": "RoomDescriptor:ClearCount",
+      "offset": 86,
+      "value_kind": "U16",
+      "guard": 4656004,
+      "writable": true,
+      "kind": "field",
+      "evidence_group": "world-selected.json",
+      "status": "statically_restored",
+      "maturity": "Experimental",
+      "hardware_verified": false,
+      "contract": {
+        "page": "tools/pc_contract_docs/RoomDescriptor.md",
+        "line": 46,
+        "quote": "#### int ClearCount  {: .copyable aria-label='Variables' }"
+      },
+      "judgement": "runtime/tests/test_api600_world.py",
+      "evidence": "dist/apis600-20261016/field-proof-matrix.json",
+      "previous_status": "implemented_pending_final_verification"
+    },
+    {
+      "owner": "RoomDescriptor",
+      "name": "PoopCount",
+      "key": "RoomDescriptor:PoopCount",
+      "offset": 92,
+      "value_kind": "I16",
+      "guard": 3605260,
+      "writable": true,
+      "kind": "field",
+      "evidence_group": "world-selected.json",
+      "status": "statically_restored",
+      "maturity": "Experimental",
+      "hardware_verified": false,
+      "contract": {
+        "page": "tools/pc_contract_docs/RoomDescriptor.md",
+        "line": 173,
+        "quote": "#### int PoopCount  {: .copyable aria-label='Variables' }"
+      },
+      "judgement": "runtime/tests/test_api600_world.py",
+      "evidence": "dist/apis600-20261016/field-proof-matrix.json",
+      "previous_status": "implemented_pending_final_verification"
+    },
+    {
+      "owner": "RoomDescriptor",
+      "name": "PitsCount",
+      "key": "RoomDescriptor:PitsCount",
+      "offset": 96,
+      "value_kind": "Int",
+      "guard": 3605260,
+      "writable": true,
+      "kind": "field",
+      "evidence_group": "world-selected.json",
+      "status": "statically_restored",
+      "maturity": "Experimental",
+      "hardware_verified": false,
+      "contract": {
+        "page": "tools/pc_contract_docs/RoomDescriptor.md",
+        "line": 168,
+        "quote": "#### int PitsCount  {: .copyable aria-label='Variables' }"
+      },
+      "judgement": "runtime/tests/test_api600_world.py",
+      "evidence": "dist/apis600-20261016/field-proof-matrix.json",
+      "previous_status": "implemented_pending_final_verification"
+    },
+    {
+      "owner": "RoomDescriptor",
+      "name": "ShopItemIdx",
+      "key": "RoomDescriptor:ShopItemIdx",
+      "offset": 240,
+      "value_kind": "I16",
+      "guard": 3607520,
+      "writable": true,
+      "kind": "field",
+      "evidence_group": "world-selected.json",
+      "status": "statically_restored",
+      "maturity": "Experimental",
+      "hardware_verified": false,
+      "contract": {
+        "page": "tools/pc_contract_docs/RoomDescriptor.md",
+        "line": 229,
+        "quote": "#### int ShopItemIdx  {: .copyable aria-label='Variables' }"
+      },
+      "judgement": "runtime/tests/test_api600_world.py",
+      "evidence": "dist/apis600-20261016/field-proof-matrix.json",
+      "previous_status": "implemented_pending_final_verification"
+    },
+    {
+      "owner": "GridEntityDoor",
+      "name": "OpenAnimation",
+      "key": "GridEntityDoor:OpenAnimation",
+      "offset": 800,
+      "value_kind": "String",
+      "guard": 3694932,
+      "writable": true,
+      "kind": "field",
+      "evidence_group": "world-selected.json",
+      "status": "statically_restored",
+      "maturity": "Experimental",
+      "hardware_verified": false,
+      "contract": {
+        "page": "tools/pc_contract_docs/GridEntityDoor.md",
+        "line": 139,
+        "quote": "#### string OpenAnimation  {: .copyable aria-label='Variables' }"
+      },
+      "judgement": "runtime/tests/test_api600_world.py",
+      "evidence": "dist/apis600-20261016/field-proof-matrix.json",
+      "previous_status": "implemented_pending_final_verification"
+    },
+    {
+      "owner": "GridEntityDoor",
+      "name": "CloseAnimation",
+      "key": "GridEntityDoor:CloseAnimation",
+      "offset": 824,
+      "value_kind": "String",
+      "guard": 3694932,
+      "writable": true,
+      "kind": "field",
+      "evidence_group": "world-selected.json",
+      "status": "statically_restored",
+      "maturity": "Experimental",
+      "hardware_verified": false,
+      "contract": {
+        "page": "tools/pc_contract_docs/GridEntityDoor.md",
+        "line": 109,
+        "quote": "#### string CloseAnimation  {: .copyable aria-label='Variables' }"
+      },
+      "judgement": "runtime/tests/test_api600_world.py",
+      "evidence": "dist/apis600-20261016/field-proof-matrix.json",
+      "previous_status": "implemented_pending_final_verification"
+    },
+    {
+      "owner": "GridEntityDoor",
+      "name": "LockedAnimation",
+      "key": "GridEntityDoor:LockedAnimation",
+      "offset": 848,
+      "value_kind": "String",
+      "guard": 3694932,
+      "writable": true,
+      "kind": "field",
+      "evidence_group": "world-selected.json",
+      "status": "statically_restored",
+      "maturity": "Experimental",
+      "hardware_verified": false,
+      "contract": {
+        "page": "tools/pc_contract_docs/GridEntityDoor.md",
+        "line": 134,
+        "quote": "#### string LockedAnimation  {: .copyable aria-label='Variables' }"
+      },
+      "judgement": "runtime/tests/test_api600_world.py",
+      "evidence": "dist/apis600-20261016/field-proof-matrix.json",
+      "previous_status": "implemented_pending_final_verification"
+    },
+    {
+      "owner": "GridEntityDoor",
+      "name": "OpenLockedAnimation",
+      "key": "GridEntityDoor:OpenLockedAnimation",
+      "offset": 872,
+      "value_kind": "String",
+      "guard": 3694932,
+      "writable": true,
+      "kind": "field",
+      "evidence_group": "world-selected.json",
+      "status": "statically_restored",
+      "maturity": "Experimental",
+      "hardware_verified": false,
+      "contract": {
+        "page": "tools/pc_contract_docs/GridEntityDoor.md",
+        "line": 144,
+        "quote": "#### string OpenLockedAnimation  {: .copyable aria-label='Variables' }"
+      },
+      "judgement": "runtime/tests/test_api600_world.py",
+      "evidence": "dist/apis600-20261016/field-proof-matrix.json",
+      "previous_status": "implemented_pending_final_verification"
+    },
+    {
+      "owner": "GridEntityPoop",
+      "name": "StateAnimation",
+      "key": "GridEntityPoop:StateAnimation",
+      "offset": 424,
+      "value_kind": "String",
+      "guard": 3708860,
+      "writable": true,
+      "kind": "field",
+      "evidence_group": "world-selected.json",
+      "status": "statically_restored",
+      "maturity": "Experimental",
+      "hardware_verified": false,
+      "contract": {
+        "page": "tools/pc_contract_docs/GridEntityPoop.md",
+        "line": 41,
+        "quote": "#### string StateAnimation  {: .copyable aria-label='Variables' }"
+      },
+      "judgement": "runtime/tests/test_api600_world.py",
+      "evidence": "dist/apis600-20261016/field-proof-matrix.json",
+      "previous_status": "implemented_pending_final_verification"
+    },
+    {
+      "owner": "GridEntityPressurePlate",
+      "name": "GreedModeRNG",
+      "key": "GridEntityPressurePlate:GreedModeRNG",
+      "offset": 768,
+      "value_kind": "Rng",
+      "guard": 3732036,
+      "writable": true,
+      "kind": "field",
+      "evidence_group": "world-selected.json",
+      "status": "statically_restored",
+      "maturity": "Experimental",
+      "hardware_verified": false,
+      "contract": {
+        "page": "tools/pc_contract_docs/GridEntityPressurePlate.md",
+        "line": 34,
+        "quote": "#### [RNG](RNG.md) GreedModeRNG {: .copyable aria-label='Variables' }"
+      },
+      "judgement": "runtime/tests/test_api600_world.py",
+      "evidence": "dist/apis600-20261016/field-proof-matrix.json",
+      "previous_status": "implemented_pending_final_verification"
+    },
+    {
+      "owner": "GridEntityRock",
+      "name": "Anim",
+      "key": "GridEntityRock:Anim",
+      "offset": 416,
+      "value_kind": "String",
+      "guard": 3747432,
+      "writable": true,
+      "kind": "field",
+      "evidence_group": "world-selected.json",
+      "status": "statically_restored",
+      "maturity": "Experimental",
+      "hardware_verified": false,
+      "contract": {
+        "page": "tools/pc_contract_docs/GridEntityRock.md",
+        "line": 47,
+        "quote": "#### string Anim  {: .copyable aria-label='Variables' }"
+      },
+      "judgement": "runtime/tests/test_api600_world.py",
+      "evidence": "dist/apis600-20261016/field-proof-matrix.json",
+      "previous_status": "implemented_pending_final_verification"
+    },
+    {
+      "owner": "GridEntityRock",
+      "name": "RubbleAnim",
+      "key": "GridEntityRock:RubbleAnim",
+      "offset": 440,
+      "value_kind": "String",
+      "guard": 3747432,
+      "writable": true,
+      "kind": "field",
+      "evidence_group": "world-selected.json",
+      "status": "statically_restored",
+      "maturity": "Experimental",
+      "hardware_verified": false,
+      "contract": {
+        "page": "tools/pc_contract_docs/GridEntityRock.md",
+        "line": 57,
+        "quote": "#### string RubbleAnim  {: .copyable aria-label='Variables' }"
+      },
+      "judgement": "runtime/tests/test_api600_world.py",
+      "evidence": "dist/apis600-20261016/field-proof-matrix.json",
+      "previous_status": "implemented_pending_final_verification"
+    },
+    {
+      "owner": "GridEntityRock",
+      "name": "FrameCnt",
+      "key": "GridEntityRock:FrameCnt",
+      "offset": 488,
+      "value_kind": "Int",
+      "guard": 3747432,
+      "writable": true,
+      "kind": "field",
+      "evidence_group": "world-selected.json",
+      "status": "statically_restored",
+      "maturity": "Experimental",
+      "hardware_verified": false,
+      "contract": {
+        "page": "tools/pc_contract_docs/GridEntityRock.md",
+        "line": 52,
+        "quote": "#### int FrameCnt  {: .copyable aria-label='Variables' }"
+      },
+      "judgement": "runtime/tests/test_api600_world.py",
+      "evidence": "dist/apis600-20261016/field-proof-matrix.json",
+      "previous_status": "implemented_pending_final_verification"
+    },
+    {
+      "key": "RoomDescriptor:DeliriumDistance",
+      "owner": "RoomDescriptor",
+      "name": "DeliriumDistance",
+      "kind": "field",
+      "offset": 244,
+      "value_kind": "Int",
+      "writable": true,
+      "guard": 4067840,
+      "evidence_group": "extra-selected.json",
+      "status": "statically_restored",
+      "maturity": "Experimental",
+      "hardware_verified": false,
+      "contract": {
+        "page": "tools/pc_contract_docs/RoomDescriptor.md",
+        "line": 61,
+        "quote": "#### int DeliriumDistance  {: .copyable aria-label='Variables' }"
+      },
+      "judgement": "runtime/tests/test_api600_values.py",
+      "evidence": "dist/apis600-20261016/field-proof-matrix.json",
+      "previous_status": "implemented_pending_final_verification"
+    },
+    {
+      "key": "RoomConfigRoom:Doors",
+      "owner": "RoomConfigRoom",
+      "name": "Doors",
+      "kind": "field",
+      "offset": 64,
+      "value_kind": "UInt",
+      "writable": false,
+      "evidence_group": "extra-selected.json",
+      "status": "statically_restored",
+      "maturity": "Experimental",
+      "hardware_verified": false,
+      "contract": {
+        "page": "tools/pc_contract_docs/RoomConfig_Room.md",
+        "line": 31,
+        "quote": "#### const int Doors  {: .copyable aria-label='Variables' }"
+      },
+      "judgement": "runtime/tests/test_api600_values.py",
+      "evidence": "dist/apis600-20261016/field-proof-matrix.json",
+      "previous_status": "implemented_pending_final_verification"
+    },
+    {
+      "key": "CardConfigList:Size",
+      "owner": "CardConfigList",
+      "name": "Size",
+      "kind": "field",
+      "writable": false,
+      "evidence_group": "config-main",
+      "status": "statically_restored",
+      "maturity": "Experimental",
+      "hardware_verified": false,
+      "contract": {
+        "page": "tools/pc_contract_docs/CppContainer_Vector_CardConfigList.md",
+        "line": 39,
+        "quote": "#### const int Size  {: .copyable aria-label='Variables' }"
+      },
+      "judgement": "runtime/tests/test_api600_config.py",
+      "evidence": "dist/apis600-20261016/field-proof-matrix.json",
+      "previous_status": "implemented_pending_final_verification"
+    },
+    {
+      "key": "PillConfigList:Size",
+      "owner": "PillConfigList",
+      "name": "Size",
+      "kind": "field",
+      "writable": false,
+      "evidence_group": "config-main",
+      "status": "statically_restored",
+      "maturity": "Experimental",
+      "hardware_verified": false,
+      "contract": {
+        "page": "tools/pc_contract_docs/CppContainer_Vector_PillConfigList.md",
+        "line": 39,
+        "quote": "#### const int Size  {: .copyable aria-label='Variables' }"
+      },
+      "judgement": "runtime/tests/test_api600_config.py",
+      "evidence": "dist/apis600-20261016/field-proof-matrix.json",
+      "previous_status": "implemented_pending_final_verification"
+    },
+    {
+      "owner": "Entity",
+      "name": "Color",
+      "key": "Entity:Color",
+      "kind": "field",
+      "writable": true,
+      "offset": 544,
+      "evidence_group": "native-main",
+      "status": "statically_restored",
+      "maturity": "Experimental",
+      "hardware_verified": false,
+      "contract": {
+        "page": "tools/pc_contract_docs/Entity.md",
+        "line": 691,
+        "quote": "#### [Color](Color.md) Color  {: .copyable aria-label='Variables' }"
+      },
+      "judgement": "runtime/tests/test_api600_native.py",
+      "evidence": "dist/apis600-20261016/field-proof-matrix.json",
+      "previous_status": "implemented_pending_final_verification"
+    },
+    {
+      "owner": "EntityLaser",
+      "name": "Angle",
+      "key": "EntityLaser:Angle",
+      "kind": "field",
+      "writable": true,
+      "offset": 1036,
+      "evidence_group": "native-main",
+      "status": "statically_restored",
+      "maturity": "Experimental",
+      "hardware_verified": false,
+      "contract": {
+        "page": "tools/pc_contract_docs/EntityLaser.md",
+        "line": 152,
+        "quote": "#### float Angle  {: .copyable aria-label='Variables' }"
+      },
+      "judgement": "runtime/tests/test_api600_native.py",
+      "evidence": "dist/apis600-20261016/field-proof-matrix.json",
+      "previous_status": "implemented_pending_final_verification"
+    },
+    {
+      "owner": "EntityLaser",
+      "name": "SampleLaser",
+      "key": "EntityLaser:SampleLaser",
+      "kind": "field",
+      "writable": true,
+      "offset": 1101,
+      "evidence_group": "native-main",
+      "status": "statically_restored",
+      "maturity": "Experimental",
+      "hardware_verified": false,
+      "contract": {
+        "page": "tools/pc_contract_docs/EntityLaser.md",
+        "line": 257,
+        "quote": "#### boolean SampleLaser  {: .copyable aria-label='Variables' }"
+      },
+      "judgement": "runtime/tests/test_api600_native.py",
+      "evidence": "dist/apis600-20261016/field-proof-matrix.json",
+      "previous_status": "implemented_pending_final_verification"
+    },
+    {
+      "key": "EntityRef:SpawnerType",
+      "owner": "EntityRef",
+      "name": "SpawnerType",
+      "kind": "field",
+      "offset": 8,
+      "value_kind": "Int",
+      "writable": false,
+      "evidence_group": "entityref-prefix",
+      "status": "statically_restored",
+      "maturity": "Experimental",
+      "hardware_verified": false,
+      "contract": {
+        "page": "tools/pc_contract_docs/EntityRef.md",
+        "line": 50,
+        "quote": "#### [EntityType](enums/EntityType.md) SpawnerType  {: .copyable aria-label='Variables' }"
+      },
+      "judgement": "runtime/tests/test_api600_entityref.py",
+      "evidence": "dist/apis600-20261016/field-proof-matrix.json",
+      "previous_status": "implemented_pending_final_verification"
+    },
+    {
+      "key": "EntityRef:SpawnerVariant",
+      "owner": "EntityRef",
+      "name": "SpawnerVariant",
+      "kind": "field",
+      "offset": 12,
+      "value_kind": "UInt",
+      "writable": false,
+      "evidence_group": "entityref-prefix",
+      "status": "statically_restored",
+      "maturity": "Experimental",
+      "hardware_verified": false,
+      "contract": {
+        "page": "tools/pc_contract_docs/EntityRef.md",
+        "line": 55,
+        "quote": "#### int SpawnerVariant  {: .copyable aria-label='Variables' }"
+      },
+      "judgement": "runtime/tests/test_api600_entityref.py",
+      "evidence": "dist/apis600-20261016/field-proof-matrix.json",
+      "previous_status": "implemented_pending_final_verification"
+    }
+  ],
+  "history": [
+    {
+      "note": "54个独立新增字段；46方法在Catalog/DoD，构造器不计100。全部Experimental。",
+      "correction": "两条异常PC Vector Get不计100，替换为EntityRef生成者两字段；最终44方法56字段。"
+    }
+  ]
+}

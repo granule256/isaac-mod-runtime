@@ -1,0 +1,33 @@
+{
+  "schema": "isaac-layout-table/1",
+  "build_id": "91C73FDD575061318D68886316AFEAC72388B2AB",
+  "struct": "Entity_Laser",
+  "rows": [
+    {
+      "name": "Samples",
+      "offset": 1144,
+      "size": 24,
+      "type": "std::vector<Vector>",
+      "confidence": "confirmed",
+      "semantic": "原生激光内嵌vector，元素返回const活借用，数组重分配和owner退休后拒绝。",
+      "evidence_files": [
+        "dist/apis700-20261016/ns-main/Entity_Laser-GetSamples-104400.txt",
+        "dist/apis700-20261016/ns-main/Entity_Laser-GetNonOptimizedSamples-104408.txt"
+      ],
+      "judgement": "runtime/tests/test_api700_containers.py"
+    },
+    {
+      "name": "NonOptimizedSamples",
+      "offset": 1168,
+      "size": 24,
+      "type": "std::vector<Vector>",
+      "confidence": "confirmed",
+      "semantic": "原生激光内嵌vector，元素返回const活借用，数组重分配和owner退休后拒绝。",
+      "evidence_files": [
+        "dist/apis700-20261016/ns-main/Entity_Laser-GetSamples-104400.txt",
+        "dist/apis700-20261016/ns-main/Entity_Laser-GetNonOptimizedSamples-104408.txt"
+      ],
+      "judgement": "runtime/tests/test_api700_containers.py"
+    }
+  ]
+}

@@ -1,3 +1,4 @@
+#include "infrastructure/memory/engine_field_access.hpp"
 #include "infrastructure/persistence/engine_save_file_adapter.hpp"
 
 #include "module_finder.hpp"
@@ -8,6 +9,7 @@
 // ⇒ 链接期未定义符号（真机上 PLT 槽为 0 会直接跳到地址 0）。
 #include "lib/nx/nx.h"
 
+#include <algorithm>
 #include <cstring>
 #include <optional>
 
@@ -17,6 +19,8 @@ namespace isaac::runtime {
 // （宁可让上层看到 `Unsupported`，也不要拿一个"地址可能错了"的函数去写玩家的存档）。
 struct EngineSaveFileAdapter::Calls {
     bool valid{false};
+    std::uintptr_t managerGlobalPointer{0};
+    bool saveSlotValid{false};
     std::uint32_t (*openFile)(std::uint64_t*, const char*, int){nullptr};
     std::uint32_t (*createFile)(const char*, std::int64_t){nullptr};
     std::uint32_t (*writeFile)(std::uint64_t, std::int64_t, const void*, std::size_t,
@@ -94,7 +98,7 @@ bool EngineSaveFileAdapter::ResolveMount(const Calls& calls, std::array<char, 32
                                         std::array<char, 32>& mountName) noexcept {
     const char* point = calls.getMountPoint(nullptr);
     if (point == nullptr ||
-        !RangeReadable(reinterpret_cast<std::uint64_t>(point), mountName.size())) {
+        !RangeReadable(engine_memory::AddressOf(point), mountName.size())) {
         return false;
     }
     std::size_t length = 0;
@@ -132,6 +136,16 @@ const EngineSaveFileAdapter::Calls* EngineSaveFileAdapter::Resolve() noexcept {
     if (!module.has_value()) {
         return nullptr;
     }
+    const auto got = module->base + kGameManagerGlobalSlotOffset;
+    if (RangeReadable(got, sizeof(std::uintptr_t))) {
+        std::memcpy(&calls.managerGlobalPointer, engine_memory::AsObject(got), sizeof(std::uintptr_t));
+        if (!RangeReadable(calls.managerGlobalPointer, sizeof(std::uintptr_t))) calls.managerGlobalPointer = 0;
+    }
+    calls.saveSlotValid = calls.managerGlobalPointer != 0 && GuardedCode(*module, kManagerSetSaveSlotOffset,
+                                     kManagerSetSaveSlotExpectedBytes) &&
+        module->Contains(module->base + kManagerSetSaveSlotStoreOffset, 4) &&
+        std::memcmp(engine_memory::AsObject(module->base + kManagerSetSaveSlotStoreOffset),
+                    kManagerSetSaveSlotStoreExpectedBytes.data(), 4) == 0;
     calls.openFile = Guarded<decltype(calls.openFile)>(*module, kFilesysOpenFileThunkOffset,
                                                       kFilesysOpenFileThunkExpectedBytes);
     calls.createFile = Guarded<decltype(calls.createFile)>(*module, kFilesysCreateFileThunkOffset,
@@ -184,7 +198,7 @@ bool EngineSaveFileAdapter::BuildRelativePath(std::string_view name, char* out,
 
 Status EngineSaveFileAdapter::Read(std::string_view name, char* out, std::size_t capacity,
                                    std::size_t* size) noexcept {
-    if (out == nullptr || size == nullptr || capacity == 0 || capacity > kMaximumFileBytes) {
+    if (out == nullptr || size == nullptr) {
         return Status{StatusCode::InvalidArgument};
     }
     *size = 0;
@@ -206,30 +220,76 @@ Status EngineSaveFileAdapter::Read(std::string_view name, char* out, std::size_t
         (void)calls->closeFile(handle);
         return StatusFromResult(result, false);
     }
-    if (fileSize < 0 || static_cast<std::uint64_t>(fileSize) > capacity) {
+    if (fileSize < 0 || static_cast<std::uint64_t>(fileSize) > SIZE_MAX) {
+        (void)calls->closeFile(handle);
+        return Status{StatusCode::Corrupted};
+    }
+    *size = static_cast<std::size_t>(fileSize);
+    if (*size > capacity) {
         (void)calls->closeFile(handle);
         return Status{StatusCode::CapacityExceeded};
     }
-    std::uint64_t readSize = 0;
-    const std::uint32_t result = calls->readFile(&readSize, handle, 0, buffer_,
-                                                 static_cast<std::size_t>(fileSize));
+    std::size_t offset = 0;
+    while (offset < *size) {
+        const auto chunk = std::min(kMaximumFileBytes, *size - offset);
+        std::uint64_t readSize = 0;
+        const auto result = calls->readFile(&readSize, handle, static_cast<std::int64_t>(offset),
+                                             buffer_, chunk);
+        if (result != 0 || readSize != chunk) {
+            (void)calls->closeFile(handle);
+            return result != 0 ? StatusFromResult(result, false) : Status{StatusCode::IoFailure};
+        }
+        std::memcpy(out + offset, buffer_, chunk);
+        offset += chunk;
+    }
     (void)calls->closeFile(handle);
-    if (result != 0) {
-        return StatusFromResult(result, false);
-    }
-    if (readSize > capacity) {
-        return Status{StatusCode::CapacityExceeded};
-    }
-    std::memcpy(out, buffer_, static_cast<std::size_t>(readSize));
-    *size = static_cast<std::size_t>(readSize);
     return Status::Ok();
+}
+
+Status EngineSaveFileAdapter::GetSize(std::string_view name, std::size_t* size) noexcept {
+    if (size == nullptr) return Status{StatusCode::InvalidArgument};
+    *size = 0;
+    const Calls* calls = Resolve();
+    if (calls == nullptr) return Status{StatusCode::Unsupported};
+    char path[kPathCapacity] = {};
+    if (!BuildRelativePath(name, path, sizeof(path))) return Status{StatusCode::InvalidArgument};
+    std::uint64_t handle = 0;
+    const auto opened = StatusFromResult(calls->openFile(&handle, path, kVfsOpenModeRead), true);
+    if (!opened.ok()) return opened;
+    std::int64_t length = 0;
+    const auto result = calls->getFileSize(&length, handle);
+    (void)calls->closeFile(handle);
+    if (result != 0) return StatusFromResult(result, false);
+    if (length < 0 || static_cast<std::uint64_t>(length) > SIZE_MAX) return Status{StatusCode::Corrupted};
+    *size = static_cast<std::size_t>(length);
+    return Status::Ok();
+}
+
+Status EngineSaveFileAdapter::GetSaveSlot(unsigned* slot) noexcept {
+    if (slot == nullptr) return Status{StatusCode::InvalidArgument};
+    const Calls* calls = Resolve();
+    if (calls == nullptr || !calls->saveSlotValid) return Status{StatusCode::Unsupported};
+    std::uintptr_t manager = 0;
+    // GOT指向的全局存储在Resolve中已验证，游戏线程每次读取当前Manager。
+    // 同一对象不重复svcQueryMemory；切换对象时重新验证，保留真实槽切换能力。
+    std::memcpy(&manager, engine_memory::AsObject(calls->managerGlobalPointer), sizeof(manager));
+    if (manager == 0) return Status{StatusCode::IoFailure};
+    if (manager != saveSlotManager_) {
+        if (manager > UINTPTR_MAX - kManagerSaveSlotFieldOffset ||
+            !RangeReadable(manager + kManagerSaveSlotFieldOffset, sizeof(unsigned))) {
+            return Status{StatusCode::IoFailure};
+        }
+        saveSlotManager_ = manager;
+    }
+    std::memcpy(slot, engine_memory::AsObject(manager + kManagerSaveSlotFieldOffset), sizeof(*slot));
+    return *slot <= 3 ? Status::Ok() : Status{StatusCode::Corrupted};
 }
 
 Status EngineSaveFileAdapter::Write(std::string_view name, std::string_view data) noexcept {
     if (name.empty()) {
         return Status{StatusCode::InvalidArgument};
     }
-    if (data.size() > kMaximumFileBytes) {
+    if (data.size() > static_cast<std::uint64_t>(INT64_MAX)) {
         return Status{StatusCode::CapacityExceeded};
     }
     const Calls* calls = Resolve();
@@ -240,10 +300,6 @@ Status EngineSaveFileAdapter::Write(std::string_view name, std::string_view data
     if (!BuildRelativePath(name, path, sizeof(path))) {
         return Status{StatusCode::InvalidArgument};
     }
-    // 先把内容搬进对齐缓冲：写与读共用这一个缓冲，所以**写之前必须拷完**
-    // （上一次读的内容还在里面）。
-    std::memcpy(buffer_, data.data(), data.size());
-
     const std::uint32_t created = calls->createFile(path, static_cast<std::int64_t>(data.size()));
     if (created != 0 && created != kResultPathAlreadyExists) {
         return StatusFromResult(created, false);
@@ -255,12 +311,15 @@ Status EngineSaveFileAdapter::Write(std::string_view name, std::string_view data
     }
     // 与引擎自己的调用点同形：`x4` 指向一个清零的 4 字节 `WriteOption`（不是空指针）。
     const std::uint32_t writeOption = 0;
-    Status status =
-        StatusFromResult(calls->writeFile(handle, 0, buffer_, data.size(), &writeOption), false);
-    if (status.ok()) {
-        // 引擎自己写完也这么干（`write_stream_data` 的尾部）：把长度设成写入位置。
-        status = StatusFromResult(calls->setFileSize(handle, static_cast<std::int64_t>(data.size())),
-                                  false);
+    Status status = Status::Ok();
+    // 已存在文件可能小于新内容：先扩容，再逐块写；只在全块成功后flush/commit一次。
+    status = StatusFromResult(calls->setFileSize(handle, static_cast<std::int64_t>(data.size())), false);
+    for (std::size_t offset = 0; status.ok() && offset < data.size();) {
+        const auto chunk = std::min(kMaximumFileBytes, data.size() - offset);
+        std::memcpy(buffer_, data.data() + offset, chunk);
+        status = StatusFromResult(calls->writeFile(handle, static_cast<std::int64_t>(offset),
+                                                   buffer_, chunk, &writeOption), false);
+        offset += chunk;
     }
     if (status.ok()) {
         status = StatusFromResult(calls->flushFile(handle), false);

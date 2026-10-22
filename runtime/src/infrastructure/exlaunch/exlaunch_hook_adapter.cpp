@@ -1,6 +1,8 @@
 #include "infrastructure/exlaunch/exlaunch_hook_adapter.hpp"
 
 #include "hook_manager.hpp"
+// 批次 357：只为了让"重建挂载点中继装上没有"留成可读的一格（见下面 `HookId::RebuildMountPoints`）。
+#include "image_pcx_bridge_hook.hpp"
 
 #include <algorithm>
 #include <cstring>
@@ -48,6 +50,10 @@ Status ExlaunchHookAdapter::Install(HookId id, const HookTarget& target) noexcep
         case HookId::RebuildMountPoints:
             // 这个安装器直接返回布尔值（真=已验证并发布）。
             ok = TryInstallRebuildMountPointsRelay(module);
+            // ★ 批次 357：把结果**留成可读的一格**。起因：346 起读数里只有"重建中继跑过 0 次"，
+            //   而"**没跑**"与"**没装上**"是两件事 —— 后者意味着引擎一旦重建挂载点表，
+            //   模组挂载点就再也不会被恢复（356 的检查点证明挂载点确实在中途消失了）。
+            isaac::runtime::bridge::NoteRebuildMountPointsRelayInstalled(ok);
             break;
         case HookId::GameStart:
             // 开局走"代码洞中继 + 回调槽"（`RelaySlot` 后端），旧 IPS 蹦床这边不接。
@@ -65,13 +71,67 @@ Status ExlaunchHookAdapter::Install(HookId id, const HookTarget& target) noexcep
         case HookId::ImagePcxLoad:
         case HookId::ImageManagerLoadFile:
         case HookId::ContentGetMountedFilePath:
+        // 批次 390（2026-10-07）：`MC_INPUT_ACTION` 的三条查询中继同理 —— 只走零占洞入口中继
+        // （`kHookCatalog` 里的后端是 `EntryRelay`），旧 IPS 蹦床这边不接。
+        case HookId::ManagerIsActionPressed:
+        case HookId::ManagerIsActionTriggered:
+        case HookId::ManagerGetActionValue:
         // 批次 077（模组页搬生产）的三个入口中继同理：只走 `EntryRelay`。
         case HookId::MenuGameRender:
         case HookId::MenuTitleRender:
         case HookId::MenuManagerSetState:
         // 批次 098（禁成就）：闸门挂在 `SetReadOnly` 上，同样只走零占洞入口中继（`EntryRelay`）。
         case HookId::PersistentGameDataSetReadOnly:
+        // 批次 147（模组 content 加载闸门）：`ModManager::LoadConfigs` 也只走 `EntryRelay`。
+        case HookId::ModManagerLoadConfigs:
+        // 批次 363（`ANM2::Load` 入口中继）：同样只走零占洞入口中继。
+        case HookId::Anm2Load:
+        // 批次 396（2026-10-07）：`MC_ENTITY_TAKE_DMG` 的四条 + `MC_EVALUATE_CACHE` 同理 ——
+        // 只走零占洞入口中继，旧 IPS 蹦床这边不接。
+        case HookId::EntityTakeDamage:
+        case HookId::EntityPlayerTakeDamage:
+        case HookId::EntityPickupTakeDamage:
+        case HookId::EntitySlotTakeDamage:
+        case HookId::EvaluateItems:
+        // 批次 397（2026-10-07）：补全回调（第 2 批）的三条同理 —— 只走零占洞入口中继。
+        case HookId::EntityKill:
+        case HookId::NpcDeathRemove:
+        case HookId::GameEnd:
+        case HookId::FireTear:
+        case HookId::FamiliarCollision:
+        case HookId::NpcCollision:
+        case HookId::PlayerCollision:
+        case HookId::TearCollision:
+        case HookId::ProjectileCollision:
+        case HookId::KnifeCollision:
+        case HookId::BombCollision:
+        case HookId::ItemPoolGetPill:
+        case HookId::ItemPoolGetPillEffect:
+        case HookId::GameDevolveEnemy:
+        case HookId::NpcRender:
             return Status{StatusCode::InvalidArgument};
+        case HookId::GameSpawnEx:
+        case HookId::NpcUpdateAi:
+        case HookId::HudRender:
+        case HookId::RoomConfigLoadStageBinary:
+        case HookId::ConsoleLifecycle:
+        case HookId::LevelLoadRoom:
+        case HookId::ItemPoolTrinketFirstRandom:
+        case HookId::ItemPoolTrinketSelected:
+        case HookId::RoomClearAward:
+        case HookId::ConsoleUnknownLength:
+        case HookId::ConsoleUnknownCompare:
+        case HookId::ModManagerUnload:
+        case HookId::ItemPoolGetCard:
+        case HookId::EntityRemovePointers:
+        case HookId::EntityDestructorRemove:
+        case HookId::LevelCurseFirstRandom:
+        case HookId::LevelCurseEvaluation:
+        case HookId::PickupSelection:
+        case HookId::PickupSelectionSpecial:
+        case HookId::PressurePlateAnimationWriter:
+        case HookId::PressurePlateDestructor:
+        case HookId::PressurePlateDeletingDestructor:
         case HookId::Count:
             return Status{StatusCode::InvalidArgument};
     }

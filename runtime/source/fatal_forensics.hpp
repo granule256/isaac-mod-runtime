@@ -30,7 +30,7 @@
 //   1. 宿主门禁夹具**各自单独列源文件**编译运行时的一部分；做成独立 `.cpp` 时，
 //      凡是编译 `lua_runtime.cpp` 的夹具都会在链接期报"未定义符号"。
 //      放成 inline 定义 ⇒ **任何编译单元都自带定义**，夹具不用改。
-//   2. `svc 0x7f` 在宿主机（x86_64）上**不是合法指令** ⇒ 必须用 `__aarch64__` 守卫，
+//   2. `svc` 在宿主机（x86_64）上**不是合法指令** ⇒ 必须用 `__aarch64__` 守卫，
 //      宿主退化成普通 `std::abort()`（夹具不会真的触发它）。
 namespace isaac::runtime::forensics {
 
@@ -41,23 +41,33 @@ inline constexpr std::uint64_t kAbortMagic = 0x3142414341415349ULL;
 inline constexpr std::uint64_t kKindCxxTerminate = 1;  // 未捕获的 C++ 异常
 inline constexpr std::uint64_t kKindLuaPanic = 2;      // Lua 无保护抛错
 
-//: 把 `(magic, kind, detail)` 装进 `x1..x3` 再执行 `svc 0x7f`（`x0 = 2` = `BreakReason_User`）。
-//: 写法照抄项目里真机验证过的那一处（`saltynx_runtime_bridge.cpp` 的 `IsaacModRuntime_ProbeFsSteps`）：
-//: 寄存器用 `register ... __asm__("xN")` 钉住，`svc 0x7f` 后面接 `__builtin_unreachable()`。
+//: 把 `(magic, kind, detail)` 装进 `x1..x3` 再执行 `svc 0x26`（`x0 = 2` = `BreakReason_User`）。
+//: 寄存器用 `register ... __asm__("xN")` 钉住，`svc` 后面接 `__builtin_unreachable()`。
 //: ★ `svcBreak` 之后**不会返回**（会话在那一刻结束），所以标 `[[noreturn]]`。
+//:
+//: ★★ 2026-09-26（批次 135）把 `svc 0x7f` 改成 **`svc 0x26`**，原因是**真机实测**：
+//:   卡上崩溃报告 `01790359235_010021c000b6a000.log` 里写得明明白白 ——
+//:   `Svc Id: 0x7f`、`Type: Undefined System Call`、`Result 0x10A8 (2168-0008)`：
+//:   `0x7f` 在本仓库自己的 svc 表（`runtime/config.json`）里是 **`svcCallSecureMonitor`**，
+//:   从 userland（我们就是 EL0 应用）执行它在当前 Atmosphere 下被判**未定义系统调用**
+//:   ⇒ 报告的类型不是 `User Break`、内核也不按 `x0=2` 的 break 语义处理。
+//:   `svcBreak` 的真号是 **`0x26`**（同一份表；`saltynx_external_plugin_entry.cpp:47` 本来就用它）。
+//:   ★ 2026-09-29（批次 197）：那次只改了本文件，其余探针点（`runtime/source/probe/*` 与
+//:   `saltynx_runtime_bridge.cpp`）仍留着 `0x7f` ⇒ **本轮已全部统一成 `0x26`**（9 处），
+//:   并由 `runtime/tests/test_abort_forensics.py` 的"全仓不许再出现 `svc 0x7f`"那条门禁钉住。
 [[noreturn]] inline void Break(std::uint64_t kind, std::uint64_t detail) noexcept {
 #if defined(__aarch64__)
     register std::uint64_t x0 __asm__("x0") = 2;  // BreakReason_User
     register std::uint64_t x1 __asm__("x1") = kAbortMagic;
     register std::uint64_t x2 __asm__("x2") = kind;
     register std::uint64_t x3 __asm__("x3") = detail;
-    __asm__ volatile("svc 0x7f"
+    __asm__ volatile("svc 0x26"
                      :
                      : "r"(x0), "r"(x1), "r"(x2), "r"(x3)
                      : "memory");
     __builtin_unreachable();
 #else
-    // 宿主机（x86_64）门禁夹具会编译这一份：`svc 0x7f` 在 x86 上不是合法指令 ⇒ 退化。
+    // 宿主机（x86_64）门禁夹具会编译这一份：`svc` 在 x86 上不是合法指令 ⇒ 退化。
     // 夹具不会真的走到这里（它们不制造 panic / 未捕获异常），这里只是让编译与链接都成立。
     static_cast<void>(kind);
     static_cast<void>(detail);

@@ -152,8 +152,13 @@ def verify_evidence(table: dict, nro: pathlib.Path) -> list[str]:
             wanted_hex = wanted[2:] if wanted.startswith('0x') else wanted
             found = next((line for line in window if line.startswith(wanted_hex)), None)
             if found is None:
-                # 有的函数很长（4096 字节不够）——扩大一次再找。
-                lines = nro_disasm.disassemble(str(nro), symbol.file_offset, 16384, annotate=False)
+                # 有的函数很长（4096 字节不够）——扩大再找。
+                # ★ 2026-10-03（批次 302）：从 16384 提到 **65536** —— `Room::Init`
+                #   （`0x45C020` → 下一个符号 `Room::reset_outputs @ 0x461DBC`）有 **23964 字节**，
+                #   它里面那两条"按房型给地板/墙 `SetColorize`"的证据（`0x460940` / `0x460974`）
+                #   在 16384 的窗口里**看不到**，于是被误判成"函数里找不到这条指令"。
+                #   这只是**把窗口放大**（`startswith(8 位地址)` 仍然唯一命中），不改判定逻辑。
+                lines = nro_disasm.disassemble(str(nro), symbol.file_offset, 65536, annotate=False)
                 window = [line.strip() for line in lines]
                 cache[entry["function"]] = window
                 found = next((line for line in window if line.startswith(wanted_hex)), None)

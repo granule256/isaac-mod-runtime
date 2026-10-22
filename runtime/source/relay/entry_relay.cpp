@@ -6,6 +6,11 @@
 
 #include "lib/util/sys/jit.hpp"
 
+// 整数地址 ↔ 指针的转换只从引擎内存访问层拿（`AsObject`）—— 调用点不再出现 `reinterpret_cast`。
+// 这是 `runtime/tests/test_no_new_raw_engine_access.py` 那条"存量冻结"台账要求的写法
+// （"新功能走框架接口"）；该层是 header-only/inline，不新增任何链接依赖。
+#include "infrastructure/memory/engine_field_access.hpp"
+
 // 入口中继的真机侧实现。
 //
 // 设计、槽布局与安全门禁全部写在 `entry_relay.hpp` 的注释里；本文件只负责“碰系统”的那部分：
@@ -62,8 +67,9 @@ void EnsureArenaReady() {
 
 }  // namespace
 
-bool TryInstallEntryRelay(std::uintptr_t target, const void* expectedEntry16,
-                          std::uintptr_t callback, std::uintptr_t* outOriginalEntry) {
+bool TryInstallEntryRelayWithPublisher(std::uintptr_t target, const void* expectedEntry16,
+    std::uintptr_t callback, EntryRelayOriginalPublisher publisher, void* context,
+    std::uintptr_t* outOriginalEntry) {
     if (outOriginalEntry != nullptr) {
         *outOriginalEntry = 0;
     }
@@ -104,6 +110,29 @@ bool TryInstallEntryRelay(std::uintptr_t target, const void* expectedEntry16,
     std::memcpy(rwSlot, expectedSlot, sizeof(expectedSlot));
     // 槽必须在入口改写生效之前对指令侧可见：先刷槽，再改入口。
     EntryRelayArena.Flush();
+    // 回调真正消费的是外部原子槽/Trampoline::Orig；先独立核完整槽再发布。
+    if (std::memcmp(engine_memory::AsObject(roSlot), expectedSlot, kSlotBytes) != 0) {
+        RecordFailure(EntryRelayFailure::WriteVerifyFailed);
+        return false;
+    }
+    if (publisher != nullptr && !publisher(roSlot + kSlotFallbackOffset, context)) {
+        RecordFailure(EntryRelayFailure::OriginalPublicationRejected);
+        return false;
+    }
+
+    // ★★ 2026-10-04（真机崩溃 15:23 的根因之一）：**先把"原函数入口"公布出去，再改函数入口。**
+    //
+    // 原顺序是"改入口 → 读回校验 → 才公布"，于是存在一个窗口：**入口已经跳我们的回调了，
+    // 而 `outOriginalEntry` 还停在 0**。处在这个窗口里时，只要引擎调一次那个函数，回调就会
+    // `blr 0` —— 真机报告正是 `Instruction Abort`、`PC=0`、`LR` 落在
+    // `EntryRelayContentGetMountedFilePathCallback + 0x50`（这一行的调用点）。
+    //
+    // 现在的口径：**"回调可达 ⇒ 原函数入口一定有效"**。公布的 `roSlot + kSlotFallbackOffset`
+    // 就是槽里那段"跑原函数"的回退入口，即使后面校验失败、入口其实没改成，公布它也无害
+    // （没人会调这个回调）。
+    if (outOriginalEntry != nullptr) {
+        *outOriginalEntry = roSlot + kSlotFallbackOffset;
+    }
 
     std::uint8_t expectedEntry[kEntryPatchBytes];
     BuildEntryPatch(expectedEntry, roSlot);
@@ -117,16 +146,62 @@ bool TryInstallEntryRelay(std::uintptr_t target, const void* expectedEntry16,
     // 读回校验：用**只读**地址读（也就是游戏真正执行的那份映射）。
     if (std::memcmp(reinterpret_cast<const void*>(roSlot), expectedSlot, kSlotBytes) != 0 ||
         std::memcmp(reinterpret_cast<const void*>(target), expectedEntry, kEntryPatchBytes) != 0) {
+        // ★★ 2026-10-04：**失败必须把入口还原。** 上面那次 `memcpy` 已经让入口跳我们的回调了；
+        //   这里若直接返回，就是"函数说自己没装成，实际却装上了" —— 调用方不会去接原函数，
+        //   而引擎照调回调 ⇒ 又回到 `blr 0` 那条路。
+        //   把现场 16 字节写回去再报失败，让"没装成"**真的是没装成**。
+        std::memcpy(rwEntry, current, sizeof(current));
+        entryPages.Flush();
         RecordFailure(EntryRelayFailure::WriteVerifyFailed);
         return false;
     }
 
     s_InstalledCount.fetch_add(1, std::memory_order_acq_rel);
     s_LastFailure.store(ToFailureCode(EntryRelayFailure::None), std::memory_order_release);
-    if (outOriginalEntry != nullptr) {
-        *outOriginalEntry = roSlot + kSlotFallbackOffset;
-    }
+    // `outOriginalEntry` 在上面（改入口之前）就已经公布了 —— 见那段注释。
     return true;
+}
+
+// 兼容无外部回退消费方的旧接口。生产/早装/探针回调均使用显式publisher版本。
+bool TryInstallEntryRelay(std::uintptr_t target, const void* expectedEntry16,
+    std::uintptr_t callback, std::uintptr_t* outOriginalEntry) {
+    return TryInstallEntryRelayWithPublisher(target,expectedEntry16,callback,nullptr,nullptr,outOriginalEntry);
+}
+
+// 任意地址的 4 字节代码改写（设计与守卫语义见 `entry_relay.hpp` 里那一节）。
+//
+// 与 `TryInstallEntryRelay` 走上同一条"碰系统"的路（`RwPages` 可写别名 + `Flush()`），
+// 差别只在范围：这里只改**一个 4 字节字**，不碰入口 16 字节、也不用竞技场。
+// 三处顺序刻意与入口改写一致：先读现场（只读地址）→ 判定 → 写（可写别名）→ 刷 → 读回校验。
+CodeWordPatchFailure TryRewriteCodeWord(std::uintptr_t target, std::uint32_t expected,
+                                        std::uint32_t patched) {
+    if (target == 0 || (target & 0x3u) != 0) {
+        return CodeWordPatchFailure::InvalidAddress;
+    }
+
+    // 守卫：现场从**只读**地址读（那才是游戏真正执行的那份映射）。判定不过就立刻返回，
+    // 这一行之后才允许发生第一次写入。
+    std::uint8_t current[sizeof(std::uint32_t)];
+    std::memcpy(current, engine_memory::AsObject(target), sizeof(current));
+    if (LoadLittleEndianWord(current, 0) != expected) {
+        return CodeWordPatchFailure::GuardMismatch;
+    }
+
+    // 写入走同一页的可写别名；`RewriteCodeWordInBuffer` 会再核对一次（同一份判据），
+    // 写完必须 `Flush()`：DCache 清 + ICache 失效，否则执行侧可能还看到旧指令。
+    exl::util::RwPages pages(target, sizeof(std::uint32_t));
+    auto* rw = static_cast<std::uint8_t*>(engine_memory::AsObject(pages.GetRw()));
+    const CodeWordPatchFailure written = RewriteCodeWordInBuffer(rw, expected, patched);
+    if (written != CodeWordPatchFailure::None) {
+        return written;
+    }
+    pages.Flush();
+
+    // 读回校验用只读地址（与 `TryInstallEntryRelay` 同一口径）。
+    std::uint8_t verify[sizeof(std::uint32_t)];
+    std::memcpy(verify, engine_memory::AsObject(target), sizeof(verify));
+    return LoadLittleEndianWord(verify, 0) == patched ? CodeWordPatchFailure::None
+                                                      : CodeWordPatchFailure::WriteVerifyFailed;
 }
 
 std::size_t InstalledCount() {

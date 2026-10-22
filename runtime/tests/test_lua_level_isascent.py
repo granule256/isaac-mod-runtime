@@ -54,8 +54,9 @@ int main(int argc, char** argv) {
     }
     if (result != LuaRuntime::LuaInitResult::Success) return 2;
     LuaRuntime::DispatchPreGetCollectible(nullptr, 0, 0, 1, 0);
-    return std::strcmp(scenario, "unreadable") == 0 ? (LuaRuntime::TakeCallbackError() ? 0 : 3) :
-           (LuaRuntime::TakeCallbackError() ? 4 : 0);
+    // 批次 250：`unreadable` 不再"必须报错"—— 读不到时给**回退值 false**（脚本断言的正是
+    // `IsAscent() == false`），所以两个场景一律只看"回调有没有**意外**抛错"。
+    return LuaRuntime::TakeCallbackError() ? 4 : 0;
 }
 '''
 
@@ -93,7 +94,14 @@ class LuaLevelIsAscentTests(unittest.TestCase):
         self.run_harness("false")
         self.run_harness("true")
 
-    def test_level_isascent_runs_at_top_level_and_rejects_unreadable_native_state(self):
+    def test_level_isascent_runs_at_top_level_and_falls_back_when_state_is_unreadable(self):
+        """批次 250：`unreadable` 场景的口径从"必须抛错"改成"**回调不抛错**"。
+
+        原断言 `run_harness("unreadable")` 期望 harness 退出码 3（= 回调抛了错）；
+        现在 `Level:IsAscent()` 读不到时给回退值 `false`，与脚本里写的期望值一致
+        ⇒ 回调正常走完（harness 只在"意外抛错"时给非 0）。
+        理由见 `native_state_fallback.hpp`：抛错会摘掉整条模组回调，代价远大于一个值不对。
+        """
         self.assert_top_level_ran("top_level")
         self.run_harness("unreadable")
 

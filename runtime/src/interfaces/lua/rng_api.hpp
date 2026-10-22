@@ -6,7 +6,12 @@ extern "C" {
 #include <lua.h>
 }
 
+namespace LuaRuntime { struct RngHandle; }
+
 namespace isaac::runtime {
+
+// 在交给原生方法前统一复核引用身份与读写权限，失效抛Lua错误。
+[[nodiscard]] void* ResolveRngObject(lua_State* state, LuaRuntime::RngHandle* handle, bool writable);
 
 // Registers the `RNG` owner methods (SetSeed / Next) from the API catalog.
 //

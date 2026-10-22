@@ -157,7 +157,9 @@ int main(int argc, char** argv) {
         LuaRuntime::SetGameBindings(0x1111, 0x2222);
         if (LuaRuntime::Initialize() != LuaRuntime::LuaInitResult::Success) return 7;
         LuaRuntime::DispatchPostUpdate();
-        return g_Observed && LuaRuntime::TakeCallbackError() ? 0 : 8;
+        // 批次 250：thunk 不可用不再"必须报错"—— 读不到时给**回退值 false**（默认脚本只检查
+        // 返回类型是 boolean、不检查值）⇒ 判据改成"回调**没有**抛错"。
+        return g_Observed && !LuaRuntime::TakeCallbackError() ? 0 : 8;
     }
     const char* script = nullptr;
     if (std::strcmp(scenario, "create") == 0) {
@@ -253,14 +255,14 @@ int main(int argc, char** argv) {
             source.index("void DispatchPostUpdate()")
         ]
         self.assertEqual(invoker.count("g_InManagedCallbackDispatch.store(true, std::memory_order_release)"), 1)
-        self.assertEqual(invoker.count("g_InManagedCallbackDispatch.store(false, std::memory_order_release)"), 1)
+        self.assertEqual(invoker.count("g_InManagedCallbackDispatch.store(previousManagedScope, std::memory_order_release)"), 1)
         self.assertLess(
             invoker.index("g_InManagedCallbackDispatch.store(true, std::memory_order_release)"),
             invoker.index("lua_pcallk"),
         )
         self.assertLess(
             invoker.rindex("lua_pcallk"),
-            invoker.rindex("g_InManagedCallbackDispatch.store(false, std::memory_order_release)"),
+            invoker.rindex("g_InManagedCallbackDispatch.store(previousManagedScope, std::memory_order_release)"),
         )
 
     def test_game_ispaused_at_top_level_is_a_lua_error(self):
@@ -269,7 +271,12 @@ int main(int argc, char** argv) {
     def test_game_ispaused_without_published_bindings_is_a_lua_error(self):
         self.run_harness("unbound")
 
-    def test_game_ispaused_with_an_unavailable_runtime_thunk_is_a_lua_error(self):
+    def test_game_ispaused_with_an_unavailable_runtime_thunk_falls_back_to_false(self):
+        """批次 250：口径从"必须报错"改成"**回调不抛错**"（读不到 ⇒ 回退 false）。
+
+        理由见 `native_state_fallback.hpp`：抛错会摘掉整条模组回调，代价远大于一个值不对；
+        且 PC 上这个调用根本不会失败（PC 拿的是有效对象，没有"解析 thunk"这一步）。
+        """
         self.run_harness("native_unavailable")
 
     def test_stage14_embedded_script_encodes_the_observed_boolean(self):

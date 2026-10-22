@@ -135,18 +135,16 @@ int main() {
         runtime = (SOURCE / "lua_runtime.cpp").read_text(encoding="utf-8")
         self.assertNotIn("EXL_ENABLE_STARTERR_RNG", runtime)
 
-    def test_rng_runtime_unit_uses_size_optimization_for_verified_module_layout(self):
-        """Size optimization is what keeps the verified module LOAD boundary.
-
-        The flag was tightened from `-Os` to `-Oz` when the RX budget was pinned,
-        and the per-family Lua API units inherit the same requirement because they
-        were split out of `lua_runtime.o`.
-        """
+    def test_lua_hot_units_use_speed_optimization_with_cold_units_compact(self):
+        """Per-frame Lua execution uses speed optimization within the RX budget."""
         makefile = (SOURCE.parent / "misc" / "mk" / "common.mk").read_text(encoding="utf-8")
-        self.assertIn("lua_runtime.o: CXXFLAGS += -Oz", makefile)
-        self.assertIn("$(LUA_FAMILY_OPTIMIZED_CPPFILES): CXXFLAGS += -Oz", makefile)
+        self.assertIn("lua_runtime.o: CXXFLAGS += -O3", makefile)
+        self.assertIn("$(LUA_FAMILY_OPTIMIZED_CPPFILES): CXXFLAGS += -O3", makefile)
+        self.assertIn("$(LUA_HOT_CFILES): CFLAGS += -O3", makefile)
+        self.assertIn("hook_manager.o: CXXFLAGS += -Oz", makefile)
         for family in ("mod_api.o", "game_api.o", "remaining_api.o", "music_api.o",
-                       "rng_api.o", "input_api.o"):
+                       "rng_api.o", "input_api.o", "font_api.o", "color_api.o",
+                       "vector_api.o", "sprite_api.o", "json_api.o"):
             with self.subTest(family=family):
                 self.assertIn(family, makefile)
 

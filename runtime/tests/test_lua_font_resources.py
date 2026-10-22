@@ -49,9 +49,11 @@ GameRoomObservation ReadCurrentGameRoomType(uintptr_t, std::uint32_t*) {
     return GameRoomObservation::RoomUnreadable;
 }
 namespace GameFileReader {
+#if !defined(EXL_DIAGNOSTIC_STAGE) || EXL_DIAGNOSTIC_STAGE == 13
 TextReadResult ReadTextFile(const Bindings&, const char*, u8*, std::size_t, std::size_t*) {
     return TextReadResult::OpenFailed;
 }
+#endif
 }
 
 // --- Fake `KAGE::Graphics::Font` ------------------------------------------------------------
@@ -706,9 +708,18 @@ class LuaFontResourceTests(unittest.TestCase):
                 )
                 self.assertGreaterEqual(len(fields), 12, f"{struct_name} 的字段没解析出来")
 
-                table_start = hooks.index(f"constexpr std::array<BindingGuardEntry, ")
-                table_start = hooks.index(table_name)
-                table = hooks[table_start:]
+                # 2026-10-05 批次 365：`hook_manager.cpp` 在数组声明**之前**的说明文字里也提到了
+                # `kSpriteBindingEntries`（真机定案那段注释，`hook_manager.cpp:3688`）。旧代码从文件头
+                # `hooks.index(table_name)` 找第一次出现 ⇒ 命中那段注释、截出一段不含守卫行的文本 ⇒
+                # `guarded` 恒为空，报"缺全部 30 个字段"。那不是台账漏行，是**门禁的解析器过期了**。
+                # 改为按**数组声明本身**定位（`constexpr std::array<BindingGuardEntry, N> <表名>{{`），
+                # 这样说明文字里怎么提表名都不再影响定位。
+                declaration = re.search(
+                    rf"constexpr std::array<BindingGuardEntry, \d+> {table_name}\{{\{{", hooks
+                )
+                self.assertIsNotNone(declaration,
+                                     f"{table_name} 的数组声明没找到（改名了？）")
+                table = hooks[declaration.end():]
                 table = table[:table.index("}};")]
                 guarded = re.findall(rf"{struct_name}, (\w+)\)", table)
                 self.assertEqual(
@@ -743,11 +754,30 @@ class LuaFontResourceTests(unittest.TestCase):
         runtime = (SOURCE / "lua_runtime.cpp").read_text(encoding="utf-8")
         hook = (SOURCE / "hook_manager.cpp").read_text(encoding="utf-8")
         # The handle owns the block, `__gc` pairs `~Font()` with the release, and the release path
-        # is the only place the block is freed.
-        self.assertIn("std::malloc(kFontObjectSize + kFontStorageSlack)", family)
-        self.assertIn("std::free(raw)", family)
-        self.assertIn("constexpr std::size_t kFontAlignment = 16;", family)
-        self.assertIn("ReleaseFontStorage(handle->font);", family)
+        # is the only place the block is returned.
+        #
+        # ★ 2026-10-08（批次 414）：存储来源从"`malloc` 一块 + 在对象前面存原始指针"改成
+        #   **固定块池**（`whatsmydps` 每帧 `Font()` ⇒ 128 KiB 每帧 malloc/free ⇒ 撞碎片、
+        #   真机报 `Font could not allocate its native object`，见本批存档 README 与
+        #   `docs/诊断-掉帧-每帧回调开销-20261008.md` §八）。
+        #   判据因此改成"用的是池、且池按 `kFontObjectSize` 配置"；池**自身**的语义
+        #   （同尺寸复用/16 字节对齐/在用块不重发/按需增长/计数）由
+        #   `runtime/tests/test_fixed_block_pool.py` 单独钉住（那边是行为测试，这边只钉接线）。
+        # ★ 2026-10-08（批次 415）：Font 的存储**必须走 Lua 状态自己的分配器**（`lua_getallocf`）。
+        #   为什么（真机读数，见 `dist/change-archive-20261008/414-*/README.md`）：414 那版用
+        #   "我们自己的 malloc / 固定块池"拿那 128 KiB ⇒ **Lua 的 GC 看不见它**
+        #   ⇒ `当前在外 = 288` 个 Font 攒着不还、`chunk 要不到 = 1194`。走 Lua 分配器才会被计入
+        #   GC 的账 ⇒ 按需回收。
+        # ★ 2026-10-09 更正：lua_Alloc 本身不会记账，必须经完整 userdata。
+        # 真实 Lua 内存计数、压力回收及 OOM 由 test_lua_font_gc_storage 验证。
+        self.assertIn("lua_newuserdata(state, kFontStorageBytes)", family)
+        # 2026-10-16：当前句柄/原生载荷同在完整userdata，GC无需旧二层uservalue。
+        self.assertRegex(family, r"kFontStorageBytes\s*=\s*sizeof\(FontHandle\)\s*\+\s*kFontObjectSize")
+        self.assertNotIn("alloc(userData,", family)
+        # 不许退回"自己 malloc"或"固定块池"那两条路 —— 它们对 GC 不可见，正是病因本身。
+        self.assertNotIn("std::malloc(kFontObjectSize", family)
+        self.assertNotIn("std::free(raw)", family)
+        self.assertNotIn("FixedBlockPool", family)
         self.assertIn("handle->font = nullptr;", family)
         self.assertIn('lua_setfield(state, -2, "__gc")', runtime)
         # A Font is never copied by value on this path, and the measurement handlers refuse to run

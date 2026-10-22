@@ -11,6 +11,14 @@
   "kRebuildContentMountPointsOffset": {
    "why": "**不是成员函数**：引擎侧签名 `IsaacRepentance::RebuildContentMountPoints()` 没有隐式 `this`，而我们的声明 `using RebuildContentMountPointsFn = void (*)();` 与它**逐字相同**（0 参数对 0 参数）。它也**不是调用点**：这个常量只用来当挂点/中继目标（我们替换它的入口字节），所以「我们的声明含 this、引擎签名不含 ⇒ 必须 +1」这条判据在这里不适用。",
    "evidence": "`tools/engine_symbol_signatures.json` 里该条 `mangled = _ZN15IsaacRepentance25RebuildContentMountPointsEv`（参数段为空 ⇒ 无参数、也无 `this`）；消费者只有 `runtime/source/probe/content_mount_point_probe.cpp` 的挂点与中继两侧。ABI 体检工具在 2026-09-19 修正了「少给参数」判据（旧版本允许 our == engine，把 `Entity:TakeDamage` 那类真错放过去了），这一条是**新判据的假阳性**，不是缺陷。"
+  },
+  "kRandomU32Offset": {
+   "why": "**不是成员函数**：引擎侧签名 `IsaacRepentance::RandomU32()` 是自由函数，没有隐式 `this`，而我们的声明 `using EngineRandomU32Fn = std::uint32_t (*)();` 与它**逐字相同**（0 参数对 0 参数）。所以「我们的声明含 this、引擎签名不含 ⇒ 必须 +1」这条判据在这里不适用 —— 与 `kRebuildContentMountPointsOffset` 同一类假阳性。",
+   "evidence": "`tools/engine_symbol_signatures.json` 里该条 `mangled = _ZN15IsaacRepentance9RandomU32Ev`（参数段为空 ⇒ 无参数、也无 `this`）；反汇编 `python3 tools/nro_disasm.py 0x35830 0x14` 只有 4 条指令（`stp x29,x30` / `mov x29,sp` / `bl genrand_int32` / `ldp; ret`），全程没有读任何入参寄存器 ⇒ 少传 `x0` 不可能有影响。调用点只有 `remaining_api.cpp` 的 `EngineRandomU32()`（`Isaac.GridSpawn` 的种子）。"
+  },
+  "kEntityIsVulnerableEnemyOffset": {
+   "why": "**本条的 `x1 = 0` 正是我们要的语义，不是缺陷。** 引擎签名 `Entity::IsVulnerableEnemy(Entity* Source) const` 比 PC 契约多一个 `Entity*`；而 **PC 那个无参重载传下去的就是空指针**（取证：PC 包装 `0x7FAE70` 读 Lua 栈第 2 格，契约 `Entity.md:496` 与官方示例 `DebugConsole.md:315` 都是 0 参 ⇒ 那格恒为 nil）。反汇编证明 `Source` **只在非空时才被解引用**（`0x5C67C: cbz x1, → 立即返回`），并且两版实现在 `Source == 0` 时返回值**等价**（都是 `(Type&~0x40 == 0x322) || ((flags & 0x10) == 0)`）。⇒ 我们只要让 `x1` 保持 0。它天然就是 0：`EngineMethodHandler`（`isaac_api.cpp:6871`）把整数参数数组整块零初始化、只搬实际给出的参数，通用跳板无条件读满 8 个 `x`。行用的是既有形状 `Bool0`（0 个参数）⇒ **不需要新形状、0 字节代码**，此处只登记、不改代码。",
+   "evidence": "引擎侧：符号 `_ZNK15IsaacRepentance6Entity17IsVulnerableEnemyEPS0_` @ `0x5C62C`（整份 `Repentance.nro` 扫 mangled 名**只有这一条** ⇒ 无子类重写），反汇编见 `runtime_constants.hpp` 的批次 286 段。PC 侧：`python3 tools/pc_exe_binding.py IsVulnerableEnemy` → 表项 `0x805450`、包装 `0x7FAE70`（全镜像只出现 2 处、都属这一条方法），反汇编显示 `lua_pushvalue(L, 2)` → `lua_type(L, -1)` → **是 nil 就传 0**。PC 引擎实现 `0x684630` 在 `68468E: test ecx,ecx / je → 返回 1`（与 Switch 的 `cbz x1` 同义）。ABI 体检报 `under` 是因为它按「引擎 1 个形参 + this」算，而我们只声明了 this —— 这是 **形状 `Bool0` 的刻意用法**，不是「少给参数」的错（对比真错 `Entity:TakeDamage`：那一类引擎会**解引用**我们没准备的寄存器）。"
   }
  }
 }

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include "domain/callback/callback_priority.hpp"
 
 extern "C" {
 #include <lua.h>
@@ -19,6 +20,7 @@ namespace isaac::runtime {
 // Returns how many methods were attached; unknown ids are skipped so a catalog
 // entry can never attach a null function.
 [[nodiscard]] std::size_t AttachModMethods(lua_State* state) noexcept;
+void RecordCallbackTableRegistration(std::uint32_t id) noexcept;
 
 // --- 命名回调（PC 的"自定义回调名"）--------------------------------------------
 //
@@ -36,7 +38,15 @@ namespace isaac::runtime {
 //
 // `RegisterNamedCallback` 从栈顶取两个值：先 `Function`（回调函数），再 `Mod`（Mod 对象），
 // 两者都会被消费（`lua_pop`）。成功返回 true。
-[[nodiscard]] bool RegisterNamedCallback(lua_State* state, const char* name);
+//
+// `filterIndex`（批次 268 新增）：**可选过滤值**在同一个栈上的下标（0 = 这一条没有过滤值）。
+// 它在 PC 上是 `Mod:AddCallback(id, fn, entityId)` 的第三个实参 —— 对字符串回调名，
+// 这个值的用途由 `Isaac.RunCallbackWithParam` 定义：**只有"过滤值对得上"的登记才会被调到**
+// （见 `RunNamedCallbacksWithFilter`）。存进条目的字段名取 PC 回调表那一栏的名字
+// （`OptionalArg`），`Isaac.GetCallbacks(name)` 返回的表因此多一栏 —— EID 只读
+// `Function`/`Mod`，多一栏无害。
+[[nodiscard]] bool RegisterNamedCallback(lua_State* state, const char* name, int filterIndex,
+                                       CallbackPriorityValue priority = 0);
 
 // 把 `name` 名下的回调表压到栈顶（**永远是表**，没有登记时是空表）——`Isaac.GetCallbacks`。
 void PushNamedCallbacks(lua_State* state, const char* name);
@@ -49,6 +59,16 @@ void PushNamedCallbacks(lua_State* state, const char* name);
 // 返回值处停下并把该值留在栈顶（返回 1）；一个回调都没有时返回 0（栈上不留值）。
 // 回调里抛出的 Lua 错误原样向外抛（与数字路径一致）。
 int RunNamedCallbacks(lua_State* state, const char* name, int firstArgument);
+
+// 同上，但**按过滤值筛**：只有"登记时的过滤值"与 `filterIndex` 上的值**对得上**的登记才会被调。
+//
+// 这是 PC 的 `Isaac.RunCallbackWithParam(callbackId, param, ...)` 的那半边（`filterIndex` = `param`
+// 所在的下标，0 = 调用方没给 param ⇒ 全部匹配）。判据来自 PC 的 Lua 胶水：
+// `__matchParams = function(a, b) return not a or not b or a == -1 or b == -1 or a == b end`
+// （REPENTOGON issue #336 逐字引用了它）⇒ **任一侧缺席或为 -1 就算匹配**。
+// 语料里 `ChallengeAPI` 的两条登记都**没有**过滤值 ⇒ 任何 `param` 下它们都会被调到。
+int RunNamedCallbacksWithFilter(lua_State* state, const char* name, int filterIndex,
+                                int firstArgument);
 
 // `Isaac.SaveModData(modRef, data)` / `Isaac.LoadModData(modRef)`：PC 上它们与
 // `Mod:SaveData(data)` / `Mod:LoadData()` 是**同一件事**（读写同一份 "saveX.dat"，
@@ -69,4 +89,20 @@ int RunNamedCallbacks(lua_State* state, const char* name, int firstArgument);
 int ModSaveData(lua_State* state);
 int ModLoadData(lua_State* state);
 
+// `Isaac.HasModData(modRef)`（批次 261，2026-10-01，语料 API 恢复的 `glue_compose` 桶）。
+//
+// PC 契约 `tools/pc_contract_docs/Isaac.md:491`：`#### boolean HasModData ( table modRef )`，
+// 正文逐字：Returns "true" if your mod has Data stored using the "SaveModData()" function.
+// Aka. if there is a "saveX.dat" file in your mod folder.
+//
+// ★ 与 `Mod:HasData()` 是**同一件事**（同一份 `saveX.dat`、同一个判定），所以这里**直接转调**
+// `Mod:HasData` 的处理器 —— 作业单第三节第 7 条明确要求不许另写一份判定
+// （`ModPersistence::HasModData` 是唯一实现）。
+//
+// ⚠️ 与 `Isaac.SaveModData` / `Isaac.LoadModData` 同一个小瑕疵（刻意保留）：参数个数写错时
+// 错误信息里的名字是 `Mod:HasData`，不是调用者写的 `Isaac.HasModData`。
+int IsaacHasModData(lua_State* state);
+
 } // namespace isaac::runtime
+
+namespace isaac::runtime {int Api700IsaacRemoveModData(lua_State*);}

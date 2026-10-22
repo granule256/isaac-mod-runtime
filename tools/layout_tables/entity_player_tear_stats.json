@@ -1,0 +1,87 @@
+{
+  "schema": "isaac-layout-table/1",
+  "build_id": "91C73FDD575061318D68886316AFEAC72388B2AB",
+  "struct": "Entity_Player",
+  "source_table": "entity_player_tear_stats",
+  "note": [
+    "2026-10-09：PC可写泪弹属性与NS真实消费者映射；非按相邻次序推测。",
+    "颜色44字节结构已由ColorMod::Reset/GetTearHitParams复制宽度独立核实。"
+  ],
+  "rows": [
+    {
+      "name": "TearHeight",
+      "constant": "kEntityPlayerTearHeightOffset",
+      "kind": "float",
+      "offset": 6216,
+      "width": 4,
+      "confidence": "confirmed",
+      "semantic": "PC805DE2注册+13BC/writeable1；读该格至params+50，FireTear2A9AF0将同格传SetHeight",
+      "evidence": [
+        {
+          "kind": "access",
+          "function": "_ZN15IsaacRepentance13Entity_Player16GetTearHitParamsENS_11eWeaponTypeEfiPNS_6EntityE",
+          "address": "0x002ad6e0",
+          "why": "读该格至params+50，FireTear2A9AF0将同格传SetHeight",
+          "offset": 6216,
+          "width": 4
+        }
+      ]
+    },
+    {
+      "name": "TearFallingSpeed",
+      "constant": "kEntityPlayerTearFallingSpeedOffset",
+      "kind": "float",
+      "offset": 6220,
+      "width": 4,
+      "confidence": "confirmed",
+      "semantic": "PC805DD6注册+13C0/writeable1；读s1供SetFallingSpeed入参运算",
+      "evidence": [
+        {
+          "kind": "access",
+          "function": "_ZN15IsaacRepentance13Entity_Player8FireTearERKN4KAGE4Math7Vector2ES3_jPNS_6EntityEf",
+          "address": "0x002a9b38",
+          "why": "读s1供SetFallingSpeed入参运算",
+          "offset": 6220,
+          "width": 4
+        }
+      ]
+    },
+    {
+      "name": "TearFallingAcceleration",
+      "constant": "kEntityPlayerTearFallingAccelerationOffset",
+      "kind": "float",
+      "offset": 6224,
+      "width": 4,
+      "confidence": "confirmed",
+      "semantic": "PC805DCA注册+13C4/writeable1；读s0后直接传SetFallingAcceleration",
+      "evidence": [
+        {
+          "kind": "access",
+          "function": "_ZN15IsaacRepentance13Entity_Player8FireTearERKN4KAGE4Math7Vector2ES3_jPNS_6EntityEf",
+          "address": "0x002a9b74",
+          "why": "读s0后直接传SetFallingAcceleration",
+          "offset": 6224,
+          "width": 4
+        }
+      ]
+    },
+    {
+      "name": "TearColor",
+      "constant": "kEntityPlayerTearColorOffset",
+      "kind": "ColorMod",
+      "offset": 6248,
+      "width": 44,
+      "confidence": "confirmed",
+      "semantic": "PC805D9A注册+13E0/writeable1；mov立即数1868算结构地址，后连续复制44字节到返回params+8并由FireTear消费",
+      "evidence": [
+        {
+          "kind": "semantic",
+          "function": "_ZN15IsaacRepentance13Entity_Player16GetTearHitParamsENS_11eWeaponTypeEfiPNS_6EntityE",
+          "address": "0x002ad6f4",
+          "why": "mov立即数1868算结构地址，后连续复制44字节到返回params+8并由FireTear消费",
+          "immediate": 6248
+        }
+      ]
+    }
+  ]
+}

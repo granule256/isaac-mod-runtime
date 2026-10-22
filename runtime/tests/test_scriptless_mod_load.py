@@ -559,11 +559,21 @@ class ManifestCapacityContractTests(unittest.TestCase):
         self.assertIn("DefaultManifestFailureDetail::Scriptless", default_block)
         # 多模组：任何 Mod 失败都要如实翻出来，成功路径返回 true。
         self.assertIn("!loadOutcome.anyFailure", default_block)
-        self.assertIn("RegisterMod(batch.mods[index].modRoot)", default_block)
+        # ★★★ 批次 378（2026-10-05）：这里原来钉的是 `RegisterMod(...)`（内容挂载点注册）。
+        #   模组目录挂载这条机制已被 **PC 的资源层重定向**取代（判据与取证见
+        #   `docs/分析-模组挂载机制与371没音乐定案-20261005.md`）⇒ 判定意图不变
+        #   （"资源型 Mod 照样能用"），钉住的那句改成"发布重定向清单"，时机要求同样是
+        #   **在加载之前**。
+        self.assertIn("PublishModResourceRedirectList(roots, rootCount)", default_block)
+        # ★ 顺序判据**必须只看代码**：这一段大切片里，函数头上面那条注释里就逐字写着
+        #   `service.LoadAll(`（讲"为什么保留状态机结构"），在原文里 `index` 会先命中**注释**、
+        #   把顺序判反（2026-10-05 批次 378 实测：报的是 `23431 not less than 785`）。
+        #   这与本仓"判据只看代码（去掉行注释）"那条纪律同源 —— 上面 `code` 就是这么来的。
+        default_code = re.sub(r"//[^\n]*", "", default_block)
         self.assertLess(
-            default_block.index("RegisterMod(batch.mods[index].modRoot)"),
-            default_block.index("service.LoadAll("),
-            "内容挂载点必须在加载（含资源型）之前注册",
+            default_code.index("PublishModResourceRedirectList(roots, rootCount)"),
+            default_code.index("service.LoadAll("),
+            "重定向清单必须在加载（含资源型）之前发布",
         )
 
 

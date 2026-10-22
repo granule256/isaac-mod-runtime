@@ -1,0 +1,239 @@
+{
+  "schema": "isaac-api-accessor-regions/1",
+  "build_id": "91C73FDD575061318D68886316AFEAC72388B2AB",
+  "struct": "Game",
+  "note": "访问器名作为已证明区域的索引；与传统逐条指令layout-table分开schema，完整PC/NS指令/写者与宽度在evidence_files，不用PC偏移平移。置信度来自实际同算法/序列化/写者交叉核定，不来自函数名启发式。",
+  "rows": [
+    {
+      "name": "AddPixelation",
+      "kind": "accessor_region",
+      "offset": 3080272,
+      "confidence": "confirmed",
+      "semantic": "原API Game:AddPixelation 所访问的实际引擎区域；以访问器名称索引，具体多字段/位/向量/树操作和读取宽度以原件契约及测试为准，不声称这是C++源成员名字。 真实Game状态，同GameState字段双端序列化；原setter/int32回绕/float/pushnumber类型保留。 完整原件和中间失败保存在dist/apis300-20261014，虚调用槽按重定位核，不能按PC位宽翻倍。",
+      "evidence_files": [
+        "dist/apis300-20261014/game21-contracts-reviewed.json"
+      ],
+      "judgement": "runtime/tests/test_api300_game_room.py"
+    },
+    {
+      "name": "AddStageWithoutDamage",
+      "kind": "accessor_region",
+      "offset": 2554476,
+      "confidence": "confirmed",
+      "semantic": "原API Game:AddStageWithoutDamage 所访问的实际引擎区域；以访问器名称索引，具体多字段/位/向量/树操作和读取宽度以原件契约及测试为准，不声称这是C++源成员名字。 真实Game状态，同GameState字段双端序列化；原setter/int32回绕/float/pushnumber类型保留。 完整原件和中间失败保存在dist/apis300-20261014，虚调用槽按重定位核，不能按PC位宽翻倍。",
+      "evidence_files": [
+        "dist/apis300-20261014/game21-contracts-reviewed.json"
+      ],
+      "judgement": "runtime/tests/test_api300_game_room.py"
+    },
+    {
+      "name": "AddStageWithoutHeartsPicked",
+      "kind": "accessor_region",
+      "offset": 2554472,
+      "confidence": "confirmed",
+      "semantic": "原API Game:AddStageWithoutHeartsPicked 所访问的实际引擎区域；以访问器名称索引，具体多字段/位/向量/树操作和读取宽度以原件契约及测试为准，不声称这是C++源成员名字。 真实Game状态，同GameState字段双端序列化；原setter/int32回绕/float/pushnumber类型保留。 完整原件和中间失败保存在dist/apis300-20261014，虚调用槽按重定位核，不能按PC位宽翻倍。",
+      "evidence_files": [
+        "dist/apis300-20261014/game21-contracts-reviewed.json"
+      ],
+      "judgement": "runtime/tests/test_api300_game_room.py"
+    },
+    {
+      "name": "AddTreasureRoomsVisited",
+      "kind": "accessor_region",
+      "offset": 2554464,
+      "confidence": "confirmed",
+      "semantic": "原API Game:AddTreasureRoomsVisited 所访问的实际引擎区域；以访问器名称索引，具体多字段/位/向量/树操作和读取宽度以原件契约及测试为准，不声称这是C++源成员名字。 真实Game状态，同GameState字段双端序列化；原setter/int32回绕/float/pushnumber类型保留。 完整原件和中间失败保存在dist/apis300-20261014，虚调用槽按重定位核，不能按PC位宽翻倍。",
+      "evidence_files": [
+        "dist/apis300-20261014/game21-contracts-reviewed.json"
+      ],
+      "judgement": "runtime/tests/test_api300_game_room.py"
+    },
+    {
+      "name": "ClearDonationModAngel",
+      "kind": "accessor_region",
+      "offset": 2554488,
+      "confidence": "confirmed",
+      "semantic": "原API Game:ClearDonationModAngel 所访问的实际引擎区域；以访问器名称索引，具体多字段/位/向量/树操作和读取宽度以原件契约及测试为准，不声称这是C++源成员名字。 真实Game状态，同GameState字段双端序列化；原setter/int32回绕/float/pushnumber类型保留。 完整原件和中间失败保存在dist/apis300-20261014，虚调用槽按重定位核，不能按PC位宽翻倍。",
+      "evidence_files": [
+        "dist/apis300-20261014/game21-contracts-reviewed.json"
+      ],
+      "judgement": "runtime/tests/test_api300_game_room.py"
+    },
+    {
+      "name": "ClearDonationModGreed",
+      "kind": "accessor_region",
+      "offset": 2554484,
+      "confidence": "confirmed",
+      "semantic": "原API Game:ClearDonationModGreed 所访问的实际引擎区域；以访问器名称索引，具体多字段/位/向量/树操作和读取宽度以原件契约及测试为准，不声称这是C++源成员名字。 真实Game状态，同GameState字段双端序列化；原setter/int32回绕/float/pushnumber类型保留。 完整原件和中间失败保存在dist/apis300-20261014，虚调用槽按重定位核，不能按PC位宽翻倍。",
+      "evidence_files": [
+        "dist/apis300-20261014/game21-contracts-reviewed.json"
+      ],
+      "judgement": "runtime/tests/test_api300_game_room.py"
+    },
+    {
+      "name": "ClearStagesWithoutDamage",
+      "kind": "accessor_region",
+      "offset": 2554476,
+      "confidence": "confirmed",
+      "semantic": "原API Game:ClearStagesWithoutDamage 所访问的实际引擎区域；以访问器名称索引，具体多字段/位/向量/树操作和读取宽度以原件契约及测试为准，不声称这是C++源成员名字。 真实Game状态，同GameState字段双端序列化；原setter/int32回绕/float/pushnumber类型保留。 完整原件和中间失败保存在dist/apis300-20261014，虚调用槽按重定位核，不能按PC位宽翻倍。",
+      "evidence_files": [
+        "dist/apis300-20261014/game21-contracts-reviewed.json"
+      ],
+      "judgement": "runtime/tests/test_api300_game_room.py"
+    },
+    {
+      "name": "GetDarknessModifier",
+      "kind": "accessor_region",
+      "offset": 2423228,
+      "confidence": "confirmed",
+      "semantic": "原API Game:GetDarknessModifier 所访问的实际引擎区域；以访问器名称索引，具体多字段/位/向量/树操作和读取宽度以原件契约及测试为准，不声称这是C++源成员名字。 真实Game状态，同GameState字段双端序列化；原setter/int32回绕/float/pushnumber类型保留。 完整原件和中间失败保存在dist/apis300-20261014，虚调用槽按重定位核，不能按PC位宽翻倍。",
+      "evidence_files": [
+        "dist/apis300-20261014/game21-contracts-reviewed.json"
+      ],
+      "judgement": "runtime/tests/test_api300_game_room.py"
+    },
+    {
+      "name": "GetDevilRoomDeals",
+      "kind": "accessor_region",
+      "offset": 2554480,
+      "confidence": "confirmed",
+      "semantic": "原API Game:GetDevilRoomDeals 所访问的实际引擎区域；以访问器名称索引，具体多字段/位/向量/树操作和读取宽度以原件契约及测试为准，不声称这是C++源成员名字。 真实Game状态，同GameState字段双端序列化；原setter/int32回绕/float/pushnumber类型保留。 完整原件和中间失败保存在dist/apis300-20261014，虚调用槽按重定位核，不能按PC位宽翻倍。",
+      "evidence_files": [
+        "dist/apis300-20261014/game21-contracts-reviewed.json"
+      ],
+      "judgement": "runtime/tests/test_api300_game_room.py"
+    },
+    {
+      "name": "GetDonationModAngel",
+      "kind": "accessor_region",
+      "offset": 2554488,
+      "confidence": "confirmed",
+      "semantic": "原API Game:GetDonationModAngel 所访问的实际引擎区域；以访问器名称索引，具体多字段/位/向量/树操作和读取宽度以原件契约及测试为准，不声称这是C++源成员名字。 真实Game状态，同GameState字段双端序列化；原setter/int32回绕/float/pushnumber类型保留。 完整原件和中间失败保存在dist/apis300-20261014，虚调用槽按重定位核，不能按PC位宽翻倍。",
+      "evidence_files": [
+        "dist/apis300-20261014/game21-contracts-reviewed.json"
+      ],
+      "judgement": "runtime/tests/test_api300_game_room.py"
+    },
+    {
+      "name": "GetDonationModGreed",
+      "kind": "accessor_region",
+      "offset": 2554484,
+      "confidence": "confirmed",
+      "semantic": "原API Game:GetDonationModGreed 所访问的实际引擎区域；以访问器名称索引，具体多字段/位/向量/树操作和读取宽度以原件契约及测试为准，不声称这是C++源成员名字。 真实Game状态，同GameState字段双端序列化；原setter/int32回绕/float/pushnumber类型保留。 完整原件和中间失败保存在dist/apis300-20261014，虚调用槽按重定位核，不能按PC位宽翻倍。",
+      "evidence_files": [
+        "dist/apis300-20261014/game21-contracts-reviewed.json"
+      ],
+      "judgement": "runtime/tests/test_api300_game_room.py"
+    },
+    {
+      "name": "GetNumEncounteredBosses",
+      "kind": "accessor_region",
+      "offset": 3080248,
+      "confidence": "confirmed",
+      "semantic": "原API Game:GetNumEncounteredBosses 所访问的实际引擎区域；以访问器名称索引，具体多字段/位/向量/树操作和读取宽度以原件契约及测试为准，不声称这是C++源成员名字。 真实Game状态，同GameState字段双端序列化；原setter/int32回绕/float/pushnumber类型保留。 完整原件和中间失败保存在dist/apis300-20261014，虚调用槽按重定位核，不能按PC位宽翻倍。",
+      "evidence_files": [
+        "dist/apis300-20261014/game21-contracts-reviewed.json"
+      ],
+      "judgement": "runtime/tests/test_api300_game_room.py"
+    },
+    {
+      "name": "GetStagesWithoutDamage",
+      "kind": "accessor_region",
+      "offset": 2554476,
+      "confidence": "confirmed",
+      "semantic": "原API Game:GetStagesWithoutDamage 所访问的实际引擎区域；以访问器名称索引，具体多字段/位/向量/树操作和读取宽度以原件契约及测试为准，不声称这是C++源成员名字。 真实Game状态，同GameState字段双端序列化；原setter/int32回绕/float/pushnumber类型保留。 完整原件和中间失败保存在dist/apis300-20261014，虚调用槽按重定位核，不能按PC位宽翻倍。",
+      "evidence_files": [
+        "dist/apis300-20261014/game21-contracts-reviewed.json"
+      ],
+      "judgement": "runtime/tests/test_api300_game_room.py"
+    },
+    {
+      "name": "GetStagesWithoutHeartsPicked",
+      "kind": "accessor_region",
+      "offset": 2554472,
+      "confidence": "confirmed",
+      "semantic": "原API Game:GetStagesWithoutHeartsPicked 所访问的实际引擎区域；以访问器名称索引，具体多字段/位/向量/树操作和读取宽度以原件契约及测试为准，不声称这是C++源成员名字。 真实Game状态，同GameState字段双端序列化；原setter/int32回绕/float/pushnumber类型保留。 完整原件和中间失败保存在dist/apis300-20261014，虚调用槽按重定位核，不能按PC位宽翻倍。",
+      "evidence_files": [
+        "dist/apis300-20261014/game21-contracts-reviewed.json"
+      ],
+      "judgement": "runtime/tests/test_api300_game_room.py"
+    },
+    {
+      "name": "GetTargetDarkness",
+      "kind": "accessor_region",
+      "offset": 2423232,
+      "confidence": "confirmed",
+      "semantic": "原API Game:GetTargetDarkness 所访问的实际引擎区域；以访问器名称索引，具体多字段/位/向量/树操作和读取宽度以原件契约及测试为准，不声称这是C++源成员名字。 真实Game状态，同GameState字段双端序列化；原setter/int32回绕/float/pushnumber类型保留。 完整原件和中间失败保存在dist/apis300-20261014，虚调用槽按重定位核，不能按PC位宽翻倍。",
+      "evidence_files": [
+        "dist/apis300-20261014/game21-contracts-reviewed.json"
+      ],
+      "judgement": "runtime/tests/test_api300_game_room.py"
+    },
+    {
+      "name": "GetTreasureRoomVisitCount",
+      "kind": "accessor_region",
+      "offset": 2554464,
+      "confidence": "confirmed",
+      "semantic": "原API Game:GetTreasureRoomVisitCount 所访问的实际引擎区域；以访问器名称索引，具体多字段/位/向量/树操作和读取宽度以原件契约及测试为准，不声称这是C++源成员名字。 真实Game状态，同GameState字段双端序列化；原setter/int32回绕/float/pushnumber类型保留。 完整原件和中间失败保存在dist/apis300-20261014，虚调用槽按重定位核，不能按PC位宽翻倍。",
+      "evidence_files": [
+        "dist/apis300-20261014/game21-contracts-reviewed.json"
+      ],
+      "judgement": "runtime/tests/test_api300_game_room.py"
+    },
+    {
+      "name": "HasHallucination",
+      "kind": "accessor_region",
+      "offset": 2554424,
+      "confidence": "confirmed",
+      "semantic": "原API Game:HasHallucination 所访问的实际引擎区域；以访问器名称索引，具体多字段/位/向量/树操作和读取宽度以原件契约及测试为准，不声称这是C++源成员名字。 真实Game状态，同GameState字段双端序列化；原setter/int32回绕/float/pushnumber类型保留。 完整原件和中间失败保存在dist/apis300-20261014，虚调用槽按重定位核，不能按PC位宽翻倍。",
+      "evidence_files": [
+        "dist/apis300-20261014/game21-contracts-reviewed.json"
+      ],
+      "judgement": "runtime/tests/test_api300_game_room.py"
+    },
+    {
+      "name": "SetLastDevilRoomStage",
+      "kind": "accessor_region",
+      "offset": 2554460,
+      "confidence": "confirmed",
+      "semantic": "原API Game:SetLastDevilRoomStage 所访问的实际引擎区域；以访问器名称索引，具体多字段/位/向量/树操作和读取宽度以原件契约及测试为准，不声称这是C++源成员名字。 真实Game状态，同GameState字段双端序列化；原setter/int32回绕/float/pushnumber类型保留。 完整原件和中间失败保存在dist/apis300-20261014，虚调用槽按重定位核，不能按PC位宽翻倍。",
+      "evidence_files": [
+        "dist/apis300-20261014/game21-contracts-reviewed.json"
+      ],
+      "judgement": "runtime/tests/test_api300_game_room.py"
+    },
+    {
+      "name": "SetLastLevelWithDamage",
+      "kind": "accessor_region",
+      "offset": 3080236,
+      "confidence": "confirmed",
+      "semantic": "原API Game:SetLastLevelWithDamage 所访问的实际引擎区域；以访问器名称索引，具体多字段/位/向量/树操作和读取宽度以原件契约及测试为准，不声称这是C++源成员名字。 真实Game状态，同GameState字段双端序列化；原setter/int32回绕/float/pushnumber类型保留。 完整原件和中间失败保存在dist/apis300-20261014，虚调用槽按重定位核，不能按PC位宽翻倍。",
+      "evidence_files": [
+        "dist/apis300-20261014/game21-contracts-reviewed.json"
+      ],
+      "judgement": "runtime/tests/test_api300_game_room.py"
+    },
+    {
+      "name": "SetLastLevelWithoutHalfHp",
+      "kind": "accessor_region",
+      "offset": 3080224,
+      "confidence": "confirmed",
+      "semantic": "原API Game:SetLastLevelWithoutHalfHp 所访问的实际引擎区域；以访问器名称索引，具体多字段/位/向量/树操作和读取宽度以原件契约及测试为准，不声称这是C++源成员名字。 真实Game状态，同GameState字段双端序列化；原setter/int32回绕/float/pushnumber类型保留。 完整原件和中间失败保存在dist/apis300-20261014，虚调用槽按重定位核，不能按PC位宽翻倍。",
+      "evidence_files": [
+        "dist/apis300-20261014/game21-contracts-reviewed.json"
+      ],
+      "judgement": "runtime/tests/test_api300_game_room.py"
+    },
+    {
+      "name": "GetScreenShakeCountdown",
+      "kind": "accessor_region",
+      "offset": 2423212,
+      "confidence": "confirmed",
+      "semantic": "原API Game:GetScreenShakeCountdown 所访问的实际引擎区域；以访问器名称索引，具体多字段/位/向量/树操作和读取宽度以原件契约及测试为准，不声称这是C++源成员名字。 真实Game状态，同GameState字段双端序列化；原setter/int32回绕/float/pushnumber类型保留。 完整原件和中间失败保存在dist/apis300-20261014，虚调用槽按重定位核，不能按PC位宽翻倍。",
+      "evidence_files": [
+        "dist/apis300-20261014/game21-contracts-reviewed.json"
+      ],
+      "judgement": "runtime/tests/test_api300_game_room.py"
+    }
+  ]
+}

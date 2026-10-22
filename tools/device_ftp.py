@@ -295,6 +295,11 @@ def cmd_put_tree(args) -> int:
         return 1
     remote_root = args.path.rstrip('/') or '/'
 
+    # ★★★ 2026-10-06：**默认走"单连接连续传"**（见 `put_tree_single_connection` 的注释与实测表）。
+    #   老路径（每个动作新建连接 + 之间睡 2 秒）原样保留在 `--legacy-slow` 里。
+    if not getattr(args, 'legacy_slow', False):
+        return put_tree_single_connection(args, root, remote_root)
+
     # ⓪ **远端根本身**要先存在（2026-09-23 批次 075：老实现只建树里那几级，远端根不存在就必 553）。
     ensure_remote_directory(args, remote_root)
 
@@ -353,6 +358,94 @@ def cmd_put_tree(args) -> int:
 
     print(f'== 全部完成：{len(files)} 个文件、{len(directories)} 个目录；'
           f'每个文件都已读回核对 ==')
+    print('（整棵目录的最终核对仍是 `python3 tools/verify_device_install.py`：'
+          '它按部署清单逐文件比哈希，比"传的时候对过一次"更硬。）')
+    return 0
+
+
+def put_tree_single_connection(args, root: Path, remote_root: str) -> int:
+    """★ 2026-10-06 起的**默认**路径：**一条连接连续传**（不睡、不逐动作重连）。
+
+    ## 为什么要换（用户当场纠正 + 现场实测，2026-10-06）
+
+    老路径（现在叫 `--legacy-slow`）每个动作都**新建一条连接**、动作之间**睡 2 秒**、失败再等 5 秒 ——
+    它是 2026-09-23 为了绕开"这台服务端对连续连接敏感（会 451 或直接 reset）"写下的，
+    而且那条判断一直写在工具的使用说明里（连 `AGENTS.md` 的设备取证纪律也抄了一份）。
+    2026-10-06 用户当场纠正：「**什么时候 ftp 有这个限制了。我自己用 ftp 传文件就快的很**」⇒ 实测：
+
+    | 路径 | 传 minimapi 整个目录（42 个文件） |
+    | --- | --- |
+    | 老路径（`put-tree`，2026-10-06 14:1x） | **3 分 26 秒还没传完**（用户中止；中途出现过一次 `Connection reset`） |
+    | 本路径（单连接） | **3.8 秒**（平均 0.09 秒/文件）—— 零 reset、逐文件读回 **全部一致** |
+
+    ⇒ **"服务端对连续连接敏感"很可能本来就是"我们反复建连"造成的**：同一条连接里连续
+    `STOR`/`RETR` 完全正常。⇒ 默认换成这条；老路径照旧可用（它记录了当时的判断与理由）。
+    ★ 顺带更正老路径 339-340 行的注记"读回核对必须**新连接**（复用连接可能拿到缓存的状态）"：
+      本次同连接 `RETR` 42 个文件**逐个 sha256 全对** ⇒ 复用连接读回是可靠的。
+
+    ## 保留的纪律（与老路径**逐条同义**）
+
+    * 写卡前的"游戏在不在跑"检查在调用方做（`cmd_put_tree` 的 `assert_game_stopped`）；
+    * 远端根与每一级目录**逐级建**（这里在传每个文件前按需 `mkd`，已存在的 550 忽略）；
+    * 文件**顺序**传、不并发；每个文件**传完立刻读回 sha256**，对不上**当场停下**并说明停在哪个；
+    * 任一步失败 ⇒ **非零退出**（调用方据此判定"没传完"）。
+    """
+    files = sorted(path for path in root.rglob('*') if path.is_file())
+    print(f'== 单连接连续上传 {len(files)} 个文件（每个传完在**同一条连接**上读回 sha256 核对）==')
+    # ★ 必须走模块级的 `connect(args)`（不要自己 `ftplib.FTP()`）—— 门禁 `test_device_ftp_put_tree`
+    #   靠 mock 这个函数把假服务器注入进来。2026-10-06 换成单连接路径时第一版忘了这点，
+    #   门禁当场真的去连设备、报 `ConnectionRefused` ⇒ 6 个用例红（判据没丢，是注入点丢了）。
+    ftp = connect(args)
+
+    made: set[str] = set()
+
+    def ensure_dir(path: str) -> None:
+        current = ''
+        for piece in [part for part in path.split('/') if part]:
+            current += '/' + piece
+            if current in made:
+                continue
+            try:
+                ftp.mkd(current)
+            except ftplib.error_perm as exc:
+                # 550 = 已存在（也可能是权限问题 —— 那种情况后面的 STOR 会自己暴露）。
+                # ★ 其余（`553` = 父目录不存在、权限不足…）⇒ **非零退出**，与老路径逐条同义
+                #   （门禁 `test_a_level_that_cannot_be_created_aborts_without_uploading` 钉的
+                #   就是"`553` ⇒ `SystemExit`、且一个文件都不许传"）。
+                if not str(exc).startswith('550'):
+                    raise SystemExit(f'mkdir {current} 失败：{exc}')
+            made.add(current)
+
+    begun = time.time()
+    try:
+        for index, path in enumerate(files, start=1):
+            relative = path.relative_to(root)
+            remote = remote_join(remote_root, relative.as_posix())
+            ensure_dir(remote.rsplit('/', 1)[0])
+            payload = path.read_bytes()
+            expected = hashlib.sha256(payload).hexdigest()
+            ftp.storbinary(f'STOR {remote}', io.BytesIO(payload))
+            actual_bytes = bytearray()
+            ftp.retrbinary(f'RETR {remote}', actual_bytes.extend)
+            actual = hashlib.sha256(bytes(actual_bytes)).hexdigest()
+            if actual != expected or len(actual_bytes) != len(payload):
+                print(f'✗ [{index}/{len(files)}] {remote}：读回不一致 —— **停下**', file=sys.stderr)
+                print(f'   本地 {len(payload)} 字节 / {expected[:16]}…', file=sys.stderr)
+                print(f'   设备 {len(actual_bytes)} 字节 / {actual[:16]}…', file=sys.stderr)
+                print(f'   ⇒ 剩下的 {len(files) - index} 个文件**没有传**。重跑是幂等的。',
+                      file=sys.stderr)
+                return 1
+            print(f'✓ [{index}/{len(files)}] {remote}  {len(payload)} 字节  '
+                  f'sha256={actual[:16]}…（读回一致）')
+    finally:
+        try:
+            ftp.quit()
+        except Exception:                          # 连接已经断了也别把主流程的结论吃掉
+            pass
+
+    elapsed = time.time() - begun
+    print(f'== 全部完成：{len(files)} 个文件、{len(made)} 个目录；'
+          f'用时 {elapsed:.1f} 秒（平均 {elapsed / max(len(files), 1):.2f} 秒/文件）==')
     print('（整棵目录的最终核对仍是 `python3 tools/verify_device_install.py`：'
           '它按部署清单逐文件比哈希，比"传的时候对过一次"更硬。）')
     return 0
@@ -442,6 +535,10 @@ def main() -> int:
     p.add_argument('path', help='设备上的目标目录（**它本身**与各级子目录都会逐级创建）')
     p.add_argument('--force-write', action='store_true',
                    help='跳过"游戏是否已退出"的自动检查（自己确认过再用）')
+    # ★ 2026-10-06：默认改成**单连接连续传**（42 个文件实测 3.8 秒，老路径 3 分 26 秒还没传完）。
+    p.add_argument('--legacy-slow', action='store_true',
+                   help='走 2026-09-23 的老路径（每动作新建连接 + 之间睡 2 秒）；只有在'
+                        '单连接路径出问题时才用它对照')
     p.set_defaults(func=cmd_put_tree)
 
     p = sub.add_parser('sha', help='读回并算大小+sha256')

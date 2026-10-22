@@ -20,6 +20,35 @@
 3. **成熟度**：四态之一（`HardwareVerified` / `HostVerified` / `Experimental` / `Disabled`），
    并且要在 `tools/api_maturity_evidence.json` 里**有登记**（"凭什么这么说"写在那份台账里）。
 
+## ★ 为什么要加第 4 栏「真值来源」（2026-09-25，批次 127）
+
+上面三栏**都回答不了一个问题：这条 API 的返回值凭什么算引擎真值？** 实测过的洞（有代码为证）：
+
+* `Isaac:WorldToScreen` / `WorldToRenderPosition` 是**恒等变换**（直接返回同值 Vector），
+  模组拿它做屏幕定位会得到错坐标，不报错不崩；它们当时在桩台账与偏离台账里**都没有**；
+* `EntityPlayer:HasTrinket` / `HasGoldenBomb` / `HasPlayerForm` / `CanPickRedHearts` / `IsSubPlayer`
+  是**恒 false**；`Input.IsButtonPressed` / `IsButtonTriggered` / `GetButtonValue` 是**恒 false/0**
+  （前者的理由只写在 `input_api.cpp` 的一段注释里）—— 八个都**没有登记**；
+  ★ 2026-09-28 批次 177：其中 `EntityPlayer:HasPlayerForm` 与 `CanPickRedHearts` 已经换成
+  **引擎方法数据行**（值来自引擎，不再是恒 false）—— 这一段保留的是 2026-09-25 当时的实况，
+  不是现状；现状以 `tools/lua_api_stub_ledger.json` 为准。
+* 三栏旧判据一条都拦不住：契约依据只要"引文里出现 API 的名字"、边界判据只要"某种异常输入有测试"、
+  成熟度只要求"有登记"。⇒ 一条 `lua_pushboolean(state, 0); return 1;` 
+  可以三栏齐备、门禁全绿，而模组拿到的是恒 false。
+
+⇒ 所以第 4 栏要求**说清返回值从哪来**，并且证据**可核对**（不是一句形容词）：
+
+| `kind` | 必须给什么 | 门禁怎么核 |
+| --- | --- | --- |
+| `engine_call` | `offsets`（`runtime_constants.hpp` 里的常量名或 `0x` 字面量） | 逐个在**那个头文件**里找得到 |
+| `engine_field` | 同上 + `field`（`<Struct>.<字段>`） | 还要在 `tools/layout_tables/*.json` 里有 `confidence == confirmed` 的行（批次 047 的教训） |
+| `engine_constant` / `platform_absent` | 承认"这不是引擎真值" | **必须**在 `api_deviation.cpp` 偏离台账里有条目（写明"偏离后果：…"与判据） |
+| `lua_side` | `judgement`（仓库里真实存在的测试模块） | 纯 Lua 侧逻辑（Vector 数学、常量表）要一条"输入 → 输出"的等价性判据 |
+
+**强制范围**：与另外三栏一致 —— **基线之外的新 API 四栏齐备**；基线内的老条目 grandfather
+（但一旦写了 `provenance` 就要合格）。存量里"返回假值却没登记"的那些由**桩检测器 + 偏离台账**
+那一对负责（判据见 `tools/lua_api_stub_report.py` 文件头）。
+
 ## 为什么是**新开一份**台账，而不是扩展 `api_maturity_evidence.json`
 
 * **口径不同**：成熟度台账的口径是"**宣称真机验证过的**必须有依据"（所以它只有 30 条、`Experimental`
@@ -55,11 +84,13 @@
     python3 tools/api_definition_of_done.py --gaps          # 列出基线里还没台账条的 API（按 owner 分组）
     python3 tools/api_definition_of_done.py --template "Room:GetDoor"   # 打印一份可粘贴的条骨架
 
-新加一条 API 时的动作顺序（三件事都做完，门禁才会绿）：
+新加一条 API 时的动作顺序（**四件事**都做完，门禁才会绿）：
 
     1. 在 catalog 里加目录行；
-    2. `--template "<Owner:Name>"` 拿骨架 → 填 `contract`/`boundary` → 粘进 `tools/api_definition_of_done.json` 的 `rows`；
-    3. 在 `tools/api_maturity_evidence.json` 的 `rows` 里加同名条目（成熟度与 catalog 一致）。
+    2. `--template "<Owner:Name>"` 拿骨架 → 填 `contract`/`boundary`/`provenance` → 粘进 `tools/api_definition_of_done.json` 的 `rows`；
+    3. 在 `tools/api_maturity_evidence.json` 的 `rows` 里加同名条目（成熟度与 catalog 一致）；
+    4. 若 `provenance.kind` 是 `engine_constant` / `platform_absent`，**同时**在
+       `runtime/src/interfaces/lua/api_deviation.cpp` 里登记那条偏离（否则模组拿到假值却没人知道）。
 """
 
 from __future__ import annotations
@@ -88,6 +119,9 @@ DOMAIN_VALUES = {
     "Global": 0, "Mod": 1, "Game": 2, "Level": 3, "Room": 4, "ItemPool": 5,
     "Music": 6, "Rng": 7, "Persistence": 8, "Input": 9, "Diagnostic": 10,
     "Font": 11, "Vector": 12, "Sprite": 13, "Isaac": 14, "Seed": 15, "ModMenu": 16,
+    # 批次 207（2026-09-29）：`Hud` = `Game:GetHUD()` 的返回值（域 17）。**真值源**是
+    # `runtime/src/interfaces/lua/api_descriptor.hpp` 的 `ApiDomain`；这张表是它的副本之一。
+    "Hud": 17,
 }
 
 #: 成熟度四态（与 C++ 侧 `ApiMaturity` 一致）。
@@ -107,6 +141,40 @@ BOUNDARY_KINDS = (
 
 #: 判据文件的形态：必须是仓库里的测试模块。
 JUDGEMENT_RE = re.compile(r"^(?:runtime/)?tests/[A-Za-z0-9_./-]+\.py$")
+
+#: 真值来源的受控词表（★ 2026-09-25 起为**第 4 栏**，见文件头《为什么是四栏》）。
+#:
+#: 前三维（存在 / 语义 / 成熟度）都回答不了那个最要命的问题：**这条 API 的返回值凭什么算引擎真值？**
+#: 已经真出过事：`Isaac:WorldToScreen` 是恒等变换、`EntityPlayer:HasTrinket` 恒 false、
+#: `EntityPlayer:GetPill` 恒 0 —— 三个都有目录行、都能被调用，模组拿到的是假值，不报错不崩。
+PROVENANCE_KINDS = (
+    # 调引擎自己的方法（要给偏移证据）。
+    # ★ 2026-09-29（批次 207）把口径写死：**"直读引擎内存里一个已取证的偏移、但 PC 侧没有
+    #   同名的 confirmed 布局表行"也归在这里** —— 校验强度一点没变（偏移必须能在
+    #   `runtime_constants.hpp` 里找得到），区别只是**不冒充 `engine_field` 的具名字段**。
+    #   为什么需要这一档：`Entity:HasEntityFlags`（读 `+0x1B8` 的 64 位标志字）、
+    #   `Game:GetHUD`（`HUD` 是 `Game` 的内嵌子对象）、`HUD:IsVisible`（读一格字节）
+    #   这三类读取值都来自引擎，但 PC 侧**没有同名 Lua 字段**可claim（暴露的是方法），
+    #   布局表里也没有对应行 ⇒ 既不满足 `engine_field` 的两条要求，又不属于
+    #   "我们编的值"（`engine_constant`）。选 `engine_call` 而不是去造一行布局表。
+    "engine_call",
+    "engine_field",     # 直读引擎字段（要给偏移证据 + 布局表里 confirmed 的那一行）
+    "lua_side",         # 纯 Lua 侧逻辑（Vector 数学、常量表…）：无引擎真值，要给等价性判据
+    "engine_constant",  # 我们编的常量 ⇒ **必须**在偏离台账里登记
+    "platform_absent",  # 平台上不存在这个能力（如鼠标）⇒ **必须**在偏离台账里登记
+)
+
+#: 偏移的权威落点：`engine_call` / `engine_field` 的证据必须能在它里面找到
+#: （偏移一律集中在这个头文件；凭记忆写一个偏移正是本项目被咬过多次的地方）。
+OFFSETS_HEADER = "runtime/source/runtime_constants.hpp"
+
+#: 字段布局表的落点，以及"这个字段能进对外 API"所要求的可信度取值。
+LAYOUT_DIR = "tools/layout_tables"
+LAYOUT_CONFIRMED = "confirmed"
+
+#: 偏离台账的源码（`engine_constant` / `platform_absent` 的核对来源）。
+DEVIATION_SOURCE = "runtime/src/interfaces/lua/api_deviation.cpp"
+_DEVIATION_ID_RE = re.compile(r"\{(0x[0-9A-Fa-f]{8}),")
 
 #: 占位式写法（出现即判红 —— "写了等于没写"）。
 PLACEHOLDER_WORDS = ("暂无", "TODO", "TBD", "待补", "n/a", "N/A", "???", "待定")
@@ -308,6 +376,117 @@ def maturity_problems(entry: CatalogEntry, declared, maturity_rows: dict,
     return problems
 
 
+def deviation_ids(root: Path) -> set[int]:
+    """偏离台账里登记过的 id（`runtime/src/interfaces/lua/api_deviation.cpp`）。"""
+    path = root / DEVIATION_SOURCE
+    if not path.is_file():
+        return set()
+    text = path.read_text(encoding="utf-8", errors="replace")
+    return {int(found, 16) for found in _DEVIATION_ID_RE.findall(text)}
+
+
+def layout_confidences(root: Path) -> dict[str, set[str]]:
+    """`tools/layout_tables/*.json` → `{"<Struct>.<字段名>": {"confirmed", ...}}`。"""
+    out: dict[str, set[str]] = {}
+    directory = root / LAYOUT_DIR
+    if not directory.is_dir():
+        return out
+    for path in sorted(directory.glob("*.json")):
+        try:
+            table = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        struct = table.get("struct") or path.stem
+        for row in table.get("rows") or []:
+            name = row.get("name")
+            if isinstance(name, str):
+                out.setdefault(f"{struct}.{name}", set()).add(str(row.get("confidence")))
+    return out
+
+
+def provenance_problems(entry: CatalogEntry, provenance, root: Path) -> list[str]:
+    """真值来源这一栏的问题列表（空 = 合格）。
+
+    这一栏存在的唯一理由：**它是唯一能拦住"能跑、但返回的不是引擎真值"的那道闸**。
+    前三维拦不住 —— 契约依据只要引文里出现 API 的名字、边界判据只要求"某种异常输入有测试"、
+    成熟度只要求"有登记"。所以一条 `lua_pushboolean(state, 0); return 1;` 的处理器
+    可以三栏齐备、门禁全绿，而模组拿到的是**恒 false**（`EntityPlayer:HasTrinket` 就是这样）。
+
+    判据（按 `kind` 分派，每一种都要求**可核对的证据**而不是一句形容词）：
+      * `engine_call` / `engine_field`：`offsets` 里每一项都必须真的出现在 `runtime_constants.hpp`；
+        `engine_field` 还要在布局表里有 `confidence == confirmed` 的那一行（2026-09-19 批次 047 的教训：
+        名字只有间接依据的字段**不进对外 API**）。
+      * `engine_constant` / `platform_absent`：返回值不是引擎真值 ⇒ **必须**在偏离台账里有条目
+        （否则"偏离必须登记"就还是靠自觉 —— 这正是本次加固要堵的洞）。
+      * `lua_side`：纯 Lua 侧逻辑没有引擎真值可言，要一条"输入 → 输出"的等价性判据。
+    """
+    tag = f"[真值来源] {entry.key}"
+    if not isinstance(provenance, dict):
+        return [f"{tag}：没有 `provenance` 一栏（要说明返回值来自引擎真值，还是我们编的值）"]
+    kind = provenance.get("kind")
+    if kind not in PROVENANCE_KINDS:
+        return [f"{tag}：`provenance.kind` = {kind!r} 不在受控词表里：{list(PROVENANCE_KINDS)}"]
+    detail = provenance.get("detail")
+    if not isinstance(detail, str) or len(detail) < 8 or _is_placeholder(detail):
+        return [f"{tag}：`provenance.detail` 要写清真值从哪来（或为什么没有真值）—— ≥8 字，不许占位"]
+
+    problems: list[str] = []
+
+    if kind in ("engine_constant", "platform_absent"):
+        if entry.identifier not in deviation_ids(root):
+            problems.append(
+                f"{tag}：kind={kind} 等于承认「返回值不是引擎真值」⇒ 必须在偏离台账 "
+                f"({DEVIATION_SOURCE}) 里登记 {entry.hex_id}，并写明『偏离后果：…』与判据"
+            )
+        return problems
+
+    if kind in ("engine_call", "engine_field"):
+        header = root / OFFSETS_HEADER
+        header_text = header.read_text(encoding="utf-8", errors="replace") if header.is_file() else ""
+        if not header_text:
+            problems.append(f"{tag}：读不到偏移头文件 {OFFSETS_HEADER}（偏移的权威落点）")
+        offsets = provenance.get("offsets")
+        if not isinstance(offsets, list) or not offsets:
+            problems.append(
+                f"{tag}：kind={kind} 必须给 `offsets`（`runtime_constants.hpp` 里的常量名或 0x 字面量）"
+            )
+        else:
+            for item in offsets:
+                if not isinstance(item, str) or not item or item not in header_text:
+                    problems.append(
+                        f"{tag}：偏移证据 {item!r} 在 {OFFSETS_HEADER} 里找不到 —— "
+                        "偏移必须以那个头文件为准，不许凭记忆写"
+                    )
+        if kind == "engine_field":
+            field = provenance.get("field")
+            confidences = layout_confidences(root)
+            if not isinstance(field, str) or "." not in field:
+                problems.append(
+                    f"{tag}：kind=engine_field 必须给 `field`（形如 `Entity_Player.Damage`）"
+                )
+            else:
+                found = confidences.get(field, set())
+                if not found:
+                    problems.append(f"{tag}：布局表（{LAYOUT_DIR}）里没有 `{field}` 这一行")
+                elif LAYOUT_CONFIRMED not in found:
+                    problems.append(
+                        f"{tag}：`{field}` 在布局表里的 confidence = {sorted(found)}，没有 "
+                        f"`{LAYOUT_CONFIRMED}` ⇒ 名字只有间接依据的字段**不进对外 API**"
+                        "（2026-09-19 批次 047 的教训）"
+                    )
+        return problems
+
+    judgement = provenance.get("judgement")
+    if not isinstance(judgement, str) or not JUDGEMENT_RE.match(judgement):
+        problems.append(
+            f"{tag}：kind=lua_side 必须给 `judgement`（形如 runtime/tests/test_lua_vector.py）—— "
+            "纯 Lua 侧逻辑要有一条『输入 → 输出』的等价性判据"
+        )
+    elif not (root / judgement).is_file():
+        problems.append(f"{tag}：`judgement` 指向不存在的测试文件：{judgement}")
+    return problems
+
+
 @dataclass
 class Report:
     errors: list[str] = field(default_factory=list)
@@ -387,10 +566,14 @@ def check(root: Path | None = None, catalog_path: Path | None = None,
         report.rows_checked += 1
         report.errors.extend(contract_problems(entry, row.get("contract"), root))
         report.errors.extend(boundary_problems(entry, row.get("boundary"), root))
+        # 真值来源：**登记了就必须合格**；基线里的老条目允许暂时没这一栏
+        # （grandfather 与边界/成熟度同一口径 —— 强制只对基线之外的新 API）。
+        if "provenance" in row:
+            report.errors.extend(provenance_problems(entry, row.get("provenance"), root))
         report.errors.extend(maturity_problems(entry, row.get("maturity"), maturity_rows,
                                                require_registration=key not in set(baseline_ids)))
 
-    # ③ 门禁的正题：**基线之外**的每个 catalog id 都必须三件事齐备。
+    # ③ 门禁的正题：**基线之外**的每个 catalog id 都必须**四件事**齐备。
     for key, entry in sorted(catalog.items()):
         if key in set(baseline_ids):
             continue
@@ -401,6 +584,8 @@ def check(root: Path | None = None, catalog_path: Path | None = None,
             missing.append("契约依据")
         if boundary_problems(entry, row.get("boundary"), root):
             missing.append("边界判据")
+        if provenance_problems(entry, row.get("provenance"), root):
+            missing.append("真值来源")
         if maturity_problems(entry, row.get("maturity") if row else None, maturity_rows,
                             require_registration=True):
             missing.append("成熟度")
@@ -429,6 +614,17 @@ def template(key: str, catalog: dict[str, CatalogEntry]) -> str:
                 "kind": "<受控词表里的形状>",
                 "judgement": "runtime/tests/<测试模块>.py",
                 "detail": "<说清钉住了哪种异常输入、期望是什么>",
+            },
+            # ★ 第 4 栏（2026-09-25 起）：**返回值凭什么算引擎真值**。
+            # 按 kind 二选一填 —— 详细判据见文件头与 `provenance_problems()`：
+            #   engine_call  ⇒ {"kind":"engine_call","detail":"…","offsets":["kXxxOffset"]}
+            #   engine_field ⇒ {"kind":"engine_field","detail":"…","offsets":["kXxxOffset"],
+            #                   "field":"<Struct>.<字段>"}   # 布局表里必须 confirmed
+            #   lua_side     ⇒ {"kind":"lua_side","detail":"…","judgement":"runtime/tests/<模块>.py"}
+            #   engine_constant / platform_absent ⇒ 同两项，**且必须在偏离台账里有条目**
+            "provenance": {
+                "kind": "<engine_call|engine_field|lua_side|engine_constant|platform_absent>",
+                "detail": "<真值从哪来；或者：为什么这里没有引擎真值可用>",
             },
             "maturity": maturity,
         }

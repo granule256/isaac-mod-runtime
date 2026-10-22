@@ -1,0 +1,970 @@
+{
+  "new_count": 28,
+  "rows": [
+    {
+      "owner": "ItemConfigItem",
+      "name": "CacheFlags",
+      "offset": 84,
+      "kind": "UInt",
+      "anchor": 3890592,
+      "new": true,
+      "pc": {
+        "owner": "Config",
+        "name": "CacheFlags",
+        "values": [
+          1,
+          84,
+          11867052
+        ],
+        "registrar": "0x815330",
+        "call": "0x8049ce",
+        "ret": 12,
+        "native_or_field": "0x54",
+        "wrapper": "0x8579f0"
+      },
+      "before": "nil，尚无专用字段分派",
+      "ns_guard16": "685740b90801002a685700b9e8e34139",
+      "consumption": "runtime/tests/test_api500_config.py真实Lua生产入口；无已确认原作者调用",
+      "ns_source": "ns-load.txt",
+      "status": "Experimental 静态，未上机",
+      "ns_semantics": "cache属性解析经string2cacheflags，3b5da0读取旧+54、orr后3b5da8写回32位；PC8579f0用7f8840按uint转换Lua",
+      "pc_type": "uint32→Lua无符号值",
+      "writer": "PC登记标量setter宽度读取/写入；Lua整数低位截断/boolean truthiness"
+    },
+    {
+      "owner": "ItemConfigItem",
+      "name": "MaxCooldown",
+      "offset": 120,
+      "kind": "Int",
+      "anchor": 3890792,
+      "new": true,
+      "pc": {
+        "owner": "Config",
+        "name": "MaxCooldown",
+        "values": [
+          1,
+          120,
+          11867156
+        ],
+        "registrar": "0x815050",
+        "call": "0x804a0d",
+        "ret": 12,
+        "native_or_field": "0x78",
+        "wrapper": "0x8577b0"
+      },
+      "before": "nil，尚无专用字段分派",
+      "ns_guard16": "c80640f91f0100f10003889a53e70a94",
+      "consumption": "runtime/tests/test_api500_config.py真实Lua生产入口；无已确认原作者调用",
+      "ns_source": "ns-load.txt",
+      "status": "Experimental 静态，未上机",
+      "ns_semantics": "cooldown→3b5e68 atoi→3b5e78 str w0,+78",
+      "pc_type": "int32",
+      "writer": "PC登记标量setter宽度读取/写入；Lua整数低位截断/boolean truthiness"
+    },
+    {
+      "owner": "ItemConfigItem",
+      "name": "DevilPrice",
+      "offset": 124,
+      "kind": "Short",
+      "anchor": 3890876,
+      "new": true,
+      "pc": {
+        "owner": "Config",
+        "name": "DevilPrice",
+        "values": [
+          1,
+          124,
+          11867132
+        ],
+        "registrar": "0x815620",
+        "call": "0x804a1b",
+        "ret": 12,
+        "native_or_field": "0x7c",
+        "wrapper": "0x857b20"
+      },
+      "before": "nil，尚无专用字段分派",
+      "ns_guard16": "c80640f91f0100f10003889a3ee70a94",
+      "consumption": "runtime/tests/test_api500_config.py真实Lua生产入口；无已确认原作者调用",
+      "ns_source": "ns-load.txt",
+      "status": "Experimental 静态，未上机",
+      "ns_semantics": "devilprice→3b5ebc atoi→3b5ecc strh,+7c；PC857b20 movsx word",
+      "pc_type": "signed int16→Lua int",
+      "writer": "PC登记标量setter宽度读取/写入；Lua整数低位截断/boolean truthiness"
+    },
+    {
+      "owner": "ItemConfigItem",
+      "name": "ShopPrice",
+      "offset": 126,
+      "kind": "Short",
+      "anchor": 3890992,
+      "new": true,
+      "pc": {
+        "owner": "Config",
+        "name": "ShopPrice",
+        "values": [
+          1,
+          126,
+          11867092
+        ],
+        "registrar": "0x815620",
+        "call": "0x804a37",
+        "ret": 12,
+        "native_or_field": "0x7e",
+        "wrapper": "0x857b20"
+      },
+      "before": "nil，尚无专用字段分派",
+      "ns_guard16": "c80640f91f0100f10003889a21e70a94",
+      "consumption": "runtime/tests/test_api500_config.py真实Lua生产入口；无已确认原作者调用",
+      "ns_source": "ns-load.txt",
+      "status": "Experimental 静态，未上机",
+      "ns_semantics": "shopprice→3b5f30 atoi→3b5f40 strh,+7e；PC857b20 movsx word",
+      "pc_type": "signed int16→Lua int",
+      "writer": "PC登记标量setter宽度读取/写入；Lua整数低位截断/boolean truthiness"
+    },
+    {
+      "owner": "ItemConfigItem",
+      "name": "InitCharge",
+      "offset": 208,
+      "kind": "Int",
+      "anchor": 3891016,
+      "new": true,
+      "pc": {
+        "owner": "Config",
+        "name": "InitCharge",
+        "values": [
+          1,
+          200,
+          11867112
+        ],
+        "registrar": "0x815050",
+        "call": "0x804a29",
+        "ret": 12,
+        "native_or_field": "0xc8",
+        "wrapper": "0x8577b0"
+      },
+      "before": "nil，尚无专用字段分派",
+      "ns_guard16": "c80640f91f0100f10003889a1be70a94",
+      "consumption": "runtime/tests/test_api500_config.py真实Lua生产入口；无已确认原作者调用",
+      "ns_source": "ns-load.txt",
+      "status": "Experimental 静态，未上机",
+      "ns_semantics": "initcharge→3b5f48 atoi→3b5f58 str w0,+d0；PC登记+c8不可机械平移",
+      "pc_type": "int32",
+      "writer": "PC登记标量setter宽度读取/写入；Lua整数低位截断/boolean truthiness"
+    },
+    {
+      "owner": "ItemConfigItem",
+      "name": "PassiveCache",
+      "offset": 181,
+      "kind": "Bool",
+      "anchor": 3891316,
+      "new": true,
+      "pc": {
+        "owner": "Config",
+        "name": "PassiveCache",
+        "values": [
+          1,
+          177,
+          11867252
+        ],
+        "registrar": "0x8154b0",
+        "call": "0x804a3e",
+        "ret": 12,
+        "native_or_field": "0xb1",
+        "wrapper": "0x857a50"
+      },
+      "before": "nil，尚无专用字段分派",
+      "ns_guard16": "e0e301917f6a3c38dde90a9408000012",
+      "consumption": "runtime/tests/test_api500_config.py真实Lua生产入口；无已确认原作者调用",
+      "ns_source": "ns-load.txt",
+      "status": "Experimental 静态，未上机",
+      "ns_semantics": "passivecache→3b5fc0 string2bool→3b6084 strb,+b5",
+      "pc_type": "byte→Lua boolean",
+      "writer": "PC登记标量setter宽度读取/写入；Lua整数低位截断/boolean truthiness"
+    },
+    {
+      "owner": "ItemConfigItem",
+      "name": "AddCostumeOnPickup",
+      "offset": 182,
+      "kind": "Bool",
+      "anchor": 3891464,
+      "new": true,
+      "pc": {
+        "owner": "Config",
+        "name": "AddCostumeOnPickup",
+        "values": [
+          1,
+          178,
+          11867268
+        ],
+        "registrar": "0x8154b0",
+        "call": "0x804a45",
+        "ret": 12,
+        "native_or_field": "0xb2",
+        "wrapper": "0x857a50"
+      },
+      "before": "nil，尚无专用字段分派",
+      "ns_guard16": "e0e301917f6a3c38b8e90a9408000012",
+      "consumption": "runtime/tests/test_api500_config.py真实Lua生产入口；无已确认原作者调用",
+      "ns_source": "ns-load.txt",
+      "status": "Experimental 静态，未上机",
+      "ns_semantics": "addcostumeonpickup→3b5ffc string2bool→3b6118 strb,+b6",
+      "pc_type": "byte→Lua boolean",
+      "writer": "PC登记标量setter宽度读取/写入；Lua整数低位截断/boolean truthiness"
+    },
+    {
+      "owner": "ItemConfigItem",
+      "name": "PersistentEffect",
+      "offset": 184,
+      "kind": "Bool",
+      "anchor": 3891848,
+      "new": true,
+      "pc": {
+        "owner": "Config",
+        "name": "PersistentEffect",
+        "values": [
+          1,
+          180,
+          11867208
+        ],
+        "registrar": "0x8154b0",
+        "call": "0x804a53",
+        "ret": 12,
+        "native_or_field": "0xb4",
+        "wrapper": "0x857a50"
+      },
+      "before": "nil，尚无专用字段分派",
+      "ns_guard16": "e0e301917f6a3c3858e90a9408000012",
+      "consumption": "runtime/tests/test_api500_config.py真实Lua生产入口；无已确认原作者调用",
+      "ns_source": "ns-load.txt",
+      "status": "Experimental 静态，未上机",
+      "ns_semantics": "persistent→3b61b4 string2bool→3b6298 strb,+b8",
+      "pc_type": "byte→Lua boolean",
+      "writer": "PC登记标量setter宽度读取/写入；Lua整数低位截断/boolean truthiness"
+    },
+    {
+      "owner": "ItemConfigItem",
+      "name": "ClearEffectsOnRemove",
+      "offset": 185,
+      "kind": "Bool",
+      "anchor": 3891612,
+      "new": true,
+      "pc": {
+        "owner": "Config",
+        "name": "ClearEffectsOnRemove",
+        "values": [
+          1,
+          181,
+          11867228
+        ],
+        "registrar": "0x8154b0",
+        "call": "0x804a5a",
+        "ret": 12,
+        "native_or_field": "0xb5",
+        "wrapper": "0x857a50"
+      },
+      "before": "nil，尚无专用字段分派",
+      "ns_guard16": "e0e301917f6a3c3893e90a9408000012",
+      "consumption": "runtime/tests/test_api500_config.py真实Lua生产入口；无已确认原作者调用",
+      "ns_source": "ns-load.txt",
+      "status": "Experimental 静态，未上机",
+      "ns_semantics": "cleareffectsonremove→3b608c string2bool→3b61ac strb,+b9",
+      "pc_type": "byte→Lua boolean",
+      "writer": "PC登记标量setter宽度读取/写入；Lua整数低位截断/boolean truthiness"
+    },
+    {
+      "owner": "ItemConfigItem",
+      "name": "Costume",
+      "offset": 128,
+      "kind": "Costume",
+      "anchor": 3907684,
+      "new": true,
+      "pc": {
+        "owner": "Config",
+        "name": "Costume",
+        "values": [
+          8365136,
+          11867104
+        ],
+        "registrar": "0x815790",
+        "call": "0x804a22",
+        "ret": 8,
+        "native_or_field": "0x7fa450",
+        "wrapper": "0x83a3d0"
+      },
+      "before": "nil，尚无专用字段分派",
+      "ns_guard16": "60220291e10318aa688200b9e0d60a94",
+      "consumption": "runtime/tests/test_api500_config.py真实Lua生产入口；无已确认原作者调用",
+      "ns_source": "ns-costumes.txt",
+      "status": "Experimental 静态，未上机",
+      "ns_semantics": "PC7fa450 lea this+80返回借用；NS3ba064 item+88作为string目标，3ba06c ID写+80，3ba080/84从解析临时复制元数据到+a0..ae",
+      "pc_type": "const Costume&借用返回",
+      "writer": "不可替换Costume借用对象"
+    },
+    {
+      "owner": "ItemConfigCard",
+      "name": "HudAnim",
+      "offset": 56,
+      "kind": "String",
+      "anchor": 3927636,
+      "new": true,
+      "pc": {
+        "owner": "Config",
+        "name": "HudAnim",
+        "values": [
+          1,
+          56,
+          11866652
+        ],
+        "registrar": "0x813f60",
+        "call": "0x804658",
+        "ret": 12,
+        "native_or_field": "0x38",
+        "wrapper": "0x857000"
+      },
+      "before": "nil，尚无专用字段分派",
+      "ns_guard16": "e1430291e00316aa65c30a9488030012",
+      "consumption": "runtime/tests/test_api500_config.py真实Lua生产入口；无已确认原作者调用",
+      "ns_source": "ns-pocket.txt",
+      "status": "Experimental 静态，未上机",
+      "ns_semantics": "LoadPocketItems name/description/hud定义三串，3bee54临时sp+90→目标x22=item+38的string赋值",
+      "pc_type": "std::string读写，保长度/NUL",
+      "writer": "原生string-copy-assignment"
+    },
+    {
+      "owner": "ItemConfigCard",
+      "name": "GreedModeAllowed",
+      "offset": 80,
+      "kind": "Bool",
+      "anchor": 3927648,
+      "new": true,
+      "pc": {
+        "owner": "Config",
+        "name": "GreedModeAllowed",
+        "values": [
+          1,
+          80,
+          11866660
+        ],
+        "registrar": "0x8140d0",
+        "call": "0x80465f",
+        "ret": 12,
+        "native_or_field": "0x50",
+        "wrapper": "0x857180"
+      },
+      "before": "nil，尚无专用字段分派",
+      "ns_guard16": "88030012e8420139e87340b9e8ea0a29",
+      "consumption": "runtime/tests/test_api500_config.py真实Lua生产入口；无已确认原作者调用",
+      "ns_source": "ns-pocket.txt",
+      "status": "Experimental 静态，未上机",
+      "ns_semantics": "greedmode→w28→3bee60 and1→3bee64 strb,+50",
+      "pc_type": "byte→Lua boolean",
+      "writer": "PC登记标量setter宽度读取/写入；Lua整数低位截断/boolean truthiness"
+    },
+    {
+      "owner": "ItemConfigCard",
+      "name": "PickupSubtype",
+      "offset": 84,
+      "kind": "UInt",
+      "anchor": 3927656,
+      "new": true,
+      "pc": {
+        "owner": "Config",
+        "name": "PickupSubtype",
+        "values": [
+          1,
+          84,
+          11866840
+        ],
+        "registrar": "0x814250",
+        "call": "0x804666",
+        "ret": 12,
+        "native_or_field": "0x54",
+        "wrapper": "0x857250"
+      },
+      "before": "nil，尚无专用字段分派",
+      "ns_guard16": "e87340b9e8ea0a29e97740b9e86f40b9",
+      "consumption": "runtime/tests/test_api500_config.py真实Lua生产入口；无已确认原作者调用",
+      "ns_source": "ns-pocket.txt",
+      "status": "Experimental 静态，未上机",
+      "ns_semantics": "pickup属性→临时sp+70→3bee68/6c stp到+54",
+      "pc_type": "uint32→Lua无符号值",
+      "writer": "PC登记标量setter宽度读取/写入；Lua整数低位截断/boolean truthiness",
+      "first_review_correction": "旧Int错误已完整保留before-first-review：PC wrapper857250→85729b call7f8840，故按uint32读取，新增高位及低位写回消费"
+    },
+    {
+      "owner": "ItemConfigCard",
+      "name": "CardType",
+      "offset": 88,
+      "kind": "Int",
+      "anchor": 3927656,
+      "new": true,
+      "pc": {
+        "owner": "Config",
+        "name": "CardType",
+        "values": [
+          1,
+          88,
+          11866856
+        ],
+        "registrar": "0x8143d0",
+        "call": "0x80466d",
+        "ret": 12,
+        "native_or_field": "0x58",
+        "wrapper": "0x8572b0"
+      },
+      "before": "nil，尚无专用字段分派",
+      "ns_guard16": "e87340b9e8ea0a29e97740b9e86f40b9",
+      "consumption": "runtime/tests/test_api500_config.py真实Lua生产入口；无已确认原作者调用",
+      "ns_source": "ns-pocket.txt",
+      "status": "Experimental 静态，未上机",
+      "ns_semantics": "type解析字符串对应w26=0..5→3bee6c第二成员+58",
+      "pc_type": "int32",
+      "writer": "PC登记标量setter宽度读取/写入；Lua整数低位截断/boolean truthiness"
+    },
+    {
+      "owner": "ItemConfigCard",
+      "name": "AnnouncerVoice",
+      "offset": 92,
+      "kind": "Int",
+      "anchor": 3927664,
+      "new": true,
+      "pc": {
+        "owner": "Config",
+        "name": "AnnouncerVoice",
+        "values": [
+          1,
+          92,
+          11866808
+        ],
+        "registrar": "0x814550",
+        "call": "0x804674",
+        "ret": 12,
+        "native_or_field": "0x5c",
+        "wrapper": "0x8572b0"
+      },
+      "before": "nil，尚无专用字段分派",
+      "ns_guard16": "e97740b9e86f40b9e9a20b29e86b40b9",
+      "consumption": "runtime/tests/test_api500_config.py真实Lua生产入口；无已确认原作者调用",
+      "ns_source": "ns-pocket.txt",
+      "status": "Experimental 静态，未上机",
+      "ns_semantics": "announcer属性→临时sp+74→3bee70/78 stp到+5c",
+      "pc_type": "int32",
+      "writer": "PC登记标量setter宽度读取/写入；Lua整数低位截断/boolean truthiness"
+    },
+    {
+      "owner": "ItemConfigCard",
+      "name": "AnnouncerDelay",
+      "offset": 96,
+      "kind": "Int",
+      "anchor": 3927664,
+      "new": true,
+      "pc": {
+        "owner": "Config",
+        "name": "AnnouncerDelay",
+        "values": [
+          1,
+          96,
+          11866824
+        ],
+        "registrar": "0x813df0",
+        "call": "0x80467b",
+        "ret": 12,
+        "native_or_field": "0x60",
+        "wrapper": "0x856f20"
+      },
+      "before": "nil，尚无专用字段分派",
+      "ns_guard16": "e97740b9e86f40b9e9a20b29e86b40b9",
+      "consumption": "runtime/tests/test_api500_config.py真实Lua生产入口；无已确认原作者调用",
+      "ns_source": "ns-pocket.txt",
+      "status": "Experimental 静态，未上机",
+      "ns_semantics": "announcerdelay属性→临时sp+6c→3bee74/78 stp到+60",
+      "pc_type": "int32",
+      "writer": "PC登记标量setter宽度读取/写入；Lua整数低位截断/boolean truthiness"
+    },
+    {
+      "owner": "ItemConfigCard",
+      "name": "IsCard",
+      "offset": 88,
+      "kind": "Method",
+      "anchor": 3927656,
+      "new": true,
+      "pc": {
+        "owner": "Config",
+        "name": "IsCard",
+        "values": [
+          5897488,
+          11866800
+        ],
+        "registrar": "0x8146d0",
+        "call": "0x804689",
+        "ret": 8,
+        "native_or_field": "0x59fd10",
+        "wrapper": "0x846280"
+      },
+      "before": "nil，尚无专用字段分派",
+      "ns_guard16": "e87340b9e8ea0a29e97740b9e86f40b9",
+      "consumption": "runtime/tests/test_api500_config.py真实Lua生产入口；无已确认原作者调用",
+      "ns_source": "ns-pocket.txt",
+      "status": "Experimental 静态，未上机",
+      "ns_semantics": "PC59fd10读取+58，type 0/1/3/5为true，其它false；NS同type枚举由LoadPocketItems写入+58",
+      "pc_type": "bool，无参",
+      "writer": "方法不可赋值"
+    },
+    {
+      "owner": "ItemConfigPillEffect",
+      "name": "GreedModeAllowed",
+      "offset": 56,
+      "kind": "Bool",
+      "anchor": 3927860,
+      "new": true,
+      "pc": {
+        "owner": "Config",
+        "name": "GreedModeAllowed",
+        "values": [
+          1,
+          56,
+          11866660
+        ],
+        "registrar": "0x814a80",
+        "call": "0x804786",
+        "ret": 12,
+        "native_or_field": "0x38",
+        "wrapper": "0x857550"
+      },
+      "before": "nil，尚无专用字段分派",
+      "ns_guard16": "88030012e8e20039e97740b9e86740b9",
+      "consumption": "runtime/tests/test_api500_config.py真实Lua生产入口；无已确认原作者调用",
+      "ns_source": "ns-pocket.txt",
+      "status": "Experimental 静态，未上机",
+      "ns_semantics": "同greedmode解析w28；pill分支3bef34/38 strb,+38",
+      "pc_type": "byte→Lua boolean",
+      "writer": "PC登记标量setter宽度读取/写入；Lua整数低位截断/boolean truthiness"
+    },
+    {
+      "owner": "ItemConfigPillEffect",
+      "name": "AnnouncerVoice",
+      "offset": 60,
+      "kind": "Int",
+      "anchor": 3927868,
+      "new": true,
+      "pc": {
+        "owner": "Config",
+        "name": "AnnouncerVoice",
+        "values": [
+          1,
+          60,
+          11866808
+        ],
+        "registrar": "0x814c00",
+        "call": "0x80478d",
+        "ret": 12,
+        "native_or_field": "0x3c",
+        "wrapper": "0x857620"
+      },
+      "before": "nil，尚无专用字段分派",
+      "ns_guard16": "e97740b9e86740b9e9a20729e86340b9",
+      "consumption": "runtime/tests/test_api500_config.py真实Lua生产入口；无已确认原作者调用",
+      "ns_source": "ns-pocket.txt",
+      "status": "Experimental 静态，未上机",
+      "ns_semantics": "announcer→sp+74→3bef3c/44 stp到+3c",
+      "pc_type": "int32",
+      "writer": "PC登记标量setter宽度读取/写入；Lua整数低位截断/boolean truthiness"
+    },
+    {
+      "owner": "ItemConfigPillEffect",
+      "name": "AnnouncerVoiceSuper",
+      "offset": 64,
+      "kind": "Int",
+      "anchor": 3927868,
+      "new": true,
+      "pc": {
+        "owner": "Config",
+        "name": "AnnouncerVoiceSuper",
+        "values": [
+          1,
+          64,
+          11866956
+        ],
+        "registrar": "0x814c00",
+        "call": "0x804794",
+        "ret": 12,
+        "native_or_field": "0x40",
+        "wrapper": "0x857620"
+      },
+      "before": "nil，尚无专用字段分派",
+      "ns_guard16": "e97740b9e86740b9e9a20729e86340b9",
+      "consumption": "runtime/tests/test_api500_config.py真实Lua生产入口；无已确认原作者调用",
+      "ns_source": "ns-pocket.txt",
+      "status": "Experimental 静态，未上机",
+      "ns_semantics": "announcer2→sp+64→3bef40/44 stp到+40",
+      "pc_type": "int32",
+      "writer": "PC登记标量setter宽度读取/写入；Lua整数低位截断/boolean truthiness"
+    },
+    {
+      "owner": "ItemConfigPillEffect",
+      "name": "AnnouncerDelay",
+      "offset": 68,
+      "kind": "Int",
+      "anchor": 3927896,
+      "new": true,
+      "pc": {
+        "owner": "Config",
+        "name": "AnnouncerDelay",
+        "values": [
+          1,
+          68,
+          11866824
+        ],
+        "registrar": "0x814790",
+        "call": "0x80479b",
+        "ret": 12,
+        "native_or_field": "0x44",
+        "wrapper": "0x857310"
+      },
+      "before": "nil，尚无专用字段分派",
+      "ns_guard16": "e8274d29e9a20829e82340f9e82a00f9",
+      "consumption": "runtime/tests/test_api500_config.py真实Lua生产入口；无已确认原作者调用",
+      "ns_source": "ns-pocket.txt",
+      "status": "Experimental 静态，未上机",
+      "ns_semantics": "announcerdelay→sp+6c→3bef58/5c stp第一成员+44",
+      "pc_type": "int32",
+      "writer": "PC登记标量setter宽度读取/写入；Lua整数低位截断/boolean truthiness"
+    },
+    {
+      "owner": "ItemConfigCostume",
+      "name": "ID",
+      "offset": 0,
+      "kind": "Int",
+      "anchor": 3907684,
+      "new": true,
+      "pc": {
+        "owner": "Config",
+        "name": "ID",
+        "values": [
+          1,
+          0,
+          11855848
+        ],
+        "registrar": "0x815d10",
+        "call": "0x804b41",
+        "ret": 12,
+        "native_or_field": "0x0",
+        "wrapper": "0x857d00"
+      },
+      "before": "nil，尚无专用字段分派",
+      "ns_guard16": "60220291e10318aa688200b9e0d60a94",
+      "consumption": "runtime/tests/test_api500_config.py真实Lua生产入口；无已确认原作者调用",
+      "ns_source": "ns-costumes.txt",
+      "status": "Experimental 静态，未上机",
+      "ns_semantics": "LoadCostumes sp+88 id，3ba06c写item+80，即Costume+0",
+      "pc_type": "int32",
+      "writer": "PC登记标量setter宽度读取/写入；Lua整数低位截断/boolean truthiness"
+    },
+    {
+      "owner": "ItemConfigCostume",
+      "name": "Anm2Path",
+      "offset": 8,
+      "kind": "String",
+      "anchor": 3907684,
+      "new": true,
+      "pc": {
+        "owner": "Config",
+        "name": "Anm2Path",
+        "values": [
+          1,
+          4,
+          11867368
+        ],
+        "registrar": "0x815e80",
+        "call": "0x804b48",
+        "ret": 12,
+        "native_or_field": "0x4",
+        "wrapper": "0x857dc0"
+      },
+      "before": "nil，尚无专用字段分派",
+      "ns_guard16": "60220291e10318aa688200b9e0d60a94",
+      "consumption": "runtime/tests/test_api500_config.py真实Lua生产入口；无已确认原作者调用",
+      "ns_source": "ns-costumes.txt",
+      "status": "Experimental 静态，未上机",
+      "ns_semantics": "LoadCostumes x24=sp+90，3ba064 item+88 string赋值，即Costume+8；AddCostume290d7c读同string",
+      "pc_type": "std::string读写，保长度/NUL",
+      "writer": "原生string-copy-assignment"
+    },
+    {
+      "owner": "ItemConfigCostume",
+      "name": "Priority",
+      "offset": 32,
+      "kind": "Int",
+      "anchor": 3907700,
+      "new": true,
+      "pc": {
+        "owner": "Config",
+        "name": "Priority",
+        "values": [
+          1,
+          28,
+          11867380
+        ],
+        "registrar": "0x815d10",
+        "call": "0x804b4f",
+        "ret": 12,
+        "native_or_field": "0x1c",
+        "wrapper": "0x857d00"
+      },
+      "before": "nil，尚无专用字段分派",
+      "ns_guard16": "e91b40f9287140f8290140f9695200f9",
+      "consumption": "runtime/tests/test_api500_config.py真实Lua生产入口；无已确认原作者调用",
+      "ns_source": "ns-costumes.txt",
+      "status": "Experimental 静态，未上机",
+      "ns_semantics": "priority→sp+a8；解析缓冲从sp+a8复制到item+a0，即Costume+20；AddCostume2910f4读取+a0",
+      "pc_type": "int32",
+      "writer": "PC登记标量setter宽度读取/写入；Lua整数低位截断/boolean truthiness"
+    },
+    {
+      "owner": "ItemConfigCostume",
+      "name": "HasOverlay",
+      "offset": 36,
+      "kind": "Bool",
+      "anchor": 3907700,
+      "new": true,
+      "pc": {
+        "owner": "Config",
+        "name": "HasOverlay",
+        "values": [
+          1,
+          32,
+          11867344
+        ],
+        "registrar": "0x816000",
+        "call": "0x804b56",
+        "ret": 12,
+        "native_or_field": "0x20",
+        "wrapper": "0x857f40"
+      },
+      "before": "nil，尚无专用字段分派",
+      "ns_guard16": "e91b40f9287140f8290140f9695200f9",
+      "consumption": "runtime/tests/test_api500_config.py真实Lua生产入口；无已确认原作者调用",
+      "ns_source": "ns-costumes.txt",
+      "status": "Experimental 静态，未上机",
+      "ns_semantics": "hasOverlay→sp+ac复制至item+a4；AddCostume29110c读取+a4",
+      "pc_type": "byte→Lua boolean",
+      "writer": "PC登记标量setter宽度读取/写入；Lua整数低位截断/boolean truthiness"
+    },
+    {
+      "owner": "ItemConfigCostume",
+      "name": "IsFlying",
+      "offset": 37,
+      "kind": "Bool",
+      "anchor": 3907700,
+      "new": true,
+      "pc": {
+        "owner": "Config",
+        "name": "IsFlying",
+        "values": [
+          1,
+          33,
+          11867356
+        ],
+        "registrar": "0x816000",
+        "call": "0x804b5d",
+        "ret": 12,
+        "native_or_field": "0x21",
+        "wrapper": "0x857f40"
+      },
+      "before": "nil，尚无专用字段分派",
+      "ns_guard16": "e91b40f9287140f8290140f9695200f9",
+      "consumption": "runtime/tests/test_api500_config.py真实Lua生产入口；无已确认原作者调用",
+      "ns_source": "ns-costumes.txt",
+      "status": "Experimental 静态，未上机",
+      "ns_semantics": "isFlying→sp+ad复制至item+a5；AddCostume291100读取+a5",
+      "pc_type": "byte→Lua boolean",
+      "writer": "PC登记标量setter宽度读取/写入；Lua整数低位截断/boolean truthiness"
+    },
+    {
+      "owner": "ItemConfigCostume",
+      "name": "HasSkinAlt",
+      "offset": 38,
+      "kind": "Bool",
+      "anchor": 3907700,
+      "new": true,
+      "pc": {
+        "owner": "Config",
+        "name": "HasSkinAlt",
+        "values": [
+          1,
+          34,
+          11867320
+        ],
+        "registrar": "0x816000",
+        "call": "0x804b64",
+        "ret": 12,
+        "native_or_field": "0x22",
+        "wrapper": "0x857f40"
+      },
+      "before": "nil，尚无专用字段分派",
+      "ns_guard16": "e91b40f9287140f8290140f9695200f9",
+      "consumption": "runtime/tests/test_api500_config.py真实Lua生产入口；无已确认原作者调用",
+      "ns_source": "ns-costumes.txt",
+      "status": "Experimental 静态，未上机",
+      "ns_semantics": "hasSkinAlt→sp+ae复制至item+a6；AddCostume291130读取+a6",
+      "pc_type": "byte→Lua boolean",
+      "writer": "PC登记标量setter宽度读取/写入；Lua整数低位截断/boolean truthiness"
+    },
+    {
+      "owner": "ItemConfigCostume",
+      "name": "OverwriteColor",
+      "offset": 44,
+      "kind": "Bool",
+      "anchor": 3907700,
+      "new": true,
+      "pc": {
+        "owner": "Config",
+        "name": "OverwriteColor",
+        "values": [
+          1,
+          40,
+          11867288
+        ],
+        "registrar": "0x816000",
+        "call": "0x804b72",
+        "ret": 12,
+        "native_or_field": "0x28",
+        "wrapper": "0x857f40"
+      },
+      "before": "nil，尚无专用字段分派",
+      "ns_guard16": "e91b40f9287140f8290140f9695200f9",
+      "consumption": "runtime/tests/test_api500_config.py真实Lua生产入口；无已确认原作者调用",
+      "ns_source": "ns-costumes.txt",
+      "status": "Experimental 静态，未上机",
+      "ns_semantics": "overwriteColor→sp+b4复制至item+ac；AddCostume29113c读取+ac",
+      "pc_type": "byte→Lua boolean",
+      "writer": "PC登记标量setter宽度读取/写入；Lua整数低位截断/boolean truthiness"
+    },
+    {
+      "owner": "ItemConfigCard",
+      "name": "ID",
+      "offset": 0,
+      "kind": "Int",
+      "anchor": 3927612,
+      "new": false,
+      "pc": {
+        "owner": "Config",
+        "name": "ID",
+        "values": [
+          1,
+          0,
+          11855848
+        ],
+        "registrar": "0x813df0",
+        "call": "0x80463c",
+        "ret": 12,
+        "native_or_field": "0x0",
+        "wrapper": "0x856f20"
+      },
+      "before": "错误复用Item布局：ID读+4、AchievementID读+0x50",
+      "ns_guard16": "f94e0029ff7e04a96bc30a94e1a30291",
+      "consumption": "runtime/tests/test_api500_config.py真实Lua生产入口；无已确认原作者调用",
+      "ns_source": "ns-pocket.txt",
+      "status": "Experimental 静态，未上机",
+      "ns_semantics": "LoadPocketItems card 3bee3c / pill3bef1c stp w25(ID),w19(Achievement)分别+0,+4",
+      "pc_type": "int32",
+      "writer": "PC登记标量setter宽度读取/写入；Lua整数低位截断/boolean truthiness"
+    },
+    {
+      "owner": "ItemConfigCard",
+      "name": "AchievementID",
+      "offset": 4,
+      "kind": "Int",
+      "anchor": 3927612,
+      "new": false,
+      "pc": {
+        "owner": "Config",
+        "name": "AchievementID",
+        "values": [
+          1,
+          4,
+          11866688
+        ],
+        "registrar": "0x813df0",
+        "call": "0x804643",
+        "ret": 12,
+        "native_or_field": "0x4",
+        "wrapper": "0x856f20"
+      },
+      "before": "错误复用Item布局：ID读+4、AchievementID读+0x50",
+      "ns_guard16": "f94e0029ff7e04a96bc30a94e1a30291",
+      "consumption": "runtime/tests/test_api500_config.py真实Lua生产入口；无已确认原作者调用",
+      "ns_source": "ns-pocket.txt",
+      "status": "Experimental 静态，未上机",
+      "ns_semantics": "LoadPocketItems card 3bee3c / pill3bef1c stp w25(ID),w19(Achievement)分别+0,+4",
+      "pc_type": "int32",
+      "writer": "PC登记标量setter宽度读取/写入；Lua整数低位截断/boolean truthiness"
+    },
+    {
+      "owner": "ItemConfigPillEffect",
+      "name": "ID",
+      "offset": 0,
+      "kind": "Int",
+      "anchor": 3927836,
+      "new": false,
+      "pc": {
+        "owner": "Config",
+        "name": "ID",
+        "values": [
+          1,
+          0,
+          11855848
+        ],
+        "registrar": "0x814790",
+        "call": "0x804771",
+        "ret": 12,
+        "native_or_field": "0x0",
+        "wrapper": "0x857310"
+      },
+      "before": "错误复用Item布局：ID读+4、AchievementID读+0x50",
+      "ns_guard16": "f94e0029fffe02a933c30a94e1a30291",
+      "consumption": "runtime/tests/test_api500_config.py真实Lua生产入口；无已确认原作者调用",
+      "ns_source": "ns-pocket.txt",
+      "status": "Experimental 静态，未上机",
+      "ns_semantics": "LoadPocketItems card 3bee3c / pill3bef1c stp w25(ID),w19(Achievement)分别+0,+4",
+      "pc_type": "int32",
+      "writer": "PC登记标量setter宽度读取/写入；Lua整数低位截断/boolean truthiness"
+    },
+    {
+      "owner": "ItemConfigPillEffect",
+      "name": "AchievementID",
+      "offset": 4,
+      "kind": "Int",
+      "anchor": 3927836,
+      "new": false,
+      "pc": {
+        "owner": "Config",
+        "name": "AchievementID",
+        "values": [
+          1,
+          4,
+          11866688
+        ],
+        "registrar": "0x814790",
+        "call": "0x804778",
+        "ret": 12,
+        "native_or_field": "0x4",
+        "wrapper": "0x857310"
+      },
+      "before": "错误复用Item布局：ID读+4、AchievementID读+0x50",
+      "ns_guard16": "f94e0029fffe02a933c30a94e1a30291",
+      "consumption": "runtime/tests/test_api500_config.py真实Lua生产入口；无已确认原作者调用",
+      "ns_source": "ns-pocket.txt",
+      "status": "Experimental 静态，未上机",
+      "ns_semantics": "LoadPocketItems card 3bee3c / pill3bef1c stp w25(ID),w19(Achievement)分别+0,+4",
+      "pc_type": "int32",
+      "writer": "PC登记标量setter宽度读取/写入；Lua整数低位截断/boolean truthiness"
+    }
+  ],
+  "excluded": {
+    "EffectClass/EffectSubClass/SkinColor": "PC包装返回坏userdata；不伪造整数且不计",
+    "Discharged": "Repentance已移除",
+    "Name/Description": "原有字符串偏移8/20正确，不重计",
+    "MimicCharge": "现有分类实现正确，不重计"
+  }
+}

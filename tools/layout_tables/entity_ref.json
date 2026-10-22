@@ -1,0 +1,199 @@
+{
+  "schema": "isaac-layout-table/1",
+  "build_id": "91C73FDD575061318D68886316AFEAC72388B2AB",
+  "struct": "EntityRef",
+  "rows": [
+    {
+      "name": "Type",
+      "offset": 0,
+      "width": 4,
+      "kind": "i32",
+      "confidence": "confirmed",
+      "semantic": "PC字段登记80403B..804057与NS Game::BombDamage355380..3553BC复制对应Entity字段，355558..355564将sp+20作为TakeDamage的EntityRef实参；标志映射源flags bit8/29/54。",
+      "evidence": [
+        {
+          "function": "_ZN15IsaacRepentance4Game10BombDamageERKN4KAGE4Math7Vector2EffbPNS_6EntityENS_11bitset128_tEmb",
+          "address": "0x00355384",
+          "why": "真实存储操作数是sp+0x20，Ref基址由TakeDamage实参x2=sp+0x20确认；paired lane+0对应字段0x0。不把源Entity字段偏移混成Ref偏移。",
+          "kind": "access",
+          "offset": 32,
+          "width": 4,
+          "reference_base": 32,
+          "lane": 0
+        }
+      ],
+      "evidence_files": [
+        "dist/apis600-20261016/ns-extra/Game-BombDamage-354e04.txt"
+      ],
+      "judgement": "runtime/tests/test_api600_entityref.py"
+    },
+    {
+      "name": "Variant",
+      "offset": 4,
+      "width": 4,
+      "kind": "u32",
+      "confidence": "confirmed",
+      "semantic": "PC字段登记80403B..804057与NS Game::BombDamage355380..3553BC复制对应Entity字段，355558..355564将sp+20作为TakeDamage的EntityRef实参；标志映射源flags bit8/29/54。",
+      "evidence": [
+        {
+          "function": "_ZN15IsaacRepentance4Game10BombDamageERKN4KAGE4Math7Vector2EffbPNS_6EntityENS_11bitset128_tEmb",
+          "address": "0x00355384",
+          "why": "真实存储操作数是sp+0x20，Ref基址由TakeDamage实参x2=sp+0x20确认；paired lane+4对应字段0x4。不把源Entity字段偏移混成Ref偏移。",
+          "kind": "access",
+          "offset": 32,
+          "width": 4,
+          "reference_base": 32,
+          "lane": 4
+        }
+      ],
+      "evidence_files": [
+        "dist/apis600-20261016/ns-extra/Game-BombDamage-354e04.txt"
+      ],
+      "judgement": "runtime/tests/test_api600_entityref.py"
+    },
+    {
+      "name": "SpawnerType",
+      "offset": 8,
+      "width": 4,
+      "kind": "i32",
+      "confidence": "confirmed",
+      "semantic": "PC字段登记80403B..804057与NS Game::BombDamage355380..3553BC复制对应Entity字段，355558..355564将sp+20作为TakeDamage的EntityRef实参；标志映射源flags bit8/29/54。",
+      "evidence": [
+        {
+          "function": "_ZN15IsaacRepentance4Game10BombDamageERKN4KAGE4Math7Vector2EffbPNS_6EntityENS_11bitset128_tEmb",
+          "address": "0x0035538c",
+          "why": "真实存储操作数是sp+0x28，Ref基址由TakeDamage实参x2=sp+0x20确认；paired lane+0对应字段0x8。不把源Entity字段偏移混成Ref偏移。",
+          "kind": "access",
+          "offset": 40,
+          "width": 4,
+          "reference_base": 32,
+          "lane": 0
+        }
+      ],
+      "evidence_files": [
+        "dist/apis600-20261016/ns-extra/Game-BombDamage-354e04.txt"
+      ],
+      "judgement": "runtime/tests/test_api600_entityref.py"
+    },
+    {
+      "name": "SpawnerVariant",
+      "offset": 12,
+      "width": 4,
+      "kind": "u32",
+      "confidence": "confirmed",
+      "semantic": "PC字段登记80403B..804057与NS Game::BombDamage355380..3553BC复制对应Entity字段，355558..355564将sp+20作为TakeDamage的EntityRef实参；标志映射源flags bit8/29/54。",
+      "evidence": [
+        {
+          "function": "_ZN15IsaacRepentance4Game10BombDamageERKN4KAGE4Math7Vector2EffbPNS_6EntityENS_11bitset128_tEmb",
+          "address": "0x0035538c",
+          "why": "真实存储操作数是sp+0x28，Ref基址由TakeDamage实参x2=sp+0x20确认；paired lane+4对应字段0xc。不把源Entity字段偏移混成Ref偏移。",
+          "kind": "access",
+          "offset": 40,
+          "width": 4,
+          "reference_base": 32,
+          "lane": 4
+        }
+      ],
+      "evidence_files": [
+        "dist/apis600-20261016/ns-extra/Game-BombDamage-354e04.txt"
+      ],
+      "judgement": "runtime/tests/test_api600_entityref.py"
+    },
+    {
+      "name": "Position",
+      "offset": 16,
+      "width": 8,
+      "kind": "Vector",
+      "confidence": "confirmed",
+      "semantic": "PC字段登记80403B..804057与NS Game::BombDamage355380..3553BC复制对应Entity字段，355558..355564将sp+20作为TakeDamage的EntityRef实参；标志映射源flags bit8/29/54。",
+      "evidence": [
+        {
+          "function": "_ZN15IsaacRepentance4Game10BombDamageERKN4KAGE4Math7Vector2EffbPNS_6EntityENS_11bitset128_tEmb",
+          "address": "0x00355398",
+          "why": "真实存储操作数是sp+0x30，Ref基址由TakeDamage实参x2=sp+0x20确认；paired lane+0对应字段0x10。不把源Entity字段偏移混成Ref偏移。",
+          "kind": "access",
+          "offset": 48,
+          "width": 8,
+          "reference_base": 32,
+          "lane": 0
+        }
+      ],
+      "evidence_files": [
+        "dist/apis600-20261016/ns-extra/Game-BombDamage-354e04.txt"
+      ],
+      "judgement": "runtime/tests/test_api600_entityref.py"
+    },
+    {
+      "name": "NativeOffset",
+      "offset": 24,
+      "width": 8,
+      "kind": "Vector",
+      "confidence": "confirmed",
+      "semantic": "PC字段登记80403B..804057与NS Game::BombDamage355380..3553BC复制对应Entity字段，355558..355564将sp+20作为TakeDamage的EntityRef实参；标志映射源flags bit8/29/54。",
+      "evidence": [
+        {
+          "function": "_ZN15IsaacRepentance4Game10BombDamageERKN4KAGE4Math7Vector2EffbPNS_6EntityENS_11bitset128_tEmb",
+          "address": "0x003553a4",
+          "why": "真实存储操作数是sp+0x38，Ref基址由TakeDamage实参x2=sp+0x20确认；paired lane+0对应字段0x18。不把源Entity字段偏移混成Ref偏移。",
+          "kind": "access",
+          "offset": 56,
+          "width": 8,
+          "reference_base": 32,
+          "lane": 0
+        }
+      ],
+      "evidence_files": [
+        "dist/apis600-20261016/ns-extra/Game-BombDamage-354e04.txt"
+      ],
+      "judgement": "runtime/tests/test_api600_entityref.py"
+    },
+    {
+      "name": "Flags",
+      "offset": 32,
+      "width": 4,
+      "kind": "u32",
+      "confidence": "confirmed",
+      "semantic": "PC字段登记80403B..804057与NS Game::BombDamage355380..3553BC复制对应Entity字段，355558..355564将sp+20作为TakeDamage的EntityRef实参；标志映射源flags bit8/29/54。",
+      "evidence": [
+        {
+          "function": "_ZN15IsaacRepentance4Game10BombDamageERKN4KAGE4Math7Vector2EffbPNS_6EntityENS_11bitset128_tEmb",
+          "address": "0x00355608",
+          "why": "真实存储操作数是sp+0x40，Ref基址由TakeDamage实参x2=sp+0x20确认；paired lane+0对应字段0x20。不把源Entity字段偏移混成Ref偏移。",
+          "kind": "access",
+          "offset": 64,
+          "width": 4,
+          "reference_base": 32,
+          "lane": 0
+        }
+      ],
+      "evidence_files": [
+        "dist/apis600-20261016/ns-extra/Game-BombDamage-354e04.txt"
+      ],
+      "judgement": "runtime/tests/test_api600_entityref.py"
+    },
+    {
+      "name": "Entity",
+      "offset": 40,
+      "width": 8,
+      "kind": "pointer",
+      "confidence": "confirmed",
+      "semantic": "PC字段登记80403B..804057与NS Game::BombDamage355380..3553BC复制对应Entity字段，355558..355564将sp+20作为TakeDamage的EntityRef实参；标志映射源flags bit8/29/54。",
+      "evidence": [
+        {
+          "function": "_ZN15IsaacRepentance4Game10BombDamageERKN4KAGE4Math7Vector2EffbPNS_6EntityENS_11bitset128_tEmb",
+          "address": "0x003555f0",
+          "why": "真实存储操作数是sp+0x48，Ref基址由TakeDamage实参x2=sp+0x20确认；paired lane+0对应字段0x28。不把源Entity字段偏移混成Ref偏移。",
+          "kind": "access",
+          "offset": 72,
+          "width": 8,
+          "reference_base": 32,
+          "lane": 0
+        }
+      ],
+      "evidence_files": [
+        "dist/apis600-20261016/ns-extra/Game-BombDamage-354e04.txt"
+      ],
+      "judgement": "runtime/tests/test_api600_entityref.py"
+    }
+  ]
+}

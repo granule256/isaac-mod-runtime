@@ -13,8 +13,29 @@ TARGET_NPDM_SHA256 = "d325e6e0fdec64053c0efd7e2bf1cd679215b10772c410a91247e1d41b
 SOURCE_NPDM_SIZE = 0x624
 SYSCALL_DESCRIPTOR_TYPE = 4
 SYSCALL_GROUP_SIZE = 0x18
-REQUIRED_SYSCALLS = frozenset({0x74, 0x75})
+#: 必须出现在 NPDM 权限表里的 svc 号。
+#: ★ 2026-10-10（批次 420 续）从 `{0x74, 0x75}` 扩成再加 `{0x30, 0x31}`：
+#:   `0x30` = `GetResourceLimitLimitValue`、`0x31` = `GetResourceLimitCurrentValue`
+#:   —— 想读"内存配额还剩多少"（`limit - current`，见 `docs/分析-用户态查可用内存-20261010.md`）
+#:   就必须授权这两个号。
+#:   ★ 真机实测的代价：**未授权的 svc 调用不是"返回错误"、而是直接打死进程**
+#:     （`Undefined System Call`、`Result 0x10A8`；两次崩溃报告的 `Svc Id` 分别是 `0x6f` 与 `0x30`）。
+REQUIRED_SYSCALLS = frozenset({0x30, 0x31, 0x74, 0x75})
 GROUP4_DESCRIPTOR = 0x8600000F
+#: ★ 2026-10-10（批次 420 续）：`0x30`/`0x31`（`GetResourceLimitLimitValue` / `CurrentValue`）
+#: 落在 **group 2**（base 0x30）的 **bit 0/1**。原版该 group 的 mask 是 `0x7C`
+#: （bit 2..6 = svc `0x32`..`0x36`）⇒ **把这一个 u32 换成 mask `0x7F`** 就同时授权了
+#: `0x30`/`0x31` —— **不新增描述符、不改变文件大小**。
+#: 描述符编码见 `parse_npdm`：`raw = (group << 29) | (mask << 5) | <低 4 位>`
+#: ★★ **注意 `SYSCALL_DESCRIPTOR_TYPE = 4` 是"低 4 位里有 4 个 1"，不是"低 4 位的值"**
+#:    —— 直接 `| SYSCALL_DESCRIPTOR_TYPE` 会得到低 4 位 `0100`，被解析器当成"不是 syscall
+#:    描述符"整条跳过（本批实撞：group 2 的权限会**整个消失**）。低 4 位必须是 `0b1111` = `0xF`。
+SYSCALL_DESCRIPTOR_TYPE_MASK = (1 << SYSCALL_DESCRIPTOR_TYPE) - 1
+GROUP2_DESCRIPTOR_WITH_RESOURCE_LIMIT = (
+    (2 << 29) | (0x7F << 5) | SYSCALL_DESCRIPTOR_TYPE_MASK
+)
+#: 原版 group 2 的 mask（改之前必须**恰好**是它，否则说明源不是我们认的那一版）。
+GROUP2_MASK_ORIGINAL = 0x7C
 
 META_ACI0_OFFSET = 0x70
 META_ACI0_SIZE = 0x74
@@ -180,6 +201,19 @@ def _expected_output(source: bytes, parsed: Npdm) -> tuple[bytes, frozenset[int]
     _increment_u32(output, parsed.aci0.section_range.start + KERNEL_CAPABILITY_SIZE)
     _write_u32(output, parsed.acid.kernel_capability_range.stop, GROUP4_DESCRIPTOR)
     output.extend(GROUP4_DESCRIPTOR.to_bytes(4, "little"))
+    # 批次 420（续）：把 **group 2 的 mask** 从原版的 `0x7C` 扩到 `0x7F`
+    # ⇒ 授权 `0x30`/`0x31`（`GetResourceLimit*`）。**两张表各一处、大小不变**。
+    group2_offsets: list[int] = []
+    for table in (parsed.acid, parsed.aci0):
+        for item in table.syscall_descriptors:
+            if item.group != 2:
+                continue
+            if item.mask != GROUP2_MASK_ORIGINAL:
+                raise ValueError(f"unexpected group 2 mask: {item.mask:#x}")
+            _write_u32(output, item.offset, GROUP2_DESCRIPTOR_WITH_RESOURCE_LIMIT)
+            group2_offsets.extend(item.offset + i for i in range(4))
+    if len(group2_offsets) != 8:
+        raise ValueError("expected exactly one group 2 descriptor per table")
 
     replaced = frozenset({
         META_ACI0_SIZE,
@@ -192,7 +226,7 @@ def _expected_output(source: bytes, parsed: Npdm) -> tuple[bytes, frozenset[int]
         parsed.acid.kernel_capability_range.stop + 3,
         parsed.aci0.section_range.start + KERNEL_CAPABILITY_SIZE,
     })
-    return bytes(output), replaced
+    return bytes(output), replaced | frozenset(group2_offsets)
 
 
 def _validate_output(source: bytes, output: bytes, replaced: frozenset[int]) -> None:
@@ -215,6 +249,10 @@ def _validate_output(source: bytes, output: bytes, replaced: frozenset[int]) -> 
         group4 = [item for item in table.syscall_descriptors if item.group == 4]
         if len(group4) != 1 or group4[0].raw != GROUP4_DESCRIPTOR:
             raise ValueError("NPDM patch did not add exactly one group 4 descriptor per table")
+        # 批次 420（续）：group 2 的 mask 必须已经被扩到 `0x7F`（含 0x30/0x31）。
+        group2 = [item for item in table.syscall_descriptors if item.group == 2]
+        if len(group2) != 1 or group2[0].raw != GROUP2_DESCRIPTOR_WITH_RESOURCE_LIMIT:
+            raise ValueError("NPDM patch did not extend the group 2 syscall mask")
 
 
 def patch_npdm(source: Path, destination: Path) -> PatchReport:

@@ -1,0 +1,84 @@
+{
+  "schema": "isaac-layout-table/1",
+  "build_id": "91C73FDD575061318D68886316AFEAC72388B2AB",
+  "struct": "Music.Entry",
+  "source_table": "music_entry",
+  "note": [
+    "`Music::Entry`（`Music + 0x3D8` 那张 `std::vector<Music::Entry>` 的**元素**，步长 `0x70`）上的字段。",
+    "为什么单开一张表：`runtime_constants.hpp` 里既有的音乐常量只登记了**容器边界**",
+    "  （`kMusicEntryVectorBeginOffset`/`EndOffset`/`kMusicEntrySize`），元素的**内部字段**从来没登记过；",
+    "  而批次 148 的 `Isaac:GetMusicIdByName` 要读元素里的名字串 ⇒ 必须有可复核的一行。",
+    "消费者：`tools/api_definition_of_done.json` 里 `Isaac:GetMusicIdByName` 的 `provenance.field`",
+    "  （`engine_field` 要求这一行 `confirmed`）。",
+    "★ 本表**没有生成的头文件**（`music_entry_layout.hpp` 不存在）：消费者是台账，不是 C++ 代码",
+    "  （与 `item_config_item.json` 同一条处置）。将来要把实现切到生成常量，再补『生成头 + --check』那一半。",
+    "门禁：`runtime/tests/test_layout_table_music_entry.py`（证据反汇编复核 + 口径 + 台账对账 + 版本锁定）。",
+    "",
+    "★★ 2026-09-27（批次 149c）：本表**第一版把 `Name` 登记在偏移 0，是错的**，真机把它否掉了。",
+    "  第一版的依据是**排除法**：「`Music::Play` 与 `Music::StreamSet::Load` 两条读路径都不碰",
+    "  `条目+0x00..+0x1F`」⇒ 推断「唯一自洽的位置就是起点那 24 字节」。",
+    "  真机读数 `dist/gdb-read-20260927-0020.txt`：曲目表从 119 涨到 **121**（模组的 `music.xml`",
+    "  确实进了引擎），而「最后一条的名字」按偏移 0 读出来是 `'x'` —— **`0x78` = 120 = 最后一条的下标**。",
+    "  ⇒ `+0x00` 存的是这条自己的**编号**，名字在 `+0x08`（见两行的 `evidence`）。",
+    "  **教训**：排除法给出的「唯一自洽位置」可能是**别的东西**；写侧**属性分派**",
+    "  （`strcmp(属性名, \"id\"/\"name\")` → 目标槽）才是能一锤定音的那类证据。",
+    "  两条读路径的排除法证据**仍然保留**在 `Name` 行里（它们本身没错，只是推不出结论）。"
+  ],
+  "rows": [
+    {
+      "name": "Id",
+      "kind": "scalar",
+      "offset": 0,
+      "width": 4,
+      "confidence": "confirmed",
+      "semantic": "这条曲目自己的**编号**（`int32`），`Music::Entry` 的第一个字段。`Music::Play(eMusic)` 就是拿它当**下标**去取条目（`条目 = *(Music+0x3D8) + id*0x70`），所以「编号 = 表内下标」。真机自证：曲目表涨到 121 条时，最后一条的 `+0x00` 读出 `0x78` = **120** = 它的下标。",
+      "evidence": [
+        {
+          "kind": "access",
+          "function": "_ZN15IsaacRepentance5Music10LoadConfigEPKcb",
+          "address": "0x0042570c",
+          "offset": 0,
+          "why": "写侧属性分派：`0x425588` 取 `\"id\"` → `0x425610 strcmp(属性名, \"id\")` → `0x425614 cbz` 命中跳 `0x4256FC`：`bl atoi` → **本指令 `str w0, [sp, #0xf8]`**（`sp+0xf8` 就是模板条目起点）⇒ `id` 落在条目 `+0x00`。"
+        },
+        {
+          "kind": "access",
+          "function": "_ZN15IsaacRepentance5Music4PlayENS_6eMusicEf",
+          "address": "0x0042729c",
+          "offset": 0,
+          "why": "『编号 = 下标』的直接证据：`umaddl x21, w19, w10, x8` —— `x8` 是 `[this+0x3d8]`（begin）、`w10` 是上一条 `mov w10, #0x70`、`w19` 是参数里的 `eMusic` ⇒ **条目地址 = begin + id*0x70**（引擎自己把 id 当下标用，元素连续）。"
+        }
+      ]
+    },
+    {
+      "name": "Name",
+      "kind": "string",
+      "offset": 8,
+      "width": 24,
+      "confidence": "confirmed",
+      "semantic": "曲目名：一段 24 字节的 libc++ `std::string`，内容是 `music.xml` 里 `<track name=\"…\">` 的 `name` 属性原样（`Music::LoadConfig` 把那一支 `basic_string::assign(const char*)` 进这个字段）。`Isaac:GetMusicIdByName(name)` 就是拿它逐字节比对，命中返回**下标**（编号 = 下标，见 `Id` 行的第 2 条证据）。",
+      "evidence": [
+        {
+          "kind": "access",
+          "function": "_ZN15IsaacRepentance5Music10LoadConfigEPKcb",
+          "address": "0x00425538",
+          "offset": 8,
+          "why": "★ 一锤定音的写侧证据：`0x425620` 取 `\"name\"` → `0x425624 strcmp(属性名, \"name\")` → `0x425628 cbz` 命中跳 `0x425714`（那一段是 `bl std::string::assign(char const*)`，调用点 `0x425724`），而它的目标正是**本指令算出来的 `模板+0x08`**（`add x9, x8, #0x8`，紧接 `0x42553C str x9, [sp, #0x70]` 把它存好、`0x42571C ldr x0, [sp, #0x70]` 再取回）⇒ `name` 落在条目 `+0x08`。"
+        },
+        {
+          "kind": "access",
+          "function": "_ZN15IsaacRepentance5Music9StreamSet4LoadERKNS0_5EntryEff",
+          "address": "0x00424b74",
+          "offset": 0,
+          "why": "读路径之一（保留自第一版的排除法证据，它本身没错）：`ldrb w8, [x1, #0x20]!` —— `x1` 是 `const Entry&`，这条**前索引**寻址是整条读路径里**第一个**字段访问，直接跳到 `+0x20`（path，交给 `Music::Stream::PrepareFile`）；整条 `StreamSet::Load` 只读 `+0x20`/`+0x38`/`+0x50`/`+0x51`/`+0x54`/`+0x58`/`+0x60`，**从不碰 `+0x00..+0x1F`** ⇒ 名字不可能被它读，也就无法由它定位 —— 所以这一条**只是旁证**（真正的定位靠上面那条写侧证据）。★ 本条的 `offset` 记 **0** 是复核器的口径要求（`access` 证据的偏移必须出现在该指令里、或为 0），而这条指令**本来就不访问本字段** —— 它不是「名字在 +0」，这一点不要读错。"
+        },
+        {
+          "kind": "access",
+          "function": "_ZN15IsaacRepentance5Music4PlayENS_6eMusicEf",
+          "address": "0x004272a0",
+          "offset": 0,
+          "why": "读路径之二（同上保留）：`ldrb w10, [x21, #0x38]` —— `x21` 是上一条 `umaddl` 算出的条目地址；这条路径只读 `+0x38`（另一段串）与 `+0x54/+0x58` ⇒ **`+0x00..+0x1F` 它也不碰**。`offset` 记 0 的原因同上一条（口径要求），同样**不代表**名字在 `+0`。"
+        }
+      ]
+    }
+  ]
+}

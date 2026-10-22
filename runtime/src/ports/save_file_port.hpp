@@ -27,6 +27,20 @@ public:
     [[nodiscard]] virtual Status Read(std::string_view name, char* out, std::size_t capacity,
                                       std::size_t* size) noexcept = 0;
 
+    // 可选真实大小能力：旧提供方可不实现；消费者回退到Read，CapacityExceeded时
+    // 应把所需完整长度写入size，不能静默截断。
+    [[nodiscard]] virtual Status GetSize(std::string_view, std::size_t*) noexcept {
+        return Status{StatusCode::Unsupported};
+    }
+
+    // 0表示尚未选择槽（或旧提供方不提供槽），1..3对应引擎实际保存槽。
+    // 默认值仅兼容已有端口替身；生产提供方必须读取真实引擎字段。
+    [[nodiscard]] virtual Status GetSaveSlot(unsigned* slot) noexcept {
+        if (slot == nullptr) return Status{StatusCode::InvalidArgument};
+        *slot = 0;
+        return Status::Ok();
+    }
+
     // 覆盖写整个文件：文件不存在就创建、存在就截到新长度，写完**提交存档**。
     // 超过实现上限 ⇒ `CapacityExceeded`（宁可报错也不写半截 —— 半截状态比没有状态更难查）。
     [[nodiscard]] virtual Status Write(std::string_view name, std::string_view data) noexcept = 0;

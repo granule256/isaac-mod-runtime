@@ -36,8 +36,71 @@
   "kind": "field"
  },
  {
+  "constant": "kLibcxxTreeNodeLeftOffset",
+  "offset": "0x0",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kModManagerModListBeginOffset",
+  "offset": "0x0",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kMusicEntryIdOffset",
+  "offset": "0x0",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kQueuedItemDataItemOffset",
+  "offset": "0x0",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
   "constant": "kRoomConfigEntryTypeOffset",
   "offset": "0x0",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kSeedsCustomRunFlagOffset",
+  "offset": "0x0",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kSoundEffectVectorBeginOffset",
+  "offset": "0x0",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kRoomFirstVisitOffset",
+  "offset": "0x1",
   "mangled": null,
   "demangled": null,
   "parameters": null,
@@ -72,8 +135,26 @@
   "kind": "field"
  },
  {
+  "constant": "kSeedsStartSeedOffset",
+  "offset": "0x4",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
   "constant": "kRoomConfigEntrySubTypeOffset",
   "offset": "0x6",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kEntityConfigPlayerNameOffset",
+  "offset": "0x8",
   "mangled": null,
   "demangled": null,
   "parameters": null,
@@ -108,6 +189,159 @@
   "kind": "field"
  },
  {
+  "constant": "kKageInputDeviceIdOffset",
+  "offset": "0x8",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kKageInputDeviceVectorBeginOffset",
+  "offset": "0x8",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kLevelBossChallengeOffset",
+  "offset": "0x8",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kLibcxxTreeNodeRightOffset",
+  "offset": "0x8",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kManagerRenderSceneOffset",
+  "offset": "0x8",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kModManagerModListEndOffset",
+  "offset": "0x8",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kMusicEntryNameStringOffset",
+  "offset": "0x8",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kQueuedItemDataChargeOffset",
+  "offset": "0x8",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kRoomConfigEntryWeightOffset",
+  "offset": "0x8",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kRoomConfigSpawnEntriesOffset",
+  "offset": "0x8",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kRoomDescriptorPointerOffset",
+  "offset": "0x8",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kSeedsRngOffset",
+  "offset": "0x8",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kSoundEffectVectorEndOffset",
+  "offset": "0x8",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kSpriteFilenameOffset",
+  "offset": "0x8",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kTemporaryEffectCountOffset",
+  "offset": "0x8",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kTemporaryEffectsEffectListBeginOffset",
+  "offset": "0x8",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kGridEntityVariantOffset",
+  "offset": "0xc",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
   "constant": "kLevelCursesOffset",
   "offset": "0xc",
   "mangled": null,
@@ -117,7 +351,34 @@
   "kind": "field"
  },
  {
-  "constant": "kColorModShiftOffset",
+  "constant": "kQueuedItemDataTouchedOffset",
+  "offset": "0xc",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kTemporaryEffectCooldownOffset",
+  "offset": "0xc",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kKageInputDeviceEnabledOffset",
+  "offset": "0xd",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kColorModColorizeOffset",
   "offset": "0x10",
   "mangled": null,
   "demangled": null,
@@ -126,8 +387,62 @@
   "kind": "field"
  },
  {
-  "constant": "kGridEntityVariantOffset",
+  "constant": "kKageInputDeviceVectorEndOffset",
   "offset": "0x10",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kManagerSaveSlotFieldOffset",
+  "offset": "0x10",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kQueuedItemDataVarDataOffset",
+  "offset": "0x10",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kRoomConfigSpawnEntryCountOffset",
+  "offset": "0x10",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kTemporaryEffectsEffectListEndOffset",
+  "offset": "0x10",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kLevelCanSeeEverythingOffset",
+  "offset": "0x11",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kRoomConfigSpawnSumWeightsOffset",
+  "offset": "0x14",
   "mangled": null,
   "demangled": null,
   "parameters": null,
@@ -144,7 +459,25 @@
   "kind": "field"
  },
  {
+  "constant": "kEntityConfigPlayerArrayBeginOffset",
+  "offset": "0x18",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
   "constant": "kItemConfigTrinketBeginOffset",
+  "offset": "0x18",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kManagerPersistentGameDataObjectOffset",
   "offset": "0x18",
   "mangled": null,
   "demangled": null,
@@ -162,8 +495,80 @@
   "kind": "field"
  },
  {
+  "constant": "kSeedsStageSeedArrayOffset",
+  "offset": "0x18",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kSpriteDefaultAnimationNameOffset",
+  "offset": "0x18",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
   "constant": "kGridEntityVarDataOffset",
   "offset": "0x1c",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kKageInputDeviceActionCountOffset",
+  "offset": "0x1c",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kLibcxxTreeNodeKeyOffset",
+  "offset": "0x1c",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kRoomTopLeftPosOffset",
+  "offset": "0x1c",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kColorModShiftOffset",
+  "offset": "0x20",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kEntityConfigPlayerArrayEndOffset",
+  "offset": "0x20",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kEntityDamageBufferOffset",
+  "offset": "0x20",
   "mangled": null,
   "demangled": null,
   "parameters": null,
@@ -189,7 +594,43 @@
   "kind": "field"
  },
  {
+  "constant": "kKageInputDeviceActionTableOffset",
+  "offset": "0x20",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kTemporaryEffectsFrozenOffset",
+  "offset": "0x21",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kRoomBottomRightPosOffset",
+  "offset": "0x24",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
   "constant": "kGridEntityGridIndexOffset",
+  "offset": "0x28",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kTemporaryEffectsPlayerBackrefOffset",
   "offset": "0x28",
   "mangled": null,
   "demangled": null,
@@ -225,7 +666,25 @@
   "kind": "field"
  },
  {
+  "constant": "kKageInputDeviceKeysCurrentOffset",
+  "offset": "0x30",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
   "constant": "kRoomGridEntityTableOffset",
+  "offset": "0x30",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kSpriteAnm2Offset",
   "offset": "0x30",
   "mangled": null,
   "demangled": null,
@@ -261,6 +720,15 @@
   "kind": "field"
  },
  {
+  "constant": "kKageInputDeviceKeysPreviousOffset",
+  "offset": "0x38",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
   "constant": "kSpriteAnimationNameOffset",
   "offset": "0x38",
   "mangled": null,
@@ -288,7 +756,52 @@
   "kind": "field"
  },
  {
+  "constant": "kKageInputDeviceStickCurrentOffset",
+  "offset": "0x40",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kRoomConfigDoorsOffset",
+  "offset": "0x40",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kEntitySpawnerTypeOffset",
+  "offset": "0x44",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
   "constant": "kEntityListGeneralBeginOffset",
+  "offset": "0x48",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kEntitySpawnerVariantOffset",
+  "offset": "0x48",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kGridEntitySpriteOffset",
   "offset": "0x48",
   "mangled": null,
   "demangled": null,
@@ -307,6 +820,33 @@
  },
  {
   "constant": "kItemConfigPillEffectMimicChargeOffset",
+  "offset": "0x48",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kKageInputDeviceStickPreviousOffset",
+  "offset": "0x48",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kModEntryContentPathOffset",
+  "offset": "0x48",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kModEntryContentPathStringOffset",
   "offset": "0x48",
   "mangled": null,
   "demangled": null,
@@ -351,7 +891,43 @@
   "kind": "field"
  },
  {
+  "constant": "kKageInputDeviceAxesOffset",
+  "offset": "0x50",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kRoomConfigRoomSpawnsBeginOffset",
+  "offset": "0x50",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kRoomDescriptorFlagsOffset",
+  "offset": "0x50",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
   "constant": "kEntityListGeneralCountOffset",
+  "offset": "0x54",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kItemConfigItemCacheFlagsOffset",
   "offset": "0x54",
   "mangled": null,
   "demangled": null,
@@ -369,7 +945,7 @@
   "kind": "field"
  },
  {
-  "constant": "kItemConfigItemTagsOffset",
+  "constant": "kItemConfigCardTypeOffset",
   "offset": "0x58",
   "mangled": null,
   "demangled": null,
@@ -378,7 +954,52 @@
   "kind": "field"
  },
  {
+  "constant": "kItemConfigItemMaxHeartsOffset",
+  "offset": "0x58",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kRoomConfigRoomSpawnCountOffset",
+  "offset": "0x58",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kSeedsEffectTreeOffset",
+  "offset": "0x58",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kRoomConfigShapeOffset",
+  "offset": "0x5c",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
   "constant": "kItemConfigPillEffectBeginOffset",
+  "offset": "0x60",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kModEntryContentDirectoryOffset",
   "offset": "0x60",
   "mangled": null,
   "demangled": null,
@@ -405,8 +1026,35 @@
   "kind": "field"
  },
  {
+  "constant": "kRoomDescriptorDecorationSeedOffset",
+  "offset": "0x64",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
   "constant": "kItemConfigPillEffectEndOffset",
   "offset": "0x68",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kRoomDescriptorSpawnSeedOffset",
+  "offset": "0x68",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kRPlusAwardSeedOffset",
+  "offset": "0x6c",
   "mangled": null,
   "demangled": null,
   "parameters": null,
@@ -450,8 +1098,26 @@
   "kind": "field"
  },
  {
+  "constant": "kItemConfigItemNullCostumePathOffset",
+  "offset": "0x88",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
   "constant": "kItemConfigPlayerFormBeginOffset",
   "offset": "0x90",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kAnim2AnimationArrayOffset",
+  "offset": "0x98",
   "mangled": null,
   "demangled": null,
   "parameters": null,
@@ -468,8 +1134,26 @@
   "kind": "field"
  },
  {
+  "constant": "kAnim2AnimationCountOffset",
+  "offset": "0xa0",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
   "constant": "kEntityListEffectBeginOffset",
   "offset": "0xa8",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kAnim2LayerCountOffset",
+  "offset": "0xb0",
   "mangled": null,
   "demangled": null,
   "parameters": null,
@@ -513,6 +1197,15 @@
   "kind": "field"
  },
  {
+  "constant": "kItemConfigItemTagsOffset",
+  "offset": "0xc0",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
   "constant": "kItemConfigItemQualityOffset",
   "offset": "0xc8",
   "mangled": null,
@@ -524,6 +1217,15 @@
  {
   "constant": "kItemConfigItemCraftingQualityOffset",
   "offset": "0xcc",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kKageInputDeviceActionValueOffset",
+  "offset": "0xd0",
   "mangled": null,
   "demangled": null,
   "parameters": null,
@@ -549,6 +1251,33 @@
   "kind": "field"
  },
  {
+  "constant": "kKageInputButtonDiscriminatorOffset",
+  "offset": "0xe0",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kKageInputDeviceDeadzoneAltOffset",
+  "offset": "0xe0",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kKageInputDeviceDeadzoneOffset",
+  "offset": "0xe4",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
   "constant": "kSpriteColorOffset",
   "offset": "0xe8",
   "mangled": null,
@@ -558,8 +1287,53 @@
   "kind": "field"
  },
  {
+  "constant": "kModEntryCostumeContextOffset",
+  "offset": "0x108",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kEntityGetColorOffset",
+  "offset": "0x138",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kModEntryUserEnabledFlagOffset",
+  "offset": "0x138",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kModEntryEnabledFlagOffset",
+  "offset": "0x139",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
   "constant": "kSpriteFlipXOffset",
   "offset": "0x140",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kSpritePlaybackSpeedOffset",
+  "offset": "0x144",
   "mangled": null,
   "demangled": null,
   "parameters": null,
@@ -612,8 +1386,62 @@
   "kind": "field"
  },
  {
+  "constant": "kEntityVisibleOffset",
+  "offset": "0x1c1",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kEntityExistsOffset",
+  "offset": "0x1c2",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kEntityIsDeadOffset",
+  "offset": "0x1c3",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kSoundEffectIdOffset",
+  "offset": "0x1d4",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kSoundEffectNameStringOffset",
+  "offset": "0x1d8",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
   "constant": "kEntityFlyingLayerOffset",
   "offset": "0x1e0",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kEntityCollidesWithGridOffset",
+  "offset": "0x1ec",
   "mangled": null,
   "demangled": null,
   "parameters": null,
@@ -675,8 +1503,71 @@
   "kind": "field"
  },
  {
+  "constant": "kEntityFrictionOffset",
+  "offset": "0x340",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
   "constant": "kEntitySizeOffset",
   "offset": "0x344",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kEntityHitPointsOffset",
+  "offset": "0x354",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kEntityMaxHitPointsOffset",
+  "offset": "0x358",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kEntityCollisionDamageOffset",
+  "offset": "0x35c",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kModManagerDefaultAnm2Offset",
+  "offset": "0x368",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kEntityTimeScaleOffset",
+  "offset": "0x370",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kEntityIsInvincibleOffset",
+  "offset": "0x384",
   "mangled": null,
   "demangled": null,
   "parameters": null,
@@ -693,8 +1584,35 @@
   "kind": "field"
  },
  {
+  "constant": "kEntitySpawnerEntityOffset",
+  "offset": "0x3a8",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
   "constant": "kEntityDropSeedOffset",
   "offset": "0x3d8",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kMusicEntryVectorBeginOffset",
+  "offset": "0x3d8",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kMusicEntryVectorEndOffset",
+  "offset": "0x3e0",
   "mangled": null,
   "demangled": null,
   "parameters": null,
@@ -711,7 +1629,43 @@
   "kind": "field"
  },
  {
+  "constant": "kMusicEnabledOffset",
+  "offset": "0x3f0",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
   "constant": "kEntityFamiliarPlayerOffset",
+  "offset": "0x400",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kEntityKnifeTearFlagsOffset",
+  "offset": "0x400",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kEntityPlayerControlsEnabledOffset",
+  "offset": "0x400",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kRPlusBombCountdownOffset",
   "offset": "0x400",
   "mangled": null,
   "demangled": null,
@@ -722,6 +1676,96 @@
  {
   "constant": "kEntityPlayerControlsCooldownOffset",
   "offset": "0x404",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kEntityTearFallingSpeedOffset",
+  "offset": "0x404",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kEntityNpcPathfinderOffset",
+  "offset": "0x408",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kEntityTearFallingAccelerationOffset",
+  "offset": "0x408",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kEntityTearScaleOffset",
+  "offset": "0x410",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kEntityLaserTearFlagsOffset",
+  "offset": "0x418",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kEntityTearFlagsOffset",
+  "offset": "0x418",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kEntityBombTearFlagsOffset",
+  "offset": "0x428",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kEntityProjectileFlagsOffset",
+  "offset": "0x428",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kEntityBombIsFetusOffset",
+  "offset": "0x438",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kEntityLaserMaxDistanceOffset",
+  "offset": "0x4f8",
   "mangled": null,
   "demangled": null,
   "parameters": null,
@@ -765,6 +1809,15 @@
   "kind": "field"
  },
  {
+  "constant": "kEntityPickupAutoUpdatePriceOffset",
+  "offset": "0x568",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
   "constant": "kEntityPickupShopItemIdOffset",
   "offset": "0x56c",
   "mangled": null,
@@ -776,6 +1829,15 @@
  {
   "constant": "kItemPoolLastPoolOffset",
   "offset": "0x8c0",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kItemPoolTrinketRngOffset",
+  "offset": "0x8d4",
   "mangled": null,
   "demangled": null,
   "parameters": null,
@@ -801,8 +1863,80 @@
   "kind": "field"
  },
  {
+  "constant": "kEntityNpcScaleOffset",
+  "offset": "0xcc4",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
   "constant": "kEntityBossFlagOffset",
   "offset": "0xcc9",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kEntityNpcChampionFlagOffset",
+  "offset": "0xd0f",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kEntityNpcChampionColorIdxOffset",
+  "offset": "0xd10",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kEntityNpcBossColorIdxOffset",
+  "offset": "0xd24",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kEntityFamiliarOrbitDistanceOffset",
+  "offset": "0xd78",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kEntityFamiliarOrbitSpeedOffset",
+  "offset": "0xd80",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kEntityFamiliarOrbitLayerOffset",
+  "offset": "0xd84",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kPersistentGameDataBossKilledOffset",
+  "offset": "0xd87",
   "mangled": null,
   "demangled": null,
   "parameters": null,
@@ -828,6 +1962,15 @@
   "kind": "field"
  },
  {
+  "constant": "kRoomTintedRockIdxOffset",
+  "offset": "0xe90",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
   "constant": "kRoomGridPathArrayOffset",
   "offset": "0xe98",
   "mangled": null,
@@ -846,6 +1989,42 @@
   "kind": "field"
  },
  {
+  "constant": "kRPlusMaxHeartsOffset",
+  "offset": "0x16b8",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kEntityPlayerHeartsOffset",
+  "offset": "0x16bc",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kRPlusHeartsOffset",
+  "offset": "0x16bc",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kEntityPlayerEternalHeartsOffset",
+  "offset": "0x16c0",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
   "constant": "kEntityPlayerSoulHeartsOffset",
   "offset": "0x16c4",
   "mangled": null,
@@ -855,8 +2034,44 @@
   "kind": "field"
  },
  {
+  "constant": "kRPlusSoulHeartsOffset",
+  "offset": "0x16c4",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kEntityPlayerJarHeartsOffset",
+  "offset": "0x16cc",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
   "constant": "kEntityPlayerKeysOffset",
   "offset": "0x16d4",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kEntityPlayerGoldenKeyFlagOffset",
+  "offset": "0x16d8",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kEntityPlayerGoldenBombFlagOffset",
+  "offset": "0x16d9",
   "mangled": null,
   "demangled": null,
   "parameters": null,
@@ -882,8 +2097,44 @@
   "kind": "field"
  },
  {
+  "constant": "kEntityPlayerExtraAnimationPlayingOffset",
+  "offset": "0x1710",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kEntityPlayerExtraAnimationFinishedOffset",
+  "offset": "0x1712",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kEntityPlayerDamageCooldownOffset",
+  "offset": "0x1734",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
   "constant": "kEntityPlayerTypeOffset",
   "offset": "0x1738",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kEntityPlayerNameOffset",
+  "offset": "0x1740",
   "mangled": null,
   "demangled": null,
   "parameters": null,
@@ -900,8 +2151,44 @@
   "kind": "field"
  },
  {
+  "constant": "kEntityPlayerShotSpeedOffset",
+  "offset": "0x1838",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
   "constant": "kEntityPlayerDamageOffset",
   "offset": "0x1844",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kEntityPlayerTearHeightOffset",
+  "offset": "0x1848",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kEntityPlayerTearFallingSpeedOffset",
+  "offset": "0x184c",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kEntityPlayerTearFallingAccelerationOffset",
+  "offset": "0x1850",
   "mangled": null,
   "demangled": null,
   "parameters": null,
@@ -918,8 +2205,26 @@
   "kind": "field"
  },
  {
-  "constant": "kEntityPlayerLuckOffset",
-  "offset": "0x1920",
+  "constant": "kEntityPlayerTearFlagsOffset",
+  "offset": "0x1858",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kEntityPlayerTearColorOffset",
+  "offset": "0x1868",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kEntityPlayerTemporaryEffectsOffset",
+  "offset": "0x18d8",
   "mangled": null,
   "demangled": null,
   "parameters": null,
@@ -929,6 +2234,15 @@
  {
   "constant": "kEntityPlayerMoveSpeedOffset",
   "offset": "0x194c",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kEntityPlayerLuckOffset",
+  "offset": "0x1950",
   "mangled": null,
   "demangled": null,
   "parameters": null,
@@ -947,6 +2261,15 @@
  {
   "constant": "kEntityPlayerCanFlyOffset",
   "offset": "0x1954",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kEntityPlayerCacheFlagsOffset",
+  "offset": "0x1958",
   "mangled": null,
   "demangled": null,
   "parameters": null,
@@ -1008,6 +2331,51 @@
   "kind": "field"
  },
  {
+  "constant": "kEntityPlayerHeadDirectionOffset",
+  "offset": "0x19fc",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kEntityPlayerFireDirectionOffset",
+  "offset": "0x1a00",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kRPlusAimDirectionOffset",
+  "offset": "0x1a04",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kRoomAliveEnemiesCountOffset",
+  "offset": "0x1a58",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kRoomAliveBossesCountOffset",
+  "offset": "0x1a60",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
   "constant": "kEntityPlayerTrinketOffset",
   "offset": "0x1ab0",
   "mangled": null,
@@ -1035,8 +2403,116 @@
   "kind": "field"
  },
  {
+  "constant": "kEntityPlayerSmeltedTrinketBeginOffset",
+  "offset": "0x1b60",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kEntityPlayerSmeltedTrinketEndOffset",
+  "offset": "0x1b68",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kEntityPlayerSmeltedTrinketCapacityOffset",
+  "offset": "0x1b70",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kEntityPlayerCollectibleRngVectorOffset",
+  "offset": "0x1bb0",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kEntityPlayerTrinketRngVectorOffset",
+  "offset": "0x1bc8",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kEntityPlayerPillRngVectorOffset",
+  "offset": "0x1be0",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kEntityPlayerCardRngVectorOffset",
+  "offset": "0x1bf8",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kEntityPlayerQueuedItemOffset",
+  "offset": "0x1c38",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kEntityPlayerFormCountersOffset",
+  "offset": "0x1c54",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kEntityPlayerGoldenHeartsOffset",
+  "offset": "0x1dc4",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kRoomBossIdOffset",
+  "offset": "0x1fc0",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
   "constant": "kEntityPlayerBabySkinOffset",
   "offset": "0x20e8",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kRoomBackdropTypeOffset",
+  "offset": "0x21b0",
   "mangled": null,
   "demangled": null,
   "parameters": null,
@@ -1053,8 +2529,26 @@
   "kind": "field"
  },
  {
+  "constant": "kEntityPlayerSubPlayerOffset",
+  "offset": "0x2460",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
   "constant": "kEntityPlayerBrokenHeartsOffset",
   "offset": "0x2470",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kEntityPlayerRottenHeartsOffset",
+  "offset": "0x2474",
   "mangled": null,
   "demangled": null,
   "parameters": null,
@@ -1080,6 +2574,51 @@
   "kind": "field"
  },
  {
+  "constant": "kEntityPlayerTwinOffset",
+  "offset": "0x2580",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kEntityPlayerPoopManaOffset",
+  "offset": "0x269c",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kEntityPlayerPoopSpellQueueOffset",
+  "offset": "0x26a0",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kEntityPlayerModelingClayEffectOffset",
+  "offset": "0x2730",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kEntityPlayerCoopGhostFlagOffset",
+  "offset": "0x284c",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
   "constant": "kSpriteCtorOffset",
   "offset": "0x6540",
   "mangled": "_ZN15IsaacRepentance4ANM2C2Ev",
@@ -1096,6 +2635,24 @@
   "parameters": [],
   "parameter_count": 0,
   "kind": "function"
+ },
+ {
+  "constant": "kRoomFloorColorModOffset",
+  "offset": "0x7968",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kRoomWallColorModOffset",
+  "offset": "0x7994",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
  },
  {
   "constant": "kSpriteUpdateOffset",
@@ -1214,6 +2771,24 @@
   "kind": "function"
  },
  {
+  "constant": "kSpriteStopOffset",
+  "offset": "0xa8e4",
+  "mangled": "_ZN15IsaacRepentance4ANM24StopEv",
+  "demangled": "IsaacRepentance::ANM2::Stop()",
+  "parameters": [],
+  "parameter_count": 0,
+  "kind": "function"
+ },
+ {
+  "constant": "kSpriteSetLastFrameOffset",
+  "offset": "0xa908",
+  "mangled": "_ZN15IsaacRepentance4ANM212SetLastFrameEv",
+  "demangled": "IsaacRepentance::ANM2::SetLastFrame()",
+  "parameters": [],
+  "parameter_count": 0,
+  "kind": "function"
+ },
+ {
   "constant": "kSpriteGetFrameOffset",
   "offset": "0xa924",
   "mangled": "_ZNK15IsaacRepentance4ANM28GetFrameEv",
@@ -1241,6 +2816,92 @@
   "demangled": "IsaacRepentance::ANM2::GetLayerFrame(int)",
   "parameters": [
    "int"
+  ],
+  "parameter_count": 1,
+  "kind": "function"
+ },
+ {
+  "constant": "kSpritePlayOverlayOffset",
+  "offset": "0xa9fc",
+  "mangled": "_ZN15IsaacRepentance4ANM211PlayOverlayEPKcb",
+  "demangled": "IsaacRepentance::ANM2::PlayOverlay(char const*, bool)",
+  "parameters": [
+   "char const*",
+   "bool"
+  ],
+  "parameter_count": 2,
+  "kind": "function"
+ },
+ {
+  "constant": "kSpriteIsOverlayPlayingOffset",
+  "offset": "0xabb8",
+  "mangled": "_ZNK15IsaacRepentance4ANM216IsOverlayPlayingERKNSt3__112basic_stringIcNS1_11char_traitsIcEENS1_9allocatorIcEEEE",
+  "demangled": "IsaacRepentance::ANM2::IsOverlayPlaying(std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char> > const&) const",
+  "parameters": [
+   "std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char> > const&"
+  ],
+  "parameter_count": 1,
+  "kind": "function"
+ },
+ {
+  "constant": "kSpriteIsOverlayFinishedOffset",
+  "offset": "0xac88",
+  "mangled": "_ZNK15IsaacRepentance4ANM217IsOverlayFinishedERKNSt3__112basic_stringIcNS1_11char_traitsIcEENS1_9allocatorIcEEEE",
+  "demangled": "IsaacRepentance::ANM2::IsOverlayFinished(std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char> > const&) const",
+  "parameters": [
+   "std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char> > const&"
+  ],
+  "parameter_count": 1,
+  "kind": "function"
+ },
+ {
+  "constant": "kSpriteSetOverlayFrameOffset",
+  "offset": "0xaef8",
+  "mangled": "_ZN15IsaacRepentance4ANM215SetOverlayFrameEPKci",
+  "demangled": "IsaacRepentance::ANM2::SetOverlayFrame(char const*, int)",
+  "parameters": [
+   "char const*",
+   "int"
+  ],
+  "parameter_count": 2,
+  "kind": "function"
+ },
+ {
+  "constant": "kSpriteGetOverlayFrameOffset",
+  "offset": "0xafe0",
+  "mangled": "_ZN15IsaacRepentance4ANM215GetOverlayFrameEv",
+  "demangled": "IsaacRepentance::ANM2::GetOverlayFrame()",
+  "parameters": [],
+  "parameter_count": 0,
+  "kind": "function"
+ },
+ {
+  "constant": "kApi100SpriteRemoveOverlayOffset",
+  "offset": "0xaffc",
+  "mangled": "_ZN15IsaacRepentance4ANM213RemoveOverlayEv",
+  "demangled": "IsaacRepentance::ANM2::RemoveOverlay()",
+  "parameters": [],
+  "parameter_count": 0,
+  "kind": "function"
+ },
+ {
+  "constant": "kSpriteIsEventTriggeredOffset",
+  "offset": "0xb66c",
+  "mangled": "_ZNK15IsaacRepentance4ANM216IsEventTriggeredERKNSt3__112basic_stringIcNS1_11char_traitsIcEENS1_9allocatorIcEEEE",
+  "demangled": "IsaacRepentance::ANM2::IsEventTriggered(std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char> > const&) const",
+  "parameters": [
+   "std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char> > const&"
+  ],
+  "parameter_count": 1,
+  "kind": "function"
+ },
+ {
+  "constant": "kSpriteWasEventTriggeredOffset",
+  "offset": "0xb7c0",
+  "mangled": "_ZNK15IsaacRepentance4ANM217WasEventTriggeredERKNSt3__112basic_stringIcNS1_11char_traitsIcEENS1_9allocatorIcEEEE",
+  "demangled": "IsaacRepentance::ANM2::WasEventTriggered(std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char> > const&) const",
+  "parameters": [
+   "std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char> > const&"
   ],
   "parameter_count": 1,
   "kind": "function"
@@ -1281,6 +2942,15 @@
   "kind": "function"
  },
  {
+  "constant": "kApi100SpriteReloadOffset",
+  "offset": "0xcb74",
+  "mangled": "_ZN15IsaacRepentance4ANM26ReloadEv",
+  "demangled": "IsaacRepentance::ANM2::Reload()",
+  "parameters": [],
+  "parameter_count": 0,
+  "kind": "function"
+ },
+ {
   "constant": "kSpriteReplaceSpritesheetOffset",
   "offset": "0xd270",
   "mangled": "_ZN15IsaacRepentance4ANM218ReplaceSpritesheetEiRKNSt3__112basic_stringIcNS1_11char_traitsIcEENS1_9allocatorIcEEEE",
@@ -1291,6 +2961,44 @@
   ],
   "parameter_count": 2,
   "kind": "function"
+ },
+ {
+  "constant": "kAnmCacheMountLoopOffset",
+  "offset": "0xf638",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kAnmCacheRemoveReferenceOffset",
+  "offset": "0x14cc4",
+  "mangled": "_ZN15IsaacRepentance8AnmCache15RemoveReferenceERKNSt3__112basic_stringIcNS1_11char_traitsIcEENS1_9allocatorIcEEEE",
+  "demangled": "IsaacRepentance::AnmCache::RemoveReference(std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char> > const&)",
+  "parameters": [
+   "std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char> > const&"
+  ],
+  "parameter_count": 1,
+  "kind": "function"
+ },
+ {
+  "constant": "kAnmCacheFreeUnreferencedEntriesOffset",
+  "offset": "0x14f64",
+  "mangled": "_ZN15IsaacRepentance8AnmCache23FreeUnreferencedEntriesEv",
+  "demangled": "IsaacRepentance::AnmCache::FreeUnreferencedEntries()",
+  "parameters": [],
+  "parameter_count": 0,
+  "kind": "function"
+ },
+ {
+  "constant": "kAnmCacheNodeLayoutOffset",
+  "offset": "0x14fac",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
  },
  {
   "constant": "kGameRoomPointerOffset",
@@ -1311,8 +3019,44 @@
   "kind": "field"
  },
  {
+  "constant": "kLevelPreviousRoomIndexOffset",
+  "offset": "0x2155c",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
   "constant": "kLevelCurrentRoomDimensionOffset",
   "offset": "0x21560",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kLevelLastBossRoomListIndexOffset",
+  "offset": "0x21568",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kLevelEnterDoorOffset",
+  "offset": "0x21570",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kLevelStateFlagsOffset",
+  "offset": "0x215f0",
   "mangled": null,
   "demangled": null,
   "parameters": null,
@@ -1356,8 +3100,71 @@
   "kind": "field"
  },
  {
+  "constant": "kGameSeedsObjectOffset",
+  "offset": "0x25d40",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kManagerNightmareSceneOffset",
+  "offset": "0x2cbb8",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kRandomU32Offset",
+  "offset": "0x35830",
+  "mangled": "_ZN15IsaacRepentance9RandomU32Ev",
+  "demangled": "IsaacRepentance::RandomU32()",
+  "parameters": [],
+  "parameter_count": 0,
+  "kind": "function"
+ },
+ {
   "constant": "kManagerMusicOffset",
   "offset": "0x36068",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kManagerSoundEffectsOffset",
+  "offset": "0x364a8",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kManagerFoundHudOffset",
+  "offset": "0x3650a",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kManagerHudOffsetOffset",
+  "offset": "0x36514",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kManagerModsEnabledOffset",
+  "offset": "0x36519",
   "mangled": null,
   "demangled": null,
   "parameters": null,
@@ -1374,6 +3181,15 @@
   "kind": "field"
  },
  {
+  "constant": "kManagerEntityConfigOffset",
+  "offset": "0x36758",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
   "constant": "kManagerToModManagerOffset",
   "offset": "0x36800",
   "mangled": null,
@@ -1381,6 +3197,42 @@
   "parameters": null,
   "parameter_count": null,
   "kind": "field"
+ },
+ {
+  "constant": "kApi100ColorResetOffset",
+  "offset": "0x37830",
+  "mangled": "_ZN15IsaacRepentance8ColorMod5ResetEv",
+  "demangled": "IsaacRepentance::ColorMod::Reset()",
+  "parameters": [],
+  "parameter_count": 0,
+  "kind": "function"
+ },
+ {
+  "constant": "kApi100ColorSetTintOffset",
+  "offset": "0x37848",
+  "mangled": "_ZN15IsaacRepentance8ColorMod7SetTintEffff",
+  "demangled": "IsaacRepentance::ColorMod::SetTint(float, float, float, float)",
+  "parameters": [
+   "float",
+   "float",
+   "float",
+   "float"
+  ],
+  "parameter_count": 4,
+  "kind": "function"
+ },
+ {
+  "constant": "kApi100ColorSetOffsetOffset",
+  "offset": "0x37870",
+  "mangled": "_ZN15IsaacRepentance8ColorMod9SetOffsetEfff",
+  "demangled": "IsaacRepentance::ColorMod::SetOffset(float, float, float)",
+  "parameters": [
+   "float",
+   "float",
+   "float"
+  ],
+  "parameter_count": 3,
+  "kind": "function"
  },
  {
   "constant": "kConsoleCtorOffset",
@@ -1414,10 +3266,143 @@
   "kind": "function"
  },
  {
+  "constant": "kEntityDestructorFunctionOffset",
+  "offset": "0x589bc",
+  "mangled": "_ZN15IsaacRepentance6EntityD1Ev",
+  "demangled": "IsaacRepentance::Entity::~Entity()",
+  "parameters": [],
+  "parameter_count": 0,
+  "kind": "function"
+ },
+ {
+  "constant": "kEntityDestructorHookOffset",
+  "offset": "0x58a00",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kEntityDestructorResumeOffset",
+  "offset": "0x58a04",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kApi100EntityGetLastParentOffset",
+  "offset": "0x58be8",
+  "mangled": "_ZN15IsaacRepentance6Entity13GetLastParentEv",
+  "demangled": "IsaacRepentance::Entity::GetLastParent()",
+  "parameters": [],
+  "parameter_count": 0,
+  "kind": "function"
+ },
+ {
+  "constant": "kApi100EntityGetLastChildOffset",
+  "offset": "0x58bfc",
+  "mangled": "_ZN15IsaacRepentance6Entity12GetLastChildEv",
+  "demangled": "IsaacRepentance::Entity::GetLastChild()",
+  "parameters": [],
+  "parameter_count": 0,
+  "kind": "function"
+ },
+ {
+  "constant": "kEntityIsEnemyOffset",
+  "offset": "0x59130",
+  "mangled": "_ZNK15IsaacRepentance6Entity7IsEnemyEv",
+  "demangled": "IsaacRepentance::Entity::IsEnemy() const",
+  "parameters": [],
+  "parameter_count": 0,
+  "kind": "function"
+ },
+ {
+  "constant": "kApi100EntityHasFullHealthOffset",
+  "offset": "0x5a234",
+  "mangled": "_ZN15IsaacRepentance6Entity13HasFullHealthEv",
+  "demangled": "IsaacRepentance::Entity::HasFullHealth()",
+  "parameters": [],
+  "parameter_count": 0,
+  "kind": "function"
+ },
+ {
+  "constant": "kEntityAddHealthOffset",
+  "offset": "0x5a248",
+  "mangled": "_ZN15IsaacRepentance6Entity9AddHealthEf",
+  "demangled": "IsaacRepentance::Entity::AddHealth(float)",
+  "parameters": [
+   "float"
+  ],
+  "parameter_count": 1,
+  "kind": "function"
+ },
+ {
+  "constant": "kEntityIsVulnerableEnemyOffset",
+  "offset": "0x5c62c",
+  "mangled": "_ZNK15IsaacRepentance6Entity17IsVulnerableEnemyEPS0_",
+  "demangled": "IsaacRepentance::Entity::IsVulnerableEnemy(IsaacRepentance::Entity*) const",
+  "parameters": [
+   "IsaacRepentance::Entity*"
+  ],
+  "parameter_count": 1,
+  "kind": "function"
+ },
+ {
   "constant": "kEntityIsFlyingOffset",
   "offset": "0x5c744",
   "mangled": "_ZNK15IsaacRepentance6Entity8IsFlyingEv",
   "demangled": "IsaacRepentance::Entity::IsFlying() const",
+  "parameters": [],
+  "parameter_count": 0,
+  "kind": "function"
+ },
+ {
+  "constant": "kApi100EntityIsFrameOffset",
+  "offset": "0x5c780",
+  "mangled": "_ZNK15IsaacRepentance6Entity7IsFrameEii",
+  "demangled": "IsaacRepentance::Entity::IsFrame(int, int) const",
+  "parameters": [
+   "int",
+   "int"
+  ],
+  "parameter_count": 2,
+  "kind": "function"
+ },
+ {
+  "constant": "kEntityGetMovementDirectionOffset",
+  "offset": "0x5c8ac",
+  "mangled": "_ZNK15IsaacRepentance6Entity22get_movement_directionEv",
+  "demangled": "IsaacRepentance::Entity::get_movement_direction() const",
+  "parameters": [],
+  "parameter_count": 0,
+  "kind": "function"
+ },
+ {
+  "constant": "kEntityKillOffset",
+  "offset": "0x5c8e0",
+  "mangled": "_ZN15IsaacRepentance6Entity4KillEv",
+  "demangled": "IsaacRepentance::Entity::Kill()",
+  "parameters": [],
+  "parameter_count": 0,
+  "kind": "function"
+ },
+ {
+  "constant": "kApi100EntityBloodExplodeOffset",
+  "offset": "0x5c938",
+  "mangled": "_ZN15IsaacRepentance6Entity12BloodExplodeEv",
+  "demangled": "IsaacRepentance::Entity::BloodExplode()",
+  "parameters": [],
+  "parameter_count": 0,
+  "kind": "function"
+ },
+ {
+  "constant": "kEntityRemoveOffset",
+  "offset": "0x5d3e0",
+  "mangled": "_ZN15IsaacRepentance6Entity6RemoveEv",
+  "demangled": "IsaacRepentance::Entity::Remove()",
   "parameters": [],
   "parameter_count": 0,
   "kind": "function"
@@ -1437,6 +3422,476 @@
   "kind": "function"
  },
  {
+  "constant": "kRPlusHasMortalDamageOffset",
+  "offset": "0x5e260",
+  "mangled": "_ZN15IsaacRepentance6Entity15HasMortalDamageEv",
+  "demangled": "IsaacRepentance::Entity::HasMortalDamage()",
+  "parameters": [],
+  "parameter_count": 0,
+  "kind": "function"
+ },
+ {
+  "constant": "kEntityAddFreezeOffset",
+  "offset": "0x5e358",
+  "mangled": "_ZN15IsaacRepentance6Entity9AddFreezeERKNS0_9EntityRefEi",
+  "demangled": "IsaacRepentance::Entity::AddFreeze(IsaacRepentance::Entity::EntityRef const&, int)",
+  "parameters": [
+   "IsaacRepentance::Entity::EntityRef const&",
+   "int"
+  ],
+  "parameter_count": 2,
+  "kind": "function"
+ },
+ {
+  "constant": "kEntityAddPoisonOffset",
+  "offset": "0x5e5f8",
+  "mangled": "_ZN15IsaacRepentance6Entity9AddPoisonERKNS0_9EntityRefEif",
+  "demangled": "IsaacRepentance::Entity::AddPoison(IsaacRepentance::Entity::EntityRef const&, int, float)",
+  "parameters": [
+   "IsaacRepentance::Entity::EntityRef const&",
+   "int",
+   "float"
+  ],
+  "parameter_count": 3,
+  "kind": "function"
+ },
+ {
+  "constant": "kRPlusAddSlowingOffset",
+  "offset": "0x5e96c",
+  "mangled": "_ZN15IsaacRepentance6Entity10AddSlowingERKNS0_9EntityRefEifNS_8ColorModE",
+  "demangled": "IsaacRepentance::Entity::AddSlowing(IsaacRepentance::Entity::EntityRef const&, int, float, IsaacRepentance::ColorMod)",
+  "parameters": [
+   "IsaacRepentance::Entity::EntityRef const&",
+   "int",
+   "float",
+   "IsaacRepentance::ColorMod"
+  ],
+  "parameter_count": 4,
+  "kind": "function"
+ },
+ {
+  "constant": "kEntityAddCharmedOffset",
+  "offset": "0x5ebe8",
+  "mangled": "_ZN15IsaacRepentance6Entity10AddCharmedERKNS0_9EntityRefEi",
+  "demangled": "IsaacRepentance::Entity::AddCharmed(IsaacRepentance::Entity::EntityRef const&, int)",
+  "parameters": [
+   "IsaacRepentance::Entity::EntityRef const&",
+   "int"
+  ],
+  "parameter_count": 2,
+  "kind": "function"
+ },
+ {
+  "constant": "kEntityIsActiveEnemyOffset",
+  "offset": "0x5f028",
+  "mangled": "_ZNK15IsaacRepentance6Entity13IsActiveEnemyEb",
+  "demangled": "IsaacRepentance::Entity::IsActiveEnemy(bool) const",
+  "parameters": [
+   "bool"
+  ],
+  "parameter_count": 1,
+  "kind": "function"
+ },
+ {
+  "constant": "kRPlusAddConfusionOffset",
+  "offset": "0x5f0bc",
+  "mangled": "_ZN15IsaacRepentance6Entity12AddConfusionERKNS0_9EntityRefEib",
+  "demangled": "IsaacRepentance::Entity::AddConfusion(IsaacRepentance::Entity::EntityRef const&, int, bool)",
+  "parameters": [
+   "IsaacRepentance::Entity::EntityRef const&",
+   "int",
+   "bool"
+  ],
+  "parameter_count": 3,
+  "kind": "function"
+ },
+ {
+  "constant": "kRPlusAddMidasFreezeOffset",
+  "offset": "0x5f3d0",
+  "mangled": "_ZN15IsaacRepentance6Entity14AddMidasFreezeERKNS0_9EntityRefEi",
+  "demangled": "IsaacRepentance::Entity::AddMidasFreeze(IsaacRepentance::Entity::EntityRef const&, int)",
+  "parameters": [
+   "IsaacRepentance::Entity::EntityRef const&",
+   "int"
+  ],
+  "parameter_count": 2,
+  "kind": "function"
+ },
+ {
+  "constant": "kEntityAddFearOffset",
+  "offset": "0x5f660",
+  "mangled": "_ZN15IsaacRepentance6Entity7AddFearERKNS0_9EntityRefEi",
+  "demangled": "IsaacRepentance::Entity::AddFear(IsaacRepentance::Entity::EntityRef const&, int)",
+  "parameters": [
+   "IsaacRepentance::Entity::EntityRef const&",
+   "int"
+  ],
+  "parameter_count": 2,
+  "kind": "function"
+ },
+ {
+  "constant": "kRPlusAddBurnOffset",
+  "offset": "0x5f994",
+  "mangled": "_ZN15IsaacRepentance6Entity7AddBurnERKNS0_9EntityRefEif",
+  "demangled": "IsaacRepentance::Entity::AddBurn(IsaacRepentance::Entity::EntityRef const&, int, float)",
+  "parameters": [
+   "IsaacRepentance::Entity::EntityRef const&",
+   "int",
+   "float"
+  ],
+  "parameter_count": 3,
+  "kind": "function"
+ },
+ {
+  "constant": "kEntityRemoveStatusEffectsOffset",
+  "offset": "0x5feb8",
+  "mangled": "_ZN15IsaacRepentance6Entity19RemoveStatusEffectsEv",
+  "demangled": "IsaacRepentance::Entity::RemoveStatusEffects()",
+  "parameters": [],
+  "parameter_count": 0,
+  "kind": "function"
+ },
+ {
+  "constant": "kEntityUpdateOffset",
+  "offset": "0x60040",
+  "mangled": "_ZN15IsaacRepentance6Entity6UpdateEv",
+  "demangled": "IsaacRepentance::Entity::Update()",
+  "parameters": [],
+  "parameter_count": 0,
+  "kind": "function"
+ },
+ {
+  "constant": "kEntitySetColorOffset",
+  "offset": "0x63b84",
+  "mangled": "_ZN15IsaacRepentance6Entity8SetColorERKNS_8ColorModEiibb",
+  "demangled": "IsaacRepentance::Entity::SetColor(IsaacRepentance::ColorMod const&, int, int, bool, bool)",
+  "parameters": [
+   "IsaacRepentance::ColorMod const&",
+   "int",
+   "int",
+   "bool",
+   "bool"
+  ],
+  "parameter_count": 5,
+  "kind": "function"
+ },
+ {
+  "constant": "kRPlusAddShrinkOffset",
+  "offset": "0x65370",
+  "mangled": "_ZN15IsaacRepentance6Entity9AddShrinkERKNS0_9EntityRefEi",
+  "demangled": "IsaacRepentance::Entity::AddShrink(IsaacRepentance::Entity::EntityRef const&, int)",
+  "parameters": [
+   "IsaacRepentance::Entity::EntityRef const&",
+   "int"
+  ],
+  "parameter_count": 2,
+  "kind": "function"
+ },
+ {
+  "constant": "kEntitySetCollisionDamageOffset",
+  "offset": "0x67570",
+  "mangled": "_ZN15IsaacRepentance6Entity18SetCollisionDamageEf",
+  "demangled": "IsaacRepentance::Entity::SetCollisionDamage(float)",
+  "parameters": [
+   "float"
+  ],
+  "parameter_count": 1,
+  "kind": "function"
+ },
+ {
+  "constant": "kEntityIsBossOffset",
+  "offset": "0x67580",
+  "mangled": "_ZNK15IsaacRepentance6Entity6IsBossEv",
+  "demangled": "IsaacRepentance::Entity::IsBoss() const",
+  "parameters": [],
+  "parameter_count": 0,
+  "kind": "function"
+ },
+ {
+  "constant": "kEntityListCountSpawnedOffset",
+  "offset": "0x7a1cc",
+  "mangled": "_ZN15IsaacRepentance10EntityList12CountSpawnedEPNS_6EntityENS_11eEntityTypeEii",
+  "demangled": "IsaacRepentance::EntityList::CountSpawned(IsaacRepentance::Entity*, IsaacRepentance::eEntityType, int, int)",
+  "parameters": [
+   "IsaacRepentance::Entity*",
+   "IsaacRepentance::eEntityType",
+   "int",
+   "int"
+  ],
+  "parameter_count": 4,
+  "kind": "function"
+ },
+ {
+  "constant": "kRPlusBombCountdownWriterOffset",
+  "offset": "0x7cc18",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kEntityBombSetTearFlagsOffset",
+  "offset": "0x7eab8",
+  "mangled": "_ZN15IsaacRepentance11Entity_Bomb12SetTearFlagsENS_11bitset128_tE",
+  "demangled": "IsaacRepentance::Entity_Bomb::SetTearFlags(IsaacRepentance::bitset128_t)",
+  "parameters": [
+   "IsaacRepentance::bitset128_t"
+  ],
+  "parameter_count": 1,
+  "kind": "function"
+ },
+ {
+  "constant": "kEntityBombHandleCollisionOffset",
+  "offset": "0x7eedc",
+  "mangled": "_ZN15IsaacRepentance11Entity_Bomb16handle_collisionEPNS_6EntityEb",
+  "demangled": "IsaacRepentance::Entity_Bomb::handle_collision(IsaacRepentance::Entity*, bool)",
+  "parameters": [
+   "IsaacRepentance::Entity*",
+   "bool"
+  ],
+  "parameter_count": 2,
+  "kind": "function"
+ },
+ {
+  "constant": "kEntityFamiliarAddToFollowersOffset",
+  "offset": "0xac958",
+  "mangled": "_ZN15IsaacRepentance15Entity_Familiar16add_to_followersEv",
+  "demangled": "IsaacRepentance::Entity_Familiar::add_to_followers()",
+  "parameters": [],
+  "parameter_count": 0,
+  "kind": "function"
+ },
+ {
+  "constant": "kApi100EntityFamiliarAddToDelayedOffset",
+  "offset": "0xacccc",
+  "mangled": "_ZN15IsaacRepentance15Entity_Familiar14add_to_delayedEv",
+  "demangled": "IsaacRepentance::Entity_Familiar::add_to_delayed()",
+  "parameters": [],
+  "parameter_count": 0,
+  "kind": "function"
+ },
+ {
+  "constant": "kEntityFamiliarRecalculateOrbitOffsetOffset",
+  "offset": "0xacea0",
+  "mangled": "_ZN15IsaacRepentance15Entity_Familiar26recalc_orbit_layer_offsetsEib",
+  "demangled": "IsaacRepentance::Entity_Familiar::recalc_orbit_layer_offsets(int, bool)",
+  "parameters": [
+   "int",
+   "bool"
+  ],
+  "parameter_count": 2,
+  "kind": "function"
+ },
+ {
+  "constant": "kEntityFamiliarRemoveFromOrbitOffset",
+  "offset": "0xad648",
+  "mangled": "_ZN15IsaacRepentance15Entity_Familiar17remove_from_orbitEv",
+  "demangled": "IsaacRepentance::Entity_Familiar::remove_from_orbit()",
+  "parameters": [],
+  "parameter_count": 0,
+  "kind": "function"
+ },
+ {
+  "constant": "kApi100EntityFamiliarRemoveFromFollowersOffset",
+  "offset": "0xad67c",
+  "mangled": "_ZN15IsaacRepentance15Entity_Familiar21remove_from_followersEv",
+  "demangled": "IsaacRepentance::Entity_Familiar::remove_from_followers()",
+  "parameters": [],
+  "parameter_count": 0,
+  "kind": "function"
+ },
+ {
+  "constant": "kApi100EntityFamiliarRemoveFromDelayedOffset",
+  "offset": "0xad7fc",
+  "mangled": "_ZN15IsaacRepentance15Entity_Familiar19remove_from_delayedEv",
+  "demangled": "IsaacRepentance::Entity_Familiar::remove_from_delayed()",
+  "parameters": [],
+  "parameter_count": 0,
+  "kind": "function"
+ },
+ {
+  "constant": "kEntityFamiliarAddToOrbitOffset",
+  "offset": "0xae844",
+  "mangled": "_ZN15IsaacRepentance15Entity_Familiar12add_to_orbitEi",
+  "demangled": "IsaacRepentance::Entity_Familiar::add_to_orbit(int)",
+  "parameters": [
+   "int"
+  ],
+  "parameter_count": 1,
+  "kind": "function"
+ },
+ {
+  "constant": "kEntityFamiliarFollowParentOffset",
+  "offset": "0xaec14",
+  "mangled": "_ZN15IsaacRepentance15Entity_Familiar13follow_parentEv",
+  "demangled": "IsaacRepentance::Entity_Familiar::follow_parent()",
+  "parameters": [],
+  "parameter_count": 0,
+  "kind": "function"
+ },
+ {
+  "constant": "kEntityFamiliarFollowPositionOffset",
+  "offset": "0xafcc0",
+  "mangled": "_ZN15IsaacRepentance15Entity_Familiar15follow_positionERKN4KAGE4Math7Vector2E",
+  "demangled": "IsaacRepentance::Entity_Familiar::follow_position(KAGE::Math::Vector2 const&)",
+  "parameters": [
+   "KAGE::Math::Vector2 const&"
+  ],
+  "parameter_count": 1,
+  "kind": "function"
+ },
+ {
+  "constant": "kEntityFamiliarGetOrbitPositionOffset",
+  "offset": "0xafd84",
+  "mangled": "_ZN15IsaacRepentance15Entity_Familiar18get_orbit_positionERKN4KAGE4Math7Vector2E",
+  "demangled": "IsaacRepentance::Entity_Familiar::get_orbit_position(KAGE::Math::Vector2 const&)",
+  "parameters": [
+   "KAGE::Math::Vector2 const&"
+  ],
+  "parameter_count": 1,
+  "kind": "function"
+ },
+ {
+  "constant": "kEntityFamiliarFireProjectileOffset",
+  "offset": "0xb06fc",
+  "mangled": "_ZN15IsaacRepentance15Entity_Familiar16fire_projectilesERKN4KAGE4Math7Vector2Eb",
+  "demangled": "IsaacRepentance::Entity_Familiar::fire_projectiles(KAGE::Math::Vector2 const&, bool)",
+  "parameters": [
+   "KAGE::Math::Vector2 const&",
+   "bool"
+  ],
+  "parameter_count": 2,
+  "kind": "function"
+ },
+ {
+  "constant": "kApi100EntityFamiliarPlayFloatAnimOffset",
+  "offset": "0xb1880",
+  "mangled": "_ZN15IsaacRepentance15Entity_Familiar15play_float_animENS_10eDirectionE",
+  "demangled": "IsaacRepentance::Entity_Familiar::play_float_anim(IsaacRepentance::eDirection)",
+  "parameters": [
+   "IsaacRepentance::eDirection"
+  ],
+  "parameter_count": 1,
+  "kind": "function"
+ },
+ {
+  "constant": "kApi100EntityFamiliarPlayChargeAnimOffset",
+  "offset": "0xb1a9c",
+  "mangled": "_ZN15IsaacRepentance15Entity_Familiar16play_charge_animENS_10eDirectionE",
+  "demangled": "IsaacRepentance::Entity_Familiar::play_charge_anim(IsaacRepentance::eDirection)",
+  "parameters": [
+   "IsaacRepentance::eDirection"
+  ],
+  "parameter_count": 1,
+  "kind": "function"
+ },
+ {
+  "constant": "kApi100EntityFamiliarPlayShootAnimOffset",
+  "offset": "0xb1cd8",
+  "mangled": "_ZN15IsaacRepentance15Entity_Familiar15play_shoot_animENS_10eDirectionE",
+  "demangled": "IsaacRepentance::Entity_Familiar::play_shoot_anim(IsaacRepentance::eDirection)",
+  "parameters": [
+   "IsaacRepentance::eDirection"
+  ],
+  "parameter_count": 1,
+  "kind": "function"
+ },
+ {
+  "constant": "kApi100EntityFamiliarShootOffset",
+  "offset": "0xb20f8",
+  "mangled": "_ZN15IsaacRepentance15Entity_Familiar5shootEv",
+  "demangled": "IsaacRepentance::Entity_Familiar::shoot()",
+  "parameters": [],
+  "parameter_count": 0,
+  "kind": "function"
+ },
+ {
+  "constant": "kApi100EntityFamiliarMoveDiagonallyOffset",
+  "offset": "0xbf35c",
+  "mangled": "_ZN15IsaacRepentance15Entity_Familiar15move_diagonallyEf",
+  "demangled": "IsaacRepentance::Entity_Familiar::move_diagonally(float)",
+  "parameters": [
+   "float"
+  ],
+  "parameter_count": 1,
+  "kind": "function"
+ },
+ {
+  "constant": "kApi100EntityFamiliarMoveDelayedOffset",
+  "offset": "0xc1acc",
+  "mangled": "_ZN15IsaacRepentance15Entity_Familiar12move_delayedEi",
+  "demangled": "IsaacRepentance::Entity_Familiar::move_delayed(int)",
+  "parameters": [
+   "int"
+  ],
+  "parameter_count": 1,
+  "kind": "function"
+ },
+ {
+  "constant": "kHudVisibleFlagOffset",
+  "offset": "0xc53fa",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kEntityFamiliarHandleCollisionOffset",
+  "offset": "0xd1c94",
+  "mangled": "_ZN15IsaacRepentance15Entity_Familiar16handle_collisionEPNS_6EntityEb",
+  "demangled": "IsaacRepentance::Entity_Familiar::handle_collision(IsaacRepentance::Entity*, bool)",
+  "parameters": [
+   "IsaacRepentance::Entity*",
+   "bool"
+  ],
+  "parameter_count": 2,
+  "kind": "function"
+ },
+ {
+  "constant": "kApi100EntityFamiliarAddCoinsOffset",
+  "offset": "0xd62bc",
+  "mangled": "_ZN15IsaacRepentance15Entity_Familiar8AddCoinsEi",
+  "demangled": "IsaacRepentance::Entity_Familiar::AddCoins(int)",
+  "parameters": [
+   "int"
+  ],
+  "parameter_count": 1,
+  "kind": "function"
+ },
+ {
+  "constant": "kApi100EntityFamiliarAddHeartsOffset",
+  "offset": "0xd63fc",
+  "mangled": "_ZN15IsaacRepentance15Entity_Familiar9AddHeartsEi",
+  "demangled": "IsaacRepentance::Entity_Familiar::AddHearts(int)",
+  "parameters": [
+   "int"
+  ],
+  "parameter_count": 1,
+  "kind": "function"
+ },
+ {
+  "constant": "kApi100EntityFamiliarAddKeysOffset",
+  "offset": "0xd8dc0",
+  "mangled": "_ZN15IsaacRepentance15Entity_Familiar7AddKeysEi",
+  "demangled": "IsaacRepentance::Entity_Familiar::AddKeys(int)",
+  "parameters": [
+   "int"
+  ],
+  "parameter_count": 1,
+  "kind": "function"
+ },
+ {
+  "constant": "kGameHudObjectOffset",
+  "offset": "0xe8468",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
   "constant": "kGameHudOffset",
   "offset": "0xe8468",
   "mangled": null,
@@ -1446,8 +3901,185 @@
   "kind": "field"
  },
  {
+  "constant": "kEntityKnifeHandleCollisionOffset",
+  "offset": "0xf2748",
+  "mangled": "_ZN15IsaacRepentance12Entity_Knife16handle_collisionEPNS_6EntityEb",
+  "demangled": "IsaacRepentance::Entity_Knife::handle_collision(IsaacRepentance::Entity*, bool)",
+  "parameters": [
+   "IsaacRepentance::Entity*",
+   "bool"
+  ],
+  "parameter_count": 2,
+  "kind": "function"
+ },
+ {
+  "constant": "kEntityLaserShootAngleOffset",
+  "offset": "0xf743c",
+  "mangled": "_ZN15IsaacRepentance12Entity_Laser10ShootAngleEjRKN4KAGE4Math7Vector2EfiS5_PNS_6EntityEb",
+  "demangled": "IsaacRepentance::Entity_Laser::ShootAngle(unsigned int, KAGE::Math::Vector2 const&, float, int, KAGE::Math::Vector2 const&, IsaacRepentance::Entity*, bool)",
+  "parameters": [
+   "unsigned int",
+   "KAGE::Math::Vector2 const&",
+   "float",
+   "int",
+   "KAGE::Math::Vector2 const&",
+   "IsaacRepentance::Entity*",
+   "bool"
+  ],
+  "parameter_count": 7,
+  "kind": "function"
+ },
+ {
+  "constant": "kEntityLaserSetActiveRotationOffset",
+  "offset": "0xf7540",
+  "mangled": "_ZN15IsaacRepentance12Entity_Laser17SetActiveRotationEjffb",
+  "demangled": "IsaacRepentance::Entity_Laser::SetActiveRotation(unsigned int, float, float, bool)",
+  "parameters": [
+   "unsigned int",
+   "float",
+   "float",
+   "bool"
+  ],
+  "parameter_count": 4,
+  "kind": "function"
+ },
+ {
+  "constant": "kEntityNpcGetPlayerTargetOffset",
+  "offset": "0x10b464",
+  "mangled": "_ZN15IsaacRepentance10Entity_NPC15GetPlayerTargetEv",
+  "demangled": "IsaacRepentance::Entity_NPC::GetPlayerTarget()",
+  "parameters": [],
+  "parameter_count": 0,
+  "kind": "function"
+ },
+ {
+  "constant": "kEntityNpcMorphOffset",
+  "offset": "0x10faf4",
+  "mangled": "_ZN15IsaacRepentance10Entity_NPC5MorphENS_11eEntityTypeEjji",
+  "demangled": "IsaacRepentance::Entity_NPC::Morph(IsaacRepentance::eEntityType, unsigned int, unsigned int, int)",
+  "parameters": [
+   "IsaacRepentance::eEntityType",
+   "unsigned int",
+   "unsigned int",
+   "int"
+  ],
+  "parameter_count": 4,
+  "kind": "function"
+ },
+ {
+  "constant": "kEntityNpcAnimWalkFrameOffset",
+  "offset": "0x1100b0",
+  "mangled": "_ZN15IsaacRepentance10Entity_NPC14anim_walkframeERKNSt3__112basic_stringIcNS1_11char_traitsIcEENS1_9allocatorIcEEEES9_f",
+  "demangled": "IsaacRepentance::Entity_NPC::anim_walkframe(std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char> > const&, std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char> > const&, float)",
+  "parameters": [
+   "std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char> > const&",
+   "std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char> > const&",
+   "float"
+  ],
+  "parameter_count": 3,
+  "kind": "function"
+ },
+ {
+  "constant": "kEntityNpcThrowSpiderOffset",
+  "offset": "0x1116ec",
+  "mangled": "_ZN15IsaacRepentance10Entity_NPC11ThrowSpiderERKN4KAGE4Math7Vector2EPNS_6EntityES3_bf",
+  "demangled": "IsaacRepentance::Entity_NPC::ThrowSpider(KAGE::Math::Vector2 const&, IsaacRepentance::Entity*, KAGE::Math::Vector2, bool, float)",
+  "parameters": [
+   "KAGE::Math::Vector2 const&",
+   "IsaacRepentance::Entity*",
+   "KAGE::Math::Vector2",
+   "bool",
+   "float"
+  ],
+  "parameter_count": 5,
+  "kind": "function"
+ },
+ {
+  "constant": "kNpcUpdateAiOffset",
+  "offset": "0x1118f8",
+  "mangled": "_ZN15IsaacRepentance10Entity_NPC9update_aiEv",
+  "demangled": "IsaacRepentance::Entity_NPC::update_ai()",
+  "parameters": [],
+  "parameter_count": 0,
+  "kind": "function"
+ },
+ {
   "constant": "kIsaacManagerFontObjectOffset",
   "offset": "0x117120",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kEntityNpcPlaySoundOffset",
+  "offset": "0x119998",
+  "mangled": "_ZN15IsaacRepentance10Entity_NPC10play_soundENS_12eSoundEffectEfibf",
+  "demangled": "IsaacRepentance::Entity_NPC::play_sound(IsaacRepentance::eSoundEffect, float, int, bool, float)",
+  "parameters": [
+   "IsaacRepentance::eSoundEffect",
+   "float",
+   "int",
+   "bool",
+   "float"
+  ],
+  "parameter_count": 5,
+  "kind": "function"
+ },
+ {
+  "constant": "kEntityNpcTriggerDeathRemoveOffset",
+  "offset": "0x1199d8",
+  "mangled": "_ZN15IsaacRepentance10Entity_NPC20trigger_death_removeEv",
+  "demangled": "IsaacRepentance::Entity_NPC::trigger_death_remove()",
+  "parameters": [],
+  "parameter_count": 0,
+  "kind": "function"
+ },
+ {
+  "constant": "kEntityNpcHandleCollisionOffset",
+  "offset": "0x11c234",
+  "mangled": "_ZN15IsaacRepentance10Entity_NPC16handle_collisionEPNS_6EntityEb",
+  "demangled": "IsaacRepentance::Entity_NPC::handle_collision(IsaacRepentance::Entity*, bool)",
+  "parameters": [
+   "IsaacRepentance::Entity*",
+   "bool"
+  ],
+  "parameter_count": 2,
+  "kind": "function"
+ },
+ {
+  "constant": "kEntityNpcRenderOffset",
+  "offset": "0x120f50",
+  "mangled": "_ZN15IsaacRepentance10Entity_NPC6RenderERKN4KAGE4Math7Vector2E",
+  "demangled": "IsaacRepentance::Entity_NPC::Render(KAGE::Math::Vector2 const&)",
+  "parameters": [
+   "KAGE::Math::Vector2 const&"
+  ],
+  "parameter_count": 1,
+  "kind": "function"
+ },
+ {
+  "constant": "kManagerConsoleLoadSavedOffset",
+  "offset": "0x1d7309",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kManagerConsoleRestartSeedsOffset",
+  "offset": "0x1d7318",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kManagerConsoleSaveOnRestartOffset",
+  "offset": "0x1d74b0",
   "mangled": null,
   "demangled": null,
   "parameters": null,
@@ -1500,6 +4132,56 @@
   "kind": "field"
  },
  {
+  "constant": "kGameDarknessTimeoutOffset",
+  "offset": "0x24f9b8",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kGameTargetDarknessOffset",
+  "offset": "0x24f9c0",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kPickupSelectionFunctionOffset",
+  "offset": "0x269594",
+  "mangled": "_ZN15IsaacRepentance13Entity_Pickup4InitENS_11eEntityTypeEjjj",
+  "demangled": "IsaacRepentance::Entity_Pickup::Init(IsaacRepentance::eEntityType, unsigned int, unsigned int, unsigned int)",
+  "parameters": [
+   "IsaacRepentance::eEntityType",
+   "unsigned int",
+   "unsigned int",
+   "unsigned int"
+  ],
+  "parameter_count": 4,
+  "kind": "function"
+ },
+ {
+  "constant": "kPickupSelectionSpecialOffset",
+  "offset": "0x269d08",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kPickupSelectionHookOffset",
+  "offset": "0x269d50",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
   "constant": "kEntityPickupCanRerollOffset",
   "offset": "0x26afa8",
   "mangled": "_ZNK15IsaacRepentance13Entity_Pickup9CanRerollEv",
@@ -1507,6 +4189,49 @@
   "parameters": [],
   "parameter_count": 0,
   "kind": "function"
+ },
+ {
+  "constant": "kEntityPickupMorphOffset",
+  "offset": "0x26bd14",
+  "mangled": "_ZN15IsaacRepentance13Entity_Pickup5MorphENS_11eEntityTypeEjjbbb",
+  "demangled": "IsaacRepentance::Entity_Pickup::Morph(IsaacRepentance::eEntityType, unsigned int, unsigned int, bool, bool, bool)",
+  "parameters": [
+   "IsaacRepentance::eEntityType",
+   "unsigned int",
+   "unsigned int",
+   "bool",
+   "bool",
+   "bool"
+  ],
+  "parameter_count": 6,
+  "kind": "function"
+ },
+ {
+  "constant": "kApi100EntityPickupAppearFastOffset",
+  "offset": "0x26c80c",
+  "mangled": "_ZN15IsaacRepentance13Entity_Pickup10AppearFastEv",
+  "demangled": "IsaacRepentance::Entity_Pickup::AppearFast()",
+  "parameters": [],
+  "parameter_count": 0,
+  "kind": "function"
+ },
+ {
+  "constant": "kGameStateFlagsOffset",
+  "offset": "0x26fa50",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kRPlusHeartStagesOffset",
+  "offset": "0x26fa68",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
  },
  {
   "constant": "kGameChallengeOffset",
@@ -1518,12 +4243,94 @@
   "kind": "field"
  },
  {
+  "constant": "kGameVictoryLapOffset",
+  "offset": "0x26fd50",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kApi100EntityPickupPlayDropSoundOffset",
+  "offset": "0x270808",
+  "mangled": "_ZN15IsaacRepentance13Entity_Pickup13PlayDropSoundEv",
+  "demangled": "IsaacRepentance::Entity_Pickup::PlayDropSound()",
+  "parameters": [],
+  "parameter_count": 0,
+  "kind": "function"
+ },
+ {
+  "constant": "kApi100EntityPickupPlayPickupSoundOffset",
+  "offset": "0x27104c",
+  "mangled": "_ZN15IsaacRepentance13Entity_Pickup15PlayPickupSoundEv",
+  "demangled": "IsaacRepentance::Entity_Pickup::PlayPickupSound()",
+  "parameters": [],
+  "parameter_count": 0,
+  "kind": "function"
+ },
+ {
+  "constant": "kApi100EntityPickupGetCoinValueOffset",
+  "offset": "0x271680",
+  "mangled": "_ZNK15IsaacRepentance13Entity_Pickup12GetCoinValueEv",
+  "demangled": "IsaacRepentance::Entity_Pickup::GetCoinValue() const",
+  "parameters": [],
+  "parameter_count": 0,
+  "kind": "function"
+ },
+ {
   "constant": "kEntityPickupHandleCollisionOffset",
   "offset": "0x271f2c",
   "mangled": "_ZN15IsaacRepentance13Entity_Pickup16handle_collisionEPNS_6EntityEb",
   "demangled": "IsaacRepentance::Entity_Pickup::handle_collision(IsaacRepentance::Entity*, bool)",
   "parameters": [
    "IsaacRepentance::Entity*",
+   "bool"
+  ],
+  "parameter_count": 2,
+  "kind": "function"
+ },
+ {
+  "constant": "kEntityPickupTakeDamageOffset",
+  "offset": "0x2767b8",
+  "mangled": "_ZN15IsaacRepentance13Entity_Pickup10TakeDamageEfmRKNS_6Entity9EntityRefEi",
+  "demangled": "IsaacRepentance::Entity_Pickup::TakeDamage(float, unsigned long, IsaacRepentance::Entity::EntityRef const&, int)",
+  "parameters": [
+   "float",
+   "unsigned long",
+   "IsaacRepentance::Entity::EntityRef const&",
+   "int"
+  ],
+  "parameter_count": 4,
+  "kind": "function"
+ },
+ {
+  "constant": "kApi100EntityPlayerClearCostumesOffset",
+  "offset": "0x27a99c",
+  "mangled": "_ZN15IsaacRepentance13Entity_Player13ClearCostumesEv",
+  "demangled": "IsaacRepentance::Entity_Player::ClearCostumes()",
+  "parameters": [],
+  "parameter_count": 0,
+  "kind": "function"
+ },
+ {
+  "constant": "kEntityPlayerThrowHeldEntityOffset",
+  "offset": "0x27c648",
+  "mangled": "_ZN15IsaacRepentance13Entity_Player15ThrowHeldEntityERKN4KAGE4Math7Vector2E",
+  "demangled": "IsaacRepentance::Entity_Player::ThrowHeldEntity(KAGE::Math::Vector2 const&)",
+  "parameters": [
+   "KAGE::Math::Vector2 const&"
+  ],
+  "parameter_count": 1,
+  "kind": "function"
+ },
+ {
+  "constant": "kEntityPlayerAddMaxHeartsRPlusOffset",
+  "offset": "0x27cfbc",
+  "mangled": "_ZN15IsaacRepentance13Entity_Player12AddMaxHeartsEib",
+  "demangled": "IsaacRepentance::Entity_Player::AddMaxHearts(int, bool)",
+  "parameters": [
+   "int",
    "bool"
   ],
   "parameter_count": 2,
@@ -1542,12 +4349,137 @@
   "kind": "function"
  },
  {
+  "constant": "kEntityPlayerAddBlackHeartsRPlusOffset",
+  "offset": "0x27d9f4",
+  "mangled": "_ZN15IsaacRepentance13Entity_Player14AddBlackHeartsEi",
+  "demangled": "IsaacRepentance::Entity_Player::AddBlackHearts(int)",
+  "parameters": [
+   "int"
+  ],
+  "parameter_count": 1,
+  "kind": "function"
+ },
+ {
+  "constant": "kEntityPlayerAddSoulHeartsRPlusOffset",
+  "offset": "0x27dd54",
+  "mangled": "_ZN15IsaacRepentance13Entity_Player13AddSoulHeartsEi",
+  "demangled": "IsaacRepentance::Entity_Player::AddSoulHearts(int)",
+  "parameters": [
+   "int"
+  ],
+  "parameter_count": 1,
+  "kind": "function"
+ },
+ {
+  "constant": "kEntityPlayerAddBoneHeartsOffset",
+  "offset": "0x27e380",
+  "mangled": "_ZN15IsaacRepentance13Entity_Player13AddBoneHeartsEi",
+  "demangled": "IsaacRepentance::Entity_Player::AddBoneHearts(int)",
+  "parameters": [
+   "int"
+  ],
+  "parameter_count": 1,
+  "kind": "function"
+ },
+ {
+  "constant": "kEntityPlayerGetHeartLimitRPlusOffset",
+  "offset": "0x27e6a4",
+  "mangled": "_ZNK15IsaacRepentance13Entity_Player13GetHeartLimitEb",
+  "demangled": "IsaacRepentance::Entity_Player::GetHeartLimit(bool) const",
+  "parameters": [
+   "bool"
+  ],
+  "parameter_count": 1,
+  "kind": "function"
+ },
+ {
+  "constant": "kEntityPlayerAddHeartsOffset",
+  "offset": "0x27f29c",
+  "mangled": "_ZN15IsaacRepentance13Entity_Player9AddHeartsEib",
+  "demangled": "IsaacRepentance::Entity_Player::AddHearts(int, bool)",
+  "parameters": [
+   "int",
+   "bool"
+  ],
+  "parameter_count": 2,
+  "kind": "function"
+ },
+ {
+  "constant": "kEntityPlayerAddEternalHeartsOffset",
+  "offset": "0x27f6fc",
+  "mangled": "_ZN15IsaacRepentance13Entity_Player16AddEternalHeartsEi",
+  "demangled": "IsaacRepentance::Entity_Player::AddEternalHearts(int)",
+  "parameters": [
+   "int"
+  ],
+  "parameter_count": 1,
+  "kind": "function"
+ },
+ {
+  "constant": "kEntityPlayerSetActiveChargeOffset",
+  "offset": "0x27f984",
+  "mangled": "_ZN15IsaacRepentance13Entity_Player15SetActiveChargeEii",
+  "demangled": "IsaacRepentance::Entity_Player::SetActiveCharge(int, int)",
+  "parameters": [
+   "int",
+   "int"
+  ],
+  "parameter_count": 2,
+  "kind": "function"
+ },
+ {
+  "constant": "kEntityPlayerAddBlueFliesOffset",
+  "offset": "0x27fc18",
+  "mangled": "_ZN15IsaacRepentance13Entity_Player12AddBlueFliesEiRKN4KAGE4Math7Vector2EPNS_6EntityE",
+  "demangled": "IsaacRepentance::Entity_Player::AddBlueFlies(int, KAGE::Math::Vector2 const&, IsaacRepentance::Entity*)",
+  "parameters": [
+   "int",
+   "KAGE::Math::Vector2 const&",
+   "IsaacRepentance::Entity*"
+  ],
+  "parameter_count": 3,
+  "kind": "function"
+ },
+ {
+  "constant": "kEntityPlayerIsBlackHeartRPlusOffset",
+  "offset": "0x27fe70",
+  "mangled": "_ZN15IsaacRepentance13Entity_Player12IsBlackHeartEi",
+  "demangled": "IsaacRepentance::Entity_Player::IsBlackHeart(int)",
+  "parameters": [
+   "int"
+  ],
+  "parameter_count": 1,
+  "kind": "function"
+ },
+ {
+  "constant": "kEntityPlayerRemoveBlackHeartRPlusOffset",
+  "offset": "0x27febc",
+  "mangled": "_ZN15IsaacRepentance13Entity_Player16RemoveBlackHeartEi",
+  "demangled": "IsaacRepentance::Entity_Player::RemoveBlackHeart(int)",
+  "parameters": [
+   "int"
+  ],
+  "parameter_count": 1,
+  "kind": "function"
+ },
+ {
   "constant": "kEntityPlayerGetNumBlackHeartsOffset",
   "offset": "0x27ff84",
   "mangled": "_ZNK15IsaacRepentance13Entity_Player17GetNumBlackHeartsEv",
   "demangled": "IsaacRepentance::Entity_Player::GetNumBlackHearts() const",
   "parameters": [],
   "parameter_count": 0,
+  "kind": "function"
+ },
+ {
+  "constant": "kEntityPlayerAddJarHeartsOffset",
+  "offset": "0x280018",
+  "mangled": "_ZN15IsaacRepentance13Entity_Player12AddJarHeartsEi",
+  "demangled": "IsaacRepentance::Entity_Player::AddJarHearts(int)",
+  "parameters": [
+   "int"
+  ],
+  "parameter_count": 1,
   "kind": "function"
  },
  {
@@ -1559,6 +4491,148 @@
    "int"
   ],
   "parameter_count": 1,
+  "kind": "function"
+ },
+ {
+  "constant": "kApi100EntityPlayerAddBombsOffset",
+  "offset": "0x2802e8",
+  "mangled": "_ZN15IsaacRepentance13Entity_Player8AddBombsEi",
+  "demangled": "IsaacRepentance::Entity_Player::AddBombs(int)",
+  "parameters": [
+   "int"
+  ],
+  "parameter_count": 1,
+  "kind": "function"
+ },
+ {
+  "constant": "kEntityPlayerAddKeysOffset",
+  "offset": "0x2804e8",
+  "mangled": "_ZN15IsaacRepentance13Entity_Player7AddKeysEi",
+  "demangled": "IsaacRepentance::Entity_Player::AddKeys(int)",
+  "parameters": [
+   "int"
+  ],
+  "parameter_count": 1,
+  "kind": "function"
+ },
+ {
+  "constant": "kEntityPlayerAddGoldenKeyOffset",
+  "offset": "0x280588",
+  "mangled": "_ZN15IsaacRepentance13Entity_Player12AddGoldenKeyEv",
+  "demangled": "IsaacRepentance::Entity_Player::AddGoldenKey()",
+  "parameters": [],
+  "parameter_count": 0,
+  "kind": "function"
+ },
+ {
+  "constant": "kEntityPlayerRemoveGoldenKeyOffset",
+  "offset": "0x280628",
+  "mangled": "_ZN15IsaacRepentance13Entity_Player15RemoveGoldenKeyEv",
+  "demangled": "IsaacRepentance::Entity_Player::RemoveGoldenKey()",
+  "parameters": [],
+  "parameter_count": 0,
+  "kind": "function"
+ },
+ {
+  "constant": "kEntityPlayerEvaluateItemsOffset",
+  "offset": "0x280804",
+  "mangled": "_ZN15IsaacRepentance13Entity_Player13EvaluateItemsEv",
+  "demangled": "IsaacRepentance::Entity_Player::EvaluateItems()",
+  "parameters": [],
+  "parameter_count": 0,
+  "kind": "function"
+ },
+ {
+  "constant": "kEntityPlayerHasTrinketOffset",
+  "offset": "0x28d3b8",
+  "mangled": "_ZNK15IsaacRepentance13Entity_Player10HasTrinketENS_12eTrinketTypeEb",
+  "demangled": "IsaacRepentance::Entity_Player::HasTrinket(IsaacRepentance::eTrinketType, bool) const",
+  "parameters": [
+   "IsaacRepentance::eTrinketType",
+   "bool"
+  ],
+  "parameter_count": 2,
+  "kind": "function"
+ },
+ {
+  "constant": "kApi100EntityPlayerRemoveBlueFlyOffset",
+  "offset": "0x28d45c",
+  "mangled": "_ZN15IsaacRepentance13Entity_Player13RemoveBlueFlyEv",
+  "demangled": "IsaacRepentance::Entity_Player::RemoveBlueFly()",
+  "parameters": [],
+  "parameter_count": 0,
+  "kind": "function"
+ },
+ {
+  "constant": "kEntityPlayerAddSwarmFlyOrbitalOffset",
+  "offset": "0x28d510",
+  "mangled": "_ZN15IsaacRepentance13Entity_Player18AddSwarmFlyOrbitalERKN4KAGE4Math7Vector2E",
+  "demangled": "IsaacRepentance::Entity_Player::AddSwarmFlyOrbital(KAGE::Math::Vector2 const&)",
+  "parameters": [
+   "KAGE::Math::Vector2 const&"
+  ],
+  "parameter_count": 1,
+  "kind": "function"
+ },
+ {
+  "constant": "kApi100EntityPlayerTryUseKeyOffset",
+  "offset": "0x28d7e8",
+  "mangled": "_ZN15IsaacRepentance13Entity_Player9TryUseKeyEv",
+  "demangled": "IsaacRepentance::Entity_Player::TryUseKey()",
+  "parameters": [],
+  "parameter_count": 0,
+  "kind": "function"
+ },
+ {
+  "constant": "kRPlusAddCostumeOffset",
+  "offset": "0x290c38",
+  "mangled": "_ZN15IsaacRepentance13Entity_Player10AddCostumeEPKNS_10ItemConfig4ItemEb",
+  "demangled": "IsaacRepentance::Entity_Player::AddCostume(IsaacRepentance::ItemConfig::Item const*, bool)",
+  "parameters": [
+   "IsaacRepentance::ItemConfig::Item const*",
+   "bool"
+  ],
+  "parameter_count": 2,
+  "kind": "function"
+ },
+ {
+  "constant": "kRPlusRemoveCostumeOffset",
+  "offset": "0x2914e0",
+  "mangled": "_ZN15IsaacRepentance13Entity_Player13RemoveCostumeEPKNS_10ItemConfig4ItemE",
+  "demangled": "IsaacRepentance::Entity_Player::RemoveCostume(IsaacRepentance::ItemConfig::Item const*)",
+  "parameters": [
+   "IsaacRepentance::ItemConfig::Item const*"
+  ],
+  "parameter_count": 1,
+  "kind": "function"
+ },
+ {
+  "constant": "kEntityPlayerAddNullCostumeOffset",
+  "offset": "0x291bbc",
+  "mangled": "_ZN15IsaacRepentance13Entity_Player14AddNullCostumeENS_10ItemConfig11eNullItemIDE",
+  "demangled": "IsaacRepentance::Entity_Player::AddNullCostume(IsaacRepentance::ItemConfig::eNullItemID)",
+  "parameters": [
+   "IsaacRepentance::ItemConfig::eNullItemID"
+  ],
+  "parameter_count": 1,
+  "kind": "function"
+ },
+ {
+  "constant": "kRPlusFlushQueueItemOffset",
+  "offset": "0x2926d4",
+  "mangled": "_ZN15IsaacRepentance13Entity_Player14FlushQueueItemEv",
+  "demangled": "IsaacRepentance::Entity_Player::FlushQueueItem()",
+  "parameters": [],
+  "parameter_count": 0,
+  "kind": "function"
+ },
+ {
+  "constant": "kEntityPlayerIsHoldingItemOffset",
+  "offset": "0x2929d0",
+  "mangled": "_ZNK15IsaacRepentance13Entity_Player13IsHoldingItemEv",
+  "demangled": "IsaacRepentance::Entity_Player::IsHoldingItem() const",
+  "parameters": [],
+  "parameter_count": 0,
   "kind": "function"
  },
  {
@@ -1577,6 +4651,155 @@
   "kind": "function"
  },
  {
+  "constant": "kEntityPlayerAddTrinketOffset",
+  "offset": "0x297a50",
+  "mangled": "_ZN15IsaacRepentance13Entity_Player10AddTrinketENS_12eTrinketTypeEb",
+  "demangled": "IsaacRepentance::Entity_Player::AddTrinket(IsaacRepentance::eTrinketType, bool)",
+  "parameters": [
+   "IsaacRepentance::eTrinketType",
+   "bool"
+  ],
+  "parameter_count": 2,
+  "kind": "function"
+ },
+ {
+  "constant": "kEntityPlayerHasPlayerFormOffset",
+  "offset": "0x298510",
+  "mangled": "_ZNK15IsaacRepentance13Entity_Player13HasPlayerFormENS_11ePlayerFormE",
+  "demangled": "IsaacRepentance::Entity_Player::HasPlayerForm(IsaacRepentance::ePlayerForm) const",
+  "parameters": [
+   "IsaacRepentance::ePlayerForm"
+  ],
+  "parameter_count": 1,
+  "kind": "function"
+ },
+ {
+  "constant": "kRPlusFullChargeOffset",
+  "offset": "0x299634",
+  "mangled": "_ZN15IsaacRepentance13Entity_Player10FullChargeEib",
+  "demangled": "IsaacRepentance::Entity_Player::FullCharge(int, bool)",
+  "parameters": [
+   "int",
+   "bool"
+  ],
+  "parameter_count": 2,
+  "kind": "function"
+ },
+ {
+  "constant": "kEntityPlayerRemoveCollectibleOffset",
+  "offset": "0x299b50",
+  "mangled": "_ZN15IsaacRepentance13Entity_Player17RemoveCollectibleENS_16eCollectibleTypeEbib",
+  "demangled": "IsaacRepentance::Entity_Player::RemoveCollectible(IsaacRepentance::eCollectibleType, bool, int, bool)",
+  "parameters": [
+   "IsaacRepentance::eCollectibleType",
+   "bool",
+   "int",
+   "bool"
+  ],
+  "parameter_count": 4,
+  "kind": "function"
+ },
+ {
+  "constant": "kEntityPlayerAddBrokenHeartsOffset",
+  "offset": "0x29a550",
+  "mangled": "_ZN15IsaacRepentance13Entity_Player15AddBrokenHeartsEi",
+  "demangled": "IsaacRepentance::Entity_Player::AddBrokenHearts(int)",
+  "parameters": [
+   "int"
+  ],
+  "parameter_count": 1,
+  "kind": "function"
+ },
+ {
+  "constant": "kRPlusSetPocketActiveItemOffset",
+  "offset": "0x29a6c4",
+  "mangled": "_ZN15IsaacRepentance13Entity_Player19SetPocketActiveItemENS_16eCollectibleTypeEjb",
+  "demangled": "IsaacRepentance::Entity_Player::SetPocketActiveItem(IsaacRepentance::eCollectibleType, unsigned int, bool)",
+  "parameters": [
+   "IsaacRepentance::eCollectibleType",
+   "unsigned int",
+   "bool"
+  ],
+  "parameter_count": 3,
+  "kind": "function"
+ },
+ {
+  "constant": "kEntityPlayerGetZodiacEffectOffset",
+  "offset": "0x29a938",
+  "mangled": "_ZNK15IsaacRepentance13Entity_Player15GetZodiacEffectEv",
+  "demangled": "IsaacRepentance::Entity_Player::GetZodiacEffect() const",
+  "parameters": [],
+  "parameter_count": 0,
+  "kind": "function"
+ },
+ {
+  "constant": "kEntityPlayerCheckFamiliarOffset",
+  "offset": "0x29ad94",
+  "mangled": "_ZN15IsaacRepentance13Entity_Player14check_familiarEjiRNS_3RNGEPKNS_10ItemConfig4ItemEi",
+  "demangled": "IsaacRepentance::Entity_Player::check_familiar(unsigned int, int, IsaacRepentance::RNG&, IsaacRepentance::ItemConfig::Item const*, int)",
+  "parameters": [
+   "unsigned int",
+   "int",
+   "IsaacRepentance::RNG&",
+   "IsaacRepentance::ItemConfig::Item const*",
+   "int"
+  ],
+  "parameter_count": 5,
+  "kind": "function"
+ },
+ {
+  "constant": "kRPlusAimWriterOffset",
+  "offset": "0x2a1d18",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kRPlusGetMaxTrinketsOffset",
+  "offset": "0x2a1de0",
+  "mangled": "_ZNK15IsaacRepentance13Entity_Player14GetMaxTrinketsEv",
+  "demangled": "IsaacRepentance::Entity_Player::GetMaxTrinkets() const",
+  "parameters": [],
+  "parameter_count": 0,
+  "kind": "function"
+ },
+ {
+  "constant": "kEntityPlayerDropTrinketOffset",
+  "offset": "0x2a20d4",
+  "mangled": "_ZN15IsaacRepentance13Entity_Player11DropTrinketERKN4KAGE4Math7Vector2Eb",
+  "demangled": "IsaacRepentance::Entity_Player::DropTrinket(KAGE::Math::Vector2 const&, bool)",
+  "parameters": [
+   "KAGE::Math::Vector2 const&",
+   "bool"
+  ],
+  "parameter_count": 2,
+  "kind": "function"
+ },
+ {
+  "constant": "kEntityPlayerTryRemoveTrinketCostumeOffset",
+  "offset": "0x2a25b0",
+  "mangled": "_ZN15IsaacRepentance13Entity_Player16TryRemoveCostumeENS_12eTrinketTypeE",
+  "demangled": "IsaacRepentance::Entity_Player::TryRemoveCostume(IsaacRepentance::eTrinketType)",
+  "parameters": [
+   "IsaacRepentance::eTrinketType"
+  ],
+  "parameter_count": 1,
+  "kind": "function"
+ },
+ {
+  "constant": "kEntityPlayerTryRemoveTrinketOffset",
+  "offset": "0x2a27f0",
+  "mangled": "_ZN15IsaacRepentance13Entity_Player16TryRemoveTrinketENS_12eTrinketTypeE",
+  "demangled": "IsaacRepentance::Entity_Player::TryRemoveTrinket(IsaacRepentance::eTrinketType)",
+  "parameters": [
+   "IsaacRepentance::eTrinketType"
+  ],
+  "parameter_count": 1,
+  "kind": "function"
+ },
+ {
   "constant": "kEntityPlayerTakeDamageOffset",
   "offset": "0x2a34d0",
   "mangled": "_ZN15IsaacRepentance13Entity_Player10TakeDamageEfmRKNS_6Entity9EntityRefEi",
@@ -1591,6 +4814,286 @@
   "kind": "function"
  },
  {
+  "constant": "kEntityPlayerFireTearOffset",
+  "offset": "0x2a991c",
+  "mangled": "_ZN15IsaacRepentance13Entity_Player8FireTearERKN4KAGE4Math7Vector2ES3_jPNS_6EntityEf",
+  "demangled": "IsaacRepentance::Entity_Player::FireTear(KAGE::Math::Vector2 const&, KAGE::Math::Vector2, unsigned int, IsaacRepentance::Entity*, float)",
+  "parameters": [
+   "KAGE::Math::Vector2 const&",
+   "KAGE::Math::Vector2",
+   "unsigned int",
+   "IsaacRepentance::Entity*",
+   "float"
+  ],
+  "parameter_count": 5,
+  "kind": "function"
+ },
+ {
+  "constant": "kEntityPlayerChangePlayerTypeOffset",
+  "offset": "0x2aaccc",
+  "mangled": "_ZN15IsaacRepentance13Entity_Player16ChangePlayerTypeENS_11ePlayerTypeEb",
+  "demangled": "IsaacRepentance::Entity_Player::ChangePlayerType(IsaacRepentance::ePlayerType, bool)",
+  "parameters": [
+   "IsaacRepentance::ePlayerType",
+   "bool"
+  ],
+  "parameter_count": 2,
+  "kind": "function"
+ },
+ {
+  "constant": "kEntityPlayerAddMinisaacOffset",
+  "offset": "0x2ac1f4",
+  "mangled": "_ZN15IsaacRepentance13Entity_Player11AddMinisaacERKN4KAGE4Math7Vector2Eb",
+  "demangled": "IsaacRepentance::Entity_Player::AddMinisaac(KAGE::Math::Vector2 const&, bool)",
+  "parameters": [
+   "KAGE::Math::Vector2 const&",
+   "bool"
+  ],
+  "parameter_count": 2,
+  "kind": "function"
+ },
+ {
+  "constant": "kRPlusThrowBlueSpiderOffset",
+  "offset": "0x2acb54",
+  "mangled": "_ZN15IsaacRepentance13Entity_Player15ThrowBlueSpiderERKN4KAGE4Math7Vector2ES5_",
+  "demangled": "IsaacRepentance::Entity_Player::ThrowBlueSpider(KAGE::Math::Vector2 const&, KAGE::Math::Vector2 const&)",
+  "parameters": [
+   "KAGE::Math::Vector2 const&",
+   "KAGE::Math::Vector2 const&"
+  ],
+  "parameter_count": 2,
+  "kind": "function"
+ },
+ {
+  "constant": "kEntityPlayerIsBoneHeartRPlusOffset",
+  "offset": "0x2ad618",
+  "mangled": "_ZNK15IsaacRepentance13Entity_Player11IsBoneHeartEi",
+  "demangled": "IsaacRepentance::Entity_Player::IsBoneHeart(int) const",
+  "parameters": [
+   "int"
+  ],
+  "parameter_count": 1,
+  "kind": "function"
+ },
+ {
+  "constant": "kApi100EntityPlayerGetMaxPocketItemsOffset",
+  "offset": "0x2b0970",
+  "mangled": "_ZNK15IsaacRepentance13Entity_Player17GetMaxPocketItemsEv",
+  "demangled": "IsaacRepentance::Entity_Player::GetMaxPocketItems() const",
+  "parameters": [],
+  "parameter_count": 0,
+  "kind": "function"
+ },
+ {
+  "constant": "kEntityPlayerAddCardOffset",
+  "offset": "0x2b0b78",
+  "mangled": "_ZN15IsaacRepentance13Entity_Player7AddCardENS_5eCardE",
+  "demangled": "IsaacRepentance::Entity_Player::AddCard(IsaacRepentance::eCard)",
+  "parameters": [
+   "IsaacRepentance::eCard"
+  ],
+  "parameter_count": 1,
+  "kind": "function"
+ },
+ {
+  "constant": "kEntityPlayerAddPillOffset",
+  "offset": "0x2b0b80",
+  "mangled": "_ZN15IsaacRepentance13Entity_Player7AddPillENS_10ePillColorE",
+  "demangled": "IsaacRepentance::Entity_Player::AddPill(IsaacRepentance::ePillColor)",
+  "parameters": [
+   "IsaacRepentance::ePillColor"
+  ],
+  "parameter_count": 1,
+  "kind": "function"
+ },
+ {
+  "constant": "kEntityPlayerSetFullHeartsRPlusOffset",
+  "offset": "0x2b0b88",
+  "mangled": "_ZN15IsaacRepentance13Entity_Player13SetFullHeartsEv",
+  "demangled": "IsaacRepentance::Entity_Player::SetFullHearts()",
+  "parameters": [],
+  "parameter_count": 0,
+  "kind": "function"
+ },
+ {
+  "constant": "kEntityPlayerGetMovementJoystickOffset",
+  "offset": "0x2b0d9c",
+  "mangled": "_ZN15IsaacRepentance13Entity_Player18get_movement_inputEv",
+  "demangled": "IsaacRepentance::Entity_Player::get_movement_input()",
+  "parameters": [],
+  "parameter_count": 0,
+  "kind": "function"
+ },
+ {
+  "constant": "kEntityPlayerGetShootingInputOffset",
+  "offset": "0x2b0ffc",
+  "mangled": "_ZN15IsaacRepentance13Entity_Player18get_shooting_inputEv",
+  "demangled": "IsaacRepentance::Entity_Player::get_shooting_input()",
+  "parameters": [],
+  "parameter_count": 0,
+  "kind": "function"
+ },
+ {
+  "constant": "kEntityPlayerIsExtraAnimationFinishedOffset",
+  "offset": "0x2b78c4",
+  "mangled": "_ZNK15IsaacRepentance13Entity_Player24IsExtraAnimationFinishedEv",
+  "demangled": "IsaacRepentance::Entity_Player::IsExtraAnimationFinished() const",
+  "parameters": [],
+  "parameter_count": 0,
+  "kind": "function"
+ },
+ {
+  "constant": "kRPlusGetTearMovementInheritanceOffset",
+  "offset": "0x2b8eb4",
+  "mangled": "_ZNK15IsaacRepentance13Entity_Player29get_tear_movement_inheritanceERKN4KAGE4Math7Vector2Eb",
+  "demangled": "IsaacRepentance::Entity_Player::get_tear_movement_inheritance(KAGE::Math::Vector2 const&, bool) const",
+  "parameters": [
+   "KAGE::Math::Vector2 const&",
+   "bool"
+  ],
+  "parameter_count": 2,
+  "kind": "function"
+ },
+ {
+  "constant": "kEntityPlayerFireTechLaserOffset",
+  "offset": "0x2b9020",
+  "mangled": "_ZN15IsaacRepentance13Entity_Player13FireTechLaserERKN4KAGE4Math7Vector2ENS0_12eLaserOffsetES5_bbPNS_6EntityEf",
+  "demangled": "IsaacRepentance::Entity_Player::FireTechLaser(KAGE::Math::Vector2 const&, IsaacRepentance::Entity_Player::eLaserOffset, KAGE::Math::Vector2 const&, bool, bool, IsaacRepentance::Entity*, float)",
+  "parameters": [
+   "KAGE::Math::Vector2 const&",
+   "IsaacRepentance::Entity_Player::eLaserOffset",
+   "KAGE::Math::Vector2 const&",
+   "bool",
+   "bool",
+   "IsaacRepentance::Entity*",
+   "float"
+  ],
+  "parameter_count": 7,
+  "kind": "function"
+ },
+ {
+  "constant": "kEntityPlayerDischargeActiveItemOffset",
+  "offset": "0x2b9540",
+  "mangled": "_ZN15IsaacRepentance13Entity_Player19DischargeActiveItemEib",
+  "demangled": "IsaacRepentance::Entity_Player::DischargeActiveItem(int, bool)",
+  "parameters": [
+   "int",
+   "bool"
+  ],
+  "parameter_count": 2,
+  "kind": "function"
+ },
+ {
+  "constant": "kApi100EntityPlayerAddPoopManaOffset",
+  "offset": "0x2baf44",
+  "mangled": "_ZN15IsaacRepentance13Entity_Player11AddPoopManaEi",
+  "demangled": "IsaacRepentance::Entity_Player::AddPoopMana(int)",
+  "parameters": [
+   "int"
+  ],
+  "parameter_count": 1,
+  "kind": "function"
+ },
+ {
+  "constant": "kApi100EntityPlayerAddGigaBombsOffset",
+  "offset": "0x2bb030",
+  "mangled": "_ZN15IsaacRepentance13Entity_Player12AddGigaBombsEi",
+  "demangled": "IsaacRepentance::Entity_Player::AddGigaBombs(int)",
+  "parameters": [
+   "int"
+  ],
+  "parameter_count": 1,
+  "kind": "function"
+ },
+ {
+  "constant": "kRPlusWillPlayerReviveOffset",
+  "offset": "0x2d640c",
+  "mangled": "_ZN15IsaacRepentance13Entity_Player16WillPlayerReviveEv",
+  "demangled": "IsaacRepentance::Entity_Player::WillPlayerRevive()",
+  "parameters": [],
+  "parameter_count": 0,
+  "kind": "function"
+ },
+ {
+  "constant": "kApi100EntityPlayerIsHeldItemVisibleOffset",
+  "offset": "0x2d8da4",
+  "mangled": "_ZNK15IsaacRepentance13Entity_Player17IsHeldItemVisibleEv",
+  "demangled": "IsaacRepentance::Entity_Player::IsHeldItemVisible() const",
+  "parameters": [],
+  "parameter_count": 0,
+  "kind": "function"
+ },
+ {
+  "constant": "kEntityPlayerHandleCollisionOffset",
+  "offset": "0x2db4a8",
+  "mangled": "_ZN15IsaacRepentance13Entity_Player16handle_collisionEPNS_6EntityEb",
+  "demangled": "IsaacRepentance::Entity_Player::handle_collision(IsaacRepentance::Entity*, bool)",
+  "parameters": [
+   "IsaacRepentance::Entity*",
+   "bool"
+  ],
+  "parameter_count": 2,
+  "kind": "function"
+ },
+ {
+  "constant": "kApi100EntityPlayerClearTemporaryEffectsOffset",
+  "offset": "0x2dccd4",
+  "mangled": "_ZN15IsaacRepentance13Entity_Player21ClearTemporaryEffectsEv",
+  "demangled": "IsaacRepentance::Entity_Player::ClearTemporaryEffects()",
+  "parameters": [],
+  "parameter_count": 0,
+  "kind": "function"
+ },
+ {
+  "constant": "kApi100EntityPlayerGetEffectiveSoulChargeOffset",
+  "offset": "0x2dcf24",
+  "mangled": "_ZNK15IsaacRepentance13Entity_Player22GetEffectiveSoulChargeEv",
+  "demangled": "IsaacRepentance::Entity_Player::GetEffectiveSoulCharge() const",
+  "parameters": [],
+  "parameter_count": 0,
+  "kind": "function"
+ },
+ {
+  "constant": "kApi100EntityPlayerGetEffectiveBloodChargeOffset",
+  "offset": "0x2dcf40",
+  "mangled": "_ZNK15IsaacRepentance13Entity_Player23GetEffectiveBloodChargeEv",
+  "demangled": "IsaacRepentance::Entity_Player::GetEffectiveBloodCharge() const",
+  "parameters": [],
+  "parameter_count": 0,
+  "kind": "function"
+ },
+ {
+  "constant": "kEntityPlayerAnimateCollectibleOffset",
+  "offset": "0x2dd150",
+  "mangled": "_ZN15IsaacRepentance13Entity_Player13AnimatePickupENS_16eCollectibleTypeEPKcS3_",
+  "demangled": "IsaacRepentance::Entity_Player::AnimatePickup(IsaacRepentance::eCollectibleType, char const*, char const*)",
+  "parameters": [
+   "IsaacRepentance::eCollectibleType",
+   "char const*",
+   "char const*"
+  ],
+  "parameter_count": 3,
+  "kind": "function"
+ },
+ {
+  "constant": "kApi100EntityPlayerHasTimedItemOffset",
+  "offset": "0x2ddc50",
+  "mangled": "_ZN15IsaacRepentance13Entity_Player12HasTimedItemEv",
+  "demangled": "IsaacRepentance::Entity_Player::HasTimedItem()",
+  "parameters": [],
+  "parameter_count": 0,
+  "kind": "function"
+ },
+ {
+  "constant": "kRPlusCanPickupItemOffset",
+  "offset": "0x2df948",
+  "mangled": "_ZNK15IsaacRepentance13Entity_Player13CanPickupItemEv",
+  "demangled": "IsaacRepentance::Entity_Player::CanPickupItem() const",
+  "parameters": [],
+  "parameter_count": 0,
+  "kind": "function"
+ },
+ {
   "constant": "kEntityPlayerUsePillOffset",
   "offset": "0x2dfc04",
   "mangled": "_ZN15IsaacRepentance13Entity_Player7UsePillENS_11ePillEffectENS_10ePillColorEj",
@@ -1601,6 +5104,83 @@
    "unsigned int"
   ],
   "parameter_count": 3,
+  "kind": "function"
+ },
+ {
+  "constant": "kRPlusFireBombOffset",
+  "offset": "0x2e4210",
+  "mangled": "_ZN15IsaacRepentance13Entity_Player8FireBombERKN4KAGE4Math7Vector2ES5_PNS_6EntityE",
+  "demangled": "IsaacRepentance::Entity_Player::FireBomb(KAGE::Math::Vector2 const&, KAGE::Math::Vector2 const&, IsaacRepentance::Entity*)",
+  "parameters": [
+   "KAGE::Math::Vector2 const&",
+   "KAGE::Math::Vector2 const&",
+   "IsaacRepentance::Entity*"
+  ],
+  "parameter_count": 3,
+  "kind": "function"
+ },
+ {
+  "constant": "kEntityPlayerReviveOffset",
+  "offset": "0x2e6600",
+  "mangled": "_ZN15IsaacRepentance13Entity_Player6ReviveEv",
+  "demangled": "IsaacRepentance::Entity_Player::Revive()",
+  "parameters": [],
+  "parameter_count": 0,
+  "kind": "function"
+ },
+ {
+  "constant": "kEntityPlayerAnimateAppearOffset",
+  "offset": "0x2e8184",
+  "mangled": "_ZN15IsaacRepentance13Entity_Player13AnimateAppearEv",
+  "demangled": "IsaacRepentance::Entity_Player::AnimateAppear()",
+  "parameters": [],
+  "parameter_count": 0,
+  "kind": "function"
+ },
+ {
+  "constant": "kEntityPlayerGetCardOffset",
+  "offset": "0x2e8d58",
+  "mangled": "_ZNK15IsaacRepentance13Entity_Player7GetCardEi",
+  "demangled": "IsaacRepentance::Entity_Player::GetCard(int) const",
+  "parameters": [
+   "int"
+  ],
+  "parameter_count": 1,
+  "kind": "function"
+ },
+ {
+  "constant": "kEntityPlayerGetPillOffset",
+  "offset": "0x2e8d80",
+  "mangled": "_ZNK15IsaacRepentance13Entity_Player7GetPillEi",
+  "demangled": "IsaacRepentance::Entity_Player::GetPill(int) const",
+  "parameters": [
+   "int"
+  ],
+  "parameter_count": 1,
+  "kind": "function"
+ },
+ {
+  "constant": "kEntityPlayerSetCardOffset",
+  "offset": "0x2e8da4",
+  "mangled": "_ZN15IsaacRepentance13Entity_Player7SetCardEiNS_5eCardE",
+  "demangled": "IsaacRepentance::Entity_Player::SetCard(int, IsaacRepentance::eCard)",
+  "parameters": [
+   "int",
+   "IsaacRepentance::eCard"
+  ],
+  "parameter_count": 2,
+  "kind": "function"
+ },
+ {
+  "constant": "kRPlusSetPillOffset",
+  "offset": "0x2e8ddc",
+  "mangled": "_ZN15IsaacRepentance13Entity_Player7SetPillEiNS_10ePillColorE",
+  "demangled": "IsaacRepentance::Entity_Player::SetPill(int, IsaacRepentance::ePillColor)",
+  "parameters": [
+   "int",
+   "IsaacRepentance::ePillColor"
+  ],
+  "parameter_count": 2,
   "kind": "function"
  },
  {
@@ -1625,6 +5205,92 @@
   "kind": "field"
  },
  {
+  "constant": "kGameInstantFadeOffset",
+  "offset": "0x2f0058",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kEntityPlayerTryRemoveNullCostumeOffset",
+  "offset": "0x2f2170",
+  "mangled": "_ZN15IsaacRepentance13Entity_Player16TryRemoveCostumeENS_10ItemConfig11eNullItemIDE",
+  "demangled": "IsaacRepentance::Entity_Player::TryRemoveCostume(IsaacRepentance::ItemConfig::eNullItemID)",
+  "parameters": [
+   "IsaacRepentance::ItemConfig::eNullItemID"
+  ],
+  "parameter_count": 1,
+  "kind": "function"
+ },
+ {
+  "constant": "kEntityPlayerAddFriendlyDipOffset",
+  "offset": "0x2f62dc",
+  "mangled": "_ZN15IsaacRepentance13Entity_Player14AddFriendlyDipEiRKN4KAGE4Math7Vector2E",
+  "demangled": "IsaacRepentance::Entity_Player::AddFriendlyDip(int, KAGE::Math::Vector2 const&)",
+  "parameters": [
+   "int",
+   "KAGE::Math::Vector2 const&"
+  ],
+  "parameter_count": 2,
+  "kind": "function"
+ },
+ {
+  "constant": "kApi100EntityPlayerCanAddCollectibleOffset",
+  "offset": "0x2f630c",
+  "mangled": "_ZNK15IsaacRepentance13Entity_Player17CanAddCollectibleENS_16eCollectibleTypeE",
+  "demangled": "IsaacRepentance::Entity_Player::CanAddCollectible(IsaacRepentance::eCollectibleType) const",
+  "parameters": [
+   "IsaacRepentance::eCollectibleType"
+  ],
+  "parameter_count": 1,
+  "kind": "function"
+ },
+ {
+  "constant": "kRPlusAnimatePickupOffset",
+  "offset": "0x2f6640",
+  "mangled": "_ZN15IsaacRepentance13Entity_Player13AnimatePickupERKNS_4ANM2EbPKc",
+  "demangled": "IsaacRepentance::Entity_Player::AnimatePickup(IsaacRepentance::ANM2 const&, bool, char const*)",
+  "parameters": [
+   "IsaacRepentance::ANM2 const&",
+   "bool",
+   "char const*"
+  ],
+  "parameter_count": 3,
+  "kind": "function"
+ },
+ {
+  "constant": "kRPlusAnimateCardOffset",
+  "offset": "0x2f67b4",
+  "mangled": "_ZN15IsaacRepentance13Entity_Player13AnimatePickupENS_5eCardEPKc",
+  "demangled": "IsaacRepentance::Entity_Player::AnimatePickup(IsaacRepentance::eCard, char const*)",
+  "parameters": [
+   "IsaacRepentance::eCard",
+   "char const*"
+  ],
+  "parameter_count": 2,
+  "kind": "function"
+ },
+ {
+  "constant": "kEntityPlayerAnimateTrapdoorOffset",
+  "offset": "0x2f69f8",
+  "mangled": "_ZN15IsaacRepentance13Entity_Player15AnimateTrapdoorEv",
+  "demangled": "IsaacRepentance::Entity_Player::AnimateTrapdoor()",
+  "parameters": [],
+  "parameter_count": 0,
+  "kind": "function"
+ },
+ {
+  "constant": "kApi100EntityPlayerAnimateLightTravelOffset",
+  "offset": "0x2f6a64",
+  "mangled": "_ZN15IsaacRepentance13Entity_Player18AnimateLightTravelEv",
+  "demangled": "IsaacRepentance::Entity_Player::AnimateLightTravel()",
+  "parameters": [],
+  "parameter_count": 0,
+  "kind": "function"
+ },
+ {
   "constant": "kEntityPlayerAnimateHappyOffset",
   "offset": "0x2f6ca8",
   "mangled": "_ZN15IsaacRepentance13Entity_Player12AnimateHappyEv",
@@ -1643,6 +5309,82 @@
   "kind": "function"
  },
  {
+  "constant": "kEntityPlayerAddPrettyFlyOffset",
+  "offset": "0x2f6db0",
+  "mangled": "_ZN15IsaacRepentance13Entity_Player12AddPrettyFlyEv",
+  "demangled": "IsaacRepentance::Entity_Player::AddPrettyFly()",
+  "parameters": [],
+  "parameter_count": 0,
+  "kind": "function"
+ },
+ {
+  "constant": "kEntityPlayerDonateLuckOffset",
+  "offset": "0x2f9978",
+  "mangled": "_ZN15IsaacRepentance13Entity_Player10DonateLuckEi",
+  "demangled": "IsaacRepentance::Entity_Player::DonateLuck(int)",
+  "parameters": [
+   "int"
+  ],
+  "parameter_count": 1,
+  "kind": "function"
+ },
+ {
+  "constant": "kEntityPlayerAddBlueSpiderOffset",
+  "offset": "0x2fb40c",
+  "mangled": "_ZN15IsaacRepentance13Entity_Player13AddBlueSpiderERKN4KAGE4Math7Vector2E",
+  "demangled": "IsaacRepentance::Entity_Player::AddBlueSpider(KAGE::Math::Vector2 const&)",
+  "parameters": [
+   "KAGE::Math::Vector2 const&"
+  ],
+  "parameter_count": 1,
+  "kind": "function"
+ },
+ {
+  "constant": "kApi100EntityPlayerRemoveBlueSpiderOffset",
+  "offset": "0x2fb490",
+  "mangled": "_ZN15IsaacRepentance13Entity_Player16RemoveBlueSpiderEv",
+  "demangled": "IsaacRepentance::Entity_Player::RemoveBlueSpider()",
+  "parameters": [],
+  "parameter_count": 0,
+  "kind": "function"
+ },
+ {
+  "constant": "kEntityPlayerGetExtraLivesOffset",
+  "offset": "0x2fb4a0",
+  "mangled": "_ZNK15IsaacRepentance13Entity_Player13GetExtraLivesEv",
+  "demangled": "IsaacRepentance::Entity_Player::GetExtraLives() const",
+  "parameters": [],
+  "parameter_count": 0,
+  "kind": "function"
+ },
+ {
+  "constant": "kEntityPlayerCanPickRedHeartsOffset",
+  "offset": "0x2fb6a4",
+  "mangled": "_ZN15IsaacRepentance13Entity_Player16CanPickRedHeartsEv",
+  "demangled": "IsaacRepentance::Entity_Player::CanPickRedHearts()",
+  "parameters": [],
+  "parameter_count": 0,
+  "kind": "function"
+ },
+ {
+  "constant": "kEntityPlayerCanPickSoulHeartsOffset",
+  "offset": "0x2fb7c4",
+  "mangled": "_ZN15IsaacRepentance13Entity_Player17CanPickSoulHeartsEv",
+  "demangled": "IsaacRepentance::Entity_Player::CanPickSoulHearts()",
+  "parameters": [],
+  "parameter_count": 0,
+  "kind": "function"
+ },
+ {
+  "constant": "kEntityPlayerCanPickBlackHeartsRPlusOffset",
+  "offset": "0x2fb900",
+  "mangled": "_ZN15IsaacRepentance13Entity_Player18CanPickBlackHeartsEv",
+  "demangled": "IsaacRepentance::Entity_Player::CanPickBlackHearts()",
+  "parameters": [],
+  "parameter_count": 0,
+  "kind": "function"
+ },
+ {
   "constant": "kEntityPlayerSetShootingCooldownOffset",
   "offset": "0x2fb994",
   "mangled": "_ZN15IsaacRepentance13Entity_Player19SetShootingCooldownEi",
@@ -1651,6 +5393,144 @@
    "int"
   ],
   "parameter_count": 1,
+  "kind": "function"
+ },
+ {
+  "constant": "kEntityPlayerNeedsChargeOffset",
+  "offset": "0x2fba7c",
+  "mangled": "_ZNK15IsaacRepentance13Entity_Player11NeedsChargeEi",
+  "demangled": "IsaacRepentance::Entity_Player::NeedsCharge(int) const",
+  "parameters": [
+   "int"
+  ],
+  "parameter_count": 1,
+  "kind": "function"
+ },
+ {
+  "constant": "kApi100EntityPlayerAddDeadEyeChargeOffset",
+  "offset": "0x2fbf2c",
+  "mangled": "_ZN15IsaacRepentance13Entity_Player16AddDeadEyeChargeEv",
+  "demangled": "IsaacRepentance::Entity_Player::AddDeadEyeCharge()",
+  "parameters": [],
+  "parameter_count": 0,
+  "kind": "function"
+ },
+ {
+  "constant": "kApi100EntityPlayerClearDeadEyeChargeOffset",
+  "offset": "0x2fbf74",
+  "mangled": "_ZN15IsaacRepentance13Entity_Player18ClearDeadEyeChargeEv",
+  "demangled": "IsaacRepentance::Entity_Player::ClearDeadEyeCharge()",
+  "parameters": [],
+  "parameter_count": 0,
+  "kind": "function"
+ },
+ {
+  "constant": "kEntityPlayerAddGoldenBombOffset",
+  "offset": "0x2fc3f0",
+  "mangled": "_ZN15IsaacRepentance13Entity_Player13AddGoldenBombEv",
+  "demangled": "IsaacRepentance::Entity_Player::AddGoldenBomb()",
+  "parameters": [],
+  "parameter_count": 0,
+  "kind": "function"
+ },
+ {
+  "constant": "kEntityPlayerRemoveGoldenBombOffset",
+  "offset": "0x2fc490",
+  "mangled": "_ZN15IsaacRepentance13Entity_Player16RemoveGoldenBombEv",
+  "demangled": "IsaacRepentance::Entity_Player::RemoveGoldenBomb()",
+  "parameters": [],
+  "parameter_count": 0,
+  "kind": "function"
+ },
+ {
+  "constant": "kApi100EntityPlayerAddJarFliesOffset",
+  "offset": "0x2fc8ec",
+  "mangled": "_ZN15IsaacRepentance13Entity_Player11AddJarFliesEi",
+  "demangled": "IsaacRepentance::Entity_Player::AddJarFlies(int)",
+  "parameters": [
+   "int"
+  ],
+  "parameter_count": 1,
+  "kind": "function"
+ },
+ {
+  "constant": "kEntityPlayerAddGoldenHeartsOffset",
+  "offset": "0x2fc924",
+  "mangled": "_ZN15IsaacRepentance13Entity_Player15AddGoldenHeartsEi",
+  "demangled": "IsaacRepentance::Entity_Player::AddGoldenHearts(int)",
+  "parameters": [
+   "int"
+  ],
+  "parameter_count": 1,
+  "kind": "function"
+ },
+ {
+  "constant": "kEntityPlayerCanPickGoldenHeartsRPlusOffset",
+  "offset": "0x2fca20",
+  "mangled": "_ZN15IsaacRepentance13Entity_Player19CanPickGoldenHeartsEv",
+  "demangled": "IsaacRepentance::Entity_Player::CanPickGoldenHearts()",
+  "parameters": [],
+  "parameter_count": 0,
+  "kind": "function"
+ },
+ {
+  "constant": "kEntityPlayerCanPickBoneHeartsRPlusOffset",
+  "offset": "0x2fca88",
+  "mangled": "_ZN15IsaacRepentance13Entity_Player17CanPickBoneHeartsEv",
+  "demangled": "IsaacRepentance::Entity_Player::CanPickBoneHearts()",
+  "parameters": [],
+  "parameter_count": 0,
+  "kind": "function"
+ },
+ {
+  "constant": "kApi100EntityPlayerGetGreedDonationBreakChanceOffset",
+  "offset": "0x2fd1bc",
+  "mangled": "_ZNK15IsaacRepentance13Entity_Player27GetGreedDonationBreakChanceEv",
+  "demangled": "IsaacRepentance::Entity_Player::GetGreedDonationBreakChance() const",
+  "parameters": [],
+  "parameter_count": 0,
+  "kind": "function"
+ },
+ {
+  "constant": "kEntityPlayerGetGlyphOfBalanceDropOffset",
+  "offset": "0x2fe574",
+  "mangled": "_ZN15IsaacRepentance13Entity_Player21GetGlyphOfBalanceDropERjS1_",
+  "demangled": "IsaacRepentance::Entity_Player::GetGlyphOfBalanceDrop(unsigned int&, unsigned int&)",
+  "parameters": [
+   "unsigned int&",
+   "unsigned int&"
+  ],
+  "parameter_count": 2,
+  "kind": "function"
+ },
+ {
+  "constant": "kEntityPlayerAddRottenHeartsRPlusOffset",
+  "offset": "0x2fea98",
+  "mangled": "_ZN15IsaacRepentance13Entity_Player15AddRottenHeartsEib",
+  "demangled": "IsaacRepentance::Entity_Player::AddRottenHearts(int, bool)",
+  "parameters": [
+   "int",
+   "bool"
+  ],
+  "parameter_count": 2,
+  "kind": "function"
+ },
+ {
+  "constant": "kEntityPlayerCanPickRottenHeartsRPlusOffset",
+  "offset": "0x2fee98",
+  "mangled": "_ZN15IsaacRepentance13Entity_Player19CanPickRottenHeartsEv",
+  "demangled": "IsaacRepentance::Entity_Player::CanPickRottenHearts()",
+  "parameters": [],
+  "parameter_count": 0,
+  "kind": "function"
+ },
+ {
+  "constant": "kApi100EntityPlayerGetMaxPoopManaOffset",
+  "offset": "0x3004a4",
+  "mangled": "_ZNK15IsaacRepentance13Entity_Player14GetMaxPoopManaEv",
+  "demangled": "IsaacRepentance::Entity_Player::GetMaxPoopMana() const",
+  "parameters": [],
+  "parameter_count": 0,
   "kind": "function"
  },
  {
@@ -1668,6 +5548,124 @@
   "kind": "function"
  },
  {
+  "constant": "kRPlusAddWispOffset",
+  "offset": "0x31bb2c",
+  "mangled": "_ZN15IsaacRepentance13Entity_Player7AddWispEiRKN4KAGE4Math7Vector2Ebb",
+  "demangled": "IsaacRepentance::Entity_Player::AddWisp(int, KAGE::Math::Vector2 const&, bool, bool)",
+  "parameters": [
+   "int",
+   "KAGE::Math::Vector2 const&",
+   "bool",
+   "bool"
+  ],
+  "parameter_count": 4,
+  "kind": "function"
+ },
+ {
+  "constant": "kEntityPlayerAddItemWispOffset",
+  "offset": "0x31df50",
+  "mangled": "_ZN15IsaacRepentance13Entity_Player11AddItemWispEiRKN4KAGE4Math7Vector2Eb",
+  "demangled": "IsaacRepentance::Entity_Player::AddItemWisp(int, KAGE::Math::Vector2 const&, bool)",
+  "parameters": [
+   "int",
+   "KAGE::Math::Vector2 const&",
+   "bool"
+  ],
+  "parameter_count": 3,
+  "kind": "function"
+ },
+ {
+  "constant": "kEntityProjectileHandleCollisionOffset",
+  "offset": "0x327b04",
+  "mangled": "_ZN15IsaacRepentance17Entity_Projectile16handle_collisionEPNS_6EntityEb",
+  "demangled": "IsaacRepentance::Entity_Projectile::handle_collision(IsaacRepentance::Entity*, bool)",
+  "parameters": [
+   "IsaacRepentance::Entity*",
+   "bool"
+  ],
+  "parameter_count": 2,
+  "kind": "function"
+ },
+ {
+  "constant": "kEntitySlotTakeDamageOffset",
+  "offset": "0x32ffb0",
+  "mangled": "_ZN15IsaacRepentance11Entity_Slot10TakeDamageEfmRKNS_6Entity9EntityRefEi",
+  "demangled": "IsaacRepentance::Entity_Slot::TakeDamage(float, unsigned long, IsaacRepentance::Entity::EntityRef const&, int)",
+  "parameters": [
+   "float",
+   "unsigned long",
+   "IsaacRepentance::Entity::EntityRef const&",
+   "int"
+  ],
+  "parameter_count": 4,
+  "kind": "function"
+ },
+ {
+  "constant": "kEntityTearSetTearFlagsOffset",
+  "offset": "0x33baa0",
+  "mangled": "_ZN15IsaacRepentance11Entity_Tear12SetTearFlagsENS_11bitset128_tE",
+  "demangled": "IsaacRepentance::Entity_Tear::SetTearFlags(IsaacRepentance::bitset128_t)",
+  "parameters": [
+   "IsaacRepentance::bitset128_t"
+  ],
+  "parameter_count": 1,
+  "kind": "function"
+ },
+ {
+  "constant": "kEntityTearSetScaleOffset",
+  "offset": "0x33bf7c",
+  "mangled": "_ZN15IsaacRepentance11Entity_Tear8SetScaleEf",
+  "demangled": "IsaacRepentance::Entity_Tear::SetScale(float)",
+  "parameters": [
+   "float"
+  ],
+  "parameter_count": 1,
+  "kind": "function"
+ },
+ {
+  "constant": "kEntityTearResetSpriteScaleOffset",
+  "offset": "0x33d010",
+  "mangled": "_ZN15IsaacRepentance11Entity_Tear18reset_sprite_scaleEv",
+  "demangled": "IsaacRepentance::Entity_Tear::reset_sprite_scale()",
+  "parameters": [],
+  "parameter_count": 0,
+  "kind": "function"
+ },
+ {
+  "constant": "kEntityTearHandleCollisionOffset",
+  "offset": "0x33d920",
+  "mangled": "_ZN15IsaacRepentance11Entity_Tear16handle_collisionEPNS_6EntityEb",
+  "demangled": "IsaacRepentance::Entity_Tear::handle_collision(IsaacRepentance::Entity*, bool)",
+  "parameters": [
+   "IsaacRepentance::Entity*",
+   "bool"
+  ],
+  "parameter_count": 2,
+  "kind": "function"
+ },
+ {
+  "constant": "kEntityTearChangeVariantOffset",
+  "offset": "0x3412d8",
+  "mangled": "_ZN15IsaacRepentance11Entity_Tear13ChangeVariantEi",
+  "demangled": "IsaacRepentance::Entity_Tear::ChangeVariant(int)",
+  "parameters": [
+   "int"
+  ],
+  "parameter_count": 1,
+  "kind": "function"
+ },
+ {
+  "constant": "kEntityTearSetCollisionDamageOffset",
+  "offset": "0x341670",
+  "mangled": "_ZN15IsaacRepentance11Entity_Tear18SetCollisionDamageEf",
+  "demangled": "IsaacRepentance::Entity_Tear::SetCollisionDamage(float)",
+  "parameters": [
+   "float"
+  ],
+  "parameter_count": 1,
+  "kind": "function"
+ },
+ {
   "constant": "kGameIsPausedRenderCallFileOffset",
   "offset": "0x3429a4",
   "mangled": null,
@@ -1675,6 +5673,15 @@
   "parameters": null,
   "parameter_count": null,
   "kind": "field"
+ },
+ {
+  "constant": "kGameInitEntryFileOffset",
+  "offset": "0x34dd50",
+  "mangled": "_ZN15IsaacRepentance4Game4InitEv",
+  "demangled": "IsaacRepentance::Game::Init()",
+  "parameters": [],
+  "parameter_count": 0,
+  "kind": "function"
  },
  {
   "constant": "kGameIsGreedModeOffset",
@@ -1704,6 +5711,17 @@
   "kind": "function"
  },
  {
+  "constant": "kGameEndOffset",
+  "offset": "0x350de4",
+  "mangled": "_ZN15IsaacRepentance4Game3EndENS_7eEndingE",
+  "demangled": "IsaacRepentance::Game::End(IsaacRepentance::eEnding)",
+  "parameters": [
+   "IsaacRepentance::eEnding"
+  ],
+  "parameter_count": 1,
+  "kind": "function"
+ },
+ {
   "constant": "kGameExitOffset",
   "offset": "0x3512f4",
   "mangled": "_ZN15IsaacRepentance4Game4ExitEb",
@@ -1713,6 +5731,24 @@
   ],
   "parameter_count": 1,
   "kind": "function"
+ },
+ {
+  "constant": "kGameUpdateOffset",
+  "offset": "0x351884",
+  "mangled": "_ZN15IsaacRepentance4Game6UpdateEv",
+  "demangled": "IsaacRepentance::Game::Update()",
+  "parameters": [],
+  "parameter_count": 0,
+  "kind": "function"
+ },
+ {
+  "constant": "kGameInstantFadeUpdateLayoutOffset",
+  "offset": "0x351f44",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
  },
  {
   "constant": "kGameStartRoomTransitionOffset",
@@ -1751,6 +5787,165 @@
   "kind": "field"
  },
  {
+  "constant": "kGameMoveToRandomRoomOffset",
+  "offset": "0x35406c",
+  "mangled": "_ZN15IsaacRepentance4Game16MoveToRandomRoomEbjPNS_13Entity_PlayerE",
+  "demangled": "IsaacRepentance::Game::MoveToRandomRoom(bool, unsigned int, IsaacRepentance::Entity_Player*)",
+  "parameters": [
+   "bool",
+   "unsigned int",
+   "IsaacRepentance::Entity_Player*"
+  ],
+  "parameter_count": 3,
+  "kind": "function"
+ },
+ {
+  "constant": "kGameSpawnExOffset",
+  "offset": "0x3540d0",
+  "mangled": "_ZN15IsaacRepentance4Game7SpawnExENS_11eEntityTypeEjRKN4KAGE4Math7Vector2ES6_PNS_6EntityEjjj",
+  "demangled": "IsaacRepentance::Game::SpawnEx(IsaacRepentance::eEntityType, unsigned int, KAGE::Math::Vector2 const&, KAGE::Math::Vector2 const&, IsaacRepentance::Entity*, unsigned int, unsigned int, unsigned int)",
+  "parameters": [
+   "IsaacRepentance::eEntityType",
+   "unsigned int",
+   "KAGE::Math::Vector2 const&",
+   "KAGE::Math::Vector2 const&",
+   "IsaacRepentance::Entity*",
+   "unsigned int",
+   "unsigned int",
+   "unsigned int"
+  ],
+  "parameter_count": 8,
+  "kind": "function"
+ },
+ {
+  "constant": "kRPlusShakeScreenOffset",
+  "offset": "0x355bac",
+  "mangled": "_ZN15IsaacRepentance4Game11ShakeScreenEi",
+  "demangled": "IsaacRepentance::Game::ShakeScreen(int)",
+  "parameters": [
+   "int"
+  ],
+  "parameter_count": 1,
+  "kind": "function"
+ },
+ {
+  "constant": "kGameBombExplosionEffectsOffset",
+  "offset": "0x355c68",
+  "mangled": "_ZN15IsaacRepentance4Game20BombExplosionEffectsERKN4KAGE4Math7Vector2EfNS_11bitset128_tERKNS_8ColorModEPNS_6EntityEfbmb",
+  "demangled": "IsaacRepentance::Game::BombExplosionEffects(KAGE::Math::Vector2 const&, float, IsaacRepentance::bitset128_t, IsaacRepentance::ColorMod const&, IsaacRepentance::Entity*, float, bool, unsigned long, bool)",
+  "parameters": [
+   "KAGE::Math::Vector2 const&",
+   "float",
+   "IsaacRepentance::bitset128_t",
+   "IsaacRepentance::ColorMod const&",
+   "IsaacRepentance::Entity*",
+   "float",
+   "bool",
+   "unsigned long",
+   "bool"
+  ],
+  "parameter_count": 9,
+  "kind": "function"
+ },
+ {
+  "constant": "kGameSpawnParticlesOffset",
+  "offset": "0x3598f8",
+  "mangled": "_ZN15IsaacRepentance4Game14SpawnParticlesERKN4KAGE4Math7Vector2ENS_13Entity_Effect8eVariantEifRKNS_8ColorModEfj",
+  "demangled": "IsaacRepentance::Game::SpawnParticles(KAGE::Math::Vector2 const&, IsaacRepentance::Entity_Effect::eVariant, int, float, IsaacRepentance::ColorMod const&, float, unsigned int)",
+  "parameters": [
+   "KAGE::Math::Vector2 const&",
+   "IsaacRepentance::Entity_Effect::eVariant",
+   "int",
+   "float",
+   "IsaacRepentance::ColorMod const&",
+   "float",
+   "unsigned int"
+  ],
+  "parameter_count": 7,
+  "kind": "function"
+ },
+ {
+  "constant": "kGameGetGreedBossWaveNumOffset",
+  "offset": "0x359e18",
+  "mangled": "_ZNK15IsaacRepentance4Game19GetGreedBossWaveNumEv",
+  "demangled": "IsaacRepentance::Game::GetGreedBossWaveNum() const",
+  "parameters": [],
+  "parameter_count": 0,
+  "kind": "function"
+ },
+ {
+  "constant": "kRPlusFartOffset",
+  "offset": "0x35a6b4",
+  "mangled": "_ZN15IsaacRepentance4Game4FartERKN4KAGE4Math7Vector2EfPNS_6EntityEfjRKNS_8ColorModE",
+  "demangled": "IsaacRepentance::Game::Fart(KAGE::Math::Vector2 const&, float, IsaacRepentance::Entity*, float, unsigned int, IsaacRepentance::ColorMod const&)",
+  "parameters": [
+   "KAGE::Math::Vector2 const&",
+   "float",
+   "IsaacRepentance::Entity*",
+   "float",
+   "unsigned int",
+   "IsaacRepentance::ColorMod const&"
+  ],
+  "parameter_count": 6,
+  "kind": "function"
+ },
+ {
+  "constant": "kGameCharmFartOffset",
+  "offset": "0x35ab34",
+  "mangled": "_ZN15IsaacRepentance4Game9CharmFartERKN4KAGE4Math7Vector2EfPNS_6EntityE",
+  "demangled": "IsaacRepentance::Game::CharmFart(KAGE::Math::Vector2 const&, float, IsaacRepentance::Entity*)",
+  "parameters": [
+   "KAGE::Math::Vector2 const&",
+   "float",
+   "IsaacRepentance::Entity*"
+  ],
+  "parameter_count": 3,
+  "kind": "function"
+ },
+ {
+  "constant": "kGameAddDevilRoomDealOffset",
+  "offset": "0x35af10",
+  "mangled": "_ZN15IsaacRepentance4Game16AddDevilRoomDealEv",
+  "demangled": "IsaacRepentance::Game::AddDevilRoomDeal()",
+  "parameters": [],
+  "parameter_count": 0,
+  "kind": "function"
+ },
+ {
+  "constant": "kGameDevolveEnemyOffset",
+  "offset": "0x35b8e0",
+  "mangled": "_ZN15IsaacRepentance4Game12DevolveEnemyEPNS_6EntityE",
+  "demangled": "IsaacRepentance::Game::DevolveEnemy(IsaacRepentance::Entity*)",
+  "parameters": [
+   "IsaacRepentance::Entity*"
+  ],
+  "parameter_count": 1,
+  "kind": "function"
+ },
+ {
+  "constant": "kGameShowHallucinationOffset",
+  "offset": "0x35be54",
+  "mangled": "_ZN15IsaacRepentance4Game17ShowHallucinationEiNS_8Backdrop9eBackdropE",
+  "demangled": "IsaacRepentance::Game::ShowHallucination(int, IsaacRepentance::Backdrop::eBackdrop)",
+  "parameters": [
+   "int",
+   "IsaacRepentance::Backdrop::eBackdrop"
+  ],
+  "parameter_count": 2,
+  "kind": "function"
+ },
+ {
+  "constant": "kGameRestoreGlowingHourGlassStateOffset",
+  "offset": "0x35c41c",
+  "mangled": "_ZN15IsaacRepentance4Game28RestoreGlowingHourGlassStateEPNS_13Entity_PlayerE",
+  "demangled": "IsaacRepentance::Game::RestoreGlowingHourGlassState(IsaacRepentance::Entity_Player*)",
+  "parameters": [
+   "IsaacRepentance::Entity_Player*"
+  ],
+  "parameter_count": 1,
+  "kind": "function"
+ },
+ {
   "constant": "kStage128SaveDataManagerRelaySaveCallFileOffset",
   "offset": "0x36f474",
   "mangled": null,
@@ -1769,6 +5964,17 @@
   "kind": "field"
  },
  {
+  "constant": "kGridEntityInitOffset",
+  "offset": "0x37e438",
+  "mangled": "_ZN15IsaacRepentance10GridEntity4InitEj",
+  "demangled": "IsaacRepentance::GridEntity::Init(unsigned int)",
+  "parameters": [
+   "unsigned int"
+  ],
+  "parameter_count": 1,
+  "kind": "function"
+ },
+ {
   "constant": "kGridEntityGetPositionOffset",
   "offset": "0x37e498",
   "mangled": "_ZNK15IsaacRepentance10GridEntity11GetPositionEv",
@@ -1778,10 +5984,197 @@
   "kind": "function"
  },
  {
+  "constant": "kRPlusGridDescWriterOffset",
+  "offset": "0x37e4bc",
+  "mangled": "_ZN15IsaacRepentance10GridEntity4InitERKNS0_4DescE",
+  "demangled": "IsaacRepentance::GridEntity::Init(IsaacRepentance::GridEntity::Desc const&)",
+  "parameters": [
+   "IsaacRepentance::GridEntity::Desc const&"
+  ],
+  "parameter_count": 1,
+  "kind": "function"
+ },
+ {
+  "constant": "kApi100GridEntityHurtOffset",
+  "offset": "0x380c38",
+  "mangled": "_ZN15IsaacRepentance10GridEntity4HurtEi",
+  "demangled": "IsaacRepentance::GridEntity::Hurt(int)",
+  "parameters": [
+   "int"
+  ],
+  "parameter_count": 1,
+  "kind": "function"
+ },
+ {
+  "constant": "kGridEntityDoorCloseOffset",
+  "offset": "0x3820f4",
+  "mangled": "_ZN15IsaacRepentance15GridEntity_Door5CloseEb",
+  "demangled": "IsaacRepentance::GridEntity_Door::Close(bool)",
+  "parameters": [
+   "bool"
+  ],
+  "parameter_count": 1,
+  "kind": "function"
+ },
+ {
+  "constant": "kApi100GridEntityDoorSpawnDustOffset",
+  "offset": "0x38229c",
+  "mangled": "_ZN15IsaacRepentance15GridEntity_Door9SpawnDustEv",
+  "demangled": "IsaacRepentance::GridEntity_Door::SpawnDust()",
+  "parameters": [],
+  "parameter_count": 0,
+  "kind": "function"
+ },
+ {
+  "constant": "kApi100GridEntityDoorCanBlowOpenOffset",
+  "offset": "0x384db0",
+  "mangled": "_ZN15IsaacRepentance15GridEntity_Door11CanBlowOpenEv",
+  "demangled": "IsaacRepentance::GridEntity_Door::CanBlowOpen()",
+  "parameters": [],
+  "parameter_count": 0,
+  "kind": "function"
+ },
+ {
   "constant": "kGridEntityDoorCanEnterOffset",
   "offset": "0x384fc8",
   "mangled": "_ZNK15IsaacRepentance15GridEntity_Door8CanEnterEv",
   "demangled": "IsaacRepentance::GridEntity_Door::CanEnter() const",
+  "parameters": [],
+  "parameter_count": 0,
+  "kind": "function"
+ },
+ {
+  "constant": "kRPlusBarOffset",
+  "offset": "0x385850",
+  "mangled": "_ZN15IsaacRepentance15GridEntity_Door3BarEv",
+  "demangled": "IsaacRepentance::GridEntity_Door::Bar()",
+  "parameters": [],
+  "parameter_count": 0,
+  "kind": "function"
+ },
+ {
+  "constant": "kGridEntityDoorOpenOffset",
+  "offset": "0x385894",
+  "mangled": "_ZN15IsaacRepentance15GridEntity_Door4OpenEv",
+  "demangled": "IsaacRepentance::GridEntity_Door::Open()",
+  "parameters": [],
+  "parameter_count": 0,
+  "kind": "function"
+ },
+ {
+  "constant": "kApi100GridEntityDoorSetRoomTypesOffset",
+  "offset": "0x385a78",
+  "mangled": "_ZN15IsaacRepentance15GridEntity_Door12SetRoomTypesENS_9eRoomTypeES1_",
+  "demangled": "IsaacRepentance::GridEntity_Door::SetRoomTypes(IsaacRepentance::eRoomType, IsaacRepentance::eRoomType)",
+  "parameters": [
+   "IsaacRepentance::eRoomType",
+   "IsaacRepentance::eRoomType"
+  ],
+  "parameter_count": 2,
+  "kind": "function"
+ },
+ {
+  "constant": "kApi100GridEntityDoorSetLockedOffset",
+  "offset": "0x386010",
+  "mangled": "_ZN15IsaacRepentance15GridEntity_Door9SetLockedEb",
+  "demangled": "IsaacRepentance::GridEntity_Door::SetLocked(bool)",
+  "parameters": [
+   "bool"
+  ],
+  "parameter_count": 1,
+  "kind": "function"
+ },
+ {
+  "constant": "kGridEntityDoorIsTargetRoomArcadeOffset",
+  "offset": "0x386038",
+  "mangled": "_ZNK15IsaacRepentance15GridEntity_Door18IsTargetRoomArcadeEv",
+  "demangled": "IsaacRepentance::GridEntity_Door::IsTargetRoomArcade() const",
+  "parameters": [],
+  "parameter_count": 0,
+  "kind": "function"
+ },
+ {
+  "constant": "kPressurePlateAnimationWriterOffset",
+  "offset": "0x38e524",
+  "mangled": "_ZN15IsaacRepentance24GridEntity_PressurePlate20play_greed_animationEb",
+  "demangled": "IsaacRepentance::GridEntity_PressurePlate::play_greed_animation(bool)",
+  "parameters": [
+   "bool"
+  ],
+  "parameter_count": 1,
+  "kind": "function"
+ },
+ {
+  "constant": "kApi100GridEntityRockUpdateAnimFrameOffset",
+  "offset": "0x38fc14",
+  "mangled": "_ZN15IsaacRepentance15GridEntity_Rock17update_anim_frameEv",
+  "demangled": "IsaacRepentance::GridEntity_Rock::update_anim_frame()",
+  "parameters": [],
+  "parameter_count": 0,
+  "kind": "function"
+ },
+ {
+  "constant": "kApi100GridEntityRockGetBigRockFrameOffset",
+  "offset": "0x39349c",
+  "mangled": "_ZNK15IsaacRepentance15GridEntity_Rock15GetBigRockFrameEv",
+  "demangled": "IsaacRepentance::GridEntity_Rock::GetBigRockFrame() const",
+  "parameters": [],
+  "parameter_count": 0,
+  "kind": "function"
+ },
+ {
+  "constant": "kApi100GridEntityRockSetBigRockFrameOffset",
+  "offset": "0x39388c",
+  "mangled": "_ZN15IsaacRepentance15GridEntity_Rock15SetBigRockFrameEi",
+  "demangled": "IsaacRepentance::GridEntity_Rock::SetBigRockFrame(int)",
+  "parameters": [
+   "int"
+  ],
+  "parameter_count": 1,
+  "kind": "function"
+ },
+ {
+  "constant": "kHudShowItemTextOffset",
+  "offset": "0x3ab318",
+  "mangled": "_ZN15IsaacRepentance3HUD12ShowItemTextEPKcS2_bb",
+  "demangled": "IsaacRepentance::HUD::ShowItemText(char const*, char const*, bool, bool)",
+  "parameters": [
+   "char const*",
+   "char const*",
+   "bool",
+   "bool"
+  ],
+  "parameter_count": 4,
+  "kind": "function"
+ },
+ {
+  "constant": "kHudShowItemObjectOffset",
+  "offset": "0x3ab6d8",
+  "mangled": "_ZN15IsaacRepentance3HUD12ShowItemTextEPNS_13Entity_PlayerEPKNS_10ItemConfig4ItemE",
+  "demangled": "IsaacRepentance::HUD::ShowItemText(IsaacRepentance::Entity_Player*, IsaacRepentance::ItemConfig::Item const*)",
+  "parameters": [
+   "IsaacRepentance::Entity_Player*",
+   "IsaacRepentance::ItemConfig::Item const*"
+  ],
+  "parameter_count": 2,
+  "kind": "function"
+ },
+ {
+  "constant": "kHudShowFortuneTextOffset",
+  "offset": "0x3ac0b0",
+  "mangled": "_ZN15IsaacRepentance3HUD15ShowFortuneTextERKNSt3__14listINS1_12basic_stringIcNS1_11char_traitsIcEENS1_9allocatorIcEEEENS6_IS8_EEEE",
+  "demangled": "IsaacRepentance::HUD::ShowFortuneText(std::__1::list<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char> >, std::__1::allocator<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char> > > > const&)",
+  "parameters": [
+   "std::__1::list<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char> >, std::__1::allocator<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char> > > > const&"
+  ],
+  "parameter_count": 1,
+  "kind": "function"
+ },
+ {
+  "constant": "kHudRenderOffset",
+  "offset": "0x3ac71c",
+  "mangled": "_ZN15IsaacRepentance3HUD6RenderEv",
+  "demangled": "IsaacRepentance::HUD::Render()",
   "parameters": [],
   "parameter_count": 0,
   "kind": "function"
@@ -1803,6 +6196,18 @@
   "parameters": null,
   "parameter_count": null,
   "kind": "field"
+ },
+ {
+  "constant": "kItemConfigLoadCostumesFileOffset",
+  "offset": "0x3b9448",
+  "mangled": "_ZN15IsaacRepentance10ItemConfig12LoadCostumesEPKcPNS_8ModEntryE",
+  "demangled": "IsaacRepentance::ItemConfig::LoadCostumes(char const*, IsaacRepentance::ModEntry*)",
+  "parameters": [
+   "char const*",
+   "IsaacRepentance::ModEntry*"
+  ],
+  "parameter_count": 2,
+  "kind": "function"
  },
  {
   "constant": "kItemConfigGetCollectibleOffset",
@@ -1857,6 +6262,19 @@
   "kind": "function"
  },
  {
+  "constant": "kItemPoolRemoveCollectibleOffset",
+  "offset": "0x3c61f0",
+  "mangled": "_ZN15IsaacRepentance8ItemPool17RemoveCollectibleENS_16eCollectibleTypeEbb",
+  "demangled": "IsaacRepentance::ItemPool::RemoveCollectible(IsaacRepentance::eCollectibleType, bool, bool)",
+  "parameters": [
+   "IsaacRepentance::eCollectibleType",
+   "bool",
+   "bool"
+  ],
+  "parameter_count": 3,
+  "kind": "function"
+ },
+ {
   "constant": "kPreGetCollectibleRelayOffset",
   "offset": "0x3c6350",
   "mangled": "_ZN15IsaacRepentance8ItemPool14GetCollectibleENS0_13eItemPoolTypeEjjNS_16eCollectibleTypeE",
@@ -1868,6 +6286,129 @@
    "IsaacRepentance::eCollectibleType"
   ],
   "parameter_count": 4,
+  "kind": "function"
+ },
+ {
+  "constant": "kApi100ItemPoolGetTrinketOffset",
+  "offset": "0x3c7600",
+  "mangled": "_ZN15IsaacRepentance8ItemPool10GetTrinketEb",
+  "demangled": "IsaacRepentance::ItemPool::GetTrinket(bool)",
+  "parameters": [
+   "bool"
+  ],
+  "parameter_count": 1,
+  "kind": "function"
+ },
+ {
+  "constant": "kTrinketGetFunctionOffset",
+  "offset": "0x3c7600",
+  "mangled": "_ZN15IsaacRepentance8ItemPool10GetTrinketEb",
+  "demangled": "IsaacRepentance::ItemPool::GetTrinket(bool)",
+  "parameters": [
+   "bool"
+  ],
+  "parameter_count": 1,
+  "kind": "function"
+ },
+ {
+  "constant": "kTrinketFirstRandomHookOffset",
+  "offset": "0x3c7668",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kTrinketFirstResumeOffset",
+  "offset": "0x3c766c",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kTrinketSelectedHookOffset",
+  "offset": "0x3c784c",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kTrinketGoldenResumeOffset",
+  "offset": "0x3c7850",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kTrinketCleanupResumeOffset",
+  "offset": "0x3c78ac",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kApi100ItemPoolResetTrinketsOffset",
+  "offset": "0x3c78e0",
+  "mangled": "_ZN15IsaacRepentance8ItemPool13ResetTrinketsEv",
+  "demangled": "IsaacRepentance::ItemPool::ResetTrinkets()",
+  "parameters": [],
+  "parameter_count": 0,
+  "kind": "function"
+ },
+ {
+  "constant": "kApi100ItemPoolRemoveTrinketOffset",
+  "offset": "0x3c7b34",
+  "mangled": "_ZN15IsaacRepentance8ItemPool13RemoveTrinketENS_12eTrinketTypeE",
+  "demangled": "IsaacRepentance::ItemPool::RemoveTrinket(IsaacRepentance::eTrinketType)",
+  "parameters": [
+   "IsaacRepentance::eTrinketType"
+  ],
+  "parameter_count": 1,
+  "kind": "function"
+ },
+ {
+  "constant": "kApi100ItemPoolGetCardOffset",
+  "offset": "0x3c8488",
+  "mangled": "_ZNK15IsaacRepentance8ItemPool7GetCardEjbbb",
+  "demangled": "IsaacRepentance::ItemPool::GetCard(unsigned int, bool, bool, bool) const",
+  "parameters": [
+   "unsigned int",
+   "bool",
+   "bool",
+   "bool"
+  ],
+  "parameter_count": 4,
+  "kind": "function"
+ },
+ {
+  "constant": "kApi100ItemPoolGetPillOffset",
+  "offset": "0x3c84b8",
+  "mangled": "_ZNK15IsaacRepentance8ItemPool7GetPillEj",
+  "demangled": "IsaacRepentance::ItemPool::GetPill(unsigned int) const",
+  "parameters": [
+   "unsigned int"
+  ],
+  "parameter_count": 1,
+  "kind": "function"
+ },
+ {
+  "constant": "kItemPoolGetPillOffset",
+  "offset": "0x3c84b8",
+  "mangled": "_ZNK15IsaacRepentance8ItemPool7GetPillEj",
+  "demangled": "IsaacRepentance::ItemPool::GetPill(unsigned int) const",
+  "parameters": [
+   "unsigned int"
+  ],
+  "parameter_count": 1,
   "kind": "function"
  },
  {
@@ -1883,6 +6424,79 @@
   "kind": "function"
  },
  {
+  "constant": "kApi100ItemPoolForceAddPillEffectOffset",
+  "offset": "0x3ca8d0",
+  "mangled": "_ZN15IsaacRepentance8ItemPool18ForceAddPillEffectENS_11ePillEffectE",
+  "demangled": "IsaacRepentance::ItemPool::ForceAddPillEffect(IsaacRepentance::ePillEffect)",
+  "parameters": [
+   "IsaacRepentance::ePillEffect"
+  ],
+  "parameter_count": 1,
+  "kind": "function"
+ },
+ {
+  "constant": "kApi100ItemPoolResetRoomBlacklistOffset",
+  "offset": "0x3caec4",
+  "mangled": "_ZN15IsaacRepentance8ItemPool18ResetRoomBlacklistEv",
+  "demangled": "IsaacRepentance::ItemPool::ResetRoomBlacklist()",
+  "parameters": [],
+  "parameter_count": 0,
+  "kind": "function"
+ },
+ {
+  "constant": "kApi100ItemPoolAddBibleUpgradeOffset",
+  "offset": "0x3caf0c",
+  "mangled": "_ZN15IsaacRepentance8ItemPool15AddBibleUpgradeEiNS0_13eItemPoolTypeE",
+  "demangled": "IsaacRepentance::ItemPool::AddBibleUpgrade(int, IsaacRepentance::ItemPool::eItemPoolType)",
+  "parameters": [
+   "int",
+   "IsaacRepentance::ItemPool::eItemPoolType"
+  ],
+  "parameter_count": 2,
+  "kind": "function"
+ },
+ {
+  "constant": "kApi100LevelCanStageHaveCurseOfLabyrinthOffset",
+  "offset": "0x3d082c",
+  "mangled": "_ZN15IsaacRepentance5Level28CanStageHaveCurseOfLabyrinthENS_11eLevelStageE",
+  "demangled": "IsaacRepentance::Level::CanStageHaveCurseOfLabyrinth(IsaacRepentance::eLevelStage)",
+  "parameters": [
+   "IsaacRepentance::eLevelStage"
+  ],
+  "parameter_count": 1,
+  "kind": "function"
+ },
+ {
+  "constant": "kLevelUpdateOffset",
+  "offset": "0x3d08a4",
+  "mangled": "_ZN15IsaacRepentance5Level6UpdateEv",
+  "demangled": "IsaacRepentance::Level::Update()",
+  "parameters": [],
+  "parameter_count": 0,
+  "kind": "function"
+ },
+ {
+  "constant": "kLevelGetPlanetariumChanceOffset",
+  "offset": "0x3d58bc",
+  "mangled": "_ZN15IsaacRepentance5Level20GetPlanetariumChanceEv",
+  "demangled": "IsaacRepentance::Level::GetPlanetariumChance()",
+  "parameters": [],
+  "parameter_count": 0,
+  "kind": "function"
+ },
+ {
+  "constant": "kApi100LevelMakeRedRoomDoorOffset",
+  "offset": "0x3d8554",
+  "mangled": "_ZN15IsaacRepentance5Level15MakeRedRoomDoorEiNS_9eDoorSlotE",
+  "demangled": "IsaacRepentance::Level::MakeRedRoomDoor(int, IsaacRepentance::eDoorSlot)",
+  "parameters": [
+   "int",
+   "IsaacRepentance::eDoorSlot"
+  ],
+  "parameter_count": 2,
+  "kind": "function"
+ },
+ {
   "constant": "kLevelRemoveCursesOffset",
   "offset": "0x3d8ec4",
   "mangled": "_ZN15IsaacRepentance5Level12RemoveCursesEj",
@@ -1891,6 +6505,39 @@
    "unsigned int"
   ],
   "parameter_count": 1,
+  "kind": "function"
+ },
+ {
+  "constant": "kLevelUpdateVisibilityOffset",
+  "offset": "0x3d9638",
+  "mangled": "_ZN15IsaacRepentance5Level16UpdateVisibilityEv",
+  "demangled": "IsaacRepentance::Level::UpdateVisibility()",
+  "parameters": [],
+  "parameter_count": 0,
+  "kind": "function"
+ },
+ {
+  "constant": "kApi100LevelChangeRoomOffset",
+  "offset": "0x3d9aac",
+  "mangled": "_ZN15IsaacRepentance5Level10ChangeRoomEii",
+  "demangled": "IsaacRepentance::Level::ChangeRoom(int, int)",
+  "parameters": [
+   "int",
+   "int"
+  ],
+  "parameter_count": 2,
+  "kind": "function"
+ },
+ {
+  "constant": "kLevelGetRandomRoomIndexOffset",
+  "offset": "0x3dba84",
+  "mangled": "_ZNK15IsaacRepentance5Level18GetRandomRoomIndexEbj",
+  "demangled": "IsaacRepentance::Level::GetRandomRoomIndex(bool, unsigned int) const",
+  "parameters": [
+   "bool",
+   "unsigned int"
+  ],
+  "parameter_count": 2,
   "kind": "function"
  },
  {
@@ -1924,12 +6571,203 @@
   "kind": "function"
  },
  {
+  "constant": "kLevelCurseFunctionOffset",
+  "offset": "0x3e0688",
+  "mangled": "_ZN15IsaacRepentance5Level4InitEv",
+  "demangled": "IsaacRepentance::Level::Init()",
+  "parameters": [],
+  "parameter_count": 0,
+  "kind": "function"
+ },
+ {
+  "constant": "kLevelCurseFirstRandomOffset",
+  "offset": "0x3e0b34",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kLevelCurseFirstResumeOffset",
+  "offset": "0x3e0b38",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kLevelCurseEvalOffset",
+  "offset": "0x3e0c88",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
   "constant": "kLevelIsAscentOffset",
   "offset": "0x3e1d98",
   "mangled": "_ZNK15IsaacRepentance5Level15IsBackwardsPathEv",
   "demangled": "IsaacRepentance::Level::IsBackwardsPath() const",
   "parameters": [],
   "parameter_count": 0,
+  "kind": "function"
+ },
+ {
+  "constant": "kApi100LevelGetNameOffset",
+  "offset": "0x3e3dc8",
+  "mangled": "_ZN15IsaacRepentance5Level7GetNameEv",
+  "demangled": "IsaacRepentance::Level::GetName()",
+  "parameters": [],
+  "parameter_count": 0,
+  "kind": "function"
+ },
+ {
+  "constant": "kApi100LevelGetCurseNameOffset",
+  "offset": "0x3e3fa8",
+  "mangled": "_ZN15IsaacRepentance5Level12GetCurseNameEv",
+  "demangled": "IsaacRepentance::Level::GetCurseName()",
+  "parameters": [],
+  "parameter_count": 0,
+  "kind": "function"
+ },
+ {
+  "constant": "kApi100LevelShowNameOffset",
+  "offset": "0x3e4148",
+  "mangled": "_ZN15IsaacRepentance5Level8ShowNameEb",
+  "demangled": "IsaacRepentance::Level::ShowName(bool)",
+  "parameters": [
+   "bool"
+  ],
+  "parameter_count": 1,
+  "kind": "function"
+ },
+ {
+  "constant": "kLevelSetStageOffset",
+  "offset": "0x3e420c",
+  "mangled": "_ZN15IsaacRepentance5Level8SetStageENS_11eLevelStageENS_10eStageTypeE",
+  "demangled": "IsaacRepentance::Level::SetStage(IsaacRepentance::eLevelStage, IsaacRepentance::eStageType)",
+  "parameters": [
+   "IsaacRepentance::eLevelStage",
+   "IsaacRepentance::eStageType"
+  ],
+  "parameter_count": 2,
+  "kind": "function"
+ },
+ {
+  "constant": "kLevelSetNextStageOffset",
+  "offset": "0x3e42f4",
+  "mangled": "_ZN15IsaacRepentance5Level12SetNextStageEv",
+  "demangled": "IsaacRepentance::Level::SetNextStage()",
+  "parameters": [],
+  "parameter_count": 0,
+  "kind": "function"
+ },
+ {
+  "constant": "kLevelQueryRoomTypeIndexOffset",
+  "offset": "0x3e605c",
+  "mangled": "_ZN15IsaacRepentance5Level18QueryRoomTypeIndexENS_9eRoomTypeEbRNS_3RNGEb",
+  "demangled": "IsaacRepentance::Level::QueryRoomTypeIndex(IsaacRepentance::eRoomType, bool, IsaacRepentance::RNG&, bool)",
+  "parameters": [
+   "IsaacRepentance::eRoomType",
+   "bool",
+   "IsaacRepentance::RNG&",
+   "bool"
+  ],
+  "parameter_count": 4,
+  "kind": "function"
+ },
+ {
+  "constant": "kApi100LevelInitializeDevilAngelRoomOffset",
+  "offset": "0x3e6654",
+  "mangled": "_ZN15IsaacRepentance5Level24InitializeDevilAngelRoomEbb",
+  "demangled": "IsaacRepentance::Level::InitializeDevilAngelRoom(bool, bool)",
+  "parameters": [
+   "bool",
+   "bool"
+  ],
+  "parameter_count": 2,
+  "kind": "function"
+ },
+ {
+  "constant": "kApi100LevelCanOpenChallengeRoomOffset",
+  "offset": "0x3e6c1c",
+  "mangled": "_ZNK15IsaacRepentance5Level20CanOpenChallengeRoomEi",
+  "demangled": "IsaacRepentance::Level::CanOpenChallengeRoom(int) const",
+  "parameters": [
+   "int"
+  ],
+  "parameter_count": 1,
+  "kind": "function"
+ },
+ {
+  "constant": "kApi100LevelApplyMapEffectOffset",
+  "offset": "0x3e6d98",
+  "mangled": "_ZN15IsaacRepentance5Level14ApplyMapEffectEv",
+  "demangled": "IsaacRepentance::Level::ApplyMapEffect()",
+  "parameters": [],
+  "parameter_count": 0,
+  "kind": "function"
+ },
+ {
+  "constant": "kApi100LevelApplyBlueMapEffectOffset",
+  "offset": "0x3e6e7c",
+  "mangled": "_ZN15IsaacRepentance5Level18ApplyBlueMapEffectEv",
+  "demangled": "IsaacRepentance::Level::ApplyBlueMapEffect()",
+  "parameters": [],
+  "parameter_count": 0,
+  "kind": "function"
+ },
+ {
+  "constant": "kApi100LevelApplyCompassEffectOffset",
+  "offset": "0x3e6f54",
+  "mangled": "_ZN15IsaacRepentance5Level18ApplyCompassEffectEb",
+  "demangled": "IsaacRepentance::Level::ApplyCompassEffect(bool)",
+  "parameters": [
+   "bool"
+  ],
+  "parameter_count": 1,
+  "kind": "function"
+ },
+ {
+  "constant": "kApi100LevelShowMapOffset",
+  "offset": "0x3e7048",
+  "mangled": "_ZN15IsaacRepentance5Level7ShowMapEv",
+  "demangled": "IsaacRepentance::Level::ShowMap()",
+  "parameters": [],
+  "parameter_count": 0,
+  "kind": "function"
+ },
+ {
+  "constant": "kApi100LevelRemoveCompassEffectOffset",
+  "offset": "0x3e723c",
+  "mangled": "_ZN15IsaacRepentance5Level19RemoveCompassEffectEv",
+  "demangled": "IsaacRepentance::Level::RemoveCompassEffect()",
+  "parameters": [],
+  "parameter_count": 0,
+  "kind": "function"
+ },
+ {
+  "constant": "kApi100LevelCanSpawnDevilRoomOffset",
+  "offset": "0x3e7894",
+  "mangled": "_ZN15IsaacRepentance5Level17CanSpawnDevilRoomEv",
+  "demangled": "IsaacRepentance::Level::CanSpawnDevilRoom()",
+  "parameters": [],
+  "parameter_count": 0,
+  "kind": "function"
+ },
+ {
+  "constant": "kApi100LevelUncoverHiddenDoorOffset",
+  "offset": "0x3e7cac",
+  "mangled": "_ZN15IsaacRepentance5Level17UncoverHiddenDoorEiNS_9eDoorSlotE",
+  "demangled": "IsaacRepentance::Level::UncoverHiddenDoor(int, IsaacRepentance::eDoorSlot)",
+  "parameters": [
+   "int",
+   "IsaacRepentance::eDoorSlot"
+  ],
+  "parameter_count": 2,
   "kind": "function"
  },
  {
@@ -1942,6 +6780,15 @@
    "bool"
   ],
   "parameter_count": 2,
+  "kind": "function"
+ },
+ {
+  "constant": "kApi100LevelSetRedHeartDamageOffset",
+  "offset": "0x3e7f00",
+  "mangled": "_ZN15IsaacRepentance5Level17SetRedHeartDamageEv",
+  "demangled": "IsaacRepentance::Level::SetRedHeartDamage()",
+  "parameters": [],
+  "parameter_count": 0,
   "kind": "function"
  },
  {
@@ -2083,8 +6930,41 @@
   "kind": "function"
  },
  {
+  "constant": "kManagerConsoleRestartGameOffset",
+  "offset": "0x3fa458",
+  "mangled": "_ZN15IsaacRepentance7Manager11RestartGameENS_5SeedsEbb",
+  "demangled": "IsaacRepentance::Manager::RestartGame(IsaacRepentance::Seeds, bool, bool)",
+  "parameters": [
+   "IsaacRepentance::Seeds",
+   "bool",
+   "bool"
+  ],
+  "parameter_count": 3,
+  "kind": "function"
+ },
+ {
   "constant": "kSaveLoadRelaySaveCallFileOffset",
   "offset": "0x3fa7b4",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kManagerSetSaveSlotOffset",
+  "offset": "0x3faa28",
+  "mangled": "_ZN15IsaacRepentance7Manager11SetSaveSlotENS0_9eSaveSlotE",
+  "demangled": "IsaacRepentance::Manager::SetSaveSlot(IsaacRepentance::Manager::eSaveSlot)",
+  "parameters": [
+   "IsaacRepentance::Manager::eSaveSlot"
+  ],
+  "parameter_count": 1,
+  "kind": "function"
+ },
+ {
+  "constant": "kManagerSetSaveSlotStoreOffset",
+  "offset": "0x3faadc",
   "mangled": null,
   "demangled": null,
   "parameters": null,
@@ -2130,12 +7010,51 @@
   "kind": "function"
  },
  {
+  "constant": "kModManagerLoadConfigsFileOffset",
+  "offset": "0x41e388",
+  "mangled": "_ZN15IsaacRepentance10ModManager11LoadConfigsEv",
+  "demangled": "IsaacRepentance::ModManager::LoadConfigs()",
+  "parameters": [],
+  "parameter_count": 0,
+  "kind": "function"
+ },
+ {
+  "constant": "kModManagerListModsFileOffset",
+  "offset": "0x41fb0c",
+  "mangled": "_ZN15IsaacRepentance10ModManager8ListModsEv",
+  "demangled": "IsaacRepentance::ModManager::ListMods()",
+  "parameters": [],
+  "parameter_count": 0,
+  "kind": "function"
+ },
+ {
+  "constant": "kModEntryCtorFileOffset",
+  "offset": "0x420d18",
+  "mangled": "_ZN15IsaacRepentance8ModEntryC2Ev",
+  "demangled": "IsaacRepentance::ModEntry::ModEntry()",
+  "parameters": [],
+  "parameter_count": 0,
+  "kind": "function"
+ },
+ {
   "constant": "kModManagerResetFileOffset",
   "offset": "0x422440",
   "mangled": "_ZN15IsaacRepentance10ModManager5ResetEv",
   "demangled": "IsaacRepentance::ModManager::Reset()",
   "parameters": [],
   "parameter_count": 0,
+  "kind": "function"
+ },
+ {
+  "constant": "kMusicLoadConfigFileOffset",
+  "offset": "0x425218",
+  "mangled": "_ZN15IsaacRepentance5Music10LoadConfigEPKcb",
+  "demangled": "IsaacRepentance::Music::LoadConfig(char const*, bool)",
+  "parameters": [
+   "char const*",
+   "bool"
+  ],
+  "parameter_count": 2,
   "kind": "function"
  },
  {
@@ -2148,6 +7067,27 @@
   "kind": "function"
  },
  {
+  "constant": "kMusicGetQueuedMusicIdOffset",
+  "offset": "0x426c40",
+  "mangled": "_ZNK15IsaacRepentance5Music16GetQueuedMusicIDEv",
+  "demangled": "IsaacRepentance::Music::GetQueuedMusicID() const",
+  "parameters": [],
+  "parameter_count": 0,
+  "kind": "function"
+ },
+ {
+  "constant": "kMusicPlayOffset",
+  "offset": "0x427238",
+  "mangled": "_ZN15IsaacRepentance5Music4PlayENS_6eMusicEf",
+  "demangled": "IsaacRepentance::Music::Play(IsaacRepentance::eMusic, float)",
+  "parameters": [
+   "IsaacRepentance::eMusic",
+   "float"
+  ],
+  "parameter_count": 2,
+  "kind": "function"
+ },
+ {
   "constant": "kStage48MusicPlayOffset",
   "offset": "0x427238",
   "mangled": "_ZN15IsaacRepentance5Music4PlayENS_6eMusicEf",
@@ -2157,6 +7097,42 @@
    "float"
   ],
   "parameter_count": 2,
+  "kind": "function"
+ },
+ {
+  "constant": "kMusicCrossfadeOffset",
+  "offset": "0x4273c0",
+  "mangled": "_ZN15IsaacRepentance5Music9CrossfadeENS_6eMusicEf",
+  "demangled": "IsaacRepentance::Music::Crossfade(IsaacRepentance::eMusic, float)",
+  "parameters": [
+   "IsaacRepentance::eMusic",
+   "float"
+  ],
+  "parameter_count": 2,
+  "kind": "function"
+ },
+ {
+  "constant": "kApi100MusicManagerFadeinOffset",
+  "offset": "0x4275e4",
+  "mangled": "_ZN15IsaacRepentance5Music6FadeinENS_6eMusicEff",
+  "demangled": "IsaacRepentance::Music::Fadein(IsaacRepentance::eMusic, float, float)",
+  "parameters": [
+   "IsaacRepentance::eMusic",
+   "float",
+   "float"
+  ],
+  "parameter_count": 3,
+  "kind": "function"
+ },
+ {
+  "constant": "kApi100MusicManagerFadeoutOffset",
+  "offset": "0x427630",
+  "mangled": "_ZN15IsaacRepentance5Music7FadeoutEf",
+  "demangled": "IsaacRepentance::Music::Fadeout(float)",
+  "parameters": [
+   "float"
+  ],
+  "parameter_count": 1,
   "kind": "function"
  },
  {
@@ -2178,6 +7154,118 @@
   "kind": "function"
  },
  {
+  "constant": "kMusicEnableLayerOffset",
+  "offset": "0x427674",
+  "mangled": "_ZN15IsaacRepentance5Music11EnableLayerEib",
+  "demangled": "IsaacRepentance::Music::EnableLayer(int, bool)",
+  "parameters": [
+   "int",
+   "bool"
+  ],
+  "parameter_count": 2,
+  "kind": "function"
+ },
+ {
+  "constant": "kMusicDisableLayerOffset",
+  "offset": "0x4277dc",
+  "mangled": "_ZN15IsaacRepentance5Music12DisableLayerEi",
+  "demangled": "IsaacRepentance::Music::DisableLayer(int)",
+  "parameters": [
+   "int"
+  ],
+  "parameter_count": 1,
+  "kind": "function"
+ },
+ {
+  "constant": "kMusicIsLayerEnabledOffset",
+  "offset": "0x427800",
+  "mangled": "_ZNK15IsaacRepentance5Music14IsLayerEnabledEi",
+  "demangled": "IsaacRepentance::Music::IsLayerEnabled(int) const",
+  "parameters": [
+   "int"
+  ],
+  "parameter_count": 1,
+  "kind": "function"
+ },
+ {
+  "constant": "kMusicQueueOffset",
+  "offset": "0x427854",
+  "mangled": "_ZN15IsaacRepentance5Music5QueueENS_6eMusicE",
+  "demangled": "IsaacRepentance::Music::Queue(IsaacRepentance::eMusic)",
+  "parameters": [
+   "IsaacRepentance::eMusic"
+  ],
+  "parameter_count": 1,
+  "kind": "function"
+ },
+ {
+  "constant": "kMusicPitchSlideOffset",
+  "offset": "0x42785c",
+  "mangled": "_ZN15IsaacRepentance5Music10PitchSlideEf",
+  "demangled": "IsaacRepentance::Music::PitchSlide(float)",
+  "parameters": [
+   "float"
+  ],
+  "parameter_count": 1,
+  "kind": "function"
+ },
+ {
+  "constant": "kMusicResetPitchOffset",
+  "offset": "0x427864",
+  "mangled": "_ZN15IsaacRepentance5Music10ResetPitchEv",
+  "demangled": "IsaacRepentance::Music::ResetPitch()",
+  "parameters": [],
+  "parameter_count": 0,
+  "kind": "function"
+ },
+ {
+  "constant": "kMusicVolumeSlideOffset",
+  "offset": "0x4278a0",
+  "mangled": "_ZN15IsaacRepentance5Music11VolumeSlideEff",
+  "demangled": "IsaacRepentance::Music::VolumeSlide(float, float)",
+  "parameters": [
+   "float",
+   "float"
+  ],
+  "parameter_count": 2,
+  "kind": "function"
+ },
+ {
+  "constant": "kMusicUpdateVolumeOffset",
+  "offset": "0x427908",
+  "mangled": "_ZN15IsaacRepentance5Music12UpdateVolumeEv",
+  "demangled": "IsaacRepentance::Music::UpdateVolume()",
+  "parameters": [],
+  "parameter_count": 0,
+  "kind": "function"
+ },
+ {
+  "constant": "kRPlusFindGridPathOffset",
+  "offset": "0x42b9e4",
+  "mangled": "_ZN15IsaacRepentance16NPCAI_Pathfinder12FindGridPathERKN4KAGE4Math7Vector2Efib",
+  "demangled": "IsaacRepentance::NPCAI_Pathfinder::FindGridPath(KAGE::Math::Vector2 const&, float, int, bool)",
+  "parameters": [
+   "KAGE::Math::Vector2 const&",
+   "float",
+   "int",
+   "bool"
+  ],
+  "parameter_count": 4,
+  "kind": "function"
+ },
+ {
+  "constant": "kPathFinderHasPathToPosOffset",
+  "offset": "0x42f6cc",
+  "mangled": "_ZNK15IsaacRepentance16NPCAI_Pathfinder12HasPathToPosERKN4KAGE4Math7Vector2Eb",
+  "demangled": "IsaacRepentance::NPCAI_Pathfinder::HasPathToPos(KAGE::Math::Vector2 const&, bool) const",
+  "parameters": [
+   "KAGE::Math::Vector2 const&",
+   "bool"
+  ],
+  "parameter_count": 2,
+  "kind": "function"
+ },
+ {
   "constant": "kPersistentGameDataSetReadOnlyOffset",
   "offset": "0x439460",
   "mangled": "_ZN15IsaacRepentance18PersistentGameData11SetReadOnlyEb",
@@ -2186,6 +7274,85 @@
    "bool"
   ],
   "parameter_count": 1,
+  "kind": "function"
+ },
+ {
+  "constant": "kPersistentGameDataUnlockedOffset",
+  "offset": "0x439654",
+  "mangled": "_ZNK15IsaacRepentance18PersistentGameData8UnlockedENS_12eAchievementE",
+  "demangled": "IsaacRepentance::PersistentGameData::Unlocked(IsaacRepentance::eAchievement) const",
+  "parameters": [
+   "IsaacRepentance::eAchievement"
+  ],
+  "parameter_count": 1,
+  "kind": "function"
+ },
+ {
+  "constant": "kPersistentGameDataAddBossOffset",
+  "offset": "0x439a40",
+  "mangled": "_ZN15IsaacRepentance18PersistentGameData7AddBossENS_7eBossIdE",
+  "demangled": "IsaacRepentance::PersistentGameData::AddBoss(IsaacRepentance::eBossId)",
+  "parameters": [
+   "IsaacRepentance::eBossId"
+  ],
+  "parameter_count": 1,
+  "kind": "function"
+ },
+ {
+  "constant": "kPersistentGameDataAddBestiaryKillOffset",
+  "offset": "0x43ac5c",
+  "mangled": "_ZN15IsaacRepentance18PersistentGameData15AddBestiaryKillENS_11eEntityTypeEj",
+  "demangled": "IsaacRepentance::PersistentGameData::AddBestiaryKill(IsaacRepentance::eEntityType, unsigned int)",
+  "parameters": [
+   "IsaacRepentance::eEntityType",
+   "unsigned int"
+  ],
+  "parameter_count": 2,
+  "kind": "function"
+ },
+ {
+  "constant": "kPersistentGameDataBestiaryKillOffset",
+  "offset": "0x43b158",
+  "mangled": "_ZNK15IsaacRepentance18PersistentGameData20GetBestiaryKillCountENS_11eEntityTypeEj",
+  "demangled": "IsaacRepentance::PersistentGameData::GetBestiaryKillCount(IsaacRepentance::eEntityType, unsigned int) const",
+  "parameters": [
+   "IsaacRepentance::eEntityType",
+   "unsigned int"
+  ],
+  "parameter_count": 2,
+  "kind": "function"
+ },
+ {
+  "constant": "kPersistentGameDataBestiaryEncounterOffset",
+  "offset": "0x43b66c",
+  "mangled": "_ZNK15IsaacRepentance18PersistentGameData25GetBestiaryEncounterCountENS_11eEntityTypeEj",
+  "demangled": "IsaacRepentance::PersistentGameData::GetBestiaryEncounterCount(IsaacRepentance::eEntityType, unsigned int) const",
+  "parameters": [
+   "IsaacRepentance::eEntityType",
+   "unsigned int"
+  ],
+  "parameter_count": 2,
+  "kind": "function"
+ },
+ {
+  "constant": "kPersistentGameDataBestiaryDeathOffset",
+  "offset": "0x43b820",
+  "mangled": "_ZNK15IsaacRepentance18PersistentGameData21GetBestiaryDeathCountENS_11eEntityTypeEj",
+  "demangled": "IsaacRepentance::PersistentGameData::GetBestiaryDeathCount(IsaacRepentance::eEntityType, unsigned int) const",
+  "parameters": [
+   "IsaacRepentance::eEntityType",
+   "unsigned int"
+  ],
+  "parameter_count": 2,
+  "kind": "function"
+ },
+ {
+  "constant": "kEntityDestructorRngDestroyOffset",
+  "offset": "0x44e3bc",
+  "mangled": "_ZN15IsaacRepentance3RNGD1Ev",
+  "demangled": "IsaacRepentance::RNG::~RNG()",
+  "parameters": [],
+  "parameter_count": 0,
   "kind": "function"
  },
  {
@@ -2201,10 +7368,39 @@
   "kind": "function"
  },
  {
+  "constant": "kRngRandomUintOffset",
+  "offset": "0x44e3e8",
+  "mangled": "_ZN15IsaacRepentance3RNG6RandomEj",
+  "demangled": "IsaacRepentance::RNG::Random(unsigned int)",
+  "parameters": [
+   "unsigned int"
+  ],
+  "parameter_count": 1,
+  "kind": "function"
+ },
+ {
   "constant": "kRngNextOffset",
   "offset": "0x44e464",
   "mangled": "_ZN15IsaacRepentance3RNG4NextEv",
   "demangled": "IsaacRepentance::RNG::Next()",
+  "parameters": [],
+  "parameter_count": 0,
+  "kind": "function"
+ },
+ {
+  "constant": "kRngRandomOffset",
+  "offset": "0x44e4c0",
+  "mangled": "_ZN15IsaacRepentance3RNG6RandomEv",
+  "demangled": "IsaacRepentance::RNG::Random()",
+  "parameters": [],
+  "parameter_count": 0,
+  "kind": "function"
+ },
+ {
+  "constant": "kApi100RoomGetBrokenWatchStateOffset",
+  "offset": "0x450f00",
+  "mangled": "_ZNK15IsaacRepentance4Room19GetBrokenWatchStateEv",
+  "demangled": "IsaacRepentance::Room::GetBrokenWatchState() const",
   "parameters": [],
   "parameter_count": 0,
   "kind": "function"
@@ -2216,6 +7412,32 @@
   "demangled": "IsaacRepentance::Room::PlayMusic()",
   "parameters": [],
   "parameter_count": 0,
+  "kind": "function"
+ },
+ {
+  "constant": "kRoomSpawnGridEntityOffset",
+  "offset": "0x452528",
+  "mangled": "_ZN15IsaacRepentance4Room15SpawnGridEntityEiNS_15eGridEntityTypeEjji",
+  "demangled": "IsaacRepentance::Room::SpawnGridEntity(int, IsaacRepentance::eGridEntityType, unsigned int, unsigned int, int)",
+  "parameters": [
+   "int",
+   "IsaacRepentance::eGridEntityType",
+   "unsigned int",
+   "unsigned int",
+   "int"
+  ],
+  "parameter_count": 5,
+  "kind": "function"
+ },
+ {
+  "constant": "kRoomGetGridCollisionOffset",
+  "offset": "0x452654",
+  "mangled": "_ZNK15IsaacRepentance4Room16GetGridCollisionEi",
+  "demangled": "IsaacRepentance::Room::GetGridCollision(int) const",
+  "parameters": [
+   "int"
+  ],
+  "parameter_count": 1,
   "kind": "function"
  },
  {
@@ -2234,6 +7456,201 @@
   "kind": "function"
  },
  {
+  "constant": "kRoomDestroyGridOffset",
+  "offset": "0x454cf4",
+  "mangled": "_ZN15IsaacRepentance4Room11DestroyGridEibb",
+  "demangled": "IsaacRepentance::Room::DestroyGrid(int, bool, bool)",
+  "parameters": [
+   "int",
+   "bool",
+   "bool"
+  ],
+  "parameter_count": 3,
+  "kind": "function"
+ },
+ {
+  "constant": "kRoomGetGridPositionOffset",
+  "offset": "0x454d38",
+  "mangled": "_ZNK15IsaacRepentance4Room15GetGridPositionEi",
+  "demangled": "IsaacRepentance::Room::GetGridPosition(int) const",
+  "parameters": [
+   "int"
+  ],
+  "parameter_count": 1,
+  "kind": "function"
+ },
+ {
+  "constant": "kRoomGetRoomConfigStageOffset",
+  "offset": "0x455024",
+  "mangled": "_ZNK15IsaacRepentance4Room18GetRoomConfigStageEv",
+  "demangled": "IsaacRepentance::Room::GetRoomConfigStage() const",
+  "parameters": [],
+  "parameter_count": 0,
+  "kind": "function"
+ },
+ {
+  "constant": "kRoomFindFreePickupSpawnPositionOffset",
+  "offset": "0x455bfc",
+  "mangled": "_ZNK15IsaacRepentance4Room27FindFreePickupSpawnPositionERKN4KAGE4Math7Vector2Efbb",
+  "demangled": "IsaacRepentance::Room::FindFreePickupSpawnPosition(KAGE::Math::Vector2 const&, float, bool, bool) const",
+  "parameters": [
+   "KAGE::Math::Vector2 const&",
+   "float",
+   "bool",
+   "bool"
+  ],
+  "parameter_count": 4,
+  "kind": "function"
+ },
+ {
+  "constant": "kRoomGetRandomPositionOffset",
+  "offset": "0x456110",
+  "mangled": "_ZN15IsaacRepentance4Room17GetRandomPositionEf",
+  "demangled": "IsaacRepentance::Room::GetRandomPosition(float)",
+  "parameters": [
+   "float"
+  ],
+  "parameter_count": 1,
+  "kind": "function"
+ },
+ {
+  "constant": "kRoomGetCenterPosOffset",
+  "offset": "0x456250",
+  "mangled": "_ZNK15IsaacRepentance4Room12GetCenterPosEv",
+  "demangled": "IsaacRepentance::Room::GetCenterPos() const",
+  "parameters": [],
+  "parameter_count": 0,
+  "kind": "function"
+ },
+ {
+  "constant": "kRoomSpawnClearAwardOffset",
+  "offset": "0x456810",
+  "mangled": "_ZN15IsaacRepentance4Room15SpawnClearAwardEv",
+  "demangled": "IsaacRepentance::Room::SpawnClearAward()",
+  "parameters": [],
+  "parameter_count": 0,
+  "kind": "function"
+ },
+ {
+  "constant": "kRPlusAwardSeedReaderOffset",
+  "offset": "0x456834",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kClearAwardHookOffset",
+  "offset": "0x456988",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kClearAwardResumeOffset",
+  "offset": "0x45698c",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kClearAwardCleanupOffset",
+  "offset": "0x458170",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kRoomGetGridCollisionAtPosOffset",
+  "offset": "0x459d38",
+  "mangled": "_ZNK15IsaacRepentance4Room16GetGridCollisionEN4KAGE4Math7Vector2E",
+  "demangled": "IsaacRepentance::Room::GetGridCollision(KAGE::Math::Vector2) const",
+  "parameters": [
+   "KAGE::Math::Vector2"
+  ],
+  "parameter_count": 1,
+  "kind": "function"
+ },
+ {
+  "constant": "kApi100RoomHasLavaOffset",
+  "offset": "0x461f90",
+  "mangled": "_ZNK15IsaacRepentance4Room7HasLavaEv",
+  "demangled": "IsaacRepentance::Room::HasLava() const",
+  "parameters": [],
+  "parameter_count": 0,
+  "kind": "function"
+ },
+ {
+  "constant": "kApi100RoomGetRandomTileIndexOffset",
+  "offset": "0x461fb4",
+  "mangled": "_ZN15IsaacRepentance4Room18GetRandomTileIndexEi",
+  "demangled": "IsaacRepentance::Room::GetRandomTileIndex(int)",
+  "parameters": [
+   "int"
+  ],
+  "parameter_count": 1,
+  "kind": "function"
+ },
+ {
+  "constant": "kApi100RoomTrySpawnMegaSatanRoomDoorOffset",
+  "offset": "0x4624ac",
+  "mangled": "_ZN15IsaacRepentance4Room25TrySpawnMegaSatanRoomDoorEb",
+  "demangled": "IsaacRepentance::Room::TrySpawnMegaSatanRoomDoor(bool)",
+  "parameters": [
+   "bool"
+  ],
+  "parameter_count": 1,
+  "kind": "function"
+ },
+ {
+  "constant": "kRoomIsCurrentRoomLastBossOffset",
+  "offset": "0x464430",
+  "mangled": "_ZNK15IsaacRepentance4Room21IsCurrentRoomLastBossEv",
+  "demangled": "IsaacRepentance::Room::IsCurrentRoomLastBoss() const",
+  "parameters": [],
+  "parameter_count": 0,
+  "kind": "function"
+ },
+ {
+  "constant": "kRoomRemoveDoorOffset",
+  "offset": "0x464484",
+  "mangled": "_ZN15IsaacRepentance4Room10RemoveDoorENS_9eDoorSlotE",
+  "demangled": "IsaacRepentance::Room::RemoveDoor(IsaacRepentance::eDoorSlot)",
+  "parameters": [
+   "IsaacRepentance::eDoorSlot"
+  ],
+  "parameter_count": 1,
+  "kind": "function"
+ },
+ {
+  "constant": "kRoomIsPositionInRoomOffset",
+  "offset": "0x464560",
+  "mangled": "_ZNK15IsaacRepentance4Room16IsPositionInRoomERKN4KAGE4Math7Vector2Ef",
+  "demangled": "IsaacRepentance::Room::IsPositionInRoom(KAGE::Math::Vector2 const&, float) const",
+  "parameters": [
+   "KAGE::Math::Vector2 const&",
+   "float"
+  ],
+  "parameter_count": 2,
+  "kind": "function"
+ },
+ {
+  "constant": "kRoomTurnGoldOffset",
+  "offset": "0x4649f8",
+  "mangled": "_ZN15IsaacRepentance4Room8TurnGoldEv",
+  "demangled": "IsaacRepentance::Room::TurnGold()",
+  "parameters": [],
+  "parameter_count": 0,
+  "kind": "function"
+ },
+ {
   "constant": "kRoomGetDoorSlotPositionOffset",
   "offset": "0x464b8c",
   "mangled": "_ZNK15IsaacRepentance4Room19GetDoorSlotPositionENS_9eDoorSlotE",
@@ -2245,12 +7662,578 @@
   "kind": "function"
  },
  {
+  "constant": "kApi100RoomTrySpawnSecretExitOffset",
+  "offset": "0x464c10",
+  "mangled": "_ZN15IsaacRepentance4Room18TrySpawnSecretExitEbb",
+  "demangled": "IsaacRepentance::Room::TrySpawnSecretExit(bool, bool)",
+  "parameters": [
+   "bool",
+   "bool"
+  ],
+  "parameter_count": 2,
+  "kind": "function"
+ },
+ {
+  "constant": "kApi100RoomGetDevilRoomChanceOffset",
+  "offset": "0x4662f4",
+  "mangled": "_ZN15IsaacRepentance4Room18GetDevilRoomChanceEv",
+  "demangled": "IsaacRepentance::Room::GetDevilRoomChance()",
+  "parameters": [],
+  "parameter_count": 0,
+  "kind": "function"
+ },
+ {
+  "constant": "kApi100RoomTrySpawnBossRushDoorOffset",
+  "offset": "0x4669f0",
+  "mangled": "_ZN15IsaacRepentance4Room20TrySpawnBossRushDoorEbb",
+  "demangled": "IsaacRepentance::Room::TrySpawnBossRushDoor(bool, bool)",
+  "parameters": [
+   "bool",
+   "bool"
+  ],
+  "parameter_count": 2,
+  "kind": "function"
+ },
+ {
+  "constant": "kRoomRemoveGridEntityOffset",
+  "offset": "0x46755c",
+  "mangled": "_ZN15IsaacRepentance4Room16RemoveGridEntityEiib",
+  "demangled": "IsaacRepentance::Room::RemoveGridEntity(int, int, bool)",
+  "parameters": [
+   "int",
+   "int",
+   "bool"
+  ],
+  "parameter_count": 3,
+  "kind": "function"
+ },
+ {
+  "constant": "kRoomIsAmbushActiveOffset",
+  "offset": "0x46ac8c",
+  "mangled": "_ZNK15IsaacRepentance4Room14IsAmbushActiveEv",
+  "demangled": "IsaacRepentance::Room::IsAmbushActive() const",
+  "parameters": [],
+  "parameter_count": 0,
+  "kind": "function"
+ },
+ {
+  "constant": "kApi100RoomShopRestockPartialOffset",
+  "offset": "0x46ce64",
+  "mangled": "_ZN15IsaacRepentance4Room18ShopRestockPartialEv",
+  "demangled": "IsaacRepentance::Room::ShopRestockPartial()",
+  "parameters": [],
+  "parameter_count": 0,
+  "kind": "function"
+ },
+ {
+  "constant": "kRoomUpdateOffset",
+  "offset": "0x46d788",
+  "mangled": "_ZN15IsaacRepentance4Room6UpdateEv",
+  "demangled": "IsaacRepentance::Room::Update()",
+  "parameters": [],
+  "parameter_count": 0,
+  "kind": "function"
+ },
+ {
   "constant": "kRoomGetFrameCountOffset",
   "offset": "0x470b0c",
   "mangled": "_ZN15IsaacRepentance4Room13GetFrameCountEv",
   "demangled": "IsaacRepentance::Room::GetFrameCount()",
   "parameters": [],
   "parameter_count": 0,
+  "kind": "function"
+ },
+ {
+  "constant": "kApi100RoomTriggerClearOffset",
+  "offset": "0x470b58",
+  "mangled": "_ZN15IsaacRepentance4Room12TriggerClearEb",
+  "demangled": "IsaacRepentance::Room::TriggerClear(bool)",
+  "parameters": [
+   "bool"
+  ],
+  "parameter_count": 1,
+  "kind": "function"
+ },
+ {
+  "constant": "kApi100RoomTrySpawnBlueWombDoorOffset",
+  "offset": "0x471f7c",
+  "mangled": "_ZN15IsaacRepentance4Room20TrySpawnBlueWombDoorEbbb",
+  "demangled": "IsaacRepentance::Room::TrySpawnBlueWombDoor(bool, bool, bool)",
+  "parameters": [
+   "bool",
+   "bool",
+   "bool"
+  ],
+  "parameter_count": 3,
+  "kind": "function"
+ },
+ {
+  "constant": "kApi100RoomTrySpawnTheVoidDoorOffset",
+  "offset": "0x4723e0",
+  "mangled": "_ZN15IsaacRepentance4Room19TrySpawnTheVoidDoorEb",
+  "demangled": "IsaacRepentance::Room::TrySpawnTheVoidDoor(bool)",
+  "parameters": [
+   "bool"
+  ],
+  "parameter_count": 1,
+  "kind": "function"
+ },
+ {
+  "constant": "kApi100RoomGetLightingAlphaOffset",
+  "offset": "0x477504",
+  "mangled": "_ZN15IsaacRepentance4Room16GetLightingAlphaEv",
+  "demangled": "IsaacRepentance::Room::GetLightingAlpha()",
+  "parameters": [],
+  "parameter_count": 0,
+  "kind": "function"
+ },
+ {
+  "constant": "kRoomSetGridPathOffset",
+  "offset": "0x4841ec",
+  "mangled": "_ZN15IsaacRepentance4Room11SetGridPathEiii",
+  "demangled": "IsaacRepentance::Room::SetGridPath(int, int, int)",
+  "parameters": [
+   "int",
+   "int",
+   "int"
+  ],
+  "parameter_count": 3,
+  "kind": "function"
+ },
+ {
+  "constant": "kRoomGetClampedPositionOffset",
+  "offset": "0x4842a0",
+  "mangled": "_ZNK15IsaacRepentance4Room18GetClampedPositionERKN4KAGE4Math7Vector2Effff",
+  "demangled": "IsaacRepentance::Room::GetClampedPosition(KAGE::Math::Vector2 const&, float, float, float, float) const",
+  "parameters": [
+   "KAGE::Math::Vector2 const&",
+   "float",
+   "float",
+   "float",
+   "float"
+  ],
+  "parameter_count": 5,
+  "kind": "function"
+ },
+ {
+  "constant": "kApi100RoomIsLShapedRoomOffset",
+  "offset": "0x48453c",
+  "mangled": "_ZNK15IsaacRepentance4Room13IsLShapedRoomEv",
+  "demangled": "IsaacRepentance::Room::IsLShapedRoom() const",
+  "parameters": [],
+  "parameter_count": 0,
+  "kind": "function"
+ },
+ {
+  "constant": "kApi100RoomDamageGridOffset",
+  "offset": "0x484a3c",
+  "mangled": "_ZN15IsaacRepentance4Room10DamageGridEii",
+  "demangled": "IsaacRepentance::Room::DamageGrid(int, int)",
+  "parameters": [
+   "int",
+   "int"
+  ],
+  "parameter_count": 2,
+  "kind": "function"
+ },
+ {
+  "constant": "kApi100RoomShopRestockFullOffset",
+  "offset": "0x486ef0",
+  "mangled": "_ZN15IsaacRepentance4Room15ShopRestockFullEv",
+  "demangled": "IsaacRepentance::Room::ShopRestockFull()",
+  "parameters": [],
+  "parameter_count": 0,
+  "kind": "function"
+ },
+ {
+  "constant": "kApi100RoomShopReshuffleOffset",
+  "offset": "0x487490",
+  "mangled": "_ZN15IsaacRepentance4Room13ShopReshuffleEbb",
+  "demangled": "IsaacRepentance::Room::ShopReshuffle(bool, bool)",
+  "parameters": [
+   "bool",
+   "bool"
+  ],
+  "parameter_count": 2,
+  "kind": "function"
+ },
+ {
+  "constant": "kApi100RoomHasWaterOffset",
+  "offset": "0x487fa0",
+  "mangled": "_ZN15IsaacRepentance4Room8HasWaterEv",
+  "demangled": "IsaacRepentance::Room::HasWater()",
+  "parameters": [],
+  "parameter_count": 0,
+  "kind": "function"
+ },
+ {
+  "constant": "kRoomFindFreeTilePositionOffset",
+  "offset": "0x488050",
+  "mangled": "_ZNK15IsaacRepentance4Room20FindFreeTilePositionERKN4KAGE4Math7Vector2Ef",
+  "demangled": "IsaacRepentance::Room::FindFreeTilePosition(KAGE::Math::Vector2 const&, float) const",
+  "parameters": [
+   "KAGE::Math::Vector2 const&",
+   "float"
+  ],
+  "parameter_count": 2,
+  "kind": "function"
+ },
+ {
+  "constant": "kApi100RoomSetBrokenWatchStateOffset",
+  "offset": "0x488664",
+  "mangled": "_ZN15IsaacRepentance4Room19SetBrokenWatchStateEi",
+  "demangled": "IsaacRepentance::Room::SetBrokenWatchState(int)",
+  "parameters": [
+   "int"
+  ],
+  "parameter_count": 1,
+  "kind": "function"
+ },
+ {
+  "constant": "kApi100RoomRespawnEnemiesOffset",
+  "offset": "0x488aa0",
+  "mangled": "_ZN15IsaacRepentance4Room14RespawnEnemiesEv",
+  "demangled": "IsaacRepentance::Room::RespawnEnemies()",
+  "parameters": [],
+  "parameter_count": 0,
+  "kind": "function"
+ },
+ {
+  "constant": "kApi100RoomGetDungeonRockIdxOffset",
+  "offset": "0x4891f0",
+  "mangled": "_ZNK15IsaacRepentance4Room17GetDungeonRockIdxEv",
+  "demangled": "IsaacRepentance::Room::GetDungeonRockIdx() const",
+  "parameters": [],
+  "parameter_count": 0,
+  "kind": "function"
+ },
+ {
+  "constant": "kRoomHasCurseMistOffset",
+  "offset": "0x48c69c",
+  "mangled": "_ZNK15IsaacRepentance4Room12HasCurseMistEv",
+  "demangled": "IsaacRepentance::Room::HasCurseMist() const",
+  "parameters": [],
+  "parameter_count": 0,
+  "kind": "function"
+ },
+ {
+  "constant": "kRoomConfigSpawnPickEntryOffset",
+  "offset": "0x494910",
+  "mangled": "_ZNK15IsaacRepentance10RoomConfig5Spawn9PickEntryEf",
+  "demangled": "IsaacRepentance::RoomConfig::Spawn::PickEntry(float) const",
+  "parameters": [
+   "float"
+  ],
+  "parameter_count": 1,
+  "kind": "function"
+ },
+ {
+  "constant": "kConsoleSeedsAssignOffset",
+  "offset": "0x49cd0c",
+  "mangled": "_ZN15IsaacRepentance5SeedsaSERKS0_",
+  "demangled": "IsaacRepentance::Seeds::operator=(IsaacRepentance::Seeds const&)",
+  "parameters": [
+   "IsaacRepentance::Seeds const&"
+  ],
+  "parameter_count": 1,
+  "kind": "function"
+ },
+ {
+  "constant": "kSeedsSetStartSeedOffset",
+  "offset": "0x4a1114",
+  "mangled": "_ZN15IsaacRepentance5Seeds12SetStartSeedEj",
+  "demangled": "IsaacRepentance::Seeds::SetStartSeed(unsigned int)",
+  "parameters": [
+   "unsigned int"
+  ],
+  "parameter_count": 1,
+  "kind": "function"
+ },
+ {
+  "constant": "kSeedsForgetStageSeedOffset",
+  "offset": "0x4a1228",
+  "mangled": "_ZN15IsaacRepentance5Seeds15ForgetStageSeedENS_11eLevelStageE",
+  "demangled": "IsaacRepentance::Seeds::ForgetStageSeed(IsaacRepentance::eLevelStage)",
+  "parameters": [
+   "IsaacRepentance::eLevelStage"
+  ],
+  "parameter_count": 1,
+  "kind": "function"
+ },
+ {
+  "constant": "kSoundEffectsPreloadOffset",
+  "offset": "0x4a202c",
+  "mangled": "_ZN15IsaacRepentance12SoundEffects7PreloadENS_12eSoundEffectE",
+  "demangled": "IsaacRepentance::SoundEffects::Preload(IsaacRepentance::eSoundEffect)",
+  "parameters": [
+   "IsaacRepentance::eSoundEffect"
+  ],
+  "parameter_count": 1,
+  "kind": "function"
+ },
+ {
+  "constant": "kSoundEffectsPlayOffset",
+  "offset": "0x4a2fd0",
+  "mangled": "_ZN15IsaacRepentance12SoundEffects4PlayENS_12eSoundEffectEfibff",
+  "demangled": "IsaacRepentance::SoundEffects::Play(IsaacRepentance::eSoundEffect, float, int, bool, float, float)",
+  "parameters": [
+   "IsaacRepentance::eSoundEffect",
+   "float",
+   "int",
+   "bool",
+   "float",
+   "float"
+  ],
+  "parameter_count": 6,
+  "kind": "function"
+ },
+ {
+  "constant": "kSoundEffectsAdjustVolumeOffset",
+  "offset": "0x4a32cc",
+  "mangled": "_ZN15IsaacRepentance12SoundEffects12AdjustVolumeENS_12eSoundEffectEf",
+  "demangled": "IsaacRepentance::SoundEffects::AdjustVolume(IsaacRepentance::eSoundEffect, float)",
+  "parameters": [
+   "IsaacRepentance::eSoundEffect",
+   "float"
+  ],
+  "parameter_count": 2,
+  "kind": "function"
+ },
+ {
+  "constant": "kSoundEffectsAdjustPitchOffset",
+  "offset": "0x4a33fc",
+  "mangled": "_ZN15IsaacRepentance12SoundEffects11AdjustPitchENS_12eSoundEffectEf",
+  "demangled": "IsaacRepentance::SoundEffects::AdjustPitch(IsaacRepentance::eSoundEffect, float)",
+  "parameters": [
+   "IsaacRepentance::eSoundEffect",
+   "float"
+  ],
+  "parameter_count": 2,
+  "kind": "function"
+ },
+ {
+  "constant": "kSoundEffectsStopOffset",
+  "offset": "0x4a35bc",
+  "mangled": "_ZN15IsaacRepentance12SoundEffects4StopENS_12eSoundEffectE",
+  "demangled": "IsaacRepentance::SoundEffects::Stop(IsaacRepentance::eSoundEffect)",
+  "parameters": [
+   "IsaacRepentance::eSoundEffect"
+  ],
+  "parameter_count": 1,
+  "kind": "function"
+ },
+ {
+  "constant": "kSoundEffectsStopLoopingSoundsOffset",
+  "offset": "0x4a36a0",
+  "mangled": "_ZN15IsaacRepentance12SoundEffects17StopLoopingSoundsEv",
+  "demangled": "IsaacRepentance::SoundEffects::StopLoopingSounds()",
+  "parameters": [],
+  "parameter_count": 0,
+  "kind": "function"
+ },
+ {
+  "constant": "kSoundEffectsIsPlayingOffset",
+  "offset": "0x4a38ac",
+  "mangled": "_ZN15IsaacRepentance12SoundEffects9IsPlayingENS_12eSoundEffectE",
+  "demangled": "IsaacRepentance::SoundEffects::IsPlaying(IsaacRepentance::eSoundEffect)",
+  "parameters": [
+   "IsaacRepentance::eSoundEffect"
+  ],
+  "parameter_count": 1,
+  "kind": "function"
+ },
+ {
+  "constant": "kSoundEffectsSetAmbientSoundOffset",
+  "offset": "0x4a3964",
+  "mangled": "_ZN15IsaacRepentance12SoundEffects15SetAmbientSoundENS_12eSoundEffectEff",
+  "demangled": "IsaacRepentance::SoundEffects::SetAmbientSound(IsaacRepentance::eSoundEffect, float, float)",
+  "parameters": [
+   "IsaacRepentance::eSoundEffect",
+   "float",
+   "float"
+  ],
+  "parameter_count": 3,
+  "kind": "function"
+ },
+ {
+  "constant": "kSoundEffectsGetAmbientSoundVolumeOffset",
+  "offset": "0x4a3c9c",
+  "mangled": "_ZN15IsaacRepentance12SoundEffects21GetAmbientSoundVolumeENS_12eSoundEffectE",
+  "demangled": "IsaacRepentance::SoundEffects::GetAmbientSoundVolume(IsaacRepentance::eSoundEffect)",
+  "parameters": [
+   "IsaacRepentance::eSoundEffect"
+  ],
+  "parameter_count": 1,
+  "kind": "function"
+ },
+ {
+  "constant": "kSpriteResetOffset",
+  "offset": "0x4a4724",
+  "mangled": "_ZN15IsaacRepentance6Sprite5ResetEv",
+  "demangled": "IsaacRepentance::Sprite::Reset()",
+  "parameters": [],
+  "parameter_count": 0,
+  "kind": "function"
+ },
+ {
+  "constant": "kRPlusHeartStagesWriterOffset",
+  "offset": "0x4a5fdc",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kTemporaryEffectsAddCollectibleEffectOffset",
+  "offset": "0x4a6924",
+  "mangled": "_ZN15IsaacRepentance16TemporaryEffects9AddEffectENS_16eCollectibleTypeEbj",
+  "demangled": "IsaacRepentance::TemporaryEffects::AddEffect(IsaacRepentance::eCollectibleType, bool, unsigned int)",
+  "parameters": [
+   "IsaacRepentance::eCollectibleType",
+   "bool",
+   "unsigned int"
+  ],
+  "parameter_count": 3,
+  "kind": "function"
+ },
+ {
+  "constant": "kTemporaryEffectsAddTrinketEffectOffset",
+  "offset": "0x4a6994",
+  "mangled": "_ZN15IsaacRepentance16TemporaryEffects9AddEffectENS_12eTrinketTypeEbj",
+  "demangled": "IsaacRepentance::TemporaryEffects::AddEffect(IsaacRepentance::eTrinketType, bool, unsigned int)",
+  "parameters": [
+   "IsaacRepentance::eTrinketType",
+   "bool",
+   "unsigned int"
+  ],
+  "parameter_count": 3,
+  "kind": "function"
+ },
+ {
+  "constant": "kTemporaryEffectsAddNullEffectOffset",
+  "offset": "0x4a6a04",
+  "mangled": "_ZN15IsaacRepentance16TemporaryEffects9AddEffectENS_10ItemConfig11eNullItemIDEbj",
+  "demangled": "IsaacRepentance::TemporaryEffects::AddEffect(IsaacRepentance::ItemConfig::eNullItemID, bool, unsigned int)",
+  "parameters": [
+   "IsaacRepentance::ItemConfig::eNullItemID",
+   "bool",
+   "unsigned int"
+  ],
+  "parameter_count": 3,
+  "kind": "function"
+ },
+ {
+  "constant": "kTemporaryEffectsRemoveCollectibleEffectOffset",
+  "offset": "0x4a6ba0",
+  "mangled": "_ZN15IsaacRepentance16TemporaryEffects12RemoveEffectENS_16eCollectibleTypeEj",
+  "demangled": "IsaacRepentance::TemporaryEffects::RemoveEffect(IsaacRepentance::eCollectibleType, unsigned int)",
+  "parameters": [
+   "IsaacRepentance::eCollectibleType",
+   "unsigned int"
+  ],
+  "parameter_count": 2,
+  "kind": "function"
+ },
+ {
+  "constant": "kTemporaryEffectsRemoveTrinketEffectOffset",
+  "offset": "0x4a6c00",
+  "mangled": "_ZN15IsaacRepentance16TemporaryEffects12RemoveEffectENS_12eTrinketTypeEj",
+  "demangled": "IsaacRepentance::TemporaryEffects::RemoveEffect(IsaacRepentance::eTrinketType, unsigned int)",
+  "parameters": [
+   "IsaacRepentance::eTrinketType",
+   "unsigned int"
+  ],
+  "parameter_count": 2,
+  "kind": "function"
+ },
+ {
+  "constant": "kTemporaryEffectsRemoveNullEffectOffset",
+  "offset": "0x4a6c60",
+  "mangled": "_ZN15IsaacRepentance16TemporaryEffects12RemoveEffectENS_10ItemConfig11eNullItemIDEj",
+  "demangled": "IsaacRepentance::TemporaryEffects::RemoveEffect(IsaacRepentance::ItemConfig::eNullItemID, unsigned int)",
+  "parameters": [
+   "IsaacRepentance::ItemConfig::eNullItemID",
+   "unsigned int"
+  ],
+  "parameter_count": 2,
+  "kind": "function"
+ },
+ {
+  "constant": "kTemporaryEffectsHasCollectibleEffectOffset",
+  "offset": "0x4a6d60",
+  "mangled": "_ZNK15IsaacRepentance16TemporaryEffects9HasEffectENS_16eCollectibleTypeE",
+  "demangled": "IsaacRepentance::TemporaryEffects::HasEffect(IsaacRepentance::eCollectibleType) const",
+  "parameters": [
+   "IsaacRepentance::eCollectibleType"
+  ],
+  "parameter_count": 1,
+  "kind": "function"
+ },
+ {
+  "constant": "kTemporaryEffectsHasTrinketEffectOffset",
+  "offset": "0x4a6dc4",
+  "mangled": "_ZNK15IsaacRepentance16TemporaryEffects9HasEffectENS_12eTrinketTypeE",
+  "demangled": "IsaacRepentance::TemporaryEffects::HasEffect(IsaacRepentance::eTrinketType) const",
+  "parameters": [
+   "IsaacRepentance::eTrinketType"
+  ],
+  "parameter_count": 1,
+  "kind": "function"
+ },
+ {
+  "constant": "kTemporaryEffectsHasNullEffectOffset",
+  "offset": "0x4a6e14",
+  "mangled": "_ZNK15IsaacRepentance16TemporaryEffects9HasEffectENS_10ItemConfig11eNullItemIDE",
+  "demangled": "IsaacRepentance::TemporaryEffects::HasEffect(IsaacRepentance::ItemConfig::eNullItemID) const",
+  "parameters": [
+   "IsaacRepentance::ItemConfig::eNullItemID"
+  ],
+  "parameter_count": 1,
+  "kind": "function"
+ },
+ {
+  "constant": "kTemporaryEffectsClearEffectsOffset",
+  "offset": "0x4a6e60",
+  "mangled": "_ZN15IsaacRepentance16TemporaryEffects12ClearEffectsEb",
+  "demangled": "IsaacRepentance::TemporaryEffects::ClearEffects(bool)",
+  "parameters": [
+   "bool"
+  ],
+  "parameter_count": 1,
+  "kind": "function"
+ },
+ {
+  "constant": "kTemporaryEffectsGetCollectibleEffectNumOffset",
+  "offset": "0x4a7228",
+  "mangled": "_ZNK15IsaacRepentance16TemporaryEffects12GetEffectNumENS_16eCollectibleTypeE",
+  "demangled": "IsaacRepentance::TemporaryEffects::GetEffectNum(IsaacRepentance::eCollectibleType) const",
+  "parameters": [
+   "IsaacRepentance::eCollectibleType"
+  ],
+  "parameter_count": 1,
+  "kind": "function"
+ },
+ {
+  "constant": "kTemporaryEffectsGetTrinketEffectNumOffset",
+  "offset": "0x4a7290",
+  "mangled": "_ZNK15IsaacRepentance16TemporaryEffects12GetEffectNumENS_12eTrinketTypeE",
+  "demangled": "IsaacRepentance::TemporaryEffects::GetEffectNum(IsaacRepentance::eTrinketType) const",
+  "parameters": [
+   "IsaacRepentance::eTrinketType"
+  ],
+  "parameter_count": 1,
+  "kind": "function"
+ },
+ {
+  "constant": "kTemporaryEffectsGetNullEffectNumOffset",
+  "offset": "0x4a72e4",
+  "mangled": "_ZNK15IsaacRepentance16TemporaryEffects12GetEffectNumENS_10ItemConfig11eNullItemIDE",
+  "demangled": "IsaacRepentance::TemporaryEffects::GetEffectNum(IsaacRepentance::ItemConfig::eNullItemID) const",
+  "parameters": [
+   "IsaacRepentance::ItemConfig::eNullItemID"
+  ],
+  "parameter_count": 1,
   "kind": "function"
  },
  {
@@ -2813,6 +8796,71 @@
   "kind": "function"
  },
  {
+  "constant": "kKageIsButtonPressedOffset",
+  "offset": "0x4f9504",
+  "mangled": "_ZN4KAGE5Input11ManagerBase15IsButtonPressedEjjPj",
+  "demangled": "KAGE::Input::ManagerBase::IsButtonPressed(unsigned int, unsigned int, unsigned int*)",
+  "parameters": [
+   "unsigned int",
+   "unsigned int",
+   "unsigned int*"
+  ],
+  "parameter_count": 3,
+  "kind": "function"
+ },
+ {
+  "constant": "kKageGetButtonValueOffset",
+  "offset": "0x4f97b0",
+  "mangled": "_ZN4KAGE5Input11ManagerBase14GetButtonValueEjjPj",
+  "demangled": "KAGE::Input::ManagerBase::GetButtonValue(unsigned int, unsigned int, unsigned int*)",
+  "parameters": [
+   "unsigned int",
+   "unsigned int",
+   "unsigned int*"
+  ],
+  "parameter_count": 3,
+  "kind": "function"
+ },
+ {
+  "constant": "kKageManagerIsActionPressedOffset",
+  "offset": "0x4f9920",
+  "mangled": "_ZN4KAGE5Input11ManagerBase15IsActionPressedEjjPj",
+  "demangled": "KAGE::Input::ManagerBase::IsActionPressed(unsigned int, unsigned int, unsigned int*)",
+  "parameters": [
+   "unsigned int",
+   "unsigned int",
+   "unsigned int*"
+  ],
+  "parameter_count": 3,
+  "kind": "function"
+ },
+ {
+  "constant": "kKageManagerIsActionTriggeredOffset",
+  "offset": "0x4f9a64",
+  "mangled": "_ZN4KAGE5Input11ManagerBase17IsActionTriggeredEjjPj",
+  "demangled": "KAGE::Input::ManagerBase::IsActionTriggered(unsigned int, unsigned int, unsigned int*)",
+  "parameters": [
+   "unsigned int",
+   "unsigned int",
+   "unsigned int*"
+  ],
+  "parameter_count": 3,
+  "kind": "function"
+ },
+ {
+  "constant": "kKageManagerGetActionValueOffset",
+  "offset": "0x4f9bcc",
+  "mangled": "_ZN4KAGE5Input11ManagerBase14GetActionValueEjjPj",
+  "demangled": "KAGE::Input::ManagerBase::GetActionValue(unsigned int, unsigned int, unsigned int*)",
+  "parameters": [
+   "unsigned int",
+   "unsigned int",
+   "unsigned int*"
+  ],
+  "parameter_count": 3,
+  "kind": "function"
+ },
+ {
   "constant": "kStage48SoundActorPlayOffset",
   "offset": "0x517cf4",
   "mangled": "_ZN4KAGE5Sound10SoundActor4PlayEj",
@@ -2854,6 +8902,15 @@
   "kind": "function"
  },
  {
+  "constant": "kPltResolverOffset",
+  "offset": "0x66faa0",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
   "constant": "kGameOperatorDeleteOffset",
   "offset": "0x66fb10",
   "mangled": null,
@@ -2873,6 +8930,15 @@
  },
  {
   "constant": "kLibcxxStringAssignOffset",
+  "offset": "0x66fb80",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kModEntryStringAssignFileOffset",
   "offset": "0x66fb80",
   "mangled": null,
   "demangled": null,
@@ -2910,6 +8976,24 @@
  {
   "constant": "kGameIsPausedThunkOffset",
   "offset": "0x671100",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kNpcUpdateAiStubOffset",
+  "offset": "0x675c10",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kHudRenderStubOffset",
+  "offset": "0x67a730",
   "mangled": null,
   "demangled": null,
   "parameters": null,
@@ -3187,8 +9271,53 @@
   "kind": "field"
  },
  {
+  "constant": "kPickupSelectionSpecialRelayCodeOffset",
+  "offset": "0x68cd00",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kPickupSelectionSpecialRelaySlotOffset",
+  "offset": "0x68cd18",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kPressurePlateDtorVeneerOffset",
+  "offset": "0x68cd20",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
   "constant": "kGameIsPausedRenderObserverRelaySlotOffset",
   "offset": "0x68cd30",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kPressurePlateDeletingVeneerOffset",
+  "offset": "0x68cd30",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kConsoleUnknownLengthRelayCodeOffset",
+  "offset": "0x68cd40",
   "mangled": null,
   "demangled": null,
   "parameters": null,
@@ -3205,8 +9334,53 @@
   "kind": "field"
  },
  {
+  "constant": "kConsoleUnknownLengthRelaySlotOffset",
+  "offset": "0x68cd60",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kClearAwardPointerSlotOffset",
+  "offset": "0x68cd68",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kLevelCurseFirstPointerSlotOffset",
+  "offset": "0x68cd70",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kEntityDestructorPointerSlotOffset",
+  "offset": "0x68cd78",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
   "constant": "kStage48MusicPlayRelaySlotOffset",
   "offset": "0x68cd78",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kConsoleUnknownCompareRelayCodeOffset",
+  "offset": "0x68cd80",
   "mangled": null,
   "demangled": null,
   "parameters": null,
@@ -3223,8 +9397,44 @@
   "kind": "field"
  },
  {
+  "constant": "kConsoleUnknownCompareRelaySlotOffset",
+  "offset": "0x68cda0",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kEntityDestructorVeneerOffset",
+  "offset": "0x68cda8",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
   "constant": "kStage48SoundActorPlayRelaySlotOffset",
   "offset": "0x68cdb0",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kClearAwardVeneerOffset",
+  "offset": "0x68cdb8",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kLevelCurseStaticRelayCodeOffset",
+  "offset": "0x68cdc0",
   "mangled": null,
   "demangled": null,
   "parameters": null,
@@ -3241,8 +9451,35 @@
   "kind": "field"
  },
  {
+  "constant": "kLevelCurseStaticRelaySlotOffset",
+  "offset": "0x68cdd8",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kPickupSelectionStaticRelayCodeOffset",
+  "offset": "0x68cde0",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
   "constant": "kStage48SoundActorPauseRelaySlotOffset",
   "offset": "0x68cdf0",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kPickupSelectionStaticRelaySlotOffset",
+  "offset": "0x68cdf8",
   "mangled": null,
   "demangled": null,
   "parameters": null,
@@ -3367,6 +9604,15 @@
   "kind": "field"
  },
  {
+  "constant": "kLevelCurseFirstVeneerOffset",
+  "offset": "0x68cf98",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
   "constant": "kRebuildMountPointsRelayCodeOffset",
   "offset": "0x68cfa0",
   "mangled": null,
@@ -3385,6 +9631,42 @@
   "kind": "field"
  },
  {
+  "constant": "kRoomSpawnInternalVeneerOffset",
+  "offset": "0x68cfd0",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kTrinketFirstVeneerOffset",
+  "offset": "0x68cfe0",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kTrinketSelectedVeneerOffset",
+  "offset": "0x68cff0",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kEntityBaseVtableOffset",
+  "offset": "0xa34f58",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
   "constant": "kEntityVtableRangeBeginOffset",
   "offset": "0xa34f58",
   "mangled": null,
@@ -3394,8 +9676,62 @@
   "kind": "field"
  },
  {
+  "constant": "kEntityBombVtableOffset",
+  "offset": "0xa35048",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kEntityDummyVtableOffset",
+  "offset": "0xa35140",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kEntityEffectVtableOffset",
+  "offset": "0xa35238",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
   "constant": "kEntityFamiliarVtableOffset",
   "offset": "0xa35728",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kEntityKnifeVtableOffset",
+  "offset": "0xa35b48",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kEntityLaserVtableOffset",
+  "offset": "0xa35cc0",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kEntityNpcVtableOffset",
+  "offset": "0xa35db8",
   "mangled": null,
   "demangled": null,
   "parameters": null,
@@ -3421,8 +9757,71 @@
   "kind": "field"
  },
  {
+  "constant": "kEntityProjectileVtableOffset",
+  "offset": "0xa37410",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kEntitySlotVtableOffset",
+  "offset": "0xa37508",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kEntityTearVtableOffset",
+  "offset": "0xa37638",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kEntityTextVtableOffset",
+  "offset": "0xa37730",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kGridEntityVtableOffset",
+  "offset": "0xa37890",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kGridEntityVtableRangeBeginOffset",
+  "offset": "0xa37890",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
   "constant": "kEntityVtableRangeEndOffset",
   "offset": "0xa38230",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kGridEntityVtableRangeEndOffset",
+  "offset": "0xa382a8",
   "mangled": null,
   "demangled": null,
   "parameters": null,
@@ -3448,7 +9847,34 @@
   "kind": "field"
  },
  {
+  "constant": "kNpcUpdateAiGotSlotOffset",
+  "offset": "0xaa0d70",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kHudRenderGotSlotOffset",
+  "offset": "0xaa3300",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
   "constant": "kGameManagerGlobalSlotOffset",
+  "offset": "0xaac648",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kTrinketManagerGotSlotOffset",
   "offset": "0xaac648",
   "mangled": null,
   "demangled": null,
@@ -3466,8 +9892,35 @@
   "kind": "field"
  },
  {
+  "constant": "kIsaacScreenHeightSlotOffset",
+  "offset": "0xaac658",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
   "constant": "kGameOwnerGlobalSlotOffset",
   "offset": "0xaac698",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kAnmCacheGotSlotOffset",
+  "offset": "0xaac6a0",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kContentMountPointsGotSlotOffset",
+  "offset": "0xaac740",
   "mangled": null,
   "demangled": null,
   "parameters": null,
@@ -3493,6 +9946,24 @@
   "kind": "field"
  },
  {
+  "constant": "kKageInputManagerSlotOffset",
+  "offset": "0xaac768",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kIsaacPointScaleSlotOffset",
+  "offset": "0xaac7b0",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
   "constant": "kKageSystemManagerSlotOffset",
   "offset": "0xaac8c0",
   "mangled": null,
@@ -3504,6 +9975,24 @@
  {
   "constant": "kSaveDataManagerGlobalSlotOffset",
   "offset": "0xaac940",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kModdingDataPathFileOffset",
+  "offset": "0xabbc04",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
+  "constant": "kManagerSelfAddressOffset",
+  "offset": "0xabcce0",
   "mangled": null,
   "demangled": null,
   "parameters": null,

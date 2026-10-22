@@ -310,7 +310,7 @@ IsaacModRuntime_ProbeContentMountPoint() {
             register std::uint64_t x7 __asm__("x7") =
                 (static_cast<std::uint64_t>(census[13]) << 32) | (errorHead & 0xFFFFFFFFULL);
             register std::uint64_t x8 __asm__("x8") = errorHead;
-            __asm__ volatile("svc 0x7f"
+            __asm__ volatile("svc 0x26"
                              :
                              : "r"(x0), "r"(x1), "r"(x2), "r"(x3), "r"(x4), "r"(x5),
                                "r"(x6), "r"(x7), "r"(x8)
@@ -722,7 +722,7 @@ IsaacModRuntime_ProbeContentMountPoint() {
     register std::uint64_t x11 __asm__("x11") =
         (fontLoaded & 0x1ULL) | ((fontWidthValue & 0x7FFFFFFFULL) << 1) |
         ((fontLineHeightValue & 0xFFFFULL) << 32);
-    __asm__ volatile("svc 0x7f"
+    __asm__ volatile("svc 0x26"
                      :
                      : "r"(x0), "r"(x1), "r"(x2), "r"(x3),
                        "r"(x4), "r"(x5), "r"(x6), "r"(x7), "r"(x8), "r"(x9),
@@ -951,7 +951,7 @@ bool ReadProbeWordInto(std::uint64_t address, volatile std::uint64_t* slot) {
         reinterpret_cast<std::uint64_t>(const_cast<std::uint64_t*>(payload));
     register std::uint64_t x3 __asm__("x3") = state;
     register std::uint64_t x4 __asm__("x4") = payload[2];
-    __asm__ volatile("svc 0x7f"
+    __asm__ volatile("svc 0x26"
                      :
                      : "r"(x0), "r"(x1), "r"(x2), "r"(x3), "r"(x4)
                      : "memory");
@@ -1410,7 +1410,7 @@ struct CallbackErrorProbeInputs {
         reinterpret_cast<std::uint64_t>(const_cast<std::uint64_t*>(payload));
     register std::uint64_t x3 __asm__("x3") = inputs->status;
     register std::uint64_t x4 __asm__("x4") = inputs->errorLength;
-    __asm__ volatile("svc 0x7f"
+    __asm__ volatile("svc 0x26"
                      :
                      : "r"(x0), "r"(x1), "r"(x2), "r"(x3), "r"(x4)
                      : "memory");
@@ -1740,7 +1740,7 @@ IsaacModRuntime_ProbeEnginePlayers() {
         register std::uint64_t x2 __asm__("x2") = 0;
         register std::uint64_t x3 __asm__("x3") = 0;
         register std::uint64_t x4 __asm__("x4") = 0;
-        __asm__ volatile("svc 0x7f"
+        __asm__ volatile("svc 0x26"
                          :
                          : "r"(x0), "r"(x1), "r"(x2), "r"(x3), "r"(x4)
                          : "memory");
@@ -2084,7 +2084,7 @@ __attribute__((noinline)) std::uint32_t TraverseEntityLiveTable(
         (static_cast<std::uint64_t>(isaac::runtime::kEntityListProbePayloadWords) << 32) |
         static_cast<std::uint64_t>(status);
     register std::uint64_t x4 __asm__("x4") = payload[3];
-    __asm__ volatile("svc 0x7f"
+    __asm__ volatile("svc 0x26"
                      :
                      : "r"(x0), "r"(x1), "r"(x2), "r"(x3), "r"(x4)
                      : "memory");

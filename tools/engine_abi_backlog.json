@@ -21,6 +21,26 @@
       "why": "挂点目标（加载配置文件的引擎函数，我们拦截它）。",
       "evidence": "runtime/source/hook_manager.cpp:3767-3787"
     },
+    "kItemConfigLoadCostumesFileOffset": {
+      "class": "A",
+      "why": "**我们真的按 x0=ItemConfig*、x1=file、x2=ModEntry* 的签名调它**（批次 148b/148c），但工具读不出我们声明的参数表 —— 常量是通过 `ResolveEngineEntry<LoadCostumesFn>(module, kItemConfigLoadCostumesFileOffset, …)` 这个**辅助函数**的实参**传进去的，不是 `AsFunction<Fn>(常量)` 那种形状 ⇒ 属欠账（要么改调用点形状、要么让工具认这种'把常量交给解析助手'的写法）。签名的依据是反汇编：`ItemConfig::LoadCostumes(char const*, ModEntry*)` @ `0x3B9448`，入口 `cmp x2,#0` + `csel` 说明 ModEntry 允许为 null；`x1` 直接进 `FileManager::OpenRead`。",
+      "evidence": "runtime/source/mod_menu_native.cpp 的 `LoadEngineModContent`（`loadCostumes(config, resolved, nullptr)`）；常量与 16 字节守卫在 runtime_constants.hpp 的批次 148b 段；反汇编依据见该段注释"
+    },
+    "kMusicLoadConfigFileOffset": {
+      "class": "A",
+      "why": "同上（欠账）：我们按 `Music::LoadConfig(char const*, bool)` @ `0x425218` 的签名调它，第二个参数照抄引擎自己的 `mov w2,#0x1`；常量同样经 `ResolveEngineEntry<LoadMusicFn>` 的实参传入 ⇒ 工具的声明表读不出来。",
+      "evidence": "runtime/source/mod_menu_native.cpp 的 `LoadEngineModContent`（`loadMusic(music, resolved, true)`）；`ModManager::LoadConfigs` 的调用点 `0x41EC5C mov w2,#0x1`"
+    },
+    "kModManagerLoadConfigsFileOffset": {
+      "class": "B",
+      "why": "只当**挂点/中继目标**：批次 147 在它的入口挂了零占洞入口中继（按存档侧开关写 `ModEntry+0x139`，回调里只写内存、返回值不需要我们解释）。批次 148b 起我们**不再按签名调它**（那条路走不通，见 kModManagerListModsFileOffset 的理由）⇒ 没有可错的调用签名。",
+      "evidence": "runtime/src/infrastructure/relay/entry_relay_hook_adapter.cpp:183（绑定表：靶点 0x41E388 + 16 字节守卫）；runtime/source/hook_manager.cpp 的 `EntryRelayModManagerLoadConfigsCallback`"
+    },
+    "kModManagerListModsFileOffset": {
+      "class": "C",
+      "why": "**全仓库已无消费者**：批次 148 第一版曾按签名调它，真机证明它在**本版本里必然 abort**（`ContentManager::get_directory_entries` 里 `nn::fs::OpenDirectory(g_ModdingDataPath)` 打不开就断言，而这版 `g_ModdingDataPath` 永远是空串；崩溃报告 `dist/crash-148-20260926.log`），148b 起改成直接调两个 content 加载器 ⇒ 这个常量只留在常量表/文档里作记录。",
+      "evidence": "崩溃报告 dist/crash-148-20260926.log（栈 `get_directory_entries ← GetDirectoryEntries ← ListMods ← runtime`）；docs/改动日志-20260926.md §038.12"
+    },
     "kManagerUpdateFileOffset": {
       "class": "B",
       "why": "挂点目标（更新钩子的入口，我们拦截它）。",
@@ -106,21 +126,6 @@
       "why": "同 kFilesysFileCtorOffset（退役的插件持久化旧线遗留）。",
       "evidence": "grep -rn kSaveDataDeleteFileOffset runtime/ --include=*.cpp --include=*.hpp 除 runtime_constants.hpp 外 0 处"
     },
-    "kEntityPlayerUseActiveItemOffset": {
-      "class": "B",
-      "why": "中继目标（批次 102 的 `Entity_Player::UseActiveItem` 入口）：我们只拦截它的入口、跳进自己的中继桩，不按引擎签名直接调用它 ⇒ 没有可错的调用签名。",
-      "evidence": "runtime/src/infrastructure/relay/entry_relay_hook_adapter.cpp（BindingOf 的对应 case）；runtime/source/hook_manager.cpp 的 EntryRelay*Callback（回调体）；runtime/source/runtime_constants.hpp 的靶点注释（含实参映射依据）"
-    },
-    "kEntityPlayerUseCardOffset": {
-      "class": "B",
-      "why": "中继目标（批次 102 的 `Entity_Player::UseCard` 入口）：同上。",
-      "evidence": "runtime/src/infrastructure/relay/entry_relay_hook_adapter.cpp（BindingOf 的对应 case）；runtime/source/hook_manager.cpp 的 EntryRelay*Callback（回调体）；runtime/source/runtime_constants.hpp 的靶点注释（含实参映射依据）"
-    },
-    "kEntityPlayerUsePillOffset": {
-      "class": "B",
-      "why": "中继目标（批次 102 的 `Entity_Player::UsePill` 入口）：同上。",
-      "evidence": "runtime/src/infrastructure/relay/entry_relay_hook_adapter.cpp（BindingOf 的对应 case）；runtime/source/hook_manager.cpp 的 EntryRelay*Callback（回调体）；runtime/source/runtime_constants.hpp 的靶点注释（含实参映射依据）"
-    },
     "kGameExitOffset": {
       "class": "B",
       "why": "中继目标（批次 102 的 `Game::Exit` 入口）：同上。",
@@ -136,9 +141,19 @@
       "why": "中继目标（批次 104 的 `Room::spawn_entity` 入口）：我们只拦截它的入口、跳进自己的中继桩，不按引擎签名直接调用它 ⇒ 没有可错的调用签名。",
       "evidence": "runtime/src/infrastructure/relay/entry_relay_hook_adapter.cpp（BindingOf 的 case）；runtime/source/hook_manager.cpp 的 EntryRelayRoomEntitySpawnCallback；runtime/source/runtime_constants.hpp 的靶点注释（含调用点与实参证据）"
     },
+    "kEntityNpcTriggerDeathRemoveOffset": {
+      "class": "B",
+      "why": "中继目标（批次 397 的 `MC_POST_NPC_DEATH`：`Entity_NPC::trigger_death_remove()` 入口）：只改写入口 16 字节跳到我们的中继桩，原函数经 `Original<>` 取回退入口调用 ⇒ 不按引擎签名直接调用它，没有可错的调用签名。",
+      "evidence": "runtime/source/runtime_constants.hpp 的「批次 397」段；runtime/src/infrastructure/relay/entry_relay_hook_adapter.cpp 的 BindingOf(NpcDeathRemove)；runtime/source/hook_manager.cpp 的 EntryRelayNpcDeathRemoveCallback"
+    },
+    "kGameEndOffset": {
+      "class": "B",
+      "why": "中继目标（批次 397 的 `MC_POST_GAME_END`：`Game::End(eEnding)` 入口）：同上，只改写入口 16 字节。注意同文件里已有 `kGameExitOffset`（`Game::Exit`，批次 102 的 `MC_PRE_GAME_EXIT`）—— 两者是**不同**的函数，别混。",
+      "evidence": "runtime/source/runtime_constants.hpp 的「批次 397」段（含 `eEnding==1 ⇒ Manager::RecordLoss` 与 `PlayerManager::NotifyDead` 传 1 两项证据）；runtime/src/infrastructure/relay/entry_relay_hook_adapter.cpp 的 BindingOf(GameEnd)；runtime/source/hook_manager.cpp 的 EntryRelayGameEndCallback"
+    },
     "kManagerIsActionTriggeredOffset": {
       "class": "B",
-      "why": "批次 107 起**不再调用**：这个引擎入口（`KAGE::Input::ManagerBase::IsActionTriggered`）在真机上永远答假（同时刻同控制器同动作，`IsActionPressed` 为真而它恒假）⇒ `Input.IsActionTriggered` 改成「问引擎的按住 + Runtime 自己算上升沿」⇒ 没有调用点，「常量 → 校验助手 → 发布 → 取址助手 → 调用点」这条链按设计断开（工具判「没比过」）。保留常量只为记录\"我们查过它、它在哪\"；真函数在 `0x4F9A64`（同 `IsActionPressed` 结构，只差调用手柄对象的虚函数槽 `vtable+0x48` vs `+0x50`）。",
+      "why": "批次 107 起**不再调用**：这个引擎入口（`KAGE::Input::ManagerBase::IsActionTriggered @0x4F9A64`）**语义与 PC 不同、不能用** —— 批次 221 用 `tools/nro_disasm.py` 反汇编本机镜像定案：它走设备虚槽 `+0x50` → `InputDeviceBase::IsActionTriggered @0x4F775C`，那里**只遍历该动作绑定的按钮**、逐个调 `IsButtonTriggered`（虚槽 `+0x38`），**全程不看模拟量** ⇒ 摇杆推出来的方向动作（`ACTION_SHOOT*`）在这条路上**永远为假**。这正是批次 107 那次读数「同控制器同动作、`IsActionPressed` 为真而它恒假」的真因（当年误判成\"引擎的上升沿状态在模组的时机里是空的\"）。⇒ `Input.IsActionTriggered` 改成「问引擎的按住 + Runtime 自己算**相邻帧**上升沿」⇒ 没有调用点，「常量 → 校验助手 → 发布 → 取址助手 → 调用点」这条链按设计断开（工具判「没比过」）。保留常量只为记录\"我们查过它、它在哪\"。",
       "evidence": "runtime/source/input_edge.hpp 顶部（证据与做法）；runtime/src/interfaces/lua/api_deviation.cpp 的 0x09010004；runtime/tests/test_lua_input_binding_abi.py（跨三次脚本执行验\"按住→松开→再按住\"）"
     },
     "kImagePcxLoadFileOffset": {
@@ -180,6 +195,1164 @@
       "class": "B",
       "why": "入口中继目标（成就闸门：把引擎原参数 OR「按 PC 规则该禁」后调回退入口），不按引擎签名直接跳进去调用 ⇒ 没有可被 `declared_signature` 读到的调用点声明。回调签名由 `RELAY_CALLBACK_TARGETS` 对着镜像机器核对（引擎 `PersistentGameData::SetReadOnly(bool)` 参数 1 + 隐式 this = 我们声明的 2；返回值两边都是 **void**）。★ 批次 098（2026-09-24）从旧的 `kPersistentGameDataTryUnlockOffset` 换到这里：闸门按用户裁定「照 PC 语义」挂到唯一写只读位的地方，旧常量连同旧中继一起撤掉。",
       "evidence": "runtime/source/hook_manager.cpp 的 `EntryRelayPersistentGameDataSetReadOnlyCallback`（形状注释与 `Original<SetReadOnlyFn>` 那两行）；runtime/src/domain/runtime/hook_catalog.hpp 的 `HookId::PersistentGameDataSetReadOnly`；runtime/src/infrastructure/relay/entry_relay_hook_adapter.cpp 的 `BindingOf(HookId::PersistentGameDataSetReadOnly)`；签名表里 `_ZN15IsaacRepentance18PersistentGameData11SetReadOnlyEb`（mangled name 自带参数表）；入口 16 字节守卫取自 `python3 tools/nro_disasm.py 0x439460 0x40`"
+    },
+    "kEntityPlayerHasTrinketOffset": {
+      "class": "A",
+      "why": "真有消费者（EntityPlayer:HasTrinket 走它，批次 195 换掉自扫饰品槽的旧实现）。但它没有声明调用签名：本处刻意用值数组跳板（EngineCallTrampoline）调用 —— 该引擎方法的第二个布尔参数在 PC 侧可省，默认值必须在 handler 里自己定；改成 AsFunction<HasTrinketFn> 会让宿主夹具崩（实测 scenario valid exited with -10）⇒ 回退。⇒ 工具读不出签名 ⇒ 这条目前核不到，属『应当能核对、但当前形态核不了』的欠账。",
+      "evidence": "runtime/src/interfaces/lua/isaac_api.cpp 的 EntityPlayerHasTrinket（EngineCallTrampoline 调用点）；runtime/source/runtime_constants.hpp 的 kEntityPlayerHasTrinketOffset / kEntityPlayerHasTrinketEntryWord；runtime/tests/test_lua_entity_player.py 与 test_lua_entity_rng_and_fields.py 的夹具写点"
+    },
+    "kEntityListCountSpawnedOffset": {
+      "class": "A",
+      "why": "真有消费者：`Isaac.CountEntities` 直调它（批次 268）。但它**没有声明调用签名** —— 本处刻意用值数组跳板（`EngineCallTrampoline`）调用：它的实参是 `(this, Entity* spawner, int type, int variant, int subType)`，其中第一个是裸指针、后三个要按 `w2/w3/w4` 的 32 位宽度装（`-1` 必须落成 `0xFFFFFFFF` 才是引擎要的\"通配\"），写成带类型的别名反而更容易在 ABI 体检里配错。⇒ 工具读不出签名 ⇒ 这条目前核不到，属『应当能核对、但当前形态核不了』的欠账。★ 真值判据不依赖签名核对：偏移来自 dynsym 里 `EntityList::CountSpawned` 那个逐字符号地址，语义由 `tools/nro_disasm.py 0x7a1cc 200` 逐条对上 PC 契约（见 runtime_constants.hpp 批次 268 段的注释）。",
+      "evidence": "runtime/src/interfaces/lua/isaac_api.cpp 的 IsaacCountEntities（EngineCallTrampoline 调用点）；runtime/source/runtime_constants.hpp 的 kEntityListCountSpawnedOffset / kEntityListCountSpawnedEntryWord / kEntitySpawnerEntityOffset；runtime/tests/test_lua_isaac_glue_compose.py 的 count_entities 场景；tools/api_definition_of_done.json 的 Isaac:CountEntities 条"
+    },
+    "kEntityUpdateOffset": {
+      "class": "C",
+      "why": "`Entity::Update` @ `0x60040`（入口 0xD10583FF）（`_ZN…` 符号可从偏移直接查到、参数表也读得出来）。**本仓库已经不再按这个偏移调它**：批次 319（2026-10-03）复核出这四条在 PC 上是**虚调用**（PC 绑定落在 `0x8604E0` 起的 `mov eax,[ecx]; jmp [eax+偏移]` 跳板表里），于是四条引擎方法行都改成 `MakeEngineVtableRowOffset(<槽号>)` —— 走 `vptr + 槽号*8`，**运行期才算得出目标**。⇒ 这个常量只剩『基类实现地址』的登记价值（`runtime_constants.hpp` 里逐条注明了），**没有任何调用点、也就没有任何可错的调用签名**。",
+      "evidence": "runtime/source/runtime_constants.hpp（四条常量上面那段：批 319 的跳板表证据 + 「派发不再用它们」）；runtime/src/interfaces/lua/isaac_api.cpp 的 `kEntityEngineRows` （四条已是 vtable 形态）；dist/change-archive-20261003/319-entity-virtual/README.md"
+    },
+    "kEntityKillOffset": {
+      "class": "C",
+      "why": "`Entity::Kill` @ `0x5C8E0`（入口 0xA9BE7BFD）（`_ZN…` 符号可从偏移直接查到、参数表也读得出来）。**本仓库已经不再按这个偏移调它**：批次 319（2026-10-03）复核出这四条在 PC 上是**虚调用**（PC 绑定落在 `0x8604E0` 起的 `mov eax,[ecx]; jmp [eax+偏移]` 跳板表里），于是四条引擎方法行都改成 `MakeEngineVtableRowOffset(<槽号>)` —— 走 `vptr + 槽号*8`，**运行期才算得出目标**。⇒ 这个常量只剩『基类实现地址』的登记价值（`runtime_constants.hpp` 里逐条注明了），**没有任何调用点、也就没有任何可错的调用签名**。",
+      "evidence": "runtime/source/runtime_constants.hpp（四条常量上面那段：批 319 的跳板表证据 + 「派发不再用它们」）；runtime/src/interfaces/lua/isaac_api.cpp 的 `kEntityEngineRows` （四条已是 vtable 形态）；dist/change-archive-20261003/319-entity-virtual/README.md"
+    },
+    "kEntityRemoveOffset": {
+      "class": "C",
+      "why": "`Entity::Remove` @ `0x5D3E0`（入口 0x39470C08）（`_ZN…` 符号可从偏移直接查到、参数表也读得出来）。**本仓库已经不再按这个偏移调它**：批次 319（2026-10-03）复核出这四条在 PC 上是**虚调用**（PC 绑定落在 `0x8604E0` 起的 `mov eax,[ecx]; jmp [eax+偏移]` 跳板表里），于是四条引擎方法行都改成 `MakeEngineVtableRowOffset(<槽号>)` —— 走 `vptr + 槽号*8`，**运行期才算得出目标**。⇒ 这个常量只剩『基类实现地址』的登记价值（`runtime_constants.hpp` 里逐条注明了），**没有任何调用点、也就没有任何可错的调用签名**。",
+      "evidence": "runtime/source/runtime_constants.hpp（四条常量上面那段：批 319 的跳板表证据 + 「派发不再用它们」）；runtime/src/interfaces/lua/isaac_api.cpp 的 `kEntityEngineRows` （四条已是 vtable 形态）；dist/change-archive-20261003/319-entity-virtual/README.md"
+    },
+    "kEntityIsBossOffset": {
+      "class": "C",
+      "why": "`Entity::IsBoss` @ `0x67580`（入口 0x2A1F03E0）（`_ZN…` 符号可从偏移直接查到、参数表也读得出来）。**本仓库已经不再按这个偏移调它**：批次 319（2026-10-03）复核出这四条在 PC 上是**虚调用**（PC 绑定落在 `0x8604E0` 起的 `mov eax,[ecx]; jmp [eax+偏移]` 跳板表里），于是四条引擎方法行都改成 `MakeEngineVtableRowOffset(<槽号>)` —— 走 `vptr + 槽号*8`，**运行期才算得出目标**。⇒ 这个常量只剩『基类实现地址』的登记价值（`runtime_constants.hpp` 里逐条注明了），**没有任何调用点、也就没有任何可错的调用签名**。",
+      "evidence": "runtime/source/runtime_constants.hpp（四条常量上面那段：批 319 的跳板表证据 + 「派发不再用它们」）；runtime/src/interfaces/lua/isaac_api.cpp 的 `kEntityEngineRows` （四条已是 vtable 形态）；dist/change-archive-20261003/319-entity-virtual/README.md"
+    },
+    "kEntityNpcThrowSpiderOffset": {
+      "class": "A",
+      "why": "`Entity_NPC::ThrowSpider(Vector2 const&, Entity*, Vector2 const&, bool, float)` @ `0x1116EC`（入口 0xD101C3FF）。**真有消费者**（`EntityNPC.ThrowSpider` 的引擎方法数据行，批次 324），而且符号与参数表都能机器读到（`kind: function`）。读不出来的是**我们这一侧的声明**：`declared_signature()` 找的是「常量被 `AsFunction<…>` / `reinterpret_cast<…>` 转型调用」那种写法，而**数据行**是 `{id, kXxxOffset, kXxxEntryWord, receipt, shape, N, 0xFF}` —— 整张行表里没有任何转型站。⇒ 属于**欠账**：要教工具认行表（把行里那几个常量也当『我们声明的签名来源』），补上之后这一类（现在几十条引擎方法行）才算真的进了 ABI 体检。★ 注意这**不是**本批才有的问题：批 238 那些行同形，只是它们的常量当时还被别处引用着。",
+      "evidence": "runtime/src/interfaces/lua/isaac_api.cpp 的 `kEntityNPCStaticRows`；runtime/source/runtime_constants.hpp 的批次 324 段（符号、AAPCS64 实参映射、入口 word）；tools/gen_engine_symbol_signatures.py 已把它收进签名表（`kind: function`）"
+    },
+    "kEntityLaserShootAngleOffset": {
+      "class": "A",
+      "why": "`Entity_Laser::ShootAngle(u32, Vector2 const&, float, int, Vector2 const&, Entity*, bool)` @ `0xF743C`（入口 `0xD101C3FF`）。**真有消费者**（`EntityLaser.ShootAngle` 的静态引擎方法数据行，批次 325），符号与参数表也能机器读到（`kind: function`）。读不出来的是**我们这一侧的声明** —— `declared_signature()` 找的是「常量被 `AsFunction<…>` / `reinterpret_cast<…>` 转型调用」那种写法，而**数据行**是 `{id, kXxxOffset, kXxxEntryWord, receipt, shape, N, 0xFF}`，整张行表里没有转型站。⇒ 与批 324 的 `kEntityNpcThrowSpiderOffset` **同一笔欠账**：要教工具认行表。",
+      "evidence": "runtime/src/interfaces/lua/isaac_api.cpp 的 `kEntityLaserStaticRows`；runtime/source/runtime_constants.hpp 的批次 325 段（符号、AAPCS64 实参映射、入口 word、以及 PC 那条绑定也收 7 个参数的证据）；tools/gen_engine_symbol_signatures.py 已收进签名表"
+    },
+    "kEntityPlayerFireTechLaserOffset": {
+      "class": "A",
+      "why": "`Entity_Player::FireTechLaser(Vector2 const&, eLaserOffset, Vector2 const&, bool, bool, Entity*, float)` @ `0x2B9020`（入口 `0xD103C3FF`）。**真有消费者**（`EntityPlayer:FireTechLaser` 的引擎方法数据行，批次 326），符号与参数表都能机器读到（`kind: function`）。读不出来的是**我们这一侧的声明** —— `declared_signature()` 找的是「常量被 `AsFunction<…>` / `reinterpret_cast<…>` 转型调用」那种写法，而**数据行**是 `{id, kXxxOffset, kXxxEntryWord, receipt, shape, N, 0xFF}`，整张行表里没有转型站。⇒ 与批 324/325 的 `kEntityNpcThrowSpiderOffset` / `kEntityLaserShootAngleOffset` **同一笔欠账**：要教工具认行表（把行里那几个常量也当「我们声明的签名来源」）。",
+      "evidence": "runtime/src/interfaces/lua/isaac_api.cpp 的 `kEntityPlayerEngineRows`（id `0x0E0100DF`）；runtime/source/runtime_constants.hpp 的批次 326 段（符号、AAPCS64 实参映射含两个浮点、入口 word、以及 `DamageMultiplier` 缺省是 1 的证据）；tools/gen_engine_symbol_signatures.py 已收进签名表"
+    },
+    "kModEntryCtorFileOffset": {
+      "class": "A",
+      "why": "`IsaacRepentance::ModEntry::ModEntry()` @ `0x420D18`（16 字节序言 `FD 7B BE A9 F3 0B 00 F9 FD 03 00 91 08 C0 03 91`）。**真有消费者**：批次 378 用引擎自己的构造器在 bss 竞技场里造真 `ModEntry`（`runtime/source/mod_menu_native.cpp` 的 `RealModEntryForIndex`）—— 替身只有 0x140 字节，而 `LoadCustomResources` 会从 `+0x140` 写到 `+0x1008`，喂替身就是越界写，所以必须真造。读不出来的是**我们这一侧的声明**：地址由 `ResolveVerifiedEntryAddress(module, kModEntryCtorFileOffset, …)` 存进全局 `g_RealModEntryCtorAddress`，而调用点在**另一个函数**里 `AsFunction<ModEntryCtorFn>(g_RealModEntryCtorAddress)` ⇒ `declared_signature()` 那条『局部别名』支路跨不了函数。签名依据：demangled 名是 `ModEntry::ModEntry()`（无显式参数），AArch64 上 `this` 走 `x0`、返回 void ⇒ `void (*)(void*)`。",
+      "evidence": "runtime/source/mod_menu_native.cpp 的 `EnsureModContentFeedResolved` / `RealModEntryForIndex`；runtime/source/runtime_constants.hpp 的批次 378 段（`kModEntryCtorFileOffset` + `kModEntryCtorExpectedBytes`）；反汇编 `python3 tools/nro_disasm.py 0x420d18 0x70`（入口即 `mov x19,x0`，全程只 `bl ANM2::ANM2()` 与字段清零，**没有** `_Znwm`/`_Znam`）"
+    },
+    "kGameInitEntryFileOffset": {
+      "class": "B",
+      "why": "**只当挂点目标**：批次 371 给 `Game::Init`（`0x34DD50`）装入口中继 —— 我们**替换它的入口**、不按引擎签名调它。用法是纯内存核靶点：`module->base + kGameInitEntryFileOffset`，然后只做三件不碰引擎函数的检查（4 字节对齐、`module->Contains`、那一页现在可执行），接着改写它的 16 字节入口 + 写我们自己的竞技场（`runtime_entry.cpp:1018-1030`）。⇒ 没有「调用签名」可错，不必补。★ 这条是 2026-10-05 批次 378 收尾时补登记的：它由批次 371 引入，当时 `tools/engine_symbol_signatures.json` 还没重新生成 ⇒ 它不在 `unknown` 集合里、门禁也看不见它；批次 378 重新生成签名表后它第一次「可见」，于是按规矩分诊（不是批次 378 新增的引擎交互）。",
+      "evidence": "runtime/source/runtime_entry.cpp:1018（`const std::uintptr_t target = module->base + kGameInitEntryFileOffset;`）与紧随其后的 `kGameInitEntryExpectedBytes` 守卫；常量与 16 字节入口字节在 runtime/source/runtime_constants.hpp 的批次 371 段（`0x34DD50` 那一段，注释里还更正了「入口不是 0x34DD7C」）；门禁 runtime/tests/test_engine_offset_signatures.py 的 `test_unknown_entries_are_triaged_in_backlog`（未覆盖集合必须恰好等于台账键集合）"
+    },
+    "kAnmCacheRemoveReferenceOffset": {
+      "class": "A",
+      "why": "**真的按签名调它**（批次 366~368 的 ANM2 作废原语）：`AnmCache::RemoveReference(std::string const&)` @ `0x14CC4`，`x0` = `AnmCache*`（成员函数的 this）、`x1` = **libc++ 的 24 字节 `std::string`**（本模块编的是 libstdc++ 的 32 字节布局 ⇒ **不能直接互传**，调用点先自己搭一串 libc++ 的）。读不出来的是我们这一侧的声明：常量是**当实参交给解析助手**的 —— `engine_call::ResolveFunction<Bindings::RemoveRefFn>(module.base, module.size, kAnmCacheRemoveReferenceOffset, kAnmCacheRemoveReferenceExpectedBytes, …)`（`anm2_load_override_hook.cpp:529-535`）⇒ 与 `kItemConfigLoadCostumesFileOffset` **同一笔欠账**（工具认不出「把常量交给解析助手」这种形状）。签名依据：demangled 名 + 16 字节序言守卫；`runtime_constants.hpp` 该段还写明「计数为 0 时它**先打日志再减** ⇒ 会下溢成 0xFFFFFFFF」，所以调用方必须先自己读计数、只在 >0 时减。",
+      "evidence": "runtime/source/anm2_load_override_hook.cpp:529-535；runtime/source/runtime_constants.hpp:4972-4980（常量 + `kAnmCacheRemoveReferenceExpectedBytes`）；同族欠账先例见本台账的 `kItemConfigLoadCostumesFileOffset` 一行"
+    },
+    "kAnmCacheFreeUnreferencedEntriesOffset": {
+      "class": "A",
+      "why": "**真的按签名调它**（同一族作废原语）：`AnmCache::FreeUnreferencedEntries()` @ `0x14F64`，`x0` = `AnmCache*`、无其它参数、返回 void。读不出来的是我们这一侧的声明：常量交给**入口守卫助手** —— `VerifiedEntry<Context::AnmCacheFreeFn>(module, kAnmCacheFreeUnreferencedEntriesOffset, kAnmCacheFreeUnreferencedEntriesExpectedBytes, &ok)`（`mod_menu_native.cpp:2862-2864`；另有一处在 `anm2_load_override_hook.cpp:534` 经 `ResolveFunction`）⇒ 同 `kItemConfigLoadCostumesFileOffset` 的欠账形状。签名依据：demangled 名 + `kAnmCacheFreeUnreferencedEntriesExpectedBytes` 守卫；`runtime_constants.hpp` 该段记了引擎自己四处调它（换语言 `PerformLanguageSwitch 0x3B3A28`、选项菜单、`ModManager::Reset`、控制台命令）⇒ 这条路径引擎自己走熟了。",
+      "evidence": "runtime/source/mod_menu_native.cpp:2862-2864、runtime/source/anm2_load_override_hook.cpp:534；runtime/source/runtime_constants.hpp:4981-4990（常量 + `kAnmCacheFreeUnreferencedEntriesExpectedBytes` + 引擎四处调用点的记录）"
+    },
+    "kTemporaryEffectsAddCollectibleEffectOffset": {
+      "class": "A",
+      "why": "批次 388（2026-10-07）：`TemporaryEffects` 的 `Add*`/`Remove*` 六条**手写**处理器用值数组跳板（`EngineCallTrampoline`）调引擎 —— 因为 PC 的缺省值（`AddCostume=true` / `Count=1`）非 0，而数据行的 `optionalArgumentCount` 语义是『省略的寄存器保持 0』⇒ 表达不了 ⇒ 只能手写补缺省。⇒ 工具读不出声明调用签名 ⇒ 这六条目前核不到，属『应当能核对、但当前形态核不了』的欠账。★ 同族另有 6 条（`Has*Effect`/`Get*EffectNum`）走**数据行**，形状可读、**不在这里**。",
+      "evidence": "runtime/src/interfaces/lua/isaac_api.cpp 的 TemporaryEffectsAddEffect / TemporaryEffectsRemoveEffect（EngineCallTrampoline 调用点）；runtime/source/runtime_constants.hpp 的 TemporaryEffects 段的该 Offset/EntryWord；runtime/tests/test_lua_entity_player.py（方法存在性用例）"
+    },
+    "kTemporaryEffectsAddTrinketEffectOffset": {
+      "class": "A",
+      "why": "批次 388（2026-10-07）：`TemporaryEffects` 的 `Add*`/`Remove*` 六条**手写**处理器用值数组跳板（`EngineCallTrampoline`）调引擎 —— 因为 PC 的缺省值（`AddCostume=true` / `Count=1`）非 0，而数据行的 `optionalArgumentCount` 语义是『省略的寄存器保持 0』⇒ 表达不了 ⇒ 只能手写补缺省。⇒ 工具读不出声明调用签名 ⇒ 这六条目前核不到，属『应当能核对、但当前形态核不了』的欠账。★ 同族另有 6 条（`Has*Effect`/`Get*EffectNum`）走**数据行**，形状可读、**不在这里**。",
+      "evidence": "runtime/src/interfaces/lua/isaac_api.cpp 的 TemporaryEffectsAddEffect / TemporaryEffectsRemoveEffect（EngineCallTrampoline 调用点）；runtime/source/runtime_constants.hpp 的 TemporaryEffects 段的该 Offset/EntryWord；runtime/tests/test_lua_entity_player.py（方法存在性用例）"
+    },
+    "kTemporaryEffectsAddNullEffectOffset": {
+      "class": "A",
+      "why": "批次 388（2026-10-07）：`TemporaryEffects` 的 `Add*`/`Remove*` 六条**手写**处理器用值数组跳板（`EngineCallTrampoline`）调引擎 —— 因为 PC 的缺省值（`AddCostume=true` / `Count=1`）非 0，而数据行的 `optionalArgumentCount` 语义是『省略的寄存器保持 0』⇒ 表达不了 ⇒ 只能手写补缺省。⇒ 工具读不出声明调用签名 ⇒ 这六条目前核不到，属『应当能核对、但当前形态核不了』的欠账。★ 同族另有 6 条（`Has*Effect`/`Get*EffectNum`）走**数据行**，形状可读、**不在这里**。",
+      "evidence": "runtime/src/interfaces/lua/isaac_api.cpp 的 TemporaryEffectsAddEffect / TemporaryEffectsRemoveEffect（EngineCallTrampoline 调用点）；runtime/source/runtime_constants.hpp 的 TemporaryEffects 段的该 Offset/EntryWord；runtime/tests/test_lua_entity_player.py（方法存在性用例）"
+    },
+    "kTemporaryEffectsRemoveCollectibleEffectOffset": {
+      "class": "A",
+      "why": "批次 388（2026-10-07）：`TemporaryEffects` 的 `Add*`/`Remove*` 六条**手写**处理器用值数组跳板（`EngineCallTrampoline`）调引擎 —— 因为 PC 的缺省值（`AddCostume=true` / `Count=1`）非 0，而数据行的 `optionalArgumentCount` 语义是『省略的寄存器保持 0』⇒ 表达不了 ⇒ 只能手写补缺省。⇒ 工具读不出声明调用签名 ⇒ 这六条目前核不到，属『应当能核对、但当前形态核不了』的欠账。★ 同族另有 6 条（`Has*Effect`/`Get*EffectNum`）走**数据行**，形状可读、**不在这里**。",
+      "evidence": "runtime/src/interfaces/lua/isaac_api.cpp 的 TemporaryEffectsAddEffect / TemporaryEffectsRemoveEffect（EngineCallTrampoline 调用点）；runtime/source/runtime_constants.hpp 的 TemporaryEffects 段的该 Offset/EntryWord；runtime/tests/test_lua_entity_player.py（方法存在性用例）"
+    },
+    "kTemporaryEffectsRemoveTrinketEffectOffset": {
+      "class": "A",
+      "why": "批次 388（2026-10-07）：`TemporaryEffects` 的 `Add*`/`Remove*` 六条**手写**处理器用值数组跳板（`EngineCallTrampoline`）调引擎 —— 因为 PC 的缺省值（`AddCostume=true` / `Count=1`）非 0，而数据行的 `optionalArgumentCount` 语义是『省略的寄存器保持 0』⇒ 表达不了 ⇒ 只能手写补缺省。⇒ 工具读不出声明调用签名 ⇒ 这六条目前核不到，属『应当能核对、但当前形态核不了』的欠账。★ 同族另有 6 条（`Has*Effect`/`Get*EffectNum`）走**数据行**，形状可读、**不在这里**。",
+      "evidence": "runtime/src/interfaces/lua/isaac_api.cpp 的 TemporaryEffectsAddEffect / TemporaryEffectsRemoveEffect（EngineCallTrampoline 调用点）；runtime/source/runtime_constants.hpp 的 TemporaryEffects 段的该 Offset/EntryWord；runtime/tests/test_lua_entity_player.py（方法存在性用例）"
+    },
+    "kTemporaryEffectsRemoveNullEffectOffset": {
+      "class": "A",
+      "why": "批次 388（2026-10-07）：`TemporaryEffects` 的 `Add*`/`Remove*` 六条**手写**处理器用值数组跳板（`EngineCallTrampoline`）调引擎 —— 因为 PC 的缺省值（`AddCostume=true` / `Count=1`）非 0，而数据行的 `optionalArgumentCount` 语义是『省略的寄存器保持 0』⇒ 表达不了 ⇒ 只能手写补缺省。⇒ 工具读不出声明调用签名 ⇒ 这六条目前核不到，属『应当能核对、但当前形态核不了』的欠账。★ 同族另有 6 条（`Has*Effect`/`Get*EffectNum`）走**数据行**，形状可读、**不在这里**。",
+      "evidence": "runtime/src/interfaces/lua/isaac_api.cpp 的 TemporaryEffectsAddEffect / TemporaryEffectsRemoveEffect（EngineCallTrampoline 调用点）；runtime/source/runtime_constants.hpp 的 TemporaryEffects 段的该 Offset/EntryWord；runtime/tests/test_lua_entity_player.py（方法存在性用例）"
+    },
+    "kKageManagerIsActionPressedOffset": {
+      "class": "A",
+      "why": "批次 390（2026-10-07）：`MC_INPUT_ACTION` 的三条查询入口中继用**值数组跳板**（`EngineCallTrampoline` 不是，是入口中继里直接以目标函数身份调用 `Original<Fn>`）⇒ 没有声明调用签名可核，工具读不出 ⇒ 属『应当能核对、但当前形态核不了』的欠账。★ 偏移与 16 字节守卫来自 `Repentance.nro` 动态符号表（可重跑）。★★ `IsActionPressed` 与 `IsActionTriggered` 的 16 字节守卫**逐字节相同** ⇒ 守卫挡不住两者互换。",
+      "evidence": "runtime/source/runtime_constants.hpp 的 `kKageManager*` 段；runtime/source/hook_manager.cpp 的 `ISAAC_RUNTIME_INPUT_ACTION_RELAY` 三条；runtime/src/infrastructure/relay/entry_relay_hook_adapter.cpp 的装配表"
+    },
+    "kKageManagerIsActionTriggeredOffset": {
+      "class": "A",
+      "why": "批次 390（2026-10-07）：`MC_INPUT_ACTION` 的三条查询入口中继用**值数组跳板**（`EngineCallTrampoline` 不是，是入口中继里直接以目标函数身份调用 `Original<Fn>`）⇒ 没有声明调用签名可核，工具读不出 ⇒ 属『应当能核对、但当前形态核不了』的欠账。★ 偏移与 16 字节守卫来自 `Repentance.nro` 动态符号表（可重跑）。★★ `IsActionPressed` 与 `IsActionTriggered` 的 16 字节守卫**逐字节相同** ⇒ 守卫挡不住两者互换。",
+      "evidence": "runtime/source/runtime_constants.hpp 的 `kKageManager*` 段；runtime/source/hook_manager.cpp 的 `ISAAC_RUNTIME_INPUT_ACTION_RELAY` 三条；runtime/src/infrastructure/relay/entry_relay_hook_adapter.cpp 的装配表"
+    },
+    "kKageManagerGetActionValueOffset": {
+      "class": "A",
+      "why": "批次 390（2026-10-07）：`MC_INPUT_ACTION` 的三条查询入口中继用**值数组跳板**（`EngineCallTrampoline` 不是，是入口中继里直接以目标函数身份调用 `Original<Fn>`）⇒ 没有声明调用签名可核，工具读不出 ⇒ 属『应当能核对、但当前形态核不了』的欠账。★ 偏移与 16 字节守卫来自 `Repentance.nro` 动态符号表（可重跑）。★★ `IsActionPressed` 与 `IsActionTriggered` 的 16 字节守卫**逐字节相同** ⇒ 守卫挡不住两者互换。",
+      "evidence": "runtime/source/runtime_constants.hpp 的 `kKageManager*` 段；runtime/source/hook_manager.cpp 的 `ISAAC_RUNTIME_INPUT_ACTION_RELAY` 三条；runtime/src/infrastructure/relay/entry_relay_hook_adapter.cpp 的装配表"
+    },
+    "kEntityFamiliarHandleCollisionOffset": {
+      "class": "B",
+      "why": "2026-10-09：仅作入口中继目标；主动调用签名不适用，入口回调的参数和返回值另由 relay_declarations 对真实镜像核对。",
+      "evidence": "runtime/source/hook_manager.cpp 的 EntryRelayFamiliarCollisionCallback；runtime/src/infrastructure/relay/entry_relay_hook_adapter.cpp 的 BindingOf(HookId::FamiliarCollision)；tools/engine_offset_abi_report.py 的 RELAY_CALLBACK_TARGETS"
+    },
+    "kEntityNpcHandleCollisionOffset": {
+      "class": "B",
+      "why": "2026-10-09：仅作入口中继目标；主动调用签名不适用，入口回调的参数和返回值另由 relay_declarations 对真实镜像核对。",
+      "evidence": "runtime/source/hook_manager.cpp 的 EntryRelayNpcCollisionCallback；runtime/src/infrastructure/relay/entry_relay_hook_adapter.cpp 的 BindingOf(HookId::NpcCollision)；tools/engine_offset_abi_report.py 的 RELAY_CALLBACK_TARGETS"
+    },
+    "kEntityPlayerHandleCollisionOffset": {
+      "class": "B",
+      "why": "2026-10-09：仅作入口中继目标；主动调用签名不适用，入口回调的参数和返回值另由 relay_declarations 对真实镜像核对。",
+      "evidence": "runtime/source/hook_manager.cpp 的 EntryRelayPlayerCollisionCallback；runtime/src/infrastructure/relay/entry_relay_hook_adapter.cpp 的 BindingOf(HookId::PlayerCollision)；tools/engine_offset_abi_report.py 的 RELAY_CALLBACK_TARGETS"
+    },
+    "kEntityTearHandleCollisionOffset": {
+      "class": "B",
+      "why": "2026-10-09：仅作入口中继目标；主动调用签名不适用，入口回调的参数和返回值另由 relay_declarations 对真实镜像核对。",
+      "evidence": "runtime/source/hook_manager.cpp 的 EntryRelayTearCollisionCallback；runtime/src/infrastructure/relay/entry_relay_hook_adapter.cpp 的 BindingOf(HookId::TearCollision)；tools/engine_offset_abi_report.py 的 RELAY_CALLBACK_TARGETS"
+    },
+    "kEntityProjectileHandleCollisionOffset": {
+      "class": "B",
+      "why": "2026-10-09：仅作入口中继目标；主动调用签名不适用，入口回调的参数和返回值另由 relay_declarations 对真实镜像核对。",
+      "evidence": "runtime/source/hook_manager.cpp 的 EntryRelayProjectileCollisionCallback；runtime/src/infrastructure/relay/entry_relay_hook_adapter.cpp 的 BindingOf(HookId::ProjectileCollision)；tools/engine_offset_abi_report.py 的 RELAY_CALLBACK_TARGETS"
+    },
+    "kEntityKnifeHandleCollisionOffset": {
+      "class": "B",
+      "why": "2026-10-09：仅作入口中继目标；主动调用签名不适用，入口回调的参数和返回值另由 relay_declarations 对真实镜像核对。",
+      "evidence": "runtime/source/hook_manager.cpp 的 EntryRelayKnifeCollisionCallback；runtime/src/infrastructure/relay/entry_relay_hook_adapter.cpp 的 BindingOf(HookId::KnifeCollision)；tools/engine_offset_abi_report.py 的 RELAY_CALLBACK_TARGETS"
+    },
+    "kEntityBombHandleCollisionOffset": {
+      "class": "B",
+      "why": "2026-10-09：仅作入口中继目标；主动调用签名不适用，入口回调的参数和返回值另由 relay_declarations 对真实镜像核对。",
+      "evidence": "runtime/source/hook_manager.cpp 的 EntryRelayBombCollisionCallback；runtime/src/infrastructure/relay/entry_relay_hook_adapter.cpp 的 BindingOf(HookId::BombCollision)；tools/engine_offset_abi_report.py 的 RELAY_CALLBACK_TARGETS"
+    },
+    "kEntityNpcRenderOffset": {
+      "class": "B",
+      "why": "2026-10-09：仅作入口中继目标；主动调用签名不适用，入口回调的参数和返回值另由 relay_declarations 对真实镜像核对。",
+      "evidence": "runtime/source/hook_manager.cpp 的 EntryRelayNpcRenderCallback；runtime/src/infrastructure/relay/entry_relay_hook_adapter.cpp 的 BindingOf(HookId::NpcRender)；tools/engine_offset_abi_report.py 的 RELAY_CALLBACK_TARGETS"
+    },
+    "kItemPoolGetPillOffset": {
+      "class": "B",
+      "why": "仅入口中继目标，主动调用签名不适用；入口ABI另按真实镜像比对。",
+      "evidence": "hook_manager.cpp EntryRelayItemPoolGetPillCallback；engine_offset_abi_report.py RELAY_CALLBACK_TARGETS"
+    },
+    "kGameDevolveEnemyOffset": {
+      "class": "B",
+      "why": "仅入口中继目标，主动调用签名不适用；入口ABI另按真实镜像比对。",
+      "evidence": "hook_manager.cpp EntryRelayGameDevolveEnemyCallback；engine_offset_abi_report.py RELAY_CALLBACK_TARGETS"
+    },
+    "kNpcUpdateAiOffset": {
+      "class": "A",
+      "why": "2026-10-09更正：目标地址既用于GOT安装核验，也由拦截体真实调用void(this)。函数指针值从已核验目标发布槽取得，工具不能从常量追到这个间接调用，属调用核验覆盖欠账；槽/PLT/解析桩数据地址不应归函数欠账。",
+      "evidence": "hook_manager.cpp IsaacModRuntime_NpcUpdateAiGotSlotIntercept、TryInstallNpcUpdateAiGotSlot；runtime/tests/test_npc_ai_got_hook.py核对原AI(this)转发及取消；NRO@0x1118F8具名void update_ai()。"
+    },
+    "kTemporaryEffectsClearEffectsOffset": {
+      "class": "A",
+      "why": "真实值数组调用void(this,bool)，ABI工具尚无法读取该形态；不是仅挂点。PC thunk默认false，NRO完整指纹核验。",
+      "evidence": "runtime/tests/test_lua_temporary_effect_views.py核对x0玩家+0x18D8/x1默认0、显式1、nil0；PC thunk@0x846BC0/NRO@0x4A6E60反汇编存档。"
+    },
+    "kPersistentGameDataUnlockedOffset": {
+      "class": "A",
+      "why": "2026-10-09：真实值数组经EngineCallTrampoline调用bool(this,eAchievement)，不是只作挂点；声明解析器尚不能从method/integers数组推导签名，仍属于机器覆盖欠账。运行时实际x0为Manager内嵌PGD+0x18、x1为achievement低32位，完整16字节指纹守卫；没有把未覆盖填成工具通过。",
+      "evidence": "runtime/src/interfaces/lua/isaac_api.cpp PersistentGameDataUnlocked；runtime/tests/test_lua_persistent_game_data.py真实Lua核对目标0x439654、两个整数ABI格及负数/字符串/owner失效/入口改变；dist/offline-repairs-20261009-pgd/已有PC/NS原生查询证据。"
+    },
+    "kEntityTearSetTearFlagsOffset": {
+      "class": "A",
+      "why": "2026-10-09：真实值数组调用void(this,bitset128_t)，解析器不建模16字节按值结构体拆寄存器，因此物理x0/x1/x2不能按源签名一个参数直接算少给/多给。仍是机器覆盖欠账，不能伪装仅挂点。原生实际x1低字、x2高字；完整入口指纹后转发，保留泪弹视觉副作用。",
+      "evidence": "runtime/tests/test_lua_tear_flags_fields.py核对原生0x33BAA0、entity/48/0x8000000000000000三个ABI格；dist/offline-repairs-20261009-bitset128/evidence/ns-set-tear-flags.txt第0x33BAC4/0x33BAC8分别从x2/x1保存高/低字，0x33BE38/44写真实字段。"
+    },
+    "kPersistentGameDataBestiaryKillOffset": {
+      "class": "A",
+      "why": "真实调用int32(this,int32 Type,uint32 Variant)，经PushPersistentBestiaryCount的method与integer数组传EngineCallTrampoline；声明解析器尚不能从数组推导签名。真实Lua已核三个整数寄存器、signed返回、低32参数和完整入口指纹，但不把这一点冒充工具已推导签名。",
+      "evidence": "runtime/tests/test_lua_pgd_bestiary.py；dist/pgd-bestiary-static-20261010/完整NS具名函数和REPENTOGON实际wrapper。"
+    },
+    "kPersistentGameDataBestiaryDeathOffset": {
+      "class": "A",
+      "why": "真实调用int32(this,int32 Type,uint32 Variant)，经PushPersistentBestiaryCount的method与integer数组传EngineCallTrampoline；声明解析器尚不能从数组推导签名。真实Lua已核三个整数寄存器、signed返回、低32参数和完整入口指纹，但不把这一点冒充工具已推导签名。",
+      "evidence": "runtime/tests/test_lua_pgd_bestiary.py；dist/pgd-bestiary-static-20261010/完整NS具名函数和REPENTOGON实际wrapper。"
+    },
+    "kPersistentGameDataBestiaryEncounterOffset": {
+      "class": "A",
+      "why": "真实调用int32(this,int32 Type,uint32 Variant)，经PushPersistentBestiaryCount的method与integer数组传EngineCallTrampoline；声明解析器尚不能从数组推导签名。真实Lua已核三个整数寄存器、signed返回、低32参数和完整入口指纹，但不把这一点冒充工具已推导签名。",
+      "evidence": "runtime/tests/test_lua_pgd_bestiary.py；dist/pgd-bestiary-static-20261010/完整NS具名函数和REPENTOGON实际wrapper。"
+    },
+    "kTrinketGetFunctionOffset": {
+      "class": "B",
+      "why": "仅用于GetTrinket全函数守卫与两内部BL挂点的相对位置，不按该函数地址进行直接签名调用。原Random/Unlocked独立绑定并实际重放，不能把该全函数guard偏移算成已调用签名。",
+      "evidence": "runtime/src/infrastructure/internal/internal_hook_adapter.cpp TrinketGuardsMatch；runtime/tests/test_trinket_internal_bridge.py、test_trinket_internal_installer.py。"
+    },
+    "kPersistentGameDataAddBestiaryKillOffset": {
+      "class": "A",
+      "why": "真实调用bool(this,int32 Type,uint32 Variant)，参数按低32位装入integer数组，经已认证EngineCallTrampoline进入原函数；工具尚不能从数组推导声明签名，仍是机器覆盖欠账。完整入口16B指纹及真实Lua宿主模型已验证目标、实参、返回和拒绝路径，不将测试冒充自动签名覆盖。",
+      "evidence": "runtime/tests/test_lua_pgd_bestiary_write.py；dist/pgd-bestiary-write-static-20261010/REPENTOGON-LuaPersistentGameData.cpp与两完整NS具名函数。"
+    },
+    "kPersistentGameDataAddBossOffset": {
+      "class": "A",
+      "why": "真实调用void(this,int32 BossId)，参数按低32位装入integer数组，经已认证EngineCallTrampoline进入原函数；工具尚不能从数组推导声明签名，仍是机器覆盖欠账。完整入口16B指纹及真实Lua宿主模型已验证目标、实参、返回和拒绝路径，不将测试冒充自动签名覆盖。",
+      "evidence": "runtime/tests/test_lua_pgd_bestiary_write.py；dist/pgd-bestiary-write-static-20261010/REPENTOGON-LuaPersistentGameData.cpp与两完整NS具名函数。"
+    },
+    "kEntityFamiliarGetOrbitPositionOffset": {
+      "class": "A",
+      "why": "真实Familiar typed函数调用，经RequireFamiliarOrbitMethod→EntityMethodByExpectedBytes的两级取址并核完整16B；声明工具仍不能追此新助手，属于机器覆盖欠账。GetOrbit严格8B两float HFA s0/s1返回，其余this/int/bool签名；不是仅挂点。",
+      "evidence": "runtime/tests/test_lua_familiar_orbit.py真实Lua/native类型调用；真实AArch64 HFA ABI另验；dist/familiar-orbit-static-20261010/完整PC/NS与实际bool Lua thunk。"
+    },
+    "kEntityFamiliarRecalculateOrbitOffsetOffset": {
+      "class": "A",
+      "why": "真实Familiar typed函数调用，经RequireFamiliarOrbitMethod→EntityMethodByExpectedBytes的两级取址并核完整16B；声明工具仍不能追此新助手，属于机器覆盖欠账。GetOrbit严格8B两float HFA s0/s1返回，其余this/int/bool签名；不是仅挂点。",
+      "evidence": "runtime/tests/test_lua_familiar_orbit.py真实Lua/native类型调用；真实AArch64 HFA ABI另验；dist/familiar-orbit-static-20261010/完整PC/NS与实际bool Lua thunk。"
+    },
+    "kEntityFamiliarAddToOrbitOffset": {
+      "class": "A",
+      "why": "真实Familiar typed函数调用，经RequireFamiliarOrbitMethod→EntityMethodByExpectedBytes的两级取址并核完整16B；声明工具仍不能追此新助手，属于机器覆盖欠账。GetOrbit严格8B两float HFA s0/s1返回，其余this/int/bool签名；不是仅挂点。",
+      "evidence": "runtime/tests/test_lua_familiar_orbit.py真实Lua/native类型调用；真实AArch64 HFA ABI另验；dist/familiar-orbit-static-20261010/完整PC/NS与实际bool Lua thunk。"
+    },
+    "kEntityFamiliarRemoveFromOrbitOffset": {
+      "class": "A",
+      "why": "真实Familiar typed函数调用，经RequireFamiliarOrbitMethod→EntityMethodByExpectedBytes的两级取址并核完整16B；声明工具仍不能追此新助手，属于机器覆盖欠账。GetOrbit严格8B两float HFA s0/s1返回，其余this/int/bool签名；不是仅挂点。",
+      "evidence": "runtime/tests/test_lua_familiar_orbit.py真实Lua/native类型调用；真实AArch64 HFA ABI另验；dist/familiar-orbit-static-20261010/完整PC/NS与实际bool Lua thunk。"
+    },
+    "kEntityDestructorFunctionOffset": {
+      "class": "B",
+      "why": "D2完整228B守卫/内部BL挂点，不直接调用整个D2；原上下文恢复。",
+      "evidence": "runtime/tests/test_entity_destructor_adapter.py；runtime/tests/test_lua_agony_native_queries.py；dist/entity-lifecycle-static-20261010/；dist/agony-native-query-static-20261010/。自动ABI未覆盖不冒称通过。"
+    },
+    "kEntityDestructorRngDestroyOffset": {
+      "class": "A",
+      "why": "实际EntityRemoveNativeBindings::RngDestroy void(void*)在内部回调按x0调用原RNG D2；工具尚未跨安装器成员赋值找到声明，真实上下文/目标与完整RET守卫独立宿主验证。",
+      "evidence": "runtime/tests/test_entity_destructor_adapter.py；runtime/tests/test_lua_agony_native_queries.py；dist/entity-lifecycle-static-20261010/；dist/agony-native-query-static-20261010/。自动ABI未覆盖不冒称通过。"
+    },
+    "kRoomGetGridCollisionAtPosOffset": {
+      "class": "A",
+      "why": "真实AgonyRoomCollisionFn int(uintptr_t,AgonyRoomVector)；const两个float HFA按值，工具尚未追ResolveEngineMethodEntry绑定，真实Lua9场景与物理ABI另验。",
+      "evidence": "runtime/tests/test_entity_destructor_adapter.py；runtime/tests/test_lua_agony_native_queries.py；dist/entity-lifecycle-static-20261010/；dist/agony-native-query-static-20261010/。自动ABI未覆盖不冒称通过。"
+    },
+    "kEntityNpcGetPlayerTargetOffset": {
+      "class": "A",
+      "why": "真实AgonyNpcTargetFn uintptr_t(uintptr_t)；工具尚未追EntityMethodByExpectedBytes取址，真实Lua原对象/合法nil/入口守卫已核。",
+      "evidence": "runtime/tests/test_entity_destructor_adapter.py；runtime/tests/test_lua_agony_native_queries.py；dist/entity-lifecycle-static-20261010/；dist/agony-native-query-static-20261010/。自动ABI未覆盖不冒称通过。"
+    },
+    "kSpriteGetOverlayFrameOffset": {
+      "class": "A",
+      "why": "真实AgonyOverlayFrameFn int(void*)；工具尚未追EngineOffsetAddress及该型别绑定，真实Luaoverlay有无/signed/入口守卫已核。",
+      "evidence": "runtime/tests/test_entity_destructor_adapter.py；runtime/tests/test_lua_agony_native_queries.py；dist/entity-lifecycle-static-20261010/；dist/agony-native-query-static-20261010/。自动ABI未覆盖不冒称通过。"
+    },
+    "kEntityTearResetSpriteScaleOffset": {
+      "class": "A",
+      "why": "真实消费者经EntityMethodByExpectedBytes取址后typed调用；自动工具尚未跨该helper匹配对应Fn typedef。实际完整PC/NS、真实Lua和AArch64混合/浮点/字符串参数另已核，不把unknown说成自动覆盖。",
+      "evidence": "runtime/tests/test_lua_static_entity_methods.py；runtime/tests/test_static_entity_mixed_abi.py；dist/static-entity-methods-20261010/。"
+    },
+    "kEntityNpcPlaySoundOffset": {
+      "class": "A",
+      "why": "真实消费者经EntityMethodByExpectedBytes取址后typed调用；自动工具尚未跨该helper匹配对应Fn typedef。实际完整PC/NS、真实Lua和AArch64混合/浮点/字符串参数另已核，不把unknown说成自动覆盖。",
+      "evidence": "runtime/tests/test_lua_static_entity_methods.py；runtime/tests/test_static_entity_mixed_abi.py；dist/static-entity-methods-20261010/。"
+    },
+    "kEntityNpcAnimWalkFrameOffset": {
+      "class": "A",
+      "why": "真实消费者经EntityMethodByExpectedBytes取址后typed调用；自动工具尚未跨该helper匹配对应Fn typedef。实际完整PC/NS、真实Lua和AArch64混合/浮点/字符串参数另已核，不把unknown说成自动覆盖。",
+      "evidence": "runtime/tests/test_lua_static_entity_methods.py；runtime/tests/test_static_entity_mixed_abi.py；dist/static-entity-methods-20261010/。"
+    },
+    "kEntityTearSetScaleOffset": {
+      "class": "A",
+      "why": "真实消费者经EntityMethodByExpectedBytes取址后typed调用；自动工具尚未跨该helper匹配对应Fn typedef。实际完整PC/NS、真实Lua和AArch64混合/浮点/字符串参数另已核，不把unknown说成自动覆盖。",
+      "evidence": "runtime/tests/test_lua_static_entity_methods.py；runtime/tests/test_static_entity_mixed_abi.py；dist/static-entity-methods-20261010/。"
+    },
+    "kLevelCurseFunctionOffset": {
+      "class": "B",
+      "why": "完整原函数字节守卫及内部回调点所在函数，不直接调用整函数，也不声明其整函数typed ABI。",
+      "evidence": "runtime/src/infrastructure/internal/internal_hook_adapter.cpp；runtime/tests/test_cold_internal_adapter.py。"
+    },
+    "kPickupSelectionFunctionOffset": {
+      "class": "B",
+      "why": "完整原函数字节守卫及内部回调点所在函数，不直接调用整函数，也不声明其整函数typed ABI。",
+      "evidence": "runtime/src/infrastructure/internal/internal_hook_adapter.cpp；runtime/tests/test_cold_internal_adapter.py。"
+    },
+    "kApi100ColorResetOffset": {
+      "class": "A",
+      "why": "存在地址消费或布局指纹校验，但通用ABI扫描器未解析命名空间守卫别名、索引Entry/Native模板或共用调用助手；自动参数/返回签名未验收，不能用本轮合并或宿主行为测试当作全部ABI已核对。",
+      "evidence": "runtime/source/runtime_constants.hpp:9309; runtime/src/interfaces/lua/api100_values.guards.hpp:17; dist/merge-bug-api-20261014/signatures-contract.log（重建签名后真实缺项）",
+      "status": "自动调用签名未覆盖"
+    },
+    "kApi100ColorSetOffsetOffset": {
+      "class": "A",
+      "why": "存在地址消费或布局指纹校验，但通用ABI扫描器未解析命名空间守卫别名、索引Entry/Native模板或共用调用助手；自动参数/返回签名未验收，不能用本轮合并或宿主行为测试当作全部ABI已核对。",
+      "evidence": "runtime/source/runtime_constants.hpp:9303; runtime/src/interfaces/lua/api100_values.guards.hpp:9; dist/merge-bug-api-20261014/signatures-contract.log（重建签名后真实缺项）",
+      "status": "自动调用签名未覆盖"
+    },
+    "kApi100ColorSetTintOffset": {
+      "class": "A",
+      "why": "存在地址消费或布局指纹校验，但通用ABI扫描器未解析命名空间守卫别名、索引Entry/Native模板或共用调用助手；自动参数/返回签名未验收，不能用本轮合并或宿主行为测试当作全部ABI已核对。",
+      "evidence": "runtime/source/runtime_constants.hpp:9306; runtime/src/interfaces/lua/api100_values.guards.hpp:13; dist/merge-bug-api-20261014/signatures-contract.log（重建签名后真实缺项）",
+      "status": "自动调用签名未覆盖"
+    },
+    "kApi100EntityBloodExplodeOffset": {
+      "class": "A",
+      "why": "存在地址消费或布局指纹校验，但通用ABI扫描器未解析命名空间守卫别名、索引Entry/Native模板或共用调用助手；自动参数/返回签名未验收，不能用本轮合并或宿主行为测试当作全部ABI已核对。",
+      "evidence": "runtime/source/runtime_constants.hpp:9084; runtime/src/interfaces/lua/api100_core.cpp:18; runtime/src/interfaces/lua/api100_core.guards.hpp:16; dist/merge-bug-api-20261014/signatures-contract.log（重建签名后真实缺项）",
+      "status": "自动调用签名未覆盖"
+    },
+    "kApi100EntityFamiliarAddCoinsOffset": {
+      "class": "A",
+      "why": "存在地址消费或布局指纹校验，但通用ABI扫描器未解析命名空间守卫别名、索引Entry/Native模板或共用调用助手；自动参数/返回签名未验收，不能用本轮合并或宿主行为测试当作全部ABI已核对。",
+      "evidence": "runtime/source/runtime_constants.hpp:9099; runtime/src/interfaces/lua/api100_entities.cpp:21; runtime/src/interfaces/lua/api100_entities.guards.hpp:61; dist/merge-bug-api-20261014/signatures-contract.log（重建签名后真实缺项）",
+      "status": "自动调用签名未覆盖"
+    },
+    "kApi100EntityFamiliarAddHeartsOffset": {
+      "class": "A",
+      "why": "存在地址消费或布局指纹校验，但通用ABI扫描器未解析命名空间守卫别名、索引Entry/Native模板或共用调用助手；自动参数/返回签名未验收，不能用本轮合并或宿主行为测试当作全部ABI已核对。",
+      "evidence": "runtime/source/runtime_constants.hpp:9102; runtime/src/interfaces/lua/api100_entities.cpp:22; runtime/src/interfaces/lua/api100_entities.guards.hpp:63; dist/merge-bug-api-20261014/signatures-contract.log（重建签名后真实缺项）",
+      "status": "自动调用签名未覆盖"
+    },
+    "kApi100EntityFamiliarAddKeysOffset": {
+      "class": "A",
+      "why": "存在地址消费或布局指纹校验，但通用ABI扫描器未解析命名空间守卫别名、索引Entry/Native模板或共用调用助手；自动参数/返回签名未验收，不能用本轮合并或宿主行为测试当作全部ABI已核对。",
+      "evidence": "runtime/source/runtime_constants.hpp:9105; runtime/src/interfaces/lua/api100_entities.cpp:23; runtime/src/interfaces/lua/api100_entities.guards.hpp:65; dist/merge-bug-api-20261014/signatures-contract.log（重建签名后真实缺项）",
+      "status": "自动调用签名未覆盖"
+    },
+    "kApi100EntityFamiliarAddToDelayedOffset": {
+      "class": "A",
+      "why": "存在地址消费或布局指纹校验，但通用ABI扫描器未解析命名空间守卫别名、索引Entry/Native模板或共用调用助手；自动参数/返回签名未验收，不能用本轮合并或宿主行为测试当作全部ABI已核对。",
+      "evidence": "runtime/source/runtime_constants.hpp:9114; runtime/src/interfaces/lua/api100_entities.cpp:26; runtime/src/interfaces/lua/api100_entities.guards.hpp:71; dist/merge-bug-api-20261014/signatures-contract.log（重建签名后真实缺项）",
+      "status": "自动调用签名未覆盖"
+    },
+    "kApi100EntityFamiliarMoveDelayedOffset": {
+      "class": "A",
+      "why": "存在地址消费或布局指纹校验，但通用ABI扫描器未解析命名空间守卫别名、索引Entry/Native模板或共用调用助手；自动参数/返回签名未验收，不能用本轮合并或宿主行为测试当作全部ABI已核对。",
+      "evidence": "runtime/source/runtime_constants.hpp:9117; runtime/src/interfaces/lua/api100_entities.cpp:27; runtime/src/interfaces/lua/api100_entities.guards.hpp:73; dist/merge-bug-api-20261014/signatures-contract.log（重建签名后真实缺项）",
+      "status": "自动调用签名未覆盖"
+    },
+    "kApi100EntityFamiliarMoveDiagonallyOffset": {
+      "class": "A",
+      "why": "存在地址消费或布局指纹校验，但通用ABI扫描器未解析命名空间守卫别名、索引Entry/Native模板或共用调用助手；自动参数/返回签名未验收，不能用本轮合并或宿主行为测试当作全部ABI已核对。",
+      "evidence": "runtime/source/runtime_constants.hpp:9120; runtime/src/interfaces/lua/api100_entities.cpp:28; runtime/src/interfaces/lua/api100_entities.guards.hpp:75; dist/merge-bug-api-20261014/signatures-contract.log（重建签名后真实缺项）",
+      "status": "自动调用签名未覆盖"
+    },
+    "kApi100EntityFamiliarPlayChargeAnimOffset": {
+      "class": "A",
+      "why": "存在地址消费或布局指纹校验，但通用ABI扫描器未解析命名空间守卫别名、索引Entry/Native模板或共用调用助手；自动参数/返回签名未验收，不能用本轮合并或宿主行为测试当作全部ABI已核对。",
+      "evidence": "runtime/source/runtime_constants.hpp:9123; runtime/src/interfaces/lua/api100_entities.cpp:29; runtime/src/interfaces/lua/api100_entities.guards.hpp:77; dist/merge-bug-api-20261014/signatures-contract.log（重建签名后真实缺项）",
+      "status": "自动调用签名未覆盖"
+    },
+    "kApi100EntityFamiliarPlayFloatAnimOffset": {
+      "class": "A",
+      "why": "存在地址消费或布局指纹校验，但通用ABI扫描器未解析命名空间守卫别名、索引Entry/Native模板或共用调用助手；自动参数/返回签名未验收，不能用本轮合并或宿主行为测试当作全部ABI已核对。",
+      "evidence": "runtime/source/runtime_constants.hpp:9126; runtime/src/interfaces/lua/api100_entities.cpp:30; runtime/src/interfaces/lua/api100_entities.guards.hpp:79; dist/merge-bug-api-20261014/signatures-contract.log（重建签名后真实缺项）",
+      "status": "自动调用签名未覆盖"
+    },
+    "kApi100EntityFamiliarPlayShootAnimOffset": {
+      "class": "A",
+      "why": "存在地址消费或布局指纹校验，但通用ABI扫描器未解析命名空间守卫别名、索引Entry/Native模板或共用调用助手；自动参数/返回签名未验收，不能用本轮合并或宿主行为测试当作全部ABI已核对。",
+      "evidence": "runtime/source/runtime_constants.hpp:9129; runtime/src/interfaces/lua/api100_entities.cpp:31; runtime/src/interfaces/lua/api100_entities.guards.hpp:81; dist/merge-bug-api-20261014/signatures-contract.log（重建签名后真实缺项）",
+      "status": "自动调用签名未覆盖"
+    },
+    "kApi100EntityFamiliarRemoveFromDelayedOffset": {
+      "class": "A",
+      "why": "存在地址消费或布局指纹校验，但通用ABI扫描器未解析命名空间守卫别名、索引Entry/Native模板或共用调用助手；自动参数/返回签名未验收，不能用本轮合并或宿主行为测试当作全部ABI已核对。",
+      "evidence": "runtime/source/runtime_constants.hpp:9111; runtime/src/interfaces/lua/api100_entities.cpp:25; runtime/src/interfaces/lua/api100_entities.guards.hpp:69; dist/merge-bug-api-20261014/signatures-contract.log（重建签名后真实缺项）",
+      "status": "自动调用签名未覆盖"
+    },
+    "kApi100EntityFamiliarRemoveFromFollowersOffset": {
+      "class": "A",
+      "why": "存在地址消费或布局指纹校验，但通用ABI扫描器未解析命名空间守卫别名、索引Entry/Native模板或共用调用助手；自动参数/返回签名未验收，不能用本轮合并或宿主行为测试当作全部ABI已核对。",
+      "evidence": "runtime/source/runtime_constants.hpp:9108; runtime/src/interfaces/lua/api100_entities.cpp:24; runtime/src/interfaces/lua/api100_entities.guards.hpp:67; dist/merge-bug-api-20261014/signatures-contract.log（重建签名后真实缺项）",
+      "status": "自动调用签名未覆盖"
+    },
+    "kApi100EntityFamiliarShootOffset": {
+      "class": "A",
+      "why": "存在地址消费或布局指纹校验，但通用ABI扫描器未解析命名空间守卫别名、索引Entry/Native模板或共用调用助手；自动参数/返回签名未验收，不能用本轮合并或宿主行为测试当作全部ABI已核对。",
+      "evidence": "runtime/source/runtime_constants.hpp:9132; runtime/src/interfaces/lua/api100_entities.cpp:32; runtime/src/interfaces/lua/api100_entities.guards.hpp:83; dist/merge-bug-api-20261014/signatures-contract.log（重建签名后真实缺项）",
+      "status": "自动调用签名未覆盖"
+    },
+    "kApi100EntityGetLastChildOffset": {
+      "class": "A",
+      "why": "存在地址消费或布局指纹校验，但通用ABI扫描器未解析命名空间守卫别名、索引Entry/Native模板或共用调用助手；自动参数/返回签名未验收，不能用本轮合并或宿主行为测试当作全部ABI已核对。",
+      "evidence": "runtime/source/runtime_constants.hpp:9090; runtime/src/interfaces/lua/api100_core.cpp:20; runtime/src/interfaces/lua/api100_core.guards.hpp:20; dist/merge-bug-api-20261014/signatures-contract.log（重建签名后真实缺项）",
+      "status": "自动调用签名未覆盖"
+    },
+    "kApi100EntityGetLastParentOffset": {
+      "class": "A",
+      "why": "存在地址消费或布局指纹校验，但通用ABI扫描器未解析命名空间守卫别名、索引Entry/Native模板或共用调用助手；自动参数/返回签名未验收，不能用本轮合并或宿主行为测试当作全部ABI已核对。",
+      "evidence": "runtime/source/runtime_constants.hpp:9087; runtime/src/interfaces/lua/api100_core.cpp:19; runtime/src/interfaces/lua/api100_core.guards.hpp:18; dist/merge-bug-api-20261014/signatures-contract.log（重建签名后真实缺项）",
+      "status": "自动调用签名未覆盖"
+    },
+    "kApi100EntityHasFullHealthOffset": {
+      "class": "A",
+      "why": "存在地址消费或布局指纹校验，但通用ABI扫描器未解析命名空间守卫别名、索引Entry/Native模板或共用调用助手；自动参数/返回签名未验收，不能用本轮合并或宿主行为测试当作全部ABI已核对。",
+      "evidence": "runtime/source/runtime_constants.hpp:9093; runtime/src/interfaces/lua/api100_core.cpp:21; runtime/src/interfaces/lua/api100_core.guards.hpp:22; dist/merge-bug-api-20261014/signatures-contract.log（重建签名后真实缺项）",
+      "status": "自动调用签名未覆盖"
+    },
+    "kApi100EntityIsFrameOffset": {
+      "class": "A",
+      "why": "存在地址消费或布局指纹校验，但通用ABI扫描器未解析命名空间守卫别名、索引Entry/Native模板或共用调用助手；自动参数/返回签名未验收，不能用本轮合并或宿主行为测试当作全部ABI已核对。",
+      "evidence": "runtime/source/runtime_constants.hpp:9096; runtime/src/interfaces/lua/api100_core.cpp:22; runtime/src/interfaces/lua/api100_core.guards.hpp:24; dist/merge-bug-api-20261014/signatures-contract.log（重建签名后真实缺项）",
+      "status": "自动调用签名未覆盖"
+    },
+    "kApi100EntityPickupAppearFastOffset": {
+      "class": "A",
+      "why": "存在地址消费或布局指纹校验，但通用ABI扫描器未解析命名空间守卫别名、索引Entry/Native模板或共用调用助手；自动参数/返回签名未验收，不能用本轮合并或宿主行为测试当作全部ABI已核对。",
+      "evidence": "runtime/source/runtime_constants.hpp:9141; runtime/src/interfaces/lua/api100_entities.cpp:35; runtime/src/interfaces/lua/api100_entities.guards.hpp:89; dist/merge-bug-api-20261014/signatures-contract.log（重建签名后真实缺项）",
+      "status": "自动调用签名未覆盖"
+    },
+    "kApi100EntityPickupGetCoinValueOffset": {
+      "class": "A",
+      "why": "存在地址消费或布局指纹校验，但通用ABI扫描器未解析命名空间守卫别名、索引Entry/Native模板或共用调用助手；自动参数/返回签名未验收，不能用本轮合并或宿主行为测试当作全部ABI已核对。",
+      "evidence": "runtime/source/runtime_constants.hpp:9144; runtime/src/interfaces/lua/api100_entities.cpp:36; runtime/src/interfaces/lua/api100_entities.guards.hpp:91; dist/merge-bug-api-20261014/signatures-contract.log（重建签名后真实缺项）",
+      "status": "自动调用签名未覆盖"
+    },
+    "kApi100EntityPickupPlayDropSoundOffset": {
+      "class": "A",
+      "why": "存在地址消费或布局指纹校验，但通用ABI扫描器未解析命名空间守卫别名、索引Entry/Native模板或共用调用助手；自动参数/返回签名未验收，不能用本轮合并或宿主行为测试当作全部ABI已核对。",
+      "evidence": "runtime/source/runtime_constants.hpp:9138; runtime/src/interfaces/lua/api100_entities.cpp:34; runtime/src/interfaces/lua/api100_entities.guards.hpp:87; dist/merge-bug-api-20261014/signatures-contract.log（重建签名后真实缺项）",
+      "status": "自动调用签名未覆盖"
+    },
+    "kApi100EntityPickupPlayPickupSoundOffset": {
+      "class": "A",
+      "why": "存在地址消费或布局指纹校验，但通用ABI扫描器未解析命名空间守卫别名、索引Entry/Native模板或共用调用助手；自动参数/返回签名未验收，不能用本轮合并或宿主行为测试当作全部ABI已核对。",
+      "evidence": "runtime/source/runtime_constants.hpp:9135; runtime/src/interfaces/lua/api100_entities.cpp:33; runtime/src/interfaces/lua/api100_entities.guards.hpp:85; dist/merge-bug-api-20261014/signatures-contract.log（重建签名后真实缺项）",
+      "status": "自动调用签名未覆盖"
+    },
+    "kApi100EntityPlayerAddBombsOffset": {
+      "class": "A",
+      "why": "存在地址消费或布局指纹校验，但通用ABI扫描器未解析命名空间守卫别名、索引Entry/Native模板或共用调用助手；自动参数/返回签名未验收，不能用本轮合并或宿主行为测试当作全部ABI已核对。",
+      "evidence": "runtime/source/runtime_constants.hpp:9024; runtime/src/interfaces/lua/api100_player.cpp:20; runtime/src/interfaces/lua/api100_player.guards.hpp:46; dist/merge-bug-api-20261014/signatures-contract.log（重建签名后真实缺项）",
+      "status": "自动调用签名未覆盖"
+    },
+    "kApi100EntityPlayerAddDeadEyeChargeOffset": {
+      "class": "A",
+      "why": "存在地址消费或布局指纹校验，但通用ABI扫描器未解析命名空间守卫别名、索引Entry/Native模板或共用调用助手；自动参数/返回签名未验收，不能用本轮合并或宿主行为测试当作全部ABI已核对。",
+      "evidence": "runtime/source/runtime_constants.hpp:9036; runtime/src/interfaces/lua/api100_player.cpp:24; runtime/src/interfaces/lua/api100_player.guards.hpp:54; dist/merge-bug-api-20261014/signatures-contract.log（重建签名后真实缺项）",
+      "status": "自动调用签名未覆盖"
+    },
+    "kApi100EntityPlayerAddGigaBombsOffset": {
+      "class": "A",
+      "why": "存在地址消费或布局指纹校验，但通用ABI扫描器未解析命名空间守卫别名、索引Entry/Native模板或共用调用助手；自动参数/返回签名未验收，不能用本轮合并或宿主行为测试当作全部ABI已核对。",
+      "evidence": "runtime/source/runtime_constants.hpp:9027; runtime/src/interfaces/lua/api100_player.cpp:21; runtime/src/interfaces/lua/api100_player.guards.hpp:48; dist/merge-bug-api-20261014/signatures-contract.log（重建签名后真实缺项）",
+      "status": "自动调用签名未覆盖"
+    },
+    "kApi100EntityPlayerAddJarFliesOffset": {
+      "class": "A",
+      "why": "存在地址消费或布局指纹校验，但通用ABI扫描器未解析命名空间守卫别名、索引Entry/Native模板或共用调用助手；自动参数/返回签名未验收，不能用本轮合并或宿主行为测试当作全部ABI已核对。",
+      "evidence": "runtime/source/runtime_constants.hpp:9030; runtime/src/interfaces/lua/api100_player.cpp:22; runtime/src/interfaces/lua/api100_player.guards.hpp:50; dist/merge-bug-api-20261014/signatures-contract.log（重建签名后真实缺项）",
+      "status": "自动调用签名未覆盖"
+    },
+    "kApi100EntityPlayerAddPoopManaOffset": {
+      "class": "A",
+      "why": "存在地址消费或布局指纹校验，但通用ABI扫描器未解析命名空间守卫别名、索引Entry/Native模板或共用调用助手；自动参数/返回签名未验收，不能用本轮合并或宿主行为测试当作全部ABI已核对。",
+      "evidence": "runtime/source/runtime_constants.hpp:9033; runtime/src/interfaces/lua/api100_player.cpp:23; runtime/src/interfaces/lua/api100_player.guards.hpp:52; dist/merge-bug-api-20261014/signatures-contract.log（重建签名后真实缺项）",
+      "status": "自动调用签名未覆盖"
+    },
+    "kApi100EntityPlayerAnimateLightTravelOffset": {
+      "class": "A",
+      "why": "存在地址消费或布局指纹校验，但通用ABI扫描器未解析命名空间守卫别名、索引Entry/Native模板或共用调用助手；自动参数/返回签名未验收，不能用本轮合并或宿主行为测试当作全部ABI已核对。",
+      "evidence": "runtime/source/runtime_constants.hpp:9075; runtime/src/interfaces/lua/api100_player.cpp:37; runtime/src/interfaces/lua/api100_player.guards.hpp:80; dist/merge-bug-api-20261014/signatures-contract.log（重建签名后真实缺项）",
+      "status": "自动调用签名未覆盖"
+    },
+    "kApi100EntityPlayerCanAddCollectibleOffset": {
+      "class": "A",
+      "why": "存在地址消费或布局指纹校验，但通用ABI扫描器未解析命名空间守卫别名、索引Entry/Native模板或共用调用助手；自动参数/返回签名未验收，不能用本轮合并或宿主行为测试当作全部ABI已核对。",
+      "evidence": "runtime/source/runtime_constants.hpp:9072; runtime/src/interfaces/lua/api100_player.cpp:36; runtime/src/interfaces/lua/api100_player.guards.hpp:78; dist/merge-bug-api-20261014/signatures-contract.log（重建签名后真实缺项）",
+      "status": "自动调用签名未覆盖"
+    },
+    "kApi100EntityPlayerClearCostumesOffset": {
+      "class": "A",
+      "why": "存在地址消费或布局指纹校验，但通用ABI扫描器未解析命名空间守卫别名、索引Entry/Native模板或共用调用助手；自动参数/返回签名未验收，不能用本轮合并或宿主行为测试当作全部ABI已核对。",
+      "evidence": "runtime/source/runtime_constants.hpp:9042; runtime/src/interfaces/lua/api100_player.cpp:26; runtime/src/interfaces/lua/api100_player.guards.hpp:58; dist/merge-bug-api-20261014/signatures-contract.log（重建签名后真实缺项）",
+      "status": "自动调用签名未覆盖"
+    },
+    "kApi100EntityPlayerClearDeadEyeChargeOffset": {
+      "class": "A",
+      "why": "存在地址消费或布局指纹校验，但通用ABI扫描器未解析命名空间守卫别名、索引Entry/Native模板或共用调用助手；自动参数/返回签名未验收，不能用本轮合并或宿主行为测试当作全部ABI已核对。",
+      "evidence": "runtime/source/runtime_constants.hpp:9039; runtime/src/interfaces/lua/api100_player.cpp:25; runtime/src/interfaces/lua/api100_player.guards.hpp:56; dist/merge-bug-api-20261014/signatures-contract.log（重建签名后真实缺项）",
+      "status": "自动调用签名未覆盖"
+    },
+    "kApi100EntityPlayerClearTemporaryEffectsOffset": {
+      "class": "A",
+      "why": "存在地址消费或布局指纹校验，但通用ABI扫描器未解析命名空间守卫别名、索引Entry/Native模板或共用调用助手；自动参数/返回签名未验收，不能用本轮合并或宿主行为测试当作全部ABI已核对。",
+      "evidence": "runtime/source/runtime_constants.hpp:9045; runtime/src/interfaces/lua/api100_player.cpp:27; runtime/src/interfaces/lua/api100_player.guards.hpp:60; dist/merge-bug-api-20261014/signatures-contract.log（重建签名后真实缺项）",
+      "status": "自动调用签名未覆盖"
+    },
+    "kApi100EntityPlayerGetEffectiveBloodChargeOffset": {
+      "class": "A",
+      "why": "存在地址消费或布局指纹校验，但通用ABI扫描器未解析命名空间守卫别名、索引Entry/Native模板或共用调用助手；自动参数/返回签名未验收，不能用本轮合并或宿主行为测试当作全部ABI已核对。",
+      "evidence": "runtime/source/runtime_constants.hpp:9048; runtime/src/interfaces/lua/api100_player.cpp:28; runtime/src/interfaces/lua/api100_player.guards.hpp:62; dist/merge-bug-api-20261014/signatures-contract.log（重建签名后真实缺项）",
+      "status": "自动调用签名未覆盖"
+    },
+    "kApi100EntityPlayerGetEffectiveSoulChargeOffset": {
+      "class": "A",
+      "why": "存在地址消费或布局指纹校验，但通用ABI扫描器未解析命名空间守卫别名、索引Entry/Native模板或共用调用助手；自动参数/返回签名未验收，不能用本轮合并或宿主行为测试当作全部ABI已核对。",
+      "evidence": "runtime/source/runtime_constants.hpp:9051; runtime/src/interfaces/lua/api100_player.cpp:29; runtime/src/interfaces/lua/api100_player.guards.hpp:64; dist/merge-bug-api-20261014/signatures-contract.log（重建签名后真实缺项）",
+      "status": "自动调用签名未覆盖"
+    },
+    "kApi100EntityPlayerGetGreedDonationBreakChanceOffset": {
+      "class": "A",
+      "why": "存在地址消费或布局指纹校验，但通用ABI扫描器未解析命名空间守卫别名、索引Entry/Native模板或共用调用助手；自动参数/返回签名未验收，不能用本轮合并或宿主行为测试当作全部ABI已核对。",
+      "evidence": "runtime/source/runtime_constants.hpp:9081; runtime/src/interfaces/lua/api100_player.cpp:39; runtime/src/interfaces/lua/api100_player.guards.hpp:84; dist/merge-bug-api-20261014/signatures-contract.log（重建签名后真实缺项）",
+      "status": "自动调用签名未覆盖"
+    },
+    "kApi100EntityPlayerGetMaxPocketItemsOffset": {
+      "class": "A",
+      "why": "存在地址消费或布局指纹校验，但通用ABI扫描器未解析命名空间守卫别名、索引Entry/Native模板或共用调用助手；自动参数/返回签名未验收，不能用本轮合并或宿主行为测试当作全部ABI已核对。",
+      "evidence": "runtime/source/runtime_constants.hpp:9054; runtime/src/interfaces/lua/api100_player.cpp:30; runtime/src/interfaces/lua/api100_player.guards.hpp:66; dist/merge-bug-api-20261014/signatures-contract.log（重建签名后真实缺项）",
+      "status": "自动调用签名未覆盖"
+    },
+    "kApi100EntityPlayerGetMaxPoopManaOffset": {
+      "class": "A",
+      "why": "存在地址消费或布局指纹校验，但通用ABI扫描器未解析命名空间守卫别名、索引Entry/Native模板或共用调用助手；自动参数/返回签名未验收，不能用本轮合并或宿主行为测试当作全部ABI已核对。",
+      "evidence": "runtime/source/runtime_constants.hpp:9057; runtime/src/interfaces/lua/api100_player.cpp:31; runtime/src/interfaces/lua/api100_player.guards.hpp:68; dist/merge-bug-api-20261014/signatures-contract.log（重建签名后真实缺项）",
+      "status": "自动调用签名未覆盖"
+    },
+    "kApi100EntityPlayerHasTimedItemOffset": {
+      "class": "A",
+      "why": "存在地址消费或布局指纹校验，但通用ABI扫描器未解析命名空间守卫别名、索引Entry/Native模板或共用调用助手；自动参数/返回签名未验收，不能用本轮合并或宿主行为测试当作全部ABI已核对。",
+      "evidence": "runtime/source/runtime_constants.hpp:9060; runtime/src/interfaces/lua/api100_player.cpp:32; runtime/src/interfaces/lua/api100_player.guards.hpp:70; dist/merge-bug-api-20261014/signatures-contract.log（重建签名后真实缺项）",
+      "status": "自动调用签名未覆盖"
+    },
+    "kApi100EntityPlayerIsHeldItemVisibleOffset": {
+      "class": "A",
+      "why": "存在地址消费或布局指纹校验，但通用ABI扫描器未解析命名空间守卫别名、索引Entry/Native模板或共用调用助手；自动参数/返回签名未验收，不能用本轮合并或宿主行为测试当作全部ABI已核对。",
+      "evidence": "runtime/source/runtime_constants.hpp:9063; runtime/src/interfaces/lua/api100_player.cpp:33; runtime/src/interfaces/lua/api100_player.guards.hpp:72; dist/merge-bug-api-20261014/signatures-contract.log（重建签名后真实缺项）",
+      "status": "自动调用签名未覆盖"
+    },
+    "kApi100EntityPlayerRemoveBlueFlyOffset": {
+      "class": "A",
+      "why": "存在地址消费或布局指纹校验，但通用ABI扫描器未解析命名空间守卫别名、索引Entry/Native模板或共用调用助手；自动参数/返回签名未验收，不能用本轮合并或宿主行为测试当作全部ABI已核对。",
+      "evidence": "runtime/source/runtime_constants.hpp:9066; runtime/src/interfaces/lua/api100_player.cpp:34; runtime/src/interfaces/lua/api100_player.guards.hpp:74; dist/merge-bug-api-20261014/signatures-contract.log（重建签名后真实缺项）",
+      "status": "自动调用签名未覆盖"
+    },
+    "kApi100EntityPlayerRemoveBlueSpiderOffset": {
+      "class": "A",
+      "why": "存在地址消费或布局指纹校验，但通用ABI扫描器未解析命名空间守卫别名、索引Entry/Native模板或共用调用助手；自动参数/返回签名未验收，不能用本轮合并或宿主行为测试当作全部ABI已核对。",
+      "evidence": "runtime/source/runtime_constants.hpp:9069; runtime/src/interfaces/lua/api100_player.cpp:35; runtime/src/interfaces/lua/api100_player.guards.hpp:76; dist/merge-bug-api-20261014/signatures-contract.log（重建签名后真实缺项）",
+      "status": "自动调用签名未覆盖"
+    },
+    "kApi100EntityPlayerTryUseKeyOffset": {
+      "class": "A",
+      "why": "存在地址消费或布局指纹校验，但通用ABI扫描器未解析命名空间守卫别名、索引Entry/Native模板或共用调用助手；自动参数/返回签名未验收，不能用本轮合并或宿主行为测试当作全部ABI已核对。",
+      "evidence": "runtime/source/runtime_constants.hpp:9078; runtime/src/interfaces/lua/api100_player.cpp:38; runtime/src/interfaces/lua/api100_player.guards.hpp:82; dist/merge-bug-api-20261014/signatures-contract.log（重建签名后真实缺项）",
+      "status": "自动调用签名未覆盖"
+    },
+    "kApi100GridEntityDoorCanBlowOpenOffset": {
+      "class": "A",
+      "why": "存在地址消费或布局指纹校验，但通用ABI扫描器未解析命名空间守卫别名、索引Entry/Native模板或共用调用助手；自动参数/返回签名未验收，不能用本轮合并或宿主行为测试当作全部ABI已核对。",
+      "evidence": "runtime/source/runtime_constants.hpp:9150; runtime/src/interfaces/lua/api100_entities.cpp:38; runtime/src/interfaces/lua/api100_entities.guards.hpp:95; dist/merge-bug-api-20261014/signatures-contract.log（重建签名后真实缺项）",
+      "status": "自动调用签名未覆盖"
+    },
+    "kApi100GridEntityDoorSetLockedOffset": {
+      "class": "A",
+      "why": "存在地址消费或布局指纹校验，但通用ABI扫描器未解析命名空间守卫别名、索引Entry/Native模板或共用调用助手；自动参数/返回签名未验收，不能用本轮合并或宿主行为测试当作全部ABI已核对。",
+      "evidence": "runtime/source/runtime_constants.hpp:9153; runtime/src/interfaces/lua/api100_entities.cpp:39; runtime/src/interfaces/lua/api100_entities.guards.hpp:97; dist/merge-bug-api-20261014/signatures-contract.log（重建签名后真实缺项）",
+      "status": "自动调用签名未覆盖"
+    },
+    "kApi100GridEntityDoorSetRoomTypesOffset": {
+      "class": "A",
+      "why": "存在地址消费或布局指纹校验，但通用ABI扫描器未解析命名空间守卫别名、索引Entry/Native模板或共用调用助手；自动参数/返回签名未验收，不能用本轮合并或宿主行为测试当作全部ABI已核对。",
+      "evidence": "runtime/source/runtime_constants.hpp:9156; runtime/src/interfaces/lua/api100_entities.cpp:40; runtime/src/interfaces/lua/api100_entities.guards.hpp:99; dist/merge-bug-api-20261014/signatures-contract.log（重建签名后真实缺项）",
+      "status": "自动调用签名未覆盖"
+    },
+    "kApi100GridEntityDoorSpawnDustOffset": {
+      "class": "A",
+      "why": "存在地址消费或布局指纹校验，但通用ABI扫描器未解析命名空间守卫别名、索引Entry/Native模板或共用调用助手；自动参数/返回签名未验收，不能用本轮合并或宿主行为测试当作全部ABI已核对。",
+      "evidence": "runtime/source/runtime_constants.hpp:9159; runtime/src/interfaces/lua/api100_entities.cpp:41; runtime/src/interfaces/lua/api100_entities.guards.hpp:101; dist/merge-bug-api-20261014/signatures-contract.log（重建签名后真实缺项）",
+      "status": "自动调用签名未覆盖"
+    },
+    "kApi100GridEntityHurtOffset": {
+      "class": "A",
+      "why": "存在地址消费或布局指纹校验，但通用ABI扫描器未解析命名空间守卫别名、索引Entry/Native模板或共用调用助手；自动参数/返回签名未验收，不能用本轮合并或宿主行为测试当作全部ABI已核对。",
+      "evidence": "runtime/source/runtime_constants.hpp:9147; runtime/src/interfaces/lua/api100_entities.cpp:122; runtime/src/interfaces/lua/api100_entities.cpp:37; runtime/src/interfaces/lua/api100_entities.guards.hpp:93; dist/merge-bug-api-20261014/signatures-contract.log（重建签名后真实缺项）",
+      "status": "自动调用签名未覆盖"
+    },
+    "kApi100GridEntityRockGetBigRockFrameOffset": {
+      "class": "A",
+      "why": "存在地址消费或布局指纹校验，但通用ABI扫描器未解析命名空间守卫别名、索引Entry/Native模板或共用调用助手；自动参数/返回签名未验收，不能用本轮合并或宿主行为测试当作全部ABI已核对。",
+      "evidence": "runtime/source/runtime_constants.hpp:9162; runtime/src/interfaces/lua/api100_entities.cpp:42; runtime/src/interfaces/lua/api100_entities.guards.hpp:103; dist/merge-bug-api-20261014/signatures-contract.log（重建签名后真实缺项）",
+      "status": "自动调用签名未覆盖"
+    },
+    "kApi100GridEntityRockSetBigRockFrameOffset": {
+      "class": "A",
+      "why": "存在地址消费或布局指纹校验，但通用ABI扫描器未解析命名空间守卫别名、索引Entry/Native模板或共用调用助手；自动参数/返回签名未验收，不能用本轮合并或宿主行为测试当作全部ABI已核对。",
+      "evidence": "runtime/source/runtime_constants.hpp:9165; runtime/src/interfaces/lua/api100_entities.cpp:43; runtime/src/interfaces/lua/api100_entities.guards.hpp:105; dist/merge-bug-api-20261014/signatures-contract.log（重建签名后真实缺项）",
+      "status": "自动调用签名未覆盖"
+    },
+    "kApi100GridEntityRockUpdateAnimFrameOffset": {
+      "class": "A",
+      "why": "存在地址消费或布局指纹校验，但通用ABI扫描器未解析命名空间守卫别名、索引Entry/Native模板或共用调用助手；自动参数/返回签名未验收，不能用本轮合并或宿主行为测试当作全部ABI已核对。",
+      "evidence": "runtime/source/runtime_constants.hpp:9168; runtime/src/interfaces/lua/api100_entities.cpp:44; runtime/src/interfaces/lua/api100_entities.guards.hpp:107; dist/merge-bug-api-20261014/signatures-contract.log（重建签名后真实缺项）",
+      "status": "自动调用签名未覆盖"
+    },
+    "kApi100ItemPoolAddBibleUpgradeOffset": {
+      "class": "A",
+      "why": "存在地址消费或布局指纹校验，但通用ABI扫描器未解析命名空间守卫别名、索引Entry/Native模板或共用调用助手；自动参数/返回签名未验收，不能用本轮合并或宿主行为测试当作全部ABI已核对。",
+      "evidence": "runtime/source/runtime_constants.hpp:9171; runtime/src/interfaces/lua/api100_scalar.cpp:20; runtime/src/interfaces/lua/api100_scalar.guards.hpp:90; dist/merge-bug-api-20261014/signatures-contract.log（重建签名后真实缺项）",
+      "status": "自动调用签名未覆盖"
+    },
+    "kApi100ItemPoolForceAddPillEffectOffset": {
+      "class": "A",
+      "why": "存在地址消费或布局指纹校验，但通用ABI扫描器未解析命名空间守卫别名、索引Entry/Native模板或共用调用助手；自动参数/返回签名未验收，不能用本轮合并或宿主行为测试当作全部ABI已核对。",
+      "evidence": "runtime/source/runtime_constants.hpp:9174; runtime/src/interfaces/lua/api100_scalar.cpp:21; runtime/src/interfaces/lua/api100_scalar.guards.hpp:92; dist/merge-bug-api-20261014/signatures-contract.log（重建签名后真实缺项）",
+      "status": "自动调用签名未覆盖"
+    },
+    "kApi100ItemPoolGetCardOffset": {
+      "class": "A",
+      "why": "存在地址消费或布局指纹校验，但通用ABI扫描器未解析命名空间守卫别名、索引Entry/Native模板或共用调用助手；自动参数/返回签名未验收，不能用本轮合并或宿主行为测试当作全部ABI已核对。",
+      "evidence": "runtime/source/runtime_constants.hpp:9177; runtime/src/interfaces/lua/api100_scalar.cpp:22; runtime/src/interfaces/lua/api100_scalar.guards.hpp:94; dist/merge-bug-api-20261014/signatures-contract.log（重建签名后真实缺项）",
+      "status": "自动调用签名未覆盖"
+    },
+    "kApi100ItemPoolGetPillOffset": {
+      "class": "A",
+      "why": "存在地址消费或布局指纹校验，但通用ABI扫描器未解析命名空间守卫别名、索引Entry/Native模板或共用调用助手；自动参数/返回签名未验收，不能用本轮合并或宿主行为测试当作全部ABI已核对。",
+      "evidence": "runtime/source/runtime_constants.hpp:9180; runtime/src/interfaces/lua/api100_scalar.cpp:23; runtime/src/interfaces/lua/api100_scalar.guards.hpp:96; dist/merge-bug-api-20261014/signatures-contract.log（重建签名后真实缺项）",
+      "status": "自动调用签名未覆盖"
+    },
+    "kApi100ItemPoolGetTrinketOffset": {
+      "class": "A",
+      "why": "存在地址消费或布局指纹校验，但通用ABI扫描器未解析命名空间守卫别名、索引Entry/Native模板或共用调用助手；自动参数/返回签名未验收，不能用本轮合并或宿主行为测试当作全部ABI已核对。",
+      "evidence": "runtime/source/runtime_constants.hpp:9183; runtime/src/interfaces/lua/api100_scalar.cpp:24; runtime/src/interfaces/lua/api100_scalar.guards.hpp:98; dist/merge-bug-api-20261014/signatures-contract.log（重建签名后真实缺项）",
+      "status": "自动调用签名未覆盖"
+    },
+    "kApi100ItemPoolRemoveTrinketOffset": {
+      "class": "A",
+      "why": "存在地址消费或布局指纹校验，但通用ABI扫描器未解析命名空间守卫别名、索引Entry/Native模板或共用调用助手；自动参数/返回签名未验收，不能用本轮合并或宿主行为测试当作全部ABI已核对。",
+      "evidence": "runtime/source/runtime_constants.hpp:9186; runtime/src/interfaces/lua/api100_scalar.cpp:25; runtime/src/interfaces/lua/api100_scalar.guards.hpp:100; dist/merge-bug-api-20261014/signatures-contract.log（重建签名后真实缺项）",
+      "status": "自动调用签名未覆盖"
+    },
+    "kApi100ItemPoolResetRoomBlacklistOffset": {
+      "class": "A",
+      "why": "存在地址消费或布局指纹校验，但通用ABI扫描器未解析命名空间守卫别名、索引Entry/Native模板或共用调用助手；自动参数/返回签名未验收，不能用本轮合并或宿主行为测试当作全部ABI已核对。",
+      "evidence": "runtime/source/runtime_constants.hpp:9189; runtime/src/interfaces/lua/api100_scalar.cpp:26; runtime/src/interfaces/lua/api100_scalar.guards.hpp:102; dist/merge-bug-api-20261014/signatures-contract.log（重建签名后真实缺项）",
+      "status": "自动调用签名未覆盖"
+    },
+    "kApi100ItemPoolResetTrinketsOffset": {
+      "class": "A",
+      "why": "存在地址消费或布局指纹校验，但通用ABI扫描器未解析命名空间守卫别名、索引Entry/Native模板或共用调用助手；自动参数/返回签名未验收，不能用本轮合并或宿主行为测试当作全部ABI已核对。",
+      "evidence": "runtime/source/runtime_constants.hpp:9192; runtime/src/interfaces/lua/api100_scalar.cpp:27; runtime/src/interfaces/lua/api100_scalar.guards.hpp:104; dist/merge-bug-api-20261014/signatures-contract.log（重建签名后真实缺项）",
+      "status": "自动调用签名未覆盖"
+    },
+    "kApi100LevelApplyCompassEffectOffset": {
+      "class": "A",
+      "why": "存在地址消费或布局指纹校验，但通用ABI扫描器未解析命名空间守卫别名、索引Entry/Native模板或共用调用助手；自动参数/返回签名未验收，不能用本轮合并或宿主行为测试当作全部ABI已核对。",
+      "evidence": "runtime/source/runtime_constants.hpp:9198; runtime/src/interfaces/lua/api100_scalar.cpp:29; runtime/src/interfaces/lua/api100_scalar.guards.hpp:108; dist/merge-bug-api-20261014/signatures-contract.log（重建签名后真实缺项）",
+      "status": "自动调用签名未覆盖"
+    },
+    "kApi100LevelApplyMapEffectOffset": {
+      "class": "A",
+      "why": "存在地址消费或布局指纹校验，但通用ABI扫描器未解析命名空间守卫别名、索引Entry/Native模板或共用调用助手；自动参数/返回签名未验收，不能用本轮合并或宿主行为测试当作全部ABI已核对。",
+      "evidence": "runtime/source/runtime_constants.hpp:9201; runtime/src/interfaces/lua/api100_scalar.cpp:30; runtime/src/interfaces/lua/api100_scalar.guards.hpp:110; dist/merge-bug-api-20261014/signatures-contract.log（重建签名后真实缺项）",
+      "status": "自动调用签名未覆盖"
+    },
+    "kApi100LevelCanOpenChallengeRoomOffset": {
+      "class": "A",
+      "why": "存在地址消费或布局指纹校验，但通用ABI扫描器未解析命名空间守卫别名、索引Entry/Native模板或共用调用助手；自动参数/返回签名未验收，不能用本轮合并或宿主行为测试当作全部ABI已核对。",
+      "evidence": "runtime/source/runtime_constants.hpp:9204; runtime/src/interfaces/lua/api100_scalar.cpp:31; runtime/src/interfaces/lua/api100_scalar.guards.hpp:112; dist/merge-bug-api-20261014/signatures-contract.log（重建签名后真实缺项）",
+      "status": "自动调用签名未覆盖"
+    },
+    "kApi100LevelCanSpawnDevilRoomOffset": {
+      "class": "A",
+      "why": "存在地址消费或布局指纹校验，但通用ABI扫描器未解析命名空间守卫别名、索引Entry/Native模板或共用调用助手；自动参数/返回签名未验收，不能用本轮合并或宿主行为测试当作全部ABI已核对。",
+      "evidence": "runtime/source/runtime_constants.hpp:9207; runtime/src/interfaces/lua/api100_scalar.cpp:32; runtime/src/interfaces/lua/api100_scalar.guards.hpp:114; dist/merge-bug-api-20261014/signatures-contract.log（重建签名后真实缺项）",
+      "status": "自动调用签名未覆盖"
+    },
+    "kApi100LevelCanStageHaveCurseOfLabyrinthOffset": {
+      "class": "A",
+      "why": "存在地址消费或布局指纹校验，但通用ABI扫描器未解析命名空间守卫别名、索引Entry/Native模板或共用调用助手；自动参数/返回签名未验收，不能用本轮合并或宿主行为测试当作全部ABI已核对。",
+      "evidence": "runtime/source/runtime_constants.hpp:9210; runtime/src/interfaces/lua/api100_scalar.cpp:33; runtime/src/interfaces/lua/api100_scalar.guards.hpp:116; dist/merge-bug-api-20261014/signatures-contract.log（重建签名后真实缺项）",
+      "status": "自动调用签名未覆盖"
+    },
+    "kApi100LevelChangeRoomOffset": {
+      "class": "A",
+      "why": "存在地址消费或布局指纹校验，但通用ABI扫描器未解析命名空间守卫别名、索引Entry/Native模板或共用调用助手；自动参数/返回签名未验收，不能用本轮合并或宿主行为测试当作全部ABI已核对。",
+      "evidence": "runtime/source/runtime_constants.hpp:9213; runtime/src/interfaces/lua/api100_scalar.cpp:34; runtime/src/interfaces/lua/api100_scalar.guards.hpp:118; dist/merge-bug-api-20261014/signatures-contract.log（重建签名后真实缺项）",
+      "status": "自动调用签名未覆盖"
+    },
+    "kApi100LevelGetCurseNameOffset": {
+      "class": "A",
+      "why": "存在地址消费或布局指纹校验，但通用ABI扫描器未解析命名空间守卫别名、索引Entry/Native模板或共用调用助手；自动参数/返回签名未验收，不能用本轮合并或宿主行为测试当作全部ABI已核对。",
+      "evidence": "runtime/source/runtime_constants.hpp:9216; runtime/src/interfaces/lua/api100_strings.cpp:38; runtime/src/interfaces/lua/api100_strings.guards.hpp:10; dist/merge-bug-api-20261014/signatures-contract.log（重建签名后真实缺项）",
+      "status": "自动调用签名未覆盖"
+    },
+    "kApi100LevelGetNameOffset": {
+      "class": "A",
+      "why": "存在地址消费或布局指纹校验，但通用ABI扫描器未解析命名空间守卫别名、索引Entry/Native模板或共用调用助手；自动参数/返回签名未验收，不能用本轮合并或宿主行为测试当作全部ABI已核对。",
+      "evidence": "runtime/source/runtime_constants.hpp:9219; runtime/src/interfaces/lua/api100_strings.cpp:38; runtime/src/interfaces/lua/api100_strings.guards.hpp:12; dist/merge-bug-api-20261014/signatures-contract.log（重建签名后真实缺项）",
+      "status": "自动调用签名未覆盖"
+    },
+    "kApi100LevelInitializeDevilAngelRoomOffset": {
+      "class": "A",
+      "why": "存在地址消费或布局指纹校验，但通用ABI扫描器未解析命名空间守卫别名、索引Entry/Native模板或共用调用助手；自动参数/返回签名未验收，不能用本轮合并或宿主行为测试当作全部ABI已核对。",
+      "evidence": "runtime/source/runtime_constants.hpp:9222; runtime/src/interfaces/lua/api100_scalar.cpp:35; runtime/src/interfaces/lua/api100_scalar.guards.hpp:120; dist/merge-bug-api-20261014/signatures-contract.log（重建签名后真实缺项）",
+      "status": "自动调用签名未覆盖"
+    },
+    "kApi100LevelMakeRedRoomDoorOffset": {
+      "class": "A",
+      "why": "存在地址消费或布局指纹校验，但通用ABI扫描器未解析命名空间守卫别名、索引Entry/Native模板或共用调用助手；自动参数/返回签名未验收，不能用本轮合并或宿主行为测试当作全部ABI已核对。",
+      "evidence": "runtime/source/runtime_constants.hpp:9225; runtime/src/interfaces/lua/api100_scalar.cpp:36; runtime/src/interfaces/lua/api100_scalar.guards.hpp:122; dist/merge-bug-api-20261014/signatures-contract.log（重建签名后真实缺项）",
+      "status": "自动调用签名未覆盖"
+    },
+    "kApi100LevelRemoveCompassEffectOffset": {
+      "class": "A",
+      "why": "存在地址消费或布局指纹校验，但通用ABI扫描器未解析命名空间守卫别名、索引Entry/Native模板或共用调用助手；自动参数/返回签名未验收，不能用本轮合并或宿主行为测试当作全部ABI已核对。",
+      "evidence": "runtime/source/runtime_constants.hpp:9228; runtime/src/interfaces/lua/api100_scalar.cpp:37; runtime/src/interfaces/lua/api100_scalar.guards.hpp:124; dist/merge-bug-api-20261014/signatures-contract.log（重建签名后真实缺项）",
+      "status": "自动调用签名未覆盖"
+    },
+    "kApi100LevelSetRedHeartDamageOffset": {
+      "class": "A",
+      "why": "存在地址消费或布局指纹校验，但通用ABI扫描器未解析命名空间守卫别名、索引Entry/Native模板或共用调用助手；自动参数/返回签名未验收，不能用本轮合并或宿主行为测试当作全部ABI已核对。",
+      "evidence": "runtime/source/runtime_constants.hpp:9231; runtime/src/interfaces/lua/api100_scalar.cpp:38; runtime/src/interfaces/lua/api100_scalar.guards.hpp:126; dist/merge-bug-api-20261014/signatures-contract.log（重建签名后真实缺项）",
+      "status": "自动调用签名未覆盖"
+    },
+    "kApi100LevelShowMapOffset": {
+      "class": "A",
+      "why": "存在地址消费或布局指纹校验，但通用ABI扫描器未解析命名空间守卫别名、索引Entry/Native模板或共用调用助手；自动参数/返回签名未验收，不能用本轮合并或宿主行为测试当作全部ABI已核对。",
+      "evidence": "runtime/source/runtime_constants.hpp:9234; runtime/src/interfaces/lua/api100_scalar.cpp:39; runtime/src/interfaces/lua/api100_scalar.guards.hpp:128; dist/merge-bug-api-20261014/signatures-contract.log（重建签名后真实缺项）",
+      "status": "自动调用签名未覆盖"
+    },
+    "kApi100LevelShowNameOffset": {
+      "class": "A",
+      "why": "存在地址消费或布局指纹校验，但通用ABI扫描器未解析命名空间守卫别名、索引Entry/Native模板或共用调用助手；自动参数/返回签名未验收，不能用本轮合并或宿主行为测试当作全部ABI已核对。",
+      "evidence": "runtime/source/runtime_constants.hpp:9237; runtime/src/interfaces/lua/api100_scalar.cpp:40; runtime/src/interfaces/lua/api100_scalar.guards.hpp:130; dist/merge-bug-api-20261014/signatures-contract.log（重建签名后真实缺项）",
+      "status": "自动调用签名未覆盖"
+    },
+    "kApi100LevelUncoverHiddenDoorOffset": {
+      "class": "A",
+      "why": "存在地址消费或布局指纹校验，但通用ABI扫描器未解析命名空间守卫别名、索引Entry/Native模板或共用调用助手；自动参数/返回签名未验收，不能用本轮合并或宿主行为测试当作全部ABI已核对。",
+      "evidence": "runtime/source/runtime_constants.hpp:9240; runtime/src/interfaces/lua/api100_scalar.cpp:41; runtime/src/interfaces/lua/api100_scalar.guards.hpp:132; dist/merge-bug-api-20261014/signatures-contract.log（重建签名后真实缺项）",
+      "status": "自动调用签名未覆盖"
+    },
+    "kApi100MusicManagerFadeinOffset": {
+      "class": "A",
+      "why": "存在地址消费或布局指纹校验，但通用ABI扫描器未解析命名空间守卫别名、索引Entry/Native模板或共用调用助手；自动参数/返回签名未验收，不能用本轮合并或宿主行为测试当作全部ABI已核对。",
+      "evidence": "runtime/source/runtime_constants.hpp:9318; runtime/src/interfaces/lua/api100_values.guards.hpp:29; dist/merge-bug-api-20261014/signatures-contract.log（重建签名后真实缺项）",
+      "status": "自动调用签名未覆盖"
+    },
+    "kApi100MusicManagerFadeoutOffset": {
+      "class": "A",
+      "why": "存在地址消费或布局指纹校验，但通用ABI扫描器未解析命名空间守卫别名、索引Entry/Native模板或共用调用助手；自动参数/返回签名未验收，不能用本轮合并或宿主行为测试当作全部ABI已核对。",
+      "evidence": "runtime/source/runtime_constants.hpp:9321; runtime/src/interfaces/lua/api100_values.guards.hpp:33; dist/merge-bug-api-20261014/signatures-contract.log（重建签名后真实缺项）",
+      "status": "自动调用签名未覆盖"
+    },
+    "kApi100RoomDamageGridOffset": {
+      "class": "A",
+      "why": "存在地址消费或布局指纹校验，但通用ABI扫描器未解析命名空间守卫别名、索引Entry/Native模板或共用调用助手；自动参数/返回签名未验收，不能用本轮合并或宿主行为测试当作全部ABI已核对。",
+      "evidence": "runtime/source/runtime_constants.hpp:9243; runtime/src/interfaces/lua/api100_scalar.cpp:42; runtime/src/interfaces/lua/api100_scalar.guards.hpp:134; dist/merge-bug-api-20261014/signatures-contract.log（重建签名后真实缺项）",
+      "status": "自动调用签名未覆盖"
+    },
+    "kApi100RoomGetBrokenWatchStateOffset": {
+      "class": "A",
+      "why": "存在地址消费或布局指纹校验，但通用ABI扫描器未解析命名空间守卫别名、索引Entry/Native模板或共用调用助手；自动参数/返回签名未验收，不能用本轮合并或宿主行为测试当作全部ABI已核对。",
+      "evidence": "runtime/source/runtime_constants.hpp:9246; runtime/src/interfaces/lua/api100_scalar.cpp:43; runtime/src/interfaces/lua/api100_scalar.guards.hpp:136; dist/merge-bug-api-20261014/signatures-contract.log（重建签名后真实缺项）",
+      "status": "自动调用签名未覆盖"
+    },
+    "kApi100RoomGetDevilRoomChanceOffset": {
+      "class": "A",
+      "why": "存在地址消费或布局指纹校验，但通用ABI扫描器未解析命名空间守卫别名、索引Entry/Native模板或共用调用助手；自动参数/返回签名未验收，不能用本轮合并或宿主行为测试当作全部ABI已核对。",
+      "evidence": "runtime/source/runtime_constants.hpp:9249; runtime/src/interfaces/lua/api100_scalar.cpp:44; runtime/src/interfaces/lua/api100_scalar.guards.hpp:138; dist/merge-bug-api-20261014/signatures-contract.log（重建签名后真实缺项）",
+      "status": "自动调用签名未覆盖"
+    },
+    "kApi100RoomGetDungeonRockIdxOffset": {
+      "class": "A",
+      "why": "存在地址消费或布局指纹校验，但通用ABI扫描器未解析命名空间守卫别名、索引Entry/Native模板或共用调用助手；自动参数/返回签名未验收，不能用本轮合并或宿主行为测试当作全部ABI已核对。",
+      "evidence": "runtime/source/runtime_constants.hpp:9252; runtime/src/interfaces/lua/api100_scalar.cpp:45; runtime/src/interfaces/lua/api100_scalar.guards.hpp:140; dist/merge-bug-api-20261014/signatures-contract.log（重建签名后真实缺项）",
+      "status": "自动调用签名未覆盖"
+    },
+    "kApi100RoomGetLightingAlphaOffset": {
+      "class": "A",
+      "why": "存在地址消费或布局指纹校验，但通用ABI扫描器未解析命名空间守卫别名、索引Entry/Native模板或共用调用助手；自动参数/返回签名未验收，不能用本轮合并或宿主行为测试当作全部ABI已核对。",
+      "evidence": "runtime/source/runtime_constants.hpp:9255; runtime/src/interfaces/lua/api100_scalar.cpp:46; runtime/src/interfaces/lua/api100_scalar.guards.hpp:142; dist/merge-bug-api-20261014/signatures-contract.log（重建签名后真实缺项）",
+      "status": "自动调用签名未覆盖"
+    },
+    "kApi100RoomGetRandomTileIndexOffset": {
+      "class": "A",
+      "why": "存在地址消费或布局指纹校验，但通用ABI扫描器未解析命名空间守卫别名、索引Entry/Native模板或共用调用助手；自动参数/返回签名未验收，不能用本轮合并或宿主行为测试当作全部ABI已核对。",
+      "evidence": "runtime/source/runtime_constants.hpp:9258; runtime/src/interfaces/lua/api100_scalar.cpp:47; runtime/src/interfaces/lua/api100_scalar.guards.hpp:144; dist/merge-bug-api-20261014/signatures-contract.log（重建签名后真实缺项）",
+      "status": "自动调用签名未覆盖"
+    },
+    "kApi100RoomHasLavaOffset": {
+      "class": "A",
+      "why": "存在地址消费或布局指纹校验，但通用ABI扫描器未解析命名空间守卫别名、索引Entry/Native模板或共用调用助手；自动参数/返回签名未验收，不能用本轮合并或宿主行为测试当作全部ABI已核对。",
+      "evidence": "runtime/source/runtime_constants.hpp:9261; runtime/src/interfaces/lua/api100_scalar.cpp:48; runtime/src/interfaces/lua/api100_scalar.guards.hpp:146; dist/merge-bug-api-20261014/signatures-contract.log（重建签名后真实缺项）",
+      "status": "自动调用签名未覆盖"
+    },
+    "kApi100RoomHasWaterOffset": {
+      "class": "A",
+      "why": "存在地址消费或布局指纹校验，但通用ABI扫描器未解析命名空间守卫别名、索引Entry/Native模板或共用调用助手；自动参数/返回签名未验收，不能用本轮合并或宿主行为测试当作全部ABI已核对。",
+      "evidence": "runtime/source/runtime_constants.hpp:9264; runtime/src/interfaces/lua/api100_scalar.cpp:49; runtime/src/interfaces/lua/api100_scalar.guards.hpp:148; dist/merge-bug-api-20261014/signatures-contract.log（重建签名后真实缺项）",
+      "status": "自动调用签名未覆盖"
+    },
+    "kApi100RoomIsLShapedRoomOffset": {
+      "class": "A",
+      "why": "存在地址消费或布局指纹校验，但通用ABI扫描器未解析命名空间守卫别名、索引Entry/Native模板或共用调用助手；自动参数/返回签名未验收，不能用本轮合并或宿主行为测试当作全部ABI已核对。",
+      "evidence": "runtime/source/runtime_constants.hpp:9267; runtime/src/interfaces/lua/api100_scalar.cpp:50; runtime/src/interfaces/lua/api100_scalar.guards.hpp:150; dist/merge-bug-api-20261014/signatures-contract.log（重建签名后真实缺项）",
+      "status": "自动调用签名未覆盖"
+    },
+    "kApi100RoomRespawnEnemiesOffset": {
+      "class": "A",
+      "why": "存在地址消费或布局指纹校验，但通用ABI扫描器未解析命名空间守卫别名、索引Entry/Native模板或共用调用助手；自动参数/返回签名未验收，不能用本轮合并或宿主行为测试当作全部ABI已核对。",
+      "evidence": "runtime/source/runtime_constants.hpp:9270; runtime/src/interfaces/lua/api100_scalar.cpp:51; runtime/src/interfaces/lua/api100_scalar.guards.hpp:152; dist/merge-bug-api-20261014/signatures-contract.log（重建签名后真实缺项）",
+      "status": "自动调用签名未覆盖"
+    },
+    "kApi100RoomSetBrokenWatchStateOffset": {
+      "class": "A",
+      "why": "存在地址消费或布局指纹校验，但通用ABI扫描器未解析命名空间守卫别名、索引Entry/Native模板或共用调用助手；自动参数/返回签名未验收，不能用本轮合并或宿主行为测试当作全部ABI已核对。",
+      "evidence": "runtime/source/runtime_constants.hpp:9273; runtime/src/interfaces/lua/api100_scalar.cpp:52; runtime/src/interfaces/lua/api100_scalar.guards.hpp:154; dist/merge-bug-api-20261014/signatures-contract.log（重建签名后真实缺项）",
+      "status": "自动调用签名未覆盖"
+    },
+    "kApi100RoomShopReshuffleOffset": {
+      "class": "A",
+      "why": "存在地址消费或布局指纹校验，但通用ABI扫描器未解析命名空间守卫别名、索引Entry/Native模板或共用调用助手；自动参数/返回签名未验收，不能用本轮合并或宿主行为测试当作全部ABI已核对。",
+      "evidence": "runtime/source/runtime_constants.hpp:9276; runtime/src/interfaces/lua/api100_scalar.cpp:53; runtime/src/interfaces/lua/api100_scalar.guards.hpp:156; dist/merge-bug-api-20261014/signatures-contract.log（重建签名后真实缺项）",
+      "status": "自动调用签名未覆盖"
+    },
+    "kApi100RoomShopRestockFullOffset": {
+      "class": "A",
+      "why": "存在地址消费或布局指纹校验，但通用ABI扫描器未解析命名空间守卫别名、索引Entry/Native模板或共用调用助手；自动参数/返回签名未验收，不能用本轮合并或宿主行为测试当作全部ABI已核对。",
+      "evidence": "runtime/source/runtime_constants.hpp:9279; runtime/src/interfaces/lua/api100_scalar.cpp:54; runtime/src/interfaces/lua/api100_scalar.guards.hpp:158; dist/merge-bug-api-20261014/signatures-contract.log（重建签名后真实缺项）",
+      "status": "自动调用签名未覆盖"
+    },
+    "kApi100RoomShopRestockPartialOffset": {
+      "class": "A",
+      "why": "存在地址消费或布局指纹校验，但通用ABI扫描器未解析命名空间守卫别名、索引Entry/Native模板或共用调用助手；自动参数/返回签名未验收，不能用本轮合并或宿主行为测试当作全部ABI已核对。",
+      "evidence": "runtime/source/runtime_constants.hpp:9282; runtime/src/interfaces/lua/api100_scalar.cpp:55; runtime/src/interfaces/lua/api100_scalar.guards.hpp:160; dist/merge-bug-api-20261014/signatures-contract.log（重建签名后真实缺项）",
+      "status": "自动调用签名未覆盖"
+    },
+    "kApi100RoomTriggerClearOffset": {
+      "class": "A",
+      "why": "存在地址消费或布局指纹校验，但通用ABI扫描器未解析命名空间守卫别名、索引Entry/Native模板或共用调用助手；自动参数/返回签名未验收，不能用本轮合并或宿主行为测试当作全部ABI已核对。",
+      "evidence": "runtime/source/runtime_constants.hpp:9285; runtime/src/interfaces/lua/api100_scalar.cpp:56; runtime/src/interfaces/lua/api100_scalar.guards.hpp:162; dist/merge-bug-api-20261014/signatures-contract.log（重建签名后真实缺项）",
+      "status": "自动调用签名未覆盖"
+    },
+    "kApi100RoomTrySpawnBlueWombDoorOffset": {
+      "class": "A",
+      "why": "存在地址消费或布局指纹校验，但通用ABI扫描器未解析命名空间守卫别名、索引Entry/Native模板或共用调用助手；自动参数/返回签名未验收，不能用本轮合并或宿主行为测试当作全部ABI已核对。",
+      "evidence": "runtime/source/runtime_constants.hpp:9288; runtime/src/interfaces/lua/api100_scalar.cpp:57; runtime/src/interfaces/lua/api100_scalar.guards.hpp:164; dist/merge-bug-api-20261014/signatures-contract.log（重建签名后真实缺项）",
+      "status": "自动调用签名未覆盖"
+    },
+    "kApi100RoomTrySpawnBossRushDoorOffset": {
+      "class": "A",
+      "why": "存在地址消费或布局指纹校验，但通用ABI扫描器未解析命名空间守卫别名、索引Entry/Native模板或共用调用助手；自动参数/返回签名未验收，不能用本轮合并或宿主行为测试当作全部ABI已核对。",
+      "evidence": "runtime/source/runtime_constants.hpp:9291; runtime/src/interfaces/lua/api100_scalar.cpp:58; runtime/src/interfaces/lua/api100_scalar.guards.hpp:166; dist/merge-bug-api-20261014/signatures-contract.log（重建签名后真实缺项）",
+      "status": "自动调用签名未覆盖"
+    },
+    "kApi100RoomTrySpawnMegaSatanRoomDoorOffset": {
+      "class": "A",
+      "why": "存在地址消费或布局指纹校验，但通用ABI扫描器未解析命名空间守卫别名、索引Entry/Native模板或共用调用助手；自动参数/返回签名未验收，不能用本轮合并或宿主行为测试当作全部ABI已核对。",
+      "evidence": "runtime/source/runtime_constants.hpp:9294; runtime/src/interfaces/lua/api100_scalar.cpp:59; runtime/src/interfaces/lua/api100_scalar.guards.hpp:168; dist/merge-bug-api-20261014/signatures-contract.log（重建签名后真实缺项）",
+      "status": "自动调用签名未覆盖"
+    },
+    "kApi100RoomTrySpawnSecretExitOffset": {
+      "class": "A",
+      "why": "存在地址消费或布局指纹校验，但通用ABI扫描器未解析命名空间守卫别名、索引Entry/Native模板或共用调用助手；自动参数/返回签名未验收，不能用本轮合并或宿主行为测试当作全部ABI已核对。",
+      "evidence": "runtime/source/runtime_constants.hpp:9297; runtime/src/interfaces/lua/api100_scalar.cpp:60; runtime/src/interfaces/lua/api100_scalar.guards.hpp:170; dist/merge-bug-api-20261014/signatures-contract.log（重建签名后真实缺项）",
+      "status": "自动调用签名未覆盖"
+    },
+    "kApi100RoomTrySpawnTheVoidDoorOffset": {
+      "class": "A",
+      "why": "存在地址消费或布局指纹校验，但通用ABI扫描器未解析命名空间守卫别名、索引Entry/Native模板或共用调用助手；自动参数/返回签名未验收，不能用本轮合并或宿主行为测试当作全部ABI已核对。",
+      "evidence": "runtime/source/runtime_constants.hpp:9300; runtime/src/interfaces/lua/api100_scalar.cpp:61; runtime/src/interfaces/lua/api100_scalar.guards.hpp:172; dist/merge-bug-api-20261014/signatures-contract.log（重建签名后真实缺项）",
+      "status": "自动调用签名未覆盖"
+    },
+    "kApi100SpriteReloadOffset": {
+      "class": "A",
+      "why": "存在地址消费或布局指纹校验，但通用ABI扫描器未解析命名空间守卫别名、索引Entry/Native模板或共用调用助手；自动参数/返回签名未验收，不能用本轮合并或宿主行为测试当作全部ABI已核对。",
+      "evidence": "runtime/source/runtime_constants.hpp:9312; runtime/src/interfaces/lua/api100_values.guards.hpp:21; dist/merge-bug-api-20261014/signatures-contract.log（重建签名后真实缺项）",
+      "status": "自动调用签名未覆盖"
+    },
+    "kApi100SpriteRemoveOverlayOffset": {
+      "class": "A",
+      "why": "存在地址消费或布局指纹校验，但通用ABI扫描器未解析命名空间守卫别名、索引Entry/Native模板或共用调用助手；自动参数/返回签名未验收，不能用本轮合并或宿主行为测试当作全部ABI已核对。",
+      "evidence": "runtime/source/runtime_constants.hpp:9315; runtime/src/interfaces/lua/api100_values.guards.hpp:25; dist/merge-bug-api-20261014/signatures-contract.log（重建签名后真实缺项）",
+      "status": "自动调用签名未覆盖"
+    },
+    "kEntityBombSetTearFlagsOffset": {
+      "class": "A",
+      "why": "存在地址消费或布局指纹校验，但通用ABI扫描器未解析命名空间守卫别名、索引Entry/Native模板或共用调用助手；自动参数/返回签名未验收，不能用本轮合并或宿主行为测试当作全部ABI已核对。",
+      "evidence": "runtime/source/runtime_constants.hpp:8979; runtime/src/interfaces/lua/rplus_entity_fields.cpp:77; dist/merge-bug-api-20261014/signatures-contract.log（重建签名后真实缺项）",
+      "status": "自动调用签名未覆盖"
+    },
+    "kEntityPlayerAddBlackHeartsRPlusOffset": {
+      "class": "A",
+      "why": "存在地址消费或布局指纹校验，但通用ABI扫描器未解析命名空间守卫别名、索引Entry/Native模板或共用调用助手；自动参数/返回签名未验收，不能用本轮合并或宿主行为测试当作全部ABI已核对。",
+      "evidence": "runtime/source/runtime_constants.hpp:8954; runtime/src/interfaces/lua/rplus_health_guards.hpp:8; dist/merge-bug-api-20261014/signatures-contract.log（重建签名后真实缺项）",
+      "status": "自动调用签名未覆盖"
+    },
+    "kEntityPlayerAddJarHeartsOffset": {
+      "class": "A",
+      "why": "存在地址消费或布局指纹校验，但通用ABI扫描器未解析命名空间守卫别名、索引Entry/Native模板或共用调用助手；自动参数/返回签名未验收，不能用本轮合并或宿主行为测试当作全部ABI已核对。",
+      "evidence": "runtime/source/runtime_constants.hpp:8939; runtime/src/interfaces/lua/rplus_player_guards.hpp:10; dist/merge-bug-api-20261014/signatures-contract.log（重建签名后真实缺项）",
+      "status": "自动调用签名未覆盖"
+    },
+    "kEntityPlayerAddMaxHeartsRPlusOffset": {
+      "class": "A",
+      "why": "存在地址消费或布局指纹校验，但通用ABI扫描器未解析命名空间守卫别名、索引Entry/Native模板或共用调用助手；自动参数/返回签名未验收，不能用本轮合并或宿主行为测试当作全部ABI已核对。",
+      "evidence": "runtime/source/runtime_constants.hpp:8955; runtime/src/interfaces/lua/rplus_health_guards.hpp:10; dist/merge-bug-api-20261014/signatures-contract.log（重建签名后真实缺项）",
+      "status": "自动调用签名未覆盖"
+    },
+    "kEntityPlayerAddRottenHeartsRPlusOffset": {
+      "class": "A",
+      "why": "存在地址消费或布局指纹校验，但通用ABI扫描器未解析命名空间守卫别名、索引Entry/Native模板或共用调用助手；自动参数/返回签名未验收，不能用本轮合并或宿主行为测试当作全部ABI已核对。",
+      "evidence": "runtime/source/runtime_constants.hpp:8956; runtime/src/interfaces/lua/rplus_health_guards.hpp:12; dist/merge-bug-api-20261014/signatures-contract.log（重建签名后真实缺项）",
+      "status": "自动调用签名未覆盖"
+    },
+    "kEntityPlayerAddSoulHeartsRPlusOffset": {
+      "class": "A",
+      "why": "存在地址消费或布局指纹校验，但通用ABI扫描器未解析命名空间守卫别名、索引Entry/Native模板或共用调用助手；自动参数/返回签名未验收，不能用本轮合并或宿主行为测试当作全部ABI已核对。",
+      "evidence": "runtime/source/runtime_constants.hpp:8957; runtime/src/interfaces/lua/rplus_health_guards.hpp:14; dist/merge-bug-api-20261014/signatures-contract.log（重建签名后真实缺项）",
+      "status": "自动调用签名未覆盖"
+    },
+    "kEntityPlayerCanPickBlackHeartsRPlusOffset": {
+      "class": "A",
+      "why": "存在地址消费或布局指纹校验，但通用ABI扫描器未解析命名空间守卫别名、索引Entry/Native模板或共用调用助手；自动参数/返回签名未验收，不能用本轮合并或宿主行为测试当作全部ABI已核对。",
+      "evidence": "runtime/source/runtime_constants.hpp:8958; runtime/src/interfaces/lua/rplus_health_guards.hpp:16; dist/merge-bug-api-20261014/signatures-contract.log（重建签名后真实缺项）",
+      "status": "自动调用签名未覆盖"
+    },
+    "kEntityPlayerCanPickBoneHeartsRPlusOffset": {
+      "class": "A",
+      "why": "存在地址消费或布局指纹校验，但通用ABI扫描器未解析命名空间守卫别名、索引Entry/Native模板或共用调用助手；自动参数/返回签名未验收，不能用本轮合并或宿主行为测试当作全部ABI已核对。",
+      "evidence": "runtime/source/runtime_constants.hpp:8959; runtime/src/interfaces/lua/rplus_health_guards.hpp:18; dist/merge-bug-api-20261014/signatures-contract.log（重建签名后真实缺项）",
+      "status": "自动调用签名未覆盖"
+    },
+    "kEntityPlayerCanPickGoldenHeartsRPlusOffset": {
+      "class": "A",
+      "why": "存在地址消费或布局指纹校验，但通用ABI扫描器未解析命名空间守卫别名、索引Entry/Native模板或共用调用助手；自动参数/返回签名未验收，不能用本轮合并或宿主行为测试当作全部ABI已核对。",
+      "evidence": "runtime/source/runtime_constants.hpp:8960; runtime/src/interfaces/lua/rplus_health_guards.hpp:20; dist/merge-bug-api-20261014/signatures-contract.log（重建签名后真实缺项）",
+      "status": "自动调用签名未覆盖"
+    },
+    "kEntityPlayerCanPickRottenHeartsRPlusOffset": {
+      "class": "A",
+      "why": "存在地址消费或布局指纹校验，但通用ABI扫描器未解析命名空间守卫别名、索引Entry/Native模板或共用调用助手；自动参数/返回签名未验收，不能用本轮合并或宿主行为测试当作全部ABI已核对。",
+      "evidence": "runtime/source/runtime_constants.hpp:8961; runtime/src/interfaces/lua/rplus_health_guards.hpp:22; dist/merge-bug-api-20261014/signatures-contract.log（重建签名后真实缺项）",
+      "status": "自动调用签名未覆盖"
+    },
+    "kEntityPlayerGetHeartLimitRPlusOffset": {
+      "class": "A",
+      "why": "存在地址消费或布局指纹校验，但通用ABI扫描器未解析命名空间守卫别名、索引Entry/Native模板或共用调用助手；自动参数/返回签名未验收，不能用本轮合并或宿主行为测试当作全部ABI已核对。",
+      "evidence": "runtime/source/runtime_constants.hpp:8962; runtime/src/interfaces/lua/rplus_health_guards.hpp:24; dist/merge-bug-api-20261014/signatures-contract.log（重建签名后真实缺项）",
+      "status": "自动调用签名未覆盖"
+    },
+    "kEntityPlayerIsBlackHeartRPlusOffset": {
+      "class": "A",
+      "why": "存在地址消费或布局指纹校验，但通用ABI扫描器未解析命名空间守卫别名、索引Entry/Native模板或共用调用助手；自动参数/返回签名未验收，不能用本轮合并或宿主行为测试当作全部ABI已核对。",
+      "evidence": "runtime/source/runtime_constants.hpp:8963; runtime/src/interfaces/lua/rplus_health_guards.hpp:26; dist/merge-bug-api-20261014/signatures-contract.log（重建签名后真实缺项）",
+      "status": "自动调用签名未覆盖"
+    },
+    "kEntityPlayerIsBoneHeartRPlusOffset": {
+      "class": "A",
+      "why": "存在地址消费或布局指纹校验，但通用ABI扫描器未解析命名空间守卫别名、索引Entry/Native模板或共用调用助手；自动参数/返回签名未验收，不能用本轮合并或宿主行为测试当作全部ABI已核对。",
+      "evidence": "runtime/source/runtime_constants.hpp:8964; runtime/src/interfaces/lua/rplus_health_guards.hpp:28; dist/merge-bug-api-20261014/signatures-contract.log（重建签名后真实缺项）",
+      "status": "自动调用签名未覆盖"
+    },
+    "kEntityPlayerRemoveBlackHeartRPlusOffset": {
+      "class": "A",
+      "why": "存在地址消费或布局指纹校验，但通用ABI扫描器未解析命名空间守卫别名、索引Entry/Native模板或共用调用助手；自动参数/返回签名未验收，不能用本轮合并或宿主行为测试当作全部ABI已核对。",
+      "evidence": "runtime/source/runtime_constants.hpp:8965; runtime/src/interfaces/lua/rplus_health_guards.hpp:30; dist/merge-bug-api-20261014/signatures-contract.log（重建签名后真实缺项）",
+      "status": "自动调用签名未覆盖"
+    },
+    "kEntityPlayerSetFullHeartsRPlusOffset": {
+      "class": "A",
+      "why": "存在地址消费或布局指纹校验，但通用ABI扫描器未解析命名空间守卫别名、索引Entry/Native模板或共用调用助手；自动参数/返回签名未验收，不能用本轮合并或宿主行为测试当作全部ABI已核对。",
+      "evidence": "runtime/source/runtime_constants.hpp:8966; runtime/src/interfaces/lua/rplus_health_guards.hpp:32; dist/merge-bug-api-20261014/signatures-contract.log（重建签名后真实缺项）",
+      "status": "自动调用签名未覆盖"
+    },
+    "kEntitySetCollisionDamageOffset": {
+      "class": "A",
+      "why": "存在地址消费或布局指纹校验，但通用ABI扫描器未解析命名空间守卫别名、索引Entry/Native模板或共用调用助手；自动参数/返回签名未验收，不能用本轮合并或宿主行为测试当作全部ABI已核对。",
+      "evidence": "runtime/source/runtime_constants.hpp:8971; runtime/src/interfaces/lua/rplus_entity_fields.cpp:96; dist/merge-bug-api-20261014/signatures-contract.log（重建签名后真实缺项）",
+      "status": "自动调用签名未覆盖"
+    },
+    "kEntityTearSetCollisionDamageOffset": {
+      "class": "A",
+      "why": "存在地址消费或布局指纹校验，但通用ABI扫描器未解析命名空间守卫别名、索引Entry/Native模板或共用调用助手；自动参数/返回签名未验收，不能用本轮合并或宿主行为测试当作全部ABI已核对。",
+      "evidence": "runtime/source/runtime_constants.hpp:8972; runtime/src/interfaces/lua/rplus_entity_fields.cpp:96; dist/merge-bug-api-20261014/signatures-contract.log（重建签名后真实缺项）",
+      "status": "自动调用签名未覆盖"
+    },
+    "kManagerSetSaveSlotOffset": {
+      "class": "A",
+      "why": "存在地址消费或布局指纹校验，但通用ABI扫描器未解析命名空间守卫别名、索引Entry/Native模板或共用调用助手；自动参数/返回签名未验收，不能用本轮合并或宿主行为测试当作全部ABI已核对。",
+      "evidence": "runtime/source/runtime_constants.hpp:95; runtime/src/infrastructure/persistence/engine_save_file_adapter.cpp:144; dist/merge-bug-api-20261014/signatures-contract.log（重建签名后真实缺项）",
+      "status": "自动调用签名未覆盖"
+    },
+    "kRPlusAddBurnOffset": {
+      "class": "A",
+      "why": "存在地址消费或布局指纹校验，但通用ABI扫描器未解析命名空间守卫别名、索引Entry/Native模板或共用调用助手；自动参数/返回签名未验收，不能用本轮合并或宿主行为测试当作全部ABI已核对。",
+      "evidence": "runtime/source/runtime_constants.hpp:8983; runtime/src/interfaces/lua/rplus_methods_guards.hpp:6; dist/merge-bug-api-20261014/signatures-contract.log（重建签名后真实缺项）",
+      "status": "自动调用签名未覆盖"
+    },
+    "kRPlusAddConfusionOffset": {
+      "class": "A",
+      "why": "存在地址消费或布局指纹校验，但通用ABI扫描器未解析命名空间守卫别名、索引Entry/Native模板或共用调用助手；自动参数/返回签名未验收，不能用本轮合并或宿主行为测试当作全部ABI已核对。",
+      "evidence": "runtime/source/runtime_constants.hpp:8984; runtime/src/interfaces/lua/rplus_methods_guards.hpp:8; dist/merge-bug-api-20261014/signatures-contract.log（重建签名后真实缺项）",
+      "status": "自动调用签名未覆盖"
+    },
+    "kRPlusAddCostumeOffset": {
+      "class": "A",
+      "why": "存在地址消费或布局指纹校验，但通用ABI扫描器未解析命名空间守卫别名、索引Entry/Native模板或共用调用助手；自动参数/返回签名未验收，不能用本轮合并或宿主行为测试当作全部ABI已核对。",
+      "evidence": "runtime/source/runtime_constants.hpp:8989; runtime/src/interfaces/lua/rplus_methods_guards.hpp:18; dist/merge-bug-api-20261014/signatures-contract.log（重建签名后真实缺项）",
+      "status": "自动调用签名未覆盖"
+    },
+    "kRPlusAddMidasFreezeOffset": {
+      "class": "A",
+      "why": "存在地址消费或布局指纹校验，但通用ABI扫描器未解析命名空间守卫别名、索引Entry/Native模板或共用调用助手；自动参数/返回签名未验收，不能用本轮合并或宿主行为测试当作全部ABI已核对。",
+      "evidence": "runtime/source/runtime_constants.hpp:8985; runtime/src/interfaces/lua/rplus_methods_guards.hpp:10; dist/merge-bug-api-20261014/signatures-contract.log（重建签名后真实缺项）",
+      "status": "自动调用签名未覆盖"
+    },
+    "kRPlusAddShrinkOffset": {
+      "class": "A",
+      "why": "存在地址消费或布局指纹校验，但通用ABI扫描器未解析命名空间守卫别名、索引Entry/Native模板或共用调用助手；自动参数/返回签名未验收，不能用本轮合并或宿主行为测试当作全部ABI已核对。",
+      "evidence": "runtime/source/runtime_constants.hpp:8986; runtime/src/interfaces/lua/rplus_methods_guards.hpp:12; dist/merge-bug-api-20261014/signatures-contract.log（重建签名后真实缺项）",
+      "status": "自动调用签名未覆盖"
+    },
+    "kRPlusAddSlowingOffset": {
+      "class": "A",
+      "why": "存在地址消费或布局指纹校验，但通用ABI扫描器未解析命名空间守卫别名、索引Entry/Native模板或共用调用助手；自动参数/返回签名未验收，不能用本轮合并或宿主行为测试当作全部ABI已核对。",
+      "evidence": "runtime/source/runtime_constants.hpp:8987; runtime/src/interfaces/lua/rplus_methods_guards.hpp:14; dist/merge-bug-api-20261014/signatures-contract.log（重建签名后真实缺项）",
+      "status": "自动调用签名未覆盖"
+    },
+    "kRPlusAddWispOffset": {
+      "class": "A",
+      "why": "存在地址消费或布局指纹校验，但通用ABI扫描器未解析命名空间守卫别名、索引Entry/Native模板或共用调用助手；自动参数/返回签名未验收，不能用本轮合并或宿主行为测试当作全部ABI已核对。",
+      "evidence": "runtime/source/runtime_constants.hpp:8990; runtime/src/interfaces/lua/rplus_methods_guards.hpp:20; dist/merge-bug-api-20261014/signatures-contract.log（重建签名后真实缺项）",
+      "status": "自动调用签名未覆盖"
+    },
+    "kRPlusAnimateCardOffset": {
+      "class": "A",
+      "why": "存在地址消费或布局指纹校验，但通用ABI扫描器未解析命名空间守卫别名、索引Entry/Native模板或共用调用助手；自动参数/返回签名未验收，不能用本轮合并或宿主行为测试当作全部ABI已核对。",
+      "evidence": "runtime/source/runtime_constants.hpp:8991; runtime/src/interfaces/lua/rplus_methods_guards.hpp:22; dist/merge-bug-api-20261014/signatures-contract.log（重建签名后真实缺项）",
+      "status": "自动调用签名未覆盖"
+    },
+    "kRPlusAnimatePickupOffset": {
+      "class": "A",
+      "why": "存在地址消费或布局指纹校验，但通用ABI扫描器未解析命名空间守卫别名、索引Entry/Native模板或共用调用助手；自动参数/返回签名未验收，不能用本轮合并或宿主行为测试当作全部ABI已核对。",
+      "evidence": "runtime/source/runtime_constants.hpp:8992; runtime/src/interfaces/lua/rplus_methods_guards.hpp:24; dist/merge-bug-api-20261014/signatures-contract.log（重建签名后真实缺项）",
+      "status": "自动调用签名未覆盖"
+    },
+    "kRPlusBarOffset": {
+      "class": "A",
+      "why": "存在地址消费或布局指纹校验，但通用ABI扫描器未解析命名空间守卫别名、索引Entry/Native模板或共用调用助手；自动参数/返回签名未验收，不能用本轮合并或宿主行为测试当作全部ABI已核对。",
+      "evidence": "runtime/source/runtime_constants.hpp:9006; runtime/src/interfaces/lua/rplus_methods_guards.hpp:52; dist/merge-bug-api-20261014/signatures-contract.log（重建签名后真实缺项）",
+      "status": "自动调用签名未覆盖"
+    },
+    "kRPlusCanPickupItemOffset": {
+      "class": "A",
+      "why": "存在地址消费或布局指纹校验，但通用ABI扫描器未解析命名空间守卫别名、索引Entry/Native模板或共用调用助手；自动参数/返回签名未验收，不能用本轮合并或宿主行为测试当作全部ABI已核对。",
+      "evidence": "runtime/source/runtime_constants.hpp:8993; runtime/src/interfaces/lua/rplus_methods_guards.hpp:26; dist/merge-bug-api-20261014/signatures-contract.log（重建签名后真实缺项）",
+      "status": "自动调用签名未覆盖"
+    },
+    "kRPlusFartOffset": {
+      "class": "A",
+      "why": "存在地址消费或布局指纹校验，但通用ABI扫描器未解析命名空间守卫别名、索引Entry/Native模板或共用调用助手；自动参数/返回签名未验收，不能用本轮合并或宿主行为测试当作全部ABI已核对。",
+      "evidence": "runtime/source/runtime_constants.hpp:9004; runtime/src/interfaces/lua/rplus_methods_guards.hpp:48; dist/merge-bug-api-20261014/signatures-contract.log（重建签名后真实缺项）",
+      "status": "自动调用签名未覆盖"
+    },
+    "kRPlusFindGridPathOffset": {
+      "class": "A",
+      "why": "存在地址消费或布局指纹校验，但通用ABI扫描器未解析命名空间守卫别名、索引Entry/Native模板或共用调用助手；自动参数/返回签名未验收，不能用本轮合并或宿主行为测试当作全部ABI已核对。",
+      "evidence": "runtime/source/runtime_constants.hpp:9007; runtime/src/interfaces/lua/rplus_methods_guards.hpp:54; dist/merge-bug-api-20261014/signatures-contract.log（重建签名后真实缺项）",
+      "status": "自动调用签名未覆盖"
+    },
+    "kRPlusFireBombOffset": {
+      "class": "A",
+      "why": "存在地址消费或布局指纹校验，但通用ABI扫描器未解析命名空间守卫别名、索引Entry/Native模板或共用调用助手；自动参数/返回签名未验收，不能用本轮合并或宿主行为测试当作全部ABI已核对。",
+      "evidence": "runtime/source/runtime_constants.hpp:8994; runtime/src/interfaces/lua/rplus_methods_guards.hpp:28; dist/merge-bug-api-20261014/signatures-contract.log（重建签名后真实缺项）",
+      "status": "自动调用签名未覆盖"
+    },
+    "kRPlusFlushQueueItemOffset": {
+      "class": "A",
+      "why": "存在地址消费或布局指纹校验，但通用ABI扫描器未解析命名空间守卫别名、索引Entry/Native模板或共用调用助手；自动参数/返回签名未验收，不能用本轮合并或宿主行为测试当作全部ABI已核对。",
+      "evidence": "runtime/source/runtime_constants.hpp:8995; runtime/src/interfaces/lua/rplus_methods_guards.hpp:30; dist/merge-bug-api-20261014/signatures-contract.log（重建签名后真实缺项）",
+      "status": "自动调用签名未覆盖"
+    },
+    "kRPlusFullChargeOffset": {
+      "class": "A",
+      "why": "存在地址消费或布局指纹校验，但通用ABI扫描器未解析命名空间守卫别名、索引Entry/Native模板或共用调用助手；自动参数/返回签名未验收，不能用本轮合并或宿主行为测试当作全部ABI已核对。",
+      "evidence": "runtime/source/runtime_constants.hpp:8996; runtime/src/interfaces/lua/rplus_methods_guards.hpp:32; dist/merge-bug-api-20261014/signatures-contract.log（重建签名后真实缺项）",
+      "status": "自动调用签名未覆盖"
+    },
+    "kRPlusGetMaxTrinketsOffset": {
+      "class": "A",
+      "why": "存在地址消费或布局指纹校验，但通用ABI扫描器未解析命名空间守卫别名、索引Entry/Native模板或共用调用助手；自动参数/返回签名未验收，不能用本轮合并或宿主行为测试当作全部ABI已核对。",
+      "evidence": "runtime/source/runtime_constants.hpp:8997; runtime/src/interfaces/lua/rplus_methods_guards.hpp:34; dist/merge-bug-api-20261014/signatures-contract.log（重建签名后真实缺项）",
+      "status": "自动调用签名未覆盖"
+    },
+    "kRPlusGetTearMovementInheritanceOffset": {
+      "class": "A",
+      "why": "存在地址消费或布局指纹校验，但通用ABI扫描器未解析命名空间守卫别名、索引Entry/Native模板或共用调用助手；自动参数/返回签名未验收，不能用本轮合并或宿主行为测试当作全部ABI已核对。",
+      "evidence": "runtime/source/runtime_constants.hpp:8998; runtime/src/interfaces/lua/rplus_methods_guards.hpp:36; dist/merge-bug-api-20261014/signatures-contract.log（重建签名后真实缺项）",
+      "status": "自动调用签名未覆盖"
+    },
+    "kRPlusGridDescWriterOffset": {
+      "class": "A",
+      "why": "存在地址消费或布局指纹校验，但通用ABI扫描器未解析命名空间守卫别名、索引Entry/Native模板或共用调用助手；自动参数/返回签名未验收，不能用本轮合并或宿主行为测试当作全部ABI已核对。",
+      "evidence": "runtime/source/runtime_constants.hpp:9010; runtime/src/interfaces/lua/rplus_methods_guards.hpp:60; dist/merge-bug-api-20261014/signatures-contract.log（重建签名后真实缺项）",
+      "status": "自动调用签名未覆盖"
+    },
+    "kRPlusHasMortalDamageOffset": {
+      "class": "A",
+      "why": "存在地址消费或布局指纹校验，但通用ABI扫描器未解析命名空间守卫别名、索引Entry/Native模板或共用调用助手；自动参数/返回签名未验收，不能用本轮合并或宿主行为测试当作全部ABI已核对。",
+      "evidence": "runtime/source/runtime_constants.hpp:8988; runtime/src/interfaces/lua/rplus_methods_guards.hpp:16; dist/merge-bug-api-20261014/signatures-contract.log（重建签名后真实缺项）",
+      "status": "自动调用签名未覆盖"
+    },
+    "kRPlusRemoveCostumeOffset": {
+      "class": "A",
+      "why": "存在地址消费或布局指纹校验，但通用ABI扫描器未解析命名空间守卫别名、索引Entry/Native模板或共用调用助手；自动参数/返回签名未验收，不能用本轮合并或宿主行为测试当作全部ABI已核对。",
+      "evidence": "runtime/source/runtime_constants.hpp:8999; runtime/src/interfaces/lua/rplus_methods_guards.hpp:38; dist/merge-bug-api-20261014/signatures-contract.log（重建签名后真实缺项）",
+      "status": "自动调用签名未覆盖"
+    },
+    "kRPlusSetPillOffset": {
+      "class": "A",
+      "why": "存在地址消费或布局指纹校验，但通用ABI扫描器未解析命名空间守卫别名、索引Entry/Native模板或共用调用助手；自动参数/返回签名未验收，不能用本轮合并或宿主行为测试当作全部ABI已核对。",
+      "evidence": "runtime/source/runtime_constants.hpp:9000; runtime/src/interfaces/lua/rplus_methods_guards.hpp:40; dist/merge-bug-api-20261014/signatures-contract.log（重建签名后真实缺项）",
+      "status": "自动调用签名未覆盖"
+    },
+    "kRPlusSetPocketActiveItemOffset": {
+      "class": "A",
+      "why": "存在地址消费或布局指纹校验，但通用ABI扫描器未解析命名空间守卫别名、索引Entry/Native模板或共用调用助手；自动参数/返回签名未验收，不能用本轮合并或宿主行为测试当作全部ABI已核对。",
+      "evidence": "runtime/source/runtime_constants.hpp:9001; runtime/src/interfaces/lua/rplus_methods_guards.hpp:42; dist/merge-bug-api-20261014/signatures-contract.log（重建签名后真实缺项）",
+      "status": "自动调用签名未覆盖"
+    },
+    "kRPlusShakeScreenOffset": {
+      "class": "A",
+      "why": "存在地址消费或布局指纹校验，但通用ABI扫描器未解析命名空间守卫别名、索引Entry/Native模板或共用调用助手；自动参数/返回签名未验收，不能用本轮合并或宿主行为测试当作全部ABI已核对。",
+      "evidence": "runtime/source/runtime_constants.hpp:9005; runtime/src/interfaces/lua/rplus_methods_guards.hpp:50; dist/merge-bug-api-20261014/signatures-contract.log（重建签名后真实缺项）",
+      "status": "自动调用签名未覆盖"
+    },
+    "kRPlusThrowBlueSpiderOffset": {
+      "class": "A",
+      "why": "存在地址消费或布局指纹校验，但通用ABI扫描器未解析命名空间守卫别名、索引Entry/Native模板或共用调用助手；自动参数/返回签名未验收，不能用本轮合并或宿主行为测试当作全部ABI已核对。",
+      "evidence": "runtime/source/runtime_constants.hpp:9002; runtime/src/interfaces/lua/rplus_methods_guards.hpp:44; dist/merge-bug-api-20261014/signatures-contract.log（重建签名后真实缺项）",
+      "status": "自动调用签名未覆盖"
+    },
+    "kRPlusWillPlayerReviveOffset": {
+      "class": "A",
+      "why": "存在地址消费或布局指纹校验，但通用ABI扫描器未解析命名空间守卫别名、索引Entry/Native模板或共用调用助手；自动参数/返回签名未验收，不能用本轮合并或宿主行为测试当作全部ABI已核对。",
+      "evidence": "runtime/source/runtime_constants.hpp:9003; runtime/src/interfaces/lua/rplus_methods_guards.hpp:46; dist/merge-bug-api-20261014/signatures-contract.log（重建签名后真实缺项）",
+      "status": "自动调用签名未覆盖"
+    },
+    "kApi100LevelApplyBlueMapEffectOffset": {
+      "class": "A",
+      "why": "通过api100_entities的guards::kApplyBlueMapEffectEntry、Entry索引和Native模板调用Level::ApplyBlueMapEffect；通用ABI扫描器未解析这条跨文件绑定链，自动调用签名仍未验收，不把宿主通过作为全ABI已核对。",
+      "evidence": "; dist/merge-bug-api-20261014/signature-final.log",
+      "status": "自动调用签名未覆盖"
+    },
+    "kPressurePlateAnimationWriterOffset": {
+      "class": "A",
+      "why": "仅作为原生压力板writer入口中继目标，没有主动方法调用；参数和返回由RELAY_CALLBACK_TARGETS中的实际C回调另行核对。",
+      "evidence": [
+        "runtime/src/infrastructure/relay/entry_relay_hook_adapter.cpp",
+        "runtime/source/pressure_plate_animation_hook.cpp",
+        "dist/api-known-defects-20261020/ns-pressure-animation.asm"
+      ]
     }
   }
 }

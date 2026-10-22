@@ -1,0 +1,56 @@
+# 由 tools/generate_isaac_name_tables.py --import-xml 从游戏 dump 提取。
+# 来源：rp_patch/resources/pocketitems.xml（编号+键，权威） + resources/pocketitems.xml（补英文原文）
+#       + rp_patch/resources/stringtable.sta（键 → 英文；★ 语言位置要剔除 `Key` 伪语言那一档，见 `parse_stringtable` 的注释）。
+# 格式：名字<TAB>编号[<TAB>堕落编号]，按名字升序。用途：Isaac.GetPillEffectByName（PC 契约 tools/pc_contract_docs/Isaac.md）。
+# 第三列只有角色表有（`players.xml` 的 id 21..40 是堕落角色、名字与本体重复）。
+# 名字里的反斜杠/制表符/换行/回车/问号已转义（`\\` / `\t` / `\n` / `\r` / `\?`）。
+48 Hour Energy!	20
+\?\?\?	31
+Addicted!	29
+Amnesia	25
+Bad Gas	0
+Bad Trip	1
+Balls of Steel	2
+Bombs are Key	3
+Experimental Pill	49
+Explosive Diarrhea	4
+Feels like I'm walking on sunshine!	45
+Friends Till The End!	38
+Full Health	5
+Gulp!	43
+Health Down	6
+Health Up	7
+Hematemesis	21
+Horf!	44
+I Found Pills	8
+I can see forever!	23
+I'm Drowsy...	41
+I'm Excited!!!	42
+Infested!	34
+Infested\?	35
+Lemon Party	26
+Luck Down	17
+Luck Up	18
+One makes you larger	32
+One makes you small	33
+Paralysis	22
+Percs!	28
+Pheromones	24
+Power Pill!	36
+Pretty Fly	10
+Puberty	9
+R U A Wizard\?	27
+Range Down	11
+Range Up	12
+Re-Lax	30
+Retro Vision	37
+Shot Speed Down	47
+Shot Speed Up	48
+Something's wrong...	40
+Speed Down	13
+Speed Up	14
+Tears Down	15
+Tears Up	16
+Telepills	19
+Vurp!	46
+X-Lax	39

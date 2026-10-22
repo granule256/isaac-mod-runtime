@@ -1,0 +1,93 @@
+# 由 tools/generate_isaac_name_tables.py --import-xml 从游戏 dump 提取。
+# 来源：rp_patch/resources/pocketitems.xml（编号+键，权威） + resources/pocketitems.xml（补英文原文）
+#       + rp_patch/resources/stringtable.sta（键 → 英文；★ 语言位置要剔除 `Key` 伪语言那一档，见 `parse_stringtable` 的注释）。
+# 格式：名字<TAB>编号[<TAB>堕落编号]，按名字升序。用途：Isaac.GetCardIdByName（PC 契约 tools/pc_contract_docs/Isaac.md:148）。
+# 第三列只有角色表有（`players.xml` 的 id 21..40 是堕落角色、名字与本体重复）。
+# 名字里的反斜杠/制表符/换行/回车/问号已转义（`\\` / `\t` / `\n` / `\r` / `\?`）。
+0 - The Fool	1
+0 - The Fool\?	56
+2 of Clubs	23
+2 of Diamonds	24
+2 of Hearts	26
+2 of Spades	25
+\? Card	48
+A Card Against Humanity	45
+Ace of Clubs	27
+Ace of Diamonds	28
+Ace of Hearts	30
+Ace of Spades	29
+Ancient Recall	53
+Chaos Card	42
+Cracked Key	78
+Credit Card	43
+Dice Shard	49
+Emergency Contact	50
+Era Walk	54
+Get Out Of Jail Free Card	47
+Holy Card	51
+Huge Growth	52
+I - The Magician	2
+I - The Magician\?	57
+II - The High Priestess	3
+II - The High Priestess\?	58
+III - The Empress	4
+III - The Empress\?	59
+IV - The Emperor	5
+IV - The Emperor\?	60
+IX - The Hermit	10
+IX - The Hermit\?	65
+Joker	31
+NULL	0
+Queen of Hearts	79
+Rules Card	44
+Soul of \?\?\?	85
+Soul of Apollyon	94
+Soul of Azazel	88
+Soul of Bethany	96
+Soul of Cain	83
+Soul of Eden	90
+Soul of Eve	86
+Soul of Isaac	81
+Soul of Jacob and Esau	97
+Soul of Judas	84
+Soul of Lazarus	89
+Soul of Lilith	92
+Soul of Magdalene	82
+Soul of Samson	87
+Soul of the Forgotten	95
+Soul of the Keeper	93
+Soul of the Lost	91
+Suicide King	46
+V - The Hierophant	6
+V - The Hierophant\?	61
+VI - The Lovers	7
+VI - The Lovers\?	62
+VII - The Chariot	8
+VII - The Chariot\?	63
+VIII - Justice	9
+VIII - Justice\?	64
+Wild Card	80
+X - Wheel of Fortune	11
+X - Wheel of Fortune\?	66
+XI - Strength	12
+XI - Strength\?	67
+XII - The Hanged Man	13
+XII - The Hanged Man\?	68
+XIII - Death	14
+XIII - Death\?	69
+XIV - Temperance	15
+XIV - Temperance\?	70
+XIX - The Sun	20
+XIX - The Sun\?	75
+XV - The Devil	16
+XV - The Devil\?	71
+XVI - The Tower	17
+XVI - The Tower\?	72
+XVII - The Stars	18
+XVII - The Stars\?	73
+XVIII - The Moon	19
+XVIII - The Moon\?	74
+XX - Judgement	21
+XX - Judgement\?	76
+XXI - The World	22
+XXI - The World\?	77

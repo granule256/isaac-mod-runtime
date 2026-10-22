@@ -61,7 +61,8 @@ class MissingMembersBatch028Tests(unittest.TestCase):
                 source = self.isaac_api if function == "EntityPickupCanReroll" else self.remaining_api
                 body = source[source.index(f"int {function}(lua_State* state) {{"):]
                 body = body[:body.index("\n}\n") + 3]
-                self.assertIn(word, body, f"{function} 没有核对入口指纹")
+                fingerprint = "kItemPoolGetPillEffectExpectedBytes" if function == "ItemPoolGetPillEffect" else word
+                self.assertIn(fingerprint, body, f"{function} 没有核对入口指纹")
                 self.assertIn("IsEngineMemoryReadable", body, f"{function} 没有可读性检查")
 
     def test_table_entries_and_catalog_rows_exist(self):

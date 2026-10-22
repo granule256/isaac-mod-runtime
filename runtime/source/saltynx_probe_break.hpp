@@ -9,7 +9,10 @@
 // produced no artifact for thirteen hardware rounds, while a crash report always
 // appears and carries three things a written record never had: the module base
 // address, the exact offset that stopped, and the register file. So the probe loads
-// its payload into `x1`..`x7` and then executes `svc 0x7f` with `BreakReason_User`.
+// its payload into `x1`..`x7` and then executes `svc 0x26` (= `svcBreak`) with `BreakReason_User`.
+// ★ 2026-09-29（批次 197）统一：原来这里是 `svc 0x7f`，但 `0x7f` 在本仓库 svc 表里是
+//   `svcCallSecureMonitor`、userland 下被判"未定义系统调用"⇒ 报告类型不是 `User Break`
+//   （批次 135 真机实测）。全仓探针点已统一成 `svc 0x26`。
 //
 // The payload (`ISAACPB1` in `x1`):
 //   x2  marker << 32 | self-journal records written so far

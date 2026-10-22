@@ -1,0 +1,194 @@
+# 由 tools/generate_isaac_name_tables.py --import-xml 从游戏 dump 提取。
+# 来源：rp_patch/resources/items.xml（编号+键，权威） + resources/items.xml（补英文原文）
+#       + rp_patch/resources/stringtable.sta（键 → 英文；★ 语言位置要剔除 `Key` 伪语言那一档，见 `parse_stringtable` 的注释）。
+# 格式：名字<TAB>编号[<TAB>堕落编号]，按名字升序。用途：Isaac.GetTrinketIdByName（PC 契约 tools/pc_contract_docs/Isaac.md:457）。
+# 第三列只有角色表有（`players.xml` 的 id 21..40 是堕落角色、名字与本体重复）。
+# 名字里的反斜杠/制表符/换行/回车/问号已转义（`\\` / `\t` / `\n` / `\r` / `\?`）。
+'M	138
+\?\?\?'s Soul	57
+A Lighter	135
+A Missing Page	48
+AAA Battery	3
+Ace of Spades	45
+Adoption Papers	184
+Apollyon's Best Friend	186
+Apple of Sodom	140
+Azazel's Stump	162
+Baby-Bender	127
+Bag Lunch	105
+Bat Wing	118
+Beth's Essence	182
+Beth's Faith	142
+Bible Tract	18
+Black Feather	80
+Black Lipstick	17
+Black Tooth	95
+Blasting Cap	73
+Blessed Penny	131
+Blind Rage	81
+Blister	77
+Bloody Crown	111
+Bloody Penny	49
+Blue Key	150
+Bob's Bladder	71
+Brain Worm	144
+Broken Ankh	28
+Broken Glasses	187
+Broken Magnet	6
+Broken Padlock	136
+Broken Remote	4
+Broken Syringe	132
+Brown Cap	90
+Burnt Penny	50
+Butt Penny	24
+Butter!	122
+Cain's Eye	59
+Callus	14
+Cancer	39
+Cartridge	8
+Charged Penny	147
+Chewed Pen	130
+Child Leash	89
+Child's Heart	34
+Counterfeit Penny	52
+Cracked Crown	92
+Cracked Dice	67
+Cricket Leg	185
+Crow Heart	107
+Crystal Key	170
+Cursed Penny	172
+Cursed Skull	43
+Curved Horn	35
+Daemon's Tail	22
+Devil's Crown	146
+Dice Bag	154
+Dim Bulb	101
+Dingle Berry	163
+Door Stop	124
+Duct Tape	109
+Endless Nameless	79
+Equality!	103
+Error	75
+Eve's Bird Foot	60
+Expansion Pack	181
+Extension Cord	125
+Faded Polaroid	69
+Filigree Feather	123
+Finger Bone	128
+Fish Head	29
+Fish Tail	94
+Flat File	151
+Flat Penny	51
+Flat Worm	12
+Forgotten Lullaby	141
+Found Soul	180
+Fragmented Card	102
+Friendship Necklace	148
+Gigante Bean	134
+Gilded Key	159
+Goat Hoof	37
+Golden Horse Shoe	82
+Hairpin	120
+Hollow Heart	168
+Holy Crown	155
+Hook Worm	26
+Ice Cube	188
+Isaac's Fork	46
+Isaac's Head	54
+Jawbreaker	129
+Judas' Tongue	56
+Karma	85
+Keeper's Bargain	171
+Kid's Drawing	169
+Lazy Worm	66
+Liberty Cap	32
+Lil Clot	176
+Lil Larva	86
+Locust of Conquest	117
+Locust of Death	116
+Locust of Famine	115
+Locust of Pestilence	114
+Locust of War	113
+Lost Cork	106
+Louse	70
+Lucky Rock	15
+Lucky Sack	160
+Lucky Toe	42
+Maggy's Faith	55
+Match Stick	41
+Meconium	91
+Missing Poster	23
+Modeling Clay	166
+Mom's Lock	153
+Mom's Locket	87
+Mom's Pearl	38
+Mom's Toenail	16
+Monkey Paw	20
+Mother's Kiss	156
+Myosotis	137
+Mysterious Candy	25
+Mysterious Paper	21
+NO!	88
+Nose Goblin	98
+Nuh Uh!	165
+Number Magnet	174
+Old Capacitor	143
+Ouroboros Worm	96
+Panic Button	149
+Paper Clip	19
+Pay To Win	112
+Perfection	145
+Petrified Poop	2
+Pinky Eye	30
+Poker Chip	76
+Polished Bone	167
+Pulse Worm	9
+Purple Heart	5
+Push Pin	31
+RC Remote	179
+Rainbow Worm	64
+Red Patch	40
+Rib of Greed	84
+Ring Cap	164
+Ring Worm	11
+Rosary Bead	7
+Rotten Penny	126
+Rusted Key	36
+Safety Cap	44
+Safety Scissors	63
+Samson's Lock	58
+Second Hand	78
+Shiny Rock	62
+Short Fuse	133
+Sigil of Baphomet	189
+Silver Dollar	110
+Stem Cell	119
+Store Credit	13
+Store Key	83
+Strange Key	175
+Stud Finder	74
+Super Ball	99
+Super Magnet	68
+Swallowed M80	178
+Swallowed Penny	1
+Tape Worm	65
+Teardrop Charm	139
+Telescope Lens	152
+Temporary Tattoo	177
+The Left Hand	61
+The Twins	183
+Tick	53
+Tonsil	97
+Torn Card	157
+Torn Pocket	158
+Umbilical Cord	33
+Used Diaper	93
+Vibrant Bulb	100
+Walnut	108
+Watch Battery	72
+Whip Worm	27
+Wicked Crown	161
+Wiggle Worm	10
+Wish Bone	104
+Wooden Cross	121
+Your Soul	173

@@ -29,11 +29,27 @@ LEDGER = {
                            "kRebuildContentMountPointsExpectedBytes"),
     "ManagerPresentCallsite": ("kManagerPresentCallFileOffset",
                                "kManagerPresentCallExpectedBytes"),
+    # 批次 147（2026-09-26）：引擎那条"模组 content 加载"路的闸门。
+    "ModManagerLoadConfigs": ("kModManagerLoadConfigsFileOffset",
+                              "kModManagerLoadConfigsExpectedBytes"),
+    "FamiliarCollision": ("kEntityFamiliarHandleCollisionOffset", "kEntityFamiliarHandleCollisionExpectedBytes"),
+    "NpcCollision": ("kEntityNpcHandleCollisionOffset", "kEntityNpcHandleCollisionExpectedBytes"),
+    "PlayerCollision": ("kEntityPlayerHandleCollisionOffset", "kEntityPlayerHandleCollisionExpectedBytes"),
+    "TearCollision": ("kEntityTearHandleCollisionOffset", "kEntityTearHandleCollisionExpectedBytes"),
+    "ProjectileCollision": ("kEntityProjectileHandleCollisionOffset", "kEntityProjectileHandleCollisionExpectedBytes"),
+    "KnifeCollision": ("kEntityKnifeHandleCollisionOffset", "kEntityKnifeHandleCollisionExpectedBytes"),
+    "BombCollision": ("kEntityBombHandleCollisionOffset", "kEntityBombHandleCollisionExpectedBytes"),
+    "GameSpawnEx": ("kGameSpawnExOffset", "kGameSpawnExExpectedBytes"),
+    "NpcRender": ("kEntityNpcRenderOffset", "kEntityNpcRenderExpectedBytes"),
+    "ItemPoolGetPill": ("kItemPoolGetPillOffset", "kItemPoolGetPillExpectedBytes"),
+    "ItemPoolGetPillEffect": ("kItemPoolGetPillEffectOffset", "kItemPoolGetPillEffectExpectedBytes"),
+    "GameDevolveEnemy": ("kGameDevolveEnemyOffset", "kGameDevolveEnemyExpectedBytes"),
 }
 
 # 可以用入口中继挂的只有函数入口那四个；`ManagerPresentCallsite` 登记在台账里是为了
 # **明确记录它不可挂**（它是一条 `bl` 调用点，走 GOT 槽改写），因此不参与"必须无 PC 相对指令"的断言。
-ENTRY_HOOKABLE = ("ManagerUpdate", "ManagerRender", "PreGetCollectible", "RebuildMountPoints")
+ENTRY_HOOKABLE = ("ManagerUpdate", "ManagerRender", "PreGetCollectible", "RebuildMountPoints",
+                  "ModManagerLoadConfigs", 'FamiliarCollision', 'NpcCollision', 'PlayerCollision', 'TearCollision', 'ProjectileCollision', 'KnifeCollision', 'BombCollision', 'NpcRender', 'ItemPoolGetPill', 'ItemPoolGetPillEffect', 'GameDevolveEnemy', 'GameSpawnEx')
 
 PC_RELATIVE = (
     (0xFC000000, 0x14000000), (0xFC000000, 0x94000000), (0x9F000000, 0x10000000),

@@ -177,6 +177,45 @@ DRIVER = textwrap.dedent(
                 case HookId::MenuManagerSetState: return imagePcxLoad;
                 // 批次 098（禁成就，挂 `SetReadOnly`）：同样必须留一支（-Wswitch）。
                 case HookId::PersistentGameDataSetReadOnly: return imagePcxLoad;
+                // 批次 147（模组 content 加载闸门，挂 `ModManager::LoadConfigs` 入口）：
+                // 同样必须留一支（-Wswitch）。
+                case HookId::ModManagerLoadConfigs: return imagePcxLoad;
+                // ★ 批次 385（2026-10-06）补：`Anm2Load` —— 它由批次 363 加进 `hook_catalog.hpp`，
+                //   但**这个夹具的 switch 漏了这一支**（夹具自己那句"少了就 `-Werror,-Wswitch`
+                //   直接判编译失败"就是说的这种情况）。批次 385 把"资源类中继提前装"之后，
+                //   这条漏项当场把整个 integration 用例判成编译失败 ⇒ 补上。
+                case HookId::Anm2Load: return imagePcxLoad;
+                // 批次 390（2026-10-07）：`MC_INPUT_ACTION` 的三条查询中继同样必须留一支（-Wswitch）。
+                case HookId::ManagerIsActionPressed:
+                case HookId::ManagerIsActionTriggered:
+                case HookId::ManagerGetActionValue: return imagePcxLoad;
+                // 批次 396（2026-10-07）：`MC_ENTITY_TAKE_DMG` 的四条 + `MC_EVALUATE_CACHE`
+                // —— 同样是"夹具必须留一支（-Wswitch）"，都返回 `imagePcxLoad`（默认 Ok），
+                // 让上面"每一个挂点各装一次（`InstalledCount() == kHookIdCount`）"的断言继续成立。
+                case HookId::EntityTakeDamage:
+                case HookId::EntityPlayerTakeDamage:
+                case HookId::EntityPickupTakeDamage:
+                case HookId::EntitySlotTakeDamage:
+                case HookId::EvaluateItems: return imagePcxLoad;
+                // 批次 397（2026-10-07）：补全回调（第 2 批）的三条 hookable，同样留一支。
+                case HookId::EntityKill:
+                case HookId::NpcDeathRemove:
+                case HookId::GameEnd:
+                case HookId::FamiliarCollision:
+                case HookId::NpcCollision:
+                case HookId::PlayerCollision:
+                case HookId::TearCollision:
+                case HookId::ProjectileCollision:
+                case HookId::KnifeCollision:
+                case HookId::BombCollision:
+                case HookId::ItemPoolGetPill:
+                case HookId::ItemPoolGetPillEffect:
+                case HookId::GameDevolveEnemy:
+                case HookId::NpcUpdateAi:
+                case HookId::HudRender:
+                case HookId::GameSpawnEx:
+                case HookId::NpcRender:
+                case HookId::FireTear: return imagePcxLoad;
                 case HookId::Count: break;
             }
             return Status{StatusCode::InvalidArgument};
@@ -275,8 +314,8 @@ DRIVER = textwrap.dedent(
         invoker.called.clear();
         invoker.failingReference = 11;
         report = dispatcher.Dispatch(kCallbackPostRender, ThreadAffinity::ManagedCallback);
-        Check(report.invoked == 1 && report.failed == 1, "failure_isolated_per_callback");
-        Check(invoker.called.size() == 2, "second_callback_still_runs");
+        Check(report.invoked == 0 && report.failed == 1, "failure_stops_protected_callback_batch");
+        Check(invoker.called.size() == 1, "second_callback_skipped_after_error");
 
         invoker.called.clear();
         invoker.failingReference = -1;
@@ -322,12 +361,12 @@ DRIVER = textwrap.dedent(
         Check(invoker.called.size() == 2 && invoker.called[0] == 22 && invoker.called[1] == 33,
               "f_filter_other_value");
 
-        // 调用点说不出过滤值 ⇒ 带过滤器的两条都**不**调用（"说不出就不调用"）。
+        // 完整PC脚本nil参数为通配，带过滤器的两条也必须调用。
         invoker.called.clear();
         report = dispatcher.DispatchFiltered(kCallbackPreUseItem, ThreadAffinity::Any,
                                             CallbackRegistry::kNoCallbackFilter);
-        Check(report.invoked == 1 && report.skippedFilter == 2 && invoker.called[0] == 33,
-              "f_unknown_filter_skips_filtered");
+        Check(report.invoked == 3 && report.skippedFilter == 0 && invoker.called.size() == 3,
+              "f_nil_filter_matches_all");
 
         // 不筛的那条入口保持改动前的口径：三条全调用（PC 的 `ModCallbacks.md` 里大多数回调
         // 根本没有过滤语义，那些 id 上的第三个实参是无意义的）。
@@ -375,12 +414,12 @@ DRIVER = textwrap.dedent(
 
         CallbackDispatchOutcome outcome = returnDispatcher.DispatchModifying(
             kCallbackPreUseItem, ThreadAffinity::Any, CallbackRegistry::kNoCallbackFilter);
-        Check(outcome.invoked == 4 && outcome.failed == 0, "r_all_invoked");
+        Check(outcome.invoked == 1 && outcome.failed == 0, "r_first_non_nil_stops_dispatch");
         Check(outcome.anyTruthy && outcome.blocked(), "r_any_true_blocks");
         Check(outcome.anyNonNil, "r_any_non_nil");
         // "第一条胜出"：`MC_POST_GET_COLLECTIBLE` 的文档写明"返回的值不会更新后续回调看到的
         // SelectedCollectible" ⇒ 后一条（99）不许覆盖前一条（42）。
-        Check(outcome.hasInteger && outcome.integer == 42, "r_first_integer_wins");
+        Check(!outcome.hasInteger, "r_first_boolean_prevents_later_integer");
 
         // 一条都没返回 ⇒ 不拦、也没有整数。
         returnInvoker.returns.clear();
@@ -389,11 +428,11 @@ DRIVER = textwrap.dedent(
         Check(outcome.invoked == 4 && !outcome.blocked() && !outcome.hasInteger && !outcome.anyNonNil,
               "r_no_return_blocks_nothing");
 
-        // 回调里报错：记 failed，但**不**拦（PC 语义"报错 ≠ 拒绝"，且派发继续往下走）。
+        // 完整PC受保护调用错误即终止本批；错误本身不等于返回true。
         returnInvoker.failingReference = 11;
         outcome = returnDispatcher.DispatchModifying(kCallbackPreUseItem, ThreadAffinity::Any,
                                                      CallbackRegistry::kNoCallbackFilter);
-        Check(outcome.failed == 1 && !outcome.blocked() && outcome.invoked == 3,
+        Check(outcome.failed == 1 && !outcome.blocked() && outcome.invoked == 0,
               "r_error_does_not_block");
         returnInvoker.failingReference = -1;
     }

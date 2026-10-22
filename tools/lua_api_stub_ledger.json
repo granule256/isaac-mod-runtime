@@ -1,9 +1,9 @@
 {
   "schema": "isaac-lua-api-stub-ledger/1",
-  "why": "接口台账（`analysis/lua-api-inventory`）把 `implemented` 的口径定成『命中 api_catalog.cpp』，也就是『有目录行』被当成了『已实现』—— 2026-09-18 发现 `GetNumKeys`/`GetNumBombs`/`GetSoulCharge`/`GetBloodCharge` 四个恒返回 0 的假桩都被记成 implemented。本文件是那一维的补充：**有目录行、但处理器什么都不读**的那些。 2026-09-18 批次 026：`CountBosses` / `LoadModData` / `SaveModData` / `RenderScaledText` 四条已改成真实现并从本表**销账**（15 → 11）。",
+  "why": "接口台账（`analysis/lua-api-inventory`）把 `implemented` 的口径定成『命中 api_catalog.cpp』，也就是『有目录行』被当成了『已实现』—— 2026-09-18 发现 `GetNumKeys`/`GetNumBombs`/`GetSoulCharge`/`GetBloodCharge` 四个恒返回 0 的假桩都被记成 implemented。本文件是那一维的补充：**有目录行、但处理器什么都不读**的那些。 2026-09-18 批次 026：`CountBosses` / `LoadModData` / `SaveModData` / `RenderScaledText` 四条已改成真实现并从本表**销账**（15 → 11）。 ★ 2026-09-25（批次 127）：判据扩了两处，台账 **11 → 13** —— 新增的 `Isaac:WorldToScreen` / `WorldToRenderPosition` **本来就是桩**（`isaac_api.cpp` 的 `enum class Stub` 里明明有它们、注释还写着『与台账双向一致』），但它们把桩逻辑共享在具名助手 `WorldToIdentity` 里，旧判据只看处理器自己的正文 ⇒ 判成真实现、台账里也没有。判据扩的是『一层委托』与 `Stub::` 标记；同时补全了真值词表（`engine_memory::` / `engine_call::`），否则 L1/L2 重构后的一批真实现会被误判成桩。 2026-10-09：IsSubPlayer按真实玩家index bit31恢复，2→1；旧记录全文另存dist/offline-repairs-20261009-player-twins/lua_api_stub_ledger.json.before。 2026-10-09：GetPersistentGameData变为真实对象并支持Unlocked，源码可识别恒值桩1→0；其余偏离仍在api_deviation台账，零恒值桩不代表全部语义恢复。",
   "source": "runtime/src/interfaces/lua/*.cpp（绑定行 + 处理器函数体）",
-  "criteria": "处理器体（剥掉注释）含 PushZero/WarnStubOnce、且不含任何引擎读取标记 ⇒ 判桩；其余判真实现；找不到函数体判 unknown（不猜）",
-  "count": 11,
+  "criteria": "处理器体（剥掉注释）（①）含 PushZero/WarnStubOnce/Stub:: 之一，或调用了「自己含桩标记」的具名助手（一层委托）（②）且不含任何引擎真值标记（engine_memory:: / engine_call:: / ReadEngine / Thunk / Observe* …）⇒ 判桩；其余判真实现；找不到函数体判 unknown（不猜）。★ 2026-09-25 补 (①)的 Stub:: 与 (②)一层委托、并补全真值词表 —— 判据细节见文件头。★ 2026-09-29（批次 207）真值词表再补一条：**读运行时自己编译进去的静态快照**（`FindEntityNameEntry(` / `EntityNameEntries(` ——`Isaac:GetEntityTypeByName` 一族查的是生成的本体实体名表）也算真实现。",
+  "count": 0,
   "rows": {
     "Isaac:GetPersistentGameData": {
       "owner": "Isaac",
@@ -12,75 +12,12 @@
       "binding_key": "0x0E01000E",
       "note": "恒返回 0/nil。需要持久化存档数据的读通道，未取证。"
     },
-    "Isaac:GetTrinketIdByName": {
-      "owner": "Isaac",
-      "name": "GetTrinketIdByName",
-      "handler": "IsaacGetTrinketIdByName",
-      "binding_key": "0x0E01000F",
-      "note": "恒返回 0/nil。需要『名字 → id』表（PC 是内建表），未取证。"
-    },
-    "EntityPlayer:GetPill": {
+    "EntityPlayer:IsSubPlayer": {
       "owner": "EntityPlayer",
-      "name": "GetPill",
-      "handler": "EntityPlayerGetPill",
-      "binding_key": "0x0E010030",
-      "note": "恒返回 0 = 『那一格没有东西』。EID 用它判玩家有没有药丸 ⇒ 恒答没有会让描述缺一块。修法：读口袋槽字段（偏移未取证）。"
-    },
-    "EntityPlayer:GetCard": {
-      "owner": "EntityPlayer",
-      "name": "GetCard",
-      "handler": "EntityPlayerGetCard",
-      "binding_key": "0x0E010031",
-      "note": "同 GetPill：恒返回 0 = 『没有』。修法：读口袋槽字段（偏移未取证）。"
-    },
-    "EntityPlayer:GetHearts": {
-      "owner": "EntityPlayer",
-      "name": "GetHearts",
-      "handler": "EntityPlayerGetHearts",
-      "binding_key": "0x0E01003A",
-      "note": "恒返回 0。**单位未确认**（半心还是整心）⇒ 先取证红心字段与 PC 的单位口径再改；猜错就是造出一个新的假读数（比 0 更难发现）。同族的 GetMaxHearts 走的是数据行机制（真实现）。"
-    },
-    "EntityPlayer:GetPoopMana": {
-      "owner": "EntityPlayer",
-      "name": "GetPoopMana",
-      "handler": "EntityPlayerGetPoopMana",
-      "binding_key": "0x0E01003E",
-      "note": "恒返回 0。『便便魔力』是忏悔版机制，字段未取证。"
-    },
-    "EntityPlayer:GetPoopSpell": {
-      "owner": "EntityPlayer",
-      "name": "GetPoopSpell",
-      "handler": "EntityPlayerGetPoopSpell",
-      "binding_key": "0x0E01003F",
-      "note": "恒返回 0。同上，字段未取证。"
-    },
-    "EntityPlayer:GetZodiacEffect": {
-      "owner": "EntityPlayer",
-      "name": "GetZodiacEffect",
-      "handler": "EntityPlayerGetZodiacEffect",
-      "binding_key": "0x0E010040",
-      "note": "恒返回 0。对应收藏品的派生效果值（需要引擎方法或字段），未取证。"
-    },
-    "EntityPlayer:GetModelingClayEffect": {
-      "owner": "EntityPlayer",
-      "name": "GetModelingClayEffect",
-      "handler": "EntityPlayerGetModelingClayEffect",
-      "binding_key": "0x0E010041",
-      "note": "恒返回 0。同上，未取证。"
-    },
-    "EntityPlayer:GetGlyphOfBalanceDrop": {
-      "owner": "EntityPlayer",
-      "name": "GetGlyphOfBalanceDrop",
-      "handler": "EntityPlayerGetGlyphOfBalanceDrop",
-      "binding_key": "0x0E010042",
-      "note": "恒返回 0。同上，未取证。"
-    },
-    "EntityPlayer:GetPlayerFormCounter": {
-      "owner": "EntityPlayer",
-      "name": "GetPlayerFormCounter",
-      "handler": "EntityPlayerGetPlayerFormCounter",
-      "binding_key": "0x0E010045",
-      "note": "恒返回 0。玩家形态计数器，字段未取证。"
+      "name": "IsSubPlayer",
+      "handler": "EntityPlayerIsSubPlayer",
+      "binding_key": "0x0E01004D",
+      "note": "恒返回 false（注释写『不是副玩家（双子的小退才是）』）。引擎里**没有**同名成员函数（查过）。修法：双子/被遗忘者那类机制里『是不是副玩家』应当能由引擎某个字段（或 `Entity_Player` 的类型/索引）判定，需取证。★ 2026-09-28 才进本表。"
     }
   }
 }

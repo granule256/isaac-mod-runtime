@@ -334,6 +334,52 @@ DRIVER = textwrap.dedent(
             }
         }
 
+        // 扫描目录这条路（没有清单时的兜底）：**模组配置菜单必须排最前**（2026-10-01）。
+        // 喂的是"真机卡上那组目录名"——纯字母序会把 `mod_config_menu_cn` 排到第 4 位，
+        // 而 GoodTrip / TheSpecialist 是在**加载那一刻**靠全局 `ModConfigMenu` 决定要不要注册
+        // 自己的设置页的（`if ModConfigMenu then include(...) end`）⇒ 菜单排在它们后面，
+        // 那两项的设置页在模组菜单里**永远不出现**。
+        {
+            FakeDirectories scanDirs{};
+            scanDirs.names[0] = "external item descriptions_836319872";
+            scanDirs.names[1] = "goodtripfixed";
+            scanDirs.names[2] = "infinite-coins";
+            scanDirs.names[3] = "mod_config_menu_cn";
+            scanDirs.names[4] = "q4-items";
+            scanDirs.names[5] = "visible tinted rocks_3002235272";
+            scanDirs.count = 6;
+            ModDiscoveryService scanDiscovery{scanDirs};
+            ResolvedManifestModBatch scanned{};
+            Check(scanDiscovery.Discover(&scanned).ok(), "scan_discover_ok");
+            Check(scanned.count == 6, "scan_keeps_every_mod");
+            Check(std::strcmp(scanned.mods[0].modRoot,
+                              "rom:/isaac_mods/mods/mod_config_menu_cn") == 0,
+                  "scan_config_menu_first");
+            // 其余之间的相对顺序不变（菜单被提到最前之后仍是名字升序）。
+            Check(std::strcmp(scanned.mods[1].modRoot,
+                              "rom:/isaac_mods/mods/external item descriptions_836319872") == 0,
+                  "scan_rest_alphabetical_first");
+            Check(std::strcmp(scanned.mods[2].modRoot,
+                              "rom:/isaac_mods/mods/goodtripfixed") == 0,
+                  "scan_rest_alphabetical_second");
+            Check(std::strcmp(scanned.mods[5].modRoot,
+                              "rom:/isaac_mods/mods/visible tinted rocks_3002235272") == 0,
+                  "scan_rest_alphabetical_last");
+
+            // 英文版那份菜单用的是另一个目录名，同样要被提到最前
+            // （识别口径 = 名字里含 `config_menu`，不写死整名）。
+            FakeDirectories englishDirs{};
+            englishDirs.names[0] = "ModA";
+            englishDirs.names[1] = "isaac-mod-config-menu";
+            englishDirs.count = 2;
+            ModDiscoveryService englishDiscovery{englishDirs};
+            ResolvedManifestModBatch englishScanned{};
+            Check(englishDiscovery.Discover(&englishScanned).ok(), "scan_english_discover_ok");
+            Check(std::strcmp(englishScanned.mods[0].modRoot,
+                              "rom:/isaac_mods/mods/isaac-mod-config-menu") == 0,
+                  "scan_english_config_menu_first");
+        }
+
         if (failures == 0) { std::printf("MULTI_MOD_MANIFEST_CHECKS_PASSED\n"); }
         return failures == 0 ? 0 : 1;
     }

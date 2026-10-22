@@ -89,7 +89,10 @@ class BindingDeclaredTypeTests(unittest.TestCase):
         aliases = declared_aliases()
         self.assertGreaterEqual(len(aliases), 36, "引擎入口类型的声明数掉了（被删了？）")
         fields = record_fields()
-        self.assertEqual(len(fields), 36, f"两个绑定记录的字段数变成 {len(fields)} 个（应为 36）")
+        # 批次 214（2026-09-30）：`LuaSpriteBindings` 加了一个字段 `reset`（`Sprite:Reset()` =
+        # 引擎 `ANM2::Reset @0x4A4724`）⇒ 36 → 37。加字段必须同时加
+        # `hook_manager.cpp` 的 `kSpriteBindingEntries` 守卫行与这里的计数。
+        self.assertEqual(len(fields), 37, f"两个绑定记录的字段数变成 {len(fields)} 个（应为 37）")
         for record, field, declared_type in fields:
             with self.subTest(record=record, field=field):
                 self.assertIn(

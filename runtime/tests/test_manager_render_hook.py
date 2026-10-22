@@ -25,13 +25,13 @@ class ManagerRenderHookTests(unittest.TestCase):
     def test_render_hook_calls_original_before_dispatching_render_callback(self):
         source = (SOURCE / "hook_manager.cpp").read_text(encoding="utf-8")
         # 两条后端（exlaunch 蹦床 / 入口中继）共用 `RenderHookBody`，行为单一来源：
-        # 先跑原函数，再在 `Present` 前中继缺失时回退派发。
+        # 先建立本帧scope并跑原函数，HUD/Present均未派发时才在返回处回退。
         body_start = source.index("void RenderHookBody(IsaacRepentance::Manager* self")
         body_end = source.index('extern "C" void EntryRelayManagerRenderCallback', body_start)
         body = source[body_start:body_end]
 
-        # 入口中继只做记账 + 诊断 + 探针，不派发 MC_POST_RENDER（那条路径在 Present 调用点）。
-        self.assertLess(body.index("call_original(self)"), body.index("DispatchModPostRender(self)"))
+        self.assertLess(body.index("RenderFrameScope renderFrame"), body.index("call_original(self)"))
+        self.assertLess(body.index("call_original(self)"), body.index("g_RenderFrameCoordinator.Dispatch(DispatchModPostRender)"))
         self.assertIn("IsRenderPresentRelayInstalled()", body)
         self.assertNotIn("LuaRuntime::DispatchPostRender", body)
 
@@ -86,8 +86,8 @@ class ManagerRenderHookTests(unittest.TestCase):
         # 4) 派发实现仍然走同一套 Lua 派发器与就绪闸门。
         dispatch_start = source.index("void DispatchModPostRender(void* self) {")
         dispatch = source[dispatch_start:source.index("bool IsRenderPresentRelayInstalled() {", dispatch_start)]
-        self.assertIn("LuaRuntime::DispatchPostRender(reinterpret_cast<uintptr_t>(self))", dispatch)
-        self.assertIn("PrimeDefaultCallbacks(reinterpret_cast<uintptr_t>(self))", dispatch)
+        self.assertIn("LuaRuntime::DispatchPostRender(isaac::runtime::engine_memory::AddressOf(self))", dispatch)
+        self.assertIn("PrimeDefaultCallbacks(isaac::runtime::engine_memory::AddressOf(self))", dispatch)
         self.assertIn("LuaRuntime::IsReady()", dispatch)
 
     def test_present_relay_dispatch_uses_the_frame_manager_not_the_present_argument(self):
@@ -101,11 +101,12 @@ class ManagerRenderHookTests(unittest.TestCase):
         source = (SOURCE / "hook_manager.cpp").read_text(encoding="utf-8")
         entry_start = source.index("IsaacModRuntime_DispatchPostRenderBeforePresent(void* graphicsManager)")
         entry = source[entry_start:source.index("\n}\n", entry_start)]
-        self.assertIn("g_RenderFrameManager.load(std::memory_order_acquire)", entry)
+        self.assertIn("g_RenderFrameCoordinator.Manager()", entry)
+        self.assertIn("g_RenderFrameCoordinator.Dispatch(DispatchModPostRender)", entry)
         # 参数只作兜底，不能直接进派发路径。
         self.assertNotIn("DispatchModPostRender(graphicsManager)", entry)
         self.assertLess(
-            entry.index("g_RenderFrameManager.load(std::memory_order_acquire)"),
+            entry.index("g_RenderFrameCoordinator.Manager()"),
             entry.index("DispatchModPostRender"),
         )
 
@@ -122,7 +123,7 @@ class ManagerRenderHookTests(unittest.TestCase):
             with self.subTest(hook=hook):
                 target = body if hook == "HOOK_DEFINE_TRAMPOLINE(ManagerUpdateHook)" else render_body
                 self.assertIn(
-                    "g_RenderFrameManager.store(reinterpret_cast<uintptr_t>(self), "
+                    "g_RenderFrameManager.store(isaac::runtime::engine_memory::AddressOf(self), "
                     "std::memory_order_release)",
                     target,
                 )
@@ -167,9 +168,9 @@ class ManagerRenderHookTests(unittest.TestCase):
 
         self.assertIn("void DispatchPostRender(uintptr_t manager);", header)
         # The manager pointer must be published for exactly one callback and
-        # cleared afterwards. Layered and probe builds share this invoker.
+        # restored afterwards, including nested callbacks. Layered and probe builds share this invoker.
         publish = "g_CurrentCallbackManager.store(manager, std::memory_order_release)"
-        clear = "g_CurrentCallbackManager.store(0, std::memory_order_release)"
+        clear = "g_CurrentCallbackManager.store(previousManager, std::memory_order_release)"
 
         def assert_callback_local_manager(block: str, label: str) -> None:
             self.assertIn(publish, block, label)

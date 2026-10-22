@@ -1,4 +1,6 @@
+#include <atomic>
 #include "interfaces/lua/mod_api.hpp"
+#include "interfaces/lua/callback_table_api.hpp"
 
 #include "interfaces/lua/owner_binding.hpp"
 #include "interfaces/lua/lua_integer_argument.hpp"
@@ -15,6 +17,27 @@
 
 extern "C" {
 #include <lauxlib.h>
+
+// ============================================================================
+// 批次 429：`Mod:SaveData` 的**归属探针**（只读；每调用一次记一笔）
+// ============================================================================
+// 为什么要有它：API 层归因量出 `Mod:SaveData` **每 5.06 秒一次、单次 10.2 ms 平均 / 44.3 ms 最长**
+// （12/12 次都 ≥5 ms）⇒ 一个**周期性必发**的顿。而"是谁在存"**不能靠周期猜**：
+// 我们自己的 `probe_logger.cpp:65` 就有个 `frame % 300`（5.00 秒）的心跳，差点被当成它
+// （而且实测周期是 5.06 ≠ 5.00）。按项目纪律：**归属问题必须按对象记，只记总数是错的。**
+//
+// 记录什么：`ModHandle` 里本来就同时带着两样 —— `ownerPacked`（低 16 位 = 模组下标 ⇒ **谁**）
+// 与 `persistenceNamespace`（那一家自己的命名空间号）。⇒ 直接按**模组下标**做一张表，O(1) 落账。
+// ★ 不引入任何新 include、不读时钟：读数脚本采两次求差即可（与现有量具同一口径）。
+//
+// ★★ 定义在文件作用域、**不在匿名命名空间里**（匿名命名空间 = 内部链接 ⇒ 符号表里查不到 ⇒
+//     `mem.*` 读数工具永远看不到它，而代码看着完全正常）。本项目第 5 次重申这条（196/203/209/211/214 → 本批）。
+constexpr std::size_t kModSaveProbeOwnerSlots = 32;   // 与 `ownerPacked` 的低 16 位下标空间无关，够用即可
+
+std::uint64_t g_ModSaveProbeCallsByOwner[kModSaveProbeOwnerSlots] = {};
+std::uint64_t g_ModSaveProbeNamespaceByOwner[kModSaveProbeOwnerSlots] = {};
+std::uint64_t g_ModSaveProbeTotalCalls = 0;
+std::uint64_t g_ModSaveProbeLastOwner = 0;
 }
 
 namespace isaac::runtime {
@@ -48,11 +71,51 @@ constexpr LuaHandlerBinding kModHandlers[] = {
 
 constexpr char kModOwner[] = "Mod";
 
+// ============================================================================
+// 批次 216（2026-09-30）：Mod 对象的**两种形态**都要认
+// ============================================================================
+//
+// 背景：我们的 `RegisterMod` 以前返回 **userdata**，而 PC 返回 **table**
+// （`GlobalFunctions.md:101`「Returns a table which acts the Mod Reference」）——
+// 中文版 MCM 的 `customcallbacks.lua:161` 有一句 `if type(mod) ~= "table" then error(...) end`
+// ⇒ 加载期脚本失败 ⇒ 它的回调一条都没登记 ⇒ **菜单打不开**（真机读数 2026-09-30 傍晚）。
+//
+// 现在对外给出去的是 table（`T.Name` = 模组名、方法从共享原型经 `__index` 找、模组可以往自己身上写
+// 字段），内部那个 `ModHandle` userdata **藏在每个 Mod 对象自己的元表的 `__handle` 里**。
+//
+// 这个解析器**两种形态都认**：table（PC 形态，现在也是我们的形态）与 userdata（旧形态 ——
+// 运行时自己那份宿主对象、以及宿主门禁夹具造的老对象还在用）。找不到就返回 `nullptr`，
+// 由调用方决定报什么错（**不许**静默当成"某个 Mod"—— 归属错会让回调混成一家）。
+
+LuaRuntime::ModHandle* ModHandleFromObject(lua_State* state, int index) noexcept {
+    if (lua_istable(state, index)) {
+        if (lua_getmetatable(state, index) == 0) {
+            return nullptr;
+        }
+        lua_getfield(state, -1, "__handle");
+        auto* handle = static_cast<LuaRuntime::ModHandle*>(
+            luaL_testudata(state, -1, LuaRuntime::kModMetatable));
+        lua_pop(state, 2);
+        return handle;
+    }
+    return static_cast<LuaRuntime::ModHandle*>(
+        luaL_testudata(state, index, LuaRuntime::kModMetatable));
+}
+
+//: 取不到就**报错**（不是返回 nil 继续跑）——`self` 认不出来时，任何"归属"判断都是错的。
+LuaRuntime::ModHandle* RequireModObject(lua_State* state, int index, const char* apiName) {
+    LuaRuntime::ModHandle* handle = ModHandleFromObject(state, index);
+    if (handle == nullptr) {
+        luaL_error(state, "%s expects a Mod object (the value returned by RegisterMod)", apiName);
+    }
+    return handle;
+}
+
 ModHandle* CheckModHandle(lua_State* state, int expectedArguments, const char* apiName) {
     if (lua_gettop(state) != expectedArguments) {
         luaL_error(state, "%s received an invalid argument count", apiName);
     }
-    return static_cast<ModHandle*>(luaL_checkudata(state, 1, kModMetatable));
+    return RequireModObject(state, 1, apiName);
 }
 
 const char* PersistenceErrorMessage(ModPersistence::Result result) {
@@ -95,7 +158,8 @@ const char* PersistenceErrorMessage(ModPersistence::Result result) {
 // `runtime/tests/test_lua_callback_dispatch_sites.py` 现在按源码做一致性门禁：
 // 名单里多一项或漏一项都会红。
 bool HasDispatchSite(CallbackId id) {
-    return id == kCallbackPostUpdate || id == kCallbackPostRender ||
+    return id == kCallbackGetShaderParams || id == kCallbackGetCard || id == kCallbackInputAction ||  // 批次 390（2026-10-07）：三条 ManagerBase 查询中继
+           id == kCallbackPostUpdate || id == kCallbackPostRender ||
            id == kCallbackPreGetCollectible || id == kCallbackPostGameStarted ||
            id == kCallbackPostNewRoom || id == kCallbackPostNewLevel ||
            id == kCallbackPostPickupInit || id == kCallbackPostPickupUpdate ||
@@ -125,7 +189,31 @@ bool HasDispatchSite(CallbackId id) {
            // 批次 103（第 2 期）：掉落物碰撞（中继回调里 `DispatchModifying`，过滤值是掉落物变体）。
            id == kCallbackPrePickupCollision ||
            // 批次 104（第 2 期）：房间生成实体（中继回调里 `Dispatch`，只通知）。
-           id == kCallbackPreRoomEntitySpawn;
+           id == kCallbackPreRoomEntitySpawn ||
+           // 2026-10-07 批次 396：补全回调（第 1 批）——
+           //   `MC_ENTITY_TAKE_DMG` 走 `DispatchEntityTakeDamage`（中继里 `DispatchModifying`，
+           //   过滤值 = 实体的 `EntityType`，"返回 false ⇒ 取消这次伤害"）；
+           //   `MC_EVALUATE_CACHE` 走 `DispatchEvaluateCache`（中继里 `DispatchFiltered`，
+           //   过滤值 = 本次要重算的那个 CacheFlag 位）。
+           id == kCallbackEntityTakeDmg ||
+           id == kCallbackEvaluateCache ||
+           // 2026-10-07 批次 397：补全回调（第 2 批）—— 三条 hookable 改走入口中继。
+           //   `MC_POST_ENTITY_KILL` / `MC_POST_NPC_DEATH` 走 `DispatchFiltered`（过滤值 = EntityType）；
+           //   `MC_POST_GAME_END` 走 `Dispatch`（无过滤），实参是 bool。
+           id == kCallbackPostEntityKill ||
+           id == kCallbackPostNpcDeath ||
+           id == kCallbackPostGameEnd ||
+           // `MC_POST_FIRE_TEAR`：派发点在 `Entity_Player::FireTear` **原函数返回之后**
+           // （实参 = 返回的泪弹指针），无过滤。
+           id == kCallbackPostFireTear || id == kCallbackPostNpcRender ||
+           id == kCallbackPreFamiliarCollision ||
+           id == kCallbackPreNpcCollision ||
+           id == kCallbackPrePlayerCollision ||
+           id == kCallbackPreTearCollision ||
+           id == kCallbackPreProjectileCollision ||
+           id == kCallbackPreKnifeCollision ||
+           id == kCallbackPreBombCollision || id == kCallbackGetPillColor ||
+           id == kCallbackGetPillEffect || id == kCallbackGetTrinket || id == kCallbackPostEntityRemove || id == kCallbackPostCurseEval || id == kCallbackPostPickupSelection || id == kCallbackPreSpawnCleanAward || id == kCallbackPreEntityDevolve || id == kCallbackPreNpcUpdate || id == kCallbackPreEntitySpawn || id == kCallbackPreModUnload || id == kCallbackExecuteCmd;
 }
 
 bool ResolveCallbackId(lua_Integer callback, CallbackId* id) {
@@ -151,7 +239,7 @@ bool ResolveCallbackId(lua_Integer callback, CallbackId* id) {
 //: 再作为实参传进来。这样拆的好处是**两条登记路径的其余行为一字不差**（校验、命名回调、
 //: 过滤参数、追加语义、普查计数都在这一份里），差别只有"优先级"这一处 ——
 //: 而"两处各写一遍"正是本项目栽过的坑（`SKIP_HOOK_*` 那次）。
-int RegisterCallbackFromStack(lua_State* state, std::int32_t priority) {
+[[maybe_unused]] int RegisterCallbackFromStack(lua_State* state, CallbackPriorityValue priority) {
     // PC 版签名是 `Mod:AddCallback(kind, function[, entityId])`（`ModReference.md:17`：
     // `void AddCallback(ModCallbacks callbackId, function callbackFn, int entityId)`）。
     //
@@ -177,7 +265,14 @@ int RegisterCallbackFromStack(lua_State* state, std::int32_t priority) {
         // 顺序：先压回调函数、再压 Mod 对象 —— `RegisterNamedCallback` 的约定。
         lua_pushvalue(state, 3);
         lua_pushvalue(state, 1);
-        if (!RegisterNamedCallback(state, lua_tostring(state, 2))) {
+        // 批次 268：第 4 个实参（PC 的 `entityId`）对字符串回调名就是**过滤值**，
+        // 由 `Isaac.RunCallbackWithParam` 在派发时比对。传 0 = 这一条没给过滤值。
+        // ★ 这里**不做整数校验**（与下面数字路径不同）：过滤值的类型在 PC 侧不限定
+        //   （`__matchParams` 用的是 Lua 的 `==`），而且旧行为是"完全忽略它"——
+        //   在这里改成"非整数就报错"会让**已经在跑的模组**（字符串回调名 + 非整数第三参）
+        //   从"静默忽略"变成"加载失败"，是比现状更坏的退化。
+        const int filterIndex = argumentCount == 4 ? 4 : 0;
+        if (!RegisterNamedCallback(state, lua_tostring(state, 2), filterIndex, priority)) {
             return luaL_error(state, "named callback registration failed");
         }
         return 0;
@@ -226,8 +321,7 @@ int RegisterCallbackFromStack(lua_State* state, std::int32_t priority) {
     // 区分，混成一家之后"摘掉某个 Mod 的回调"会连别人的一起摘掉。
     // owner 就存在 Mod userdata 里（`ModHandle::ownerPacked`，见 `lua_runtime.cpp` 的
     // `RegisterMod`），而 `self`（栈下标 1）正是这个 Mod 对象。
-    const auto* modHandle = static_cast<const LuaRuntime::ModHandle*>(
-        luaL_checkudata(state, 1, LuaRuntime::kModMetatable));
+    const auto* modHandle = RequireModObject(state, 1, "Mod:AddCallback");
     const isaac::runtime::ModHandle owner = LuaRuntime::UnpackModOwner(modHandle->ownerPacked);
     CallbackDescriptor descriptor{};
     descriptor.id = id;
@@ -259,53 +353,7 @@ int RegisterCallbackFromStack(lua_State* state, std::int32_t priority) {
 // 不相等 —— 与 PC 一致（它比的是闭包对象本身）。所以调用方必须传**当初登记的那个函数值**
 // （EID 传的是 `EID.OnRender` 这类表里的同一份引用，成立）。
 int ModRemoveCallback(lua_State* state) {
-    luaL_checkudata(state, 1, kModMetatable);
-    if (lua_gettop(state) != 3) {
-        return luaL_error(state, "Mod:RemoveCallback accepts (callbackId, function)");
-    }
-    // PC 的这条方法只接受数字 id（能传字符串 id 的那个变体是全局 `Isaac:RemoveCallback`，
-    // 见 `Isaac.md:529`，本项目尚未实现）⇒ 给字符串就说清楚，别静默什么都不摘。
-    if (lua_type(state, 2) != LUA_TNUMBER) {
-        return luaL_error(state,
-                          "Mod:RemoveCallback accepts a numeric callback id "
-                          "(the string-id variant is Isaac:RemoveCallback, not implemented)");
-    }
-    luaL_checktype(state, 3, LUA_TFUNCTION);
-    const lua_Integer callback = luaL_checkinteger(state, 2);
-    CallbackId id = 0;
-    if (!ResolveCallbackId(callback, &id)) {
-        return luaL_error(state, "unsupported callback id for this Runtime phase");
-    }
-    const auto* modHandle = static_cast<const ModHandle*>(
-        luaL_checkudata(state, 1, kModMetatable));
-    const isaac::runtime::ModHandle owner = LuaRuntime::UnpackModOwner(modHandle->ownerPacked);
-    CallbackRegistry& registry = LuaRuntime::ManagedCallbackRegistry();
-    // **从后往前**摘：摘掉一条会让它后面的登记整体前移，正着走会跳过紧随其后的那一条。
-    for (std::size_t index = registry.Count(); index-- > 0;) {
-        const CallbackDescriptor* candidate = registry.AtIndex(index);
-        if (candidate == nullptr || candidate->id != id || candidate->owner != owner) {
-            continue;
-        }
-        lua_rawgeti(state, LUA_REGISTRYINDEX, candidate->luaReference);
-        const bool sameFunction = lua_rawequal(state, -1, 3) != 0;
-        lua_pop(state, 1);
-        if (!sameFunction) {
-            continue;
-        }
-        CallbackDescriptor removed{};
-        if (registry.RemoveAtIndex(index, &removed) != 0) {
-            // 每个登记各持一份 Lua 引用（见 `ModAddCallback`：登记时各 `luaL_ref` 一次）
-            // ⇒ 摘掉一条就必须释放那两个引用，否则每摘一次漏两个（Lua registry 是有限资源，
-            // 而 PC 模组会在"开关功能"时反复 Add/Remove）。
-            luaL_unref(state, LUA_REGISTRYINDEX, removed.luaReference);
-            luaL_unref(state, LUA_REGISTRYINDEX, removed.modReference);
-        }
-    }
-    // 注意：**不动**普查计数（`RecordCallbackRegistration` 那几个数）。它们的口径是
-    // "这次会话里登记过多少次 / 哪些种类曾出现过"，是单调的"曾经"，不是"当前还有几条"——
-    // "当前"读的是注册表自己的 `Count()`（设备读数里"回调登记数"那一项）。
-    // 摘除时去减它，反而会让"曾经登记过"这个语义失真。
-    return 0;
+    return CallCallbackTableApi(state, "RemoveCallback");
 }
 
 // PC：`Mod:AddPriorityCallback(callbackId, CallbackPriority, fn)` —— 与 `AddCallback` 同路，
@@ -321,30 +369,11 @@ int ModRemoveCallback(lua_State* state) {
 // （`main.lua:84-104`），而它的绘制要压在其他 HUD 之前 —— 优先级不生效等于"它以为自己在最前，
 // 实际排在最后"。
 int ModAddCallback(lua_State* state) {
-    luaL_checkudata(state, 1, kModMetatable);
-    return RegisterCallbackFromStack(state, CallbackRegistry::kDefaultCallbackPriority);
+    return CallCallbackTableApi(state, "AddCallback");
 }
 
 int ModAddPriorityCallback(lua_State* state) {
-    luaL_checkudata(state, 1, kModMetatable);
-    // PC 版签名：`AddPriorityCallback(callbackId, CallbackPriority priority, function callbackFn,
-    // int entityId)`（`ModReference.md:21`）—— 第四个实参（过滤器）是可选的。
-    const int argumentCount = lua_gettop(state);
-    if (argumentCount != 4 && argumentCount != 5) {
-        return luaL_error(
-            state,
-            "Mod:AddPriorityCallback expects (callbackId, priority, function[, entityId])");
-    }
-    if (!isaac::runtime::IsIntegerArgument(state, 2) ||
-        !isaac::runtime::IsIntegerArgument(state, 3)) {
-        return luaL_error(state, "Mod:AddPriorityCallback expects integer id and priority");
-    }
-    lua_Integer priority = 0;
-    if (!isaac::runtime::IntegerArgumentAt(state, 3, &priority)) {
-        return luaL_error(state, "Mod:AddPriorityCallback expects integer id and priority");
-    }
-    lua_remove(state, 3);  // 摘掉 priority ⇒ 栈变 (self, id, fn[, filter])，转调同一条登记路径
-    return RegisterCallbackFromStack(state, static_cast<std::int32_t>(priority));
+    return CallCallbackTableApi(state, "AddPriorityCallback");
 }
 
 int ModHasData(lua_State* state) {
@@ -392,6 +421,16 @@ int ModSaveData(lua_State* state) {
     LuaRuntime::ModHandle* mod = CheckModHandle(state, 2, "Mod:SaveData");
     std::size_t length = 0;
     const char* data = luaL_checklstring(state, 2, &length);
+    // 批次 429：按模组下标落一笔（谁在存）—— 见文件顶部那段注释。
+    {
+        const std::uint32_t probeOwner = static_cast<std::uint32_t>(mod->ownerPacked & 0xFFFFU);
+        if (probeOwner < kModSaveProbeOwnerSlots) {
+            ++g_ModSaveProbeCallsByOwner[probeOwner];
+            g_ModSaveProbeNamespaceByOwner[probeOwner] = mod->persistenceNamespace;
+        }
+        ++g_ModSaveProbeTotalCalls;
+        g_ModSaveProbeLastOwner = probeOwner;
+    }
     LuaRuntime::RecordCallbackOperation(LuaRuntime::CallbackOperation::SaveData);
     PersistenceEventJournal::MarkAndFlush(
         PersistenceEventJournal::Event::OperationEntered,
@@ -433,9 +472,19 @@ int ModLoadData(lua_State* state) {
     return 1;
 }
 
+// `Isaac.HasModData(modRef)`（批次 261）：**直接转调** `Mod:HasData` —— 契约上两者是同一件事
+// （都在问这个模组有没有存过 saveX.dat），判定只能有一份（`ModPersistence::HasModData`，
+// 作业单第三节第 7 条）。栈形状也一样（Mod 对象在 1）⇒ 不需要任何适配。
+int IsaacHasModData(lua_State* state) {
+    return ModHasData(state);
+}
+
 std::size_t AttachModMethods(lua_State* state) noexcept {
     return AttachOwnerMethods(state, kModOwner, kModHandlers,
                               sizeof(kModHandlers) / sizeof(kModHandlers[0]));
+}
+void RecordCallbackTableRegistration(std::uint32_t id) noexcept {
+    LuaRuntime::RecordCallbackRegistration(id,HasDispatchSite(id));
 }
 
 // --- 命名回调（字符串回调名）------------------------------------------------
@@ -469,7 +518,8 @@ bool PushNamedCallbacksTable(lua_State* state) {
 
 } // namespace
 
-bool RegisterNamedCallback(lua_State* state, const char* name) {
+bool RegisterNamedCallback(lua_State* state, const char* name, int filterIndex,
+                           CallbackPriorityValue priority) {
     if (state == nullptr || name == nullptr || name[0] == '\0') {
         return false;
     }
@@ -510,10 +560,35 @@ bool RegisterNamedCallback(lua_State* state, const char* name) {
     lua_pushstring(state, "Mod");
     lua_pushvalue(state, modIndex);
     lua_rawset(state, entryIndex);                  // entry.Mod = mod
-    // 追加到末尾：登记顺序 = 派发顺序（PC 亦然）。
-    const lua_Integer next = static_cast<lua_Integer>(lua_rawlen(state, listIndex)) + 1;
-    lua_rawseti(state, listIndex, next);            // 消费 entry
-
+    // 批次 268：可选的过滤值（`Mod:AddCallback(名字, fn, entityId)` 的第三个实参）。
+    // 字段名用 PC 回调表那一栏的名字；`filterIndex == 0` 或那一格是 `nil` 时写进 `nil`
+    // —— 在 Lua 里等价于"没有这一栏"，所以 `Isaac.GetCallbacks` 的返回形状对旧调用方不变。
+    if (filterIndex > 0 && !lua_isnoneornil(state, filterIndex)) {
+        lua_pushstring(state, "OptionalArg");
+        lua_pushvalue(state, filterIndex);
+        lua_rawset(state, entryIndex);              // entry.OptionalArg = <值>
+    }
+    lua_pushstring(state, "Priority");
+    if (priority.isInteger) lua_pushinteger(state, static_cast<lua_Integer>(priority.integer));
+    else lua_pushnumber(state, priority.number);
+    lua_rawset(state, entryIndex);
+    // 逐字遵守PC的倒向插入比较；NaN时<=为false，不能改成>。
+    lua_Integer position = static_cast<lua_Integer>(lua_rawlen(state, listIndex)) + 1;
+    for (lua_Integer index = position - 1; index > 0; --index) {
+        lua_rawgeti(state, listIndex, index);
+        lua_getfield(state, -1, "Priority");
+        if (priority.isInteger) lua_pushinteger(state, static_cast<lua_Integer>(priority.integer));
+        else lua_pushnumber(state, priority.number);
+        const bool before = lua_compare(state, -2, -1, LUA_OPLE) != 0;
+        lua_pop(state, 2);
+        if (before) {
+            lua_pop(state, 1);
+            break;
+        }
+        lua_rawseti(state, listIndex, index + 1);
+        --position;
+    }
+    lua_rawseti(state, listIndex, position);
     // 把调用方压进来的两个值（fn、mod）也消费掉，恢复调用前的栈。
     lua_settop(state, functionIndex - 1);
     return true;
@@ -536,7 +611,38 @@ void PushNamedCallbacks(lua_State* state, const char* name) {
     }
 }
 
-int RunNamedCallbacks(lua_State* state, const char* name, int firstArgument) {
+namespace {
+
+// 批次 268：`Isaac.RunCallbackWithParam(callbackId, param, ...)` 的过滤判据。
+//
+// `registeredIndex` / `requestedIndex` 是**同一次调用期间**栈上两个值的下标（0 = 那一侧没有值）。
+// 规则逐字来自 PC 的 Lua 胶水（REPENTOGON issue #336 引用了那一段）：
+//   `__matchParams = function(a, b) return not a or not b or a == -1 or b == -1 or a == b end`
+// ⇒ ① 任一侧缺席（`nil` / 没给）⇒ 匹配；② 任一侧是 `-1` ⇒ 匹配；③ 其余按 Lua 的 `==` 比。
+//
+// 为什么用 `lua_compare(LUA_OPEQ)` 而不是 `lua_rawequal`：PC 那段用的就是 Lua 的 `==`
+// （会走 `__eq`），而这里要比的类型可能是引擎句柄（userdata）—— 两边保持一致比"更严格"重要。
+bool CallbackParamMatches(lua_State* state, int registeredIndex, int requestedIndex) {
+    if (registeredIndex == 0 || requestedIndex == 0) {
+        return true;
+    }
+    if (lua_isnoneornil(state, registeredIndex) || lua_isnoneornil(state, requestedIndex)) {
+        return true;
+    }
+    if (lua_isnumber(state, registeredIndex) && lua_isnumber(state, requestedIndex)) {
+        const lua_Integer registered = lua_tointegerx(state, registeredIndex, nullptr);
+        const lua_Integer requested = lua_tointegerx(state, requestedIndex, nullptr);
+        if (registered == -1 || requested == -1) {
+            return true;
+        }
+    }
+    return lua_compare(state, registeredIndex, requestedIndex, LUA_OPEQ) != 0;
+}
+
+} // namespace
+
+int RunNamedCallbacksWithFilter(lua_State* state, const char* name, int filterIndex,
+                                int firstArgument) {
     if (state == nullptr || name == nullptr) {
         return 0;
     }
@@ -558,20 +664,34 @@ int RunNamedCallbacks(lua_State* state, const char* name, int firstArgument) {
             lua_pop(state, 1);
             continue;
         }
-        lua_getfield(state, -1, "Function");        // [.. list entry fn]
+        const int entryIndex = lua_gettop(state);
+        lua_getfield(state, entryIndex, "Function");// [.. list entry fn]
         if (!lua_isfunction(state, -1)) {
             lua_pop(state, 2);
             continue;
         }
-        lua_getfield(state, -2, "Mod");             // [.. list entry fn mod]
+        // 过滤值单独取出来比、**比完立刻弹掉**：它必须出现在
+        // `lua_pcallk` 的"函数 + 实参"那一段**之外**，否则回调会多收到一个参数，
+        // 而回调签名是 `function(mod, ...)` —— 多一个参数会让第二个形参错位
+        // （`ChallengeAPI` 的 `onChallengeStart(_mod, challenge, isContinue)` 正是这种形状：
+        //  错位之后 `isContinue` 会收到 `challenge` 表，恒真）。
+        lua_getfield(state, entryIndex, "OptionalArg");   // [.. list entry fn filter]
+        const int filterSlot = lua_gettop(state);
+        const bool allowed = CallbackParamMatches(state, filterSlot, filterIndex);
+        lua_pop(state, 1);                          // [.. list entry fn]
+        if (!allowed) {
+            lua_pop(state, 2);                      // 弹 fn + entry
+            continue;
+        }
+        lua_getfield(state, entryIndex, "Mod");     // [.. list entry fn mod]
         // 回调签名是 `function(mod, ...)`：第一个参数永远是它自己的 Mod 对象，
-        // 之后是 `Isaac.RunCallback(name, ...)` 的实参。
+        // 之后是调用方透传的实参。
         for (int argument = firstArgument; argument <= lastArgument; ++argument) {
             lua_pushvalue(state, argument);
         }
         const int argumentCount = (lastArgument - firstArgument + 1) + 1;
         if (lua_pcallk(state, argumentCount, 1, 0, 0, nullptr) != LUA_OK) {
-            // 错误原样上抛：调用方（`Isaac.RunCallback`）只负责把深度计数还回去。
+            // 错误原样上抛：调用方（`Isaac.RunCallback*`）只负责把深度计数还回去。
             lua_remove(state, listIndex);
             return lua_error(state);
         }
@@ -583,6 +703,10 @@ int RunNamedCallbacks(lua_State* state, const char* name, int firstArgument) {
     }
     lua_settop(state, lastArgument);
     return 0;
+}
+
+int RunNamedCallbacks(lua_State* state, const char* name, int firstArgument) {
+    return RunNamedCallbacksWithFilter(state, name, 0, firstArgument);
 }
 
 
@@ -637,3 +761,5 @@ std::uint32_t UnhookedCallbackRegistrationCount() noexcept {
 }
 
 } // namespace LuaRuntime
+
+namespace isaac::runtime {int Api700IsaacRemoveModData(lua_State*state){return ModRemoveData(state);}}

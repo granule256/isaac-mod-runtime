@@ -1,29 +1,18 @@
 #pragma once
 
-// 控制台的**每帧点**：按键 → 弹系统软键盘 → 执行命令 → 自己画输出。
-//
-// ★ 为什么放在 `infrastructure/` 而不是 `application/`：它**直接调引擎入口**（动作查询、字体绘制）
-//   并依赖 `lua_runtime_state.hpp`，而门禁 `test_hook_callback_pipeline` 钉死"应用/领域/端口层
-//   不得依赖平台或实现头文件"。它在这一层的身份是**适配器**（把"每帧点"接到引擎上）；
-//   纯逻辑（文本转换、行缓冲）在 `domain/console/`，那一层不碰任何引擎头。
-//
-// 两个入口分别由**中枢里那一行**调用（不是把业务塞进中枢，见 `docs/加一个功能模块的做法.md`）：
-//   * `SessionFrameUpdate()`  ← `hook_manager.cpp` 的 `ManagerUpdateHook::Callback`（游戏主线程、
-//     跑 `Manager::Update` 之前）—— 与模组菜单那个"每帧点"同一个位置口径；
-//   * `SessionRenderOverlay()` ← `hook_manager.cpp` 的 `DispatchModPostRender()`（模组的
-//     `MC_POST_RENDER` 绘制点，真机已知可用；EID 就在这一档里画字）。
-//
-// ## 为什么命令不在软键盘回调里执行
-//
-// 引擎是在它自己的 applet 处理里回调我们（`KeyboardFinishedCallback`）。那个位置上跑一条
-// 完整命令（可能生成实体、切关卡）**没有依据**；所以回调只搬数据，命令由**下一帧**这个
-// 每帧点执行 —— 与项目纪律"要动手就在游戏线程的每帧点做"一致。
+// 控制台适配器：长按A+B打开原生面板，A/触屏打开系统输入法。
+// SessionFrameUpdate由Manager::Update前调用；SessionRenderOverlay保留旧函数名，
+// 现在从Game::Render返回后调用，保持原生画布并覆盖模组与暂停纸。
+// 键盘回调只搬数据，命令与原生UI更新一律留在游戏线程。
 
 #include "domain/console/console_text.hpp"
 #include "infrastructure/call/engine_call_access.hpp"
 #include "infrastructure/console/console_bridge.hpp"
+#include "infrastructure/console/console_panel.hpp"
+#include "interfaces/lua/touch_pointer.hpp"
 #include "infrastructure/memory/engine_field_access.hpp"
 #include "lua_runtime_state.hpp"
+#include "raw_engine_input.hpp"
 #include "runtime_constants.hpp"
 
 #include <cstdint>
@@ -81,188 +70,74 @@ inline constexpr char kOverlayTitle[] = "CONSOLE  (hold A+B)";
     return width;
 }
 
-//: 每帧点。**任何前置条件不成立就只是什么都不做**，不报错、不崩。
+// 原生界面的入口缓存：关闭时没有解析、触屏或绘制工作。
+inline PanelNativeEntries& SessionPanelEntries() noexcept { static PanelNativeEntries entries{}; return entries; }
 inline void SessionFrameUpdate() noexcept {
-    State().armed = 1;  // 每帧点跑到过 ⇒ 这一套编进来了（读数第 [0] 格的判据）
-    State().frames += 1;
-    // 总开关的 I/O 待办（开局读一次 / 拨动后写一次）在**每帧点最开头**做掉 ——
-    // 不放在拨动那一刻（那一下正在驱动引擎的菜单状态机），与污染标记那条路同一个位置口径。
+    State().armed=1;++State().frames;
     ConsoleSwitchTick();
-    if (!ConsoleSwitchEnabled()) {
-        // 关着 ⇒ 不扫按键、不弹键盘、不执行（PC 的 `EnableDebugConsole=0`：没有控制台）。
-        // 顺手复位长按计数与"当前按住"：否则刚打开开关那一帧，之前累积的按住会被当成一次长按。
-        State().triggerHeld = 0;
-        Core& core = Storage();
-        core.comboHeldFrames = 0;
-        core.comboFired = false;
-        return;
-    }
-    const std::uintptr_t base = LuaRuntime::EngineModuleBase();
-    if (base == 0) {
-        return;  // 基址还没发布（安装阶段之后才有），本帧不是异常
-    }
-    // 入口解析一次并缓存（守卫在 `ResolveConsoleEntries` 里逐条核对过）。
+    const auto base=LuaRuntime::EngineModuleBase();
+    if (!base) return;
     static EngineEntries entries{};
-    static std::uintptr_t resolvedBase = 0;
-    static bool resolved = false;
-    if (!resolved || resolvedBase != base) {
-        resolved = ResolveConsoleEntries(base, kGameModuleRangeCheckSize, &entries);
-        resolvedBase = base;
+    static ActionQueryFn query{};
+    static ActionQueryFn buttonQuery{};
+    static std::uintptr_t kage{};
+    static std::uintptr_t resolvedBase{};
+    static bool resolved{};
+    if (resolvedBase!=base) {
+        resolvedBase=base;
+        kage=KageSystemManager(base);
+        resolved=ResolveConsoleEntries(base,kGameModuleRangeCheckSize,&entries) &&
+                 ResolvePanelEntries(base,kGameModuleRangeCheckSize,&SessionPanelEntries());
+        query=engine_call::ResolveFunction<ActionQueryFn>(base,kGameModuleRangeCheckSize,
+            kManagerIsActionPressedOffset,kManagerIsActionPressedExpectedBytes,&engine_memory::EngineMemoryReadable);
+        buttonQuery=engine_call::ResolveFunction<ActionQueryFn>(base,kGameModuleRangeCheckSize,
+            kKageIsButtonPressedOffset,kKageIsButtonPressedExpectedBytes,&engine_memory::EngineMemoryReadable);
+        if (!engine_call::VerifyEntryBytes(base+kKageIsButtonPressedOffset+kKageInputButtonDiscriminatorOffset,
+            kKageIsButtonPressedDiscriminator.data(),kKageIsButtonPressedDiscriminator.size(),
+            &engine_memory::EngineMemoryReadable)) buttonQuery=nullptr;
     }
-    if (!resolved) {
-        return;  // 构造/Init/RunCommand 有缺 ⇒ 不碰键盘、不执行
-    }
-    static ActionQueryFn query = nullptr;
-    static bool queryResolved = false;
-    if (!queryResolved) {
-        query = engine_call::ResolveFunction<ActionQueryFn>(
-            base, kGameModuleRangeCheckSize, kManagerIsActionPressedOffset,
-            kManagerIsActionPressedExpectedBytes, &engine_memory::EngineMemoryReadable);
-        queryResolved = true;
-    }
-    if (query == nullptr) {
+    if (!resolved || !query) return;
+    if (!ConsoleSwitchEnabled()) {
+        PanelFrame(entries,SessionPanelEntries(),base,0,0,{},0,0,false);
         return;
     }
-
-    // ---- 按键 ----
-    // ① 诊断：把"哪个键 = 哪个动作号"在真机上记下来（只问"任意手柄"这一档，每帧 32 次查询）。
-    //    用**上升沿**记"最近按下"，否则按住的键会每帧把上一个值顶掉。
-    static std::uint32_t heldMask = 0;
-    std::uint32_t mask = 0;
-    for (std::uint32_t action = 0; action < kActionScanLimit; ++action) {
-        if (query(nullptr, action, kAnyController, nullptr)) {
-            mask |= (1U << action);
+    std::uint32_t mask{};
+    {
+        const LuaRuntime::RawEngineInputQueryScope rawInput;
+        for (std::uint32_t action=0;action < kActionScanLimit;++action)
+            if (query(nullptr,action,kAnyController,nullptr)) mask|=1U<<action;
+    }
+    State().actionsSeen|=mask;
+    bool combo=false;
+    if (buttonQuery) {
+        const auto manager=LoadPointerField(base,kKageInputManagerSlotOffset);
+        const auto controls=Storage().controls;
+        if (manager && isaac::runtime::ValidConsoleControls(controls)) {
+            combo=buttonQuery(engine_memory::AsObject(manager),controls.first,kAnyController,nullptr);
+            if (combo && controls.second!=isaac::runtime::kConsoleNoSecondButton && controls.second!=controls.first)
+                combo=buttonQuery(engine_memory::AsObject(manager),controls.second,kAnyController,nullptr);
         }
     }
-    const std::uint32_t risen = mask & ~heldMask;
-    heldMask = mask;
-    State().actionsSeen |= mask;  // 累计位图：读数一次就能拿到整张"按键 ↔ 动作号"映射
-    if (risen != 0) {
-        for (std::uint32_t action = kActionScanLimit; action-- > 0;) {
-            if ((risen & (1U << action)) != 0U) {
-                State().lastAction = action;
-                break;
-            }
-        }
+    const bool blocked=combo && LuaRuntime::ConsoleConfigMenuVisible();
+    const auto risen=mask&~Panel().previousMask;
+    if (risen) for (std::uint32_t action=kActionScanLimit;action-- >0;)
+        if (risen&(1U<<action)) {State().lastAction=action;break;}
+    PanelTouch touch{};
+    if (NativePanelState()!=0 || ConsoleCapturesInput()) {
+        const auto raw=ReadTouchPointer();touch={raw.pressed,raw.rawX,raw.rawY};
     }
-    // ② 组合键（同时按住两个动作）⇒ **连续按住约 0.8 秒**才弹一次软键盘（判据见
-    //    `kConsoleTriggerHoldFrames`：连打射击时两键会在同一帧里被按下，所以不能只看上升沿）。
-    const bool combo = query(nullptr, kConsoleTriggerActionA, kAnyController, nullptr) &&
-                       query(nullptr, kConsoleTriggerActionB, kAnyController, nullptr);
-    State().triggerHeld = combo ? 1U : 0U;
-    Core& core = Storage();
-    if (combo) {
-        if (core.comboHeldFrames < kConsoleTriggerHoldFrames) {
-            core.comboHeldFrames += 1;
-        }
-        if (!core.comboFired && core.comboHeldFrames >= kConsoleTriggerHoldFrames) {
-            core.comboFired = true;  // 一直按着只弹一次；松开才允许下一轮
-            if (!core.pendingReady) {
-                // 开不成（入口缺 / 拿不到 `KAGE::System::g_Manager`）就什么都不发生 ——
-                // 结论已经记在状态面里，这里不额外报错。
-                static_cast<void>(RequestKeyboard(entries, KageSystemManager(base)));
-            }
-        }
-    } else {
-        core.comboHeldFrames = 0;
-        core.comboFired = false;
+    float width{},height{};
+    // 尺寸只为新触点的命中检测读取；关闭态/手柄操作不新增每帧内存查询。
+    if (touch.pressed && !Panel().touchHeld) {
+        width=ScreenWidth(base);
+        const auto heightSlot=LoadPointerField(base,0xAAC658);
+        if (heightSlot) static_cast<void>(engine_memory::ReadAt(heightSlot,&height,&engine_memory::EngineMemoryReadable));
     }
-
-    // ---- 软键盘交回的命令（本轮执行）----
-    const char* command = nullptr;
-    std::uint32_t length = 0;
-    if (TakePendingCommand(&command, &length)) {
-        core.log.Append("> ", 2);
-        core.log.Append(command, length);
-        core.log.Append("\n", 1);
-        const ExecutionOutcome outcome = ExecuteCommand(entries, base, command, length);
-        // 被拒（没有玩家 / 命令太长 / …）也把结论写进屏幕，免得用户以为"打了字没反应"。
-        // 只写两位数字，不引 `std::string`（那一份分配器与引擎的不是同一套，能不用就不用）。
-        if (outcome.status != ExecStatus::kOk) {
-            char note[16] = "[status 00]\n";
-            const unsigned code = static_cast<unsigned>(outcome.status) % 100U;
-            note[8] = static_cast<char>('0' + (code / 10U));
-            note[9] = static_cast<char>('0' + (code % 10U));
-            core.log.Append(note, sizeof("[status 00]\n") - 1);
-        }
-        State().overlayFrames = kOverlayHoldFrames;
-    }
-    if (State().overlayFrames > 0) {
-        State().overlayFrames -= 1;
-    }
+    if (!kage && NativePanelState()!=0) kage=KageSystemManager(base);
+    PanelFrame(entries,SessionPanelEntries(),base,kage,mask,touch,width,height,combo,blocked);
 }
 
-//: 画输出。由 `DispatchModPostRender()` 每帧调用一次；**没在显示窗口里就直接返回**
-//: （不解析入口、不取字体，避免白花帧预算）。
-inline void SessionRenderOverlay() noexcept {
-    if (State().overlayFrames == 0) {
-        return;
-    }
-    const std::uintptr_t base = LuaRuntime::EngineModuleBase();
-    if (base == 0) {
-        return;
-    }
-    static DrawTextFn draw = nullptr;
-    static FontLineHeightFn lineHeight = nullptr;
-    static StringWidthFn measure = nullptr;
-    static bool renderResolved = false;
-    if (!renderResolved) {
-        draw = engine_call::ResolveFunction<DrawTextFn>(
-            base, kGameModuleRangeCheckSize, kFontDrawStringScaledUTF8Offset,
-            kFontDrawStringScaledUTF8ExpectedBytes, &engine_memory::EngineMemoryReadable);
-        lineHeight = engine_call::ResolveFunction<FontLineHeightFn>(
-            base, kGameModuleRangeCheckSize, kFontGetLineHeightOffset,
-            kFontGetLineHeightExpectedBytes, &engine_memory::EngineMemoryReadable);
-        measure = engine_call::ResolveFunction<StringWidthFn>(
-            base, kGameModuleRangeCheckSize, kFontGetStringWidthUTF8Offset,
-            kFontGetStringWidthUTF8ExpectedBytes, &engine_memory::EngineMemoryReadable);
-        renderResolved = true;
-    }
-    if (draw == nullptr) {
-        return;
-    }
-    // 字体对象：`IsaacRepentance::g_Manager` 也是**指针变量**（槽 → 变量 → `Manager*`）。
-    const std::uintptr_t managerVariable = LoadPointerField(base, kGameManagerGlobalSlotOffset);
-    const std::uintptr_t manager =
-        managerVariable != 0 ? LoadPointerField(managerVariable, 0) : 0;
-    if (manager == 0) {
-        return;
-    }
-    void* font = engine_memory::AsObject(manager + kIsaacManagerFontObjectOffset);
-    float step = kOverlayStepFallback;
-    if (lineHeight != nullptr) {
-        const float measured = static_cast<float>(lineHeight(font)) * kOverlayScale;
-        if (measured > 1.0F && measured < 200.0F) {
-            step = measured;
-        }
-    }
-    const Core& core = Storage();
-    const std::size_t lines = core.log.LineCount();
-    // 右对齐：量出最宽的一行（标题也算在内；**未缩放**宽度 × 缩放 = 实际占宽），
-    // 所有行共用同一个左端 x ⇒ 右边缘齐平。
-    // ★ 量不出宽度（`measure` 没解析到）就退回左上角：右对齐算错会把整块挤出屏幕右边，
-    //   而"位置偏一点"远比"看不见"好。
-    float x = kOverlayFallbackLeftX;
-    if (measure != nullptr) {
-        float widest = static_cast<float>(measure(font, kOverlayTitle)) * kOverlayScale;
-        for (std::size_t index = 0; index < lines; ++index) {
-            const float width =
-                static_cast<float>(measure(font, core.log.Line(index))) * kOverlayScale;
-            if (width > widest) {
-                widest = width;
-            }
-        }
-        const float right = ScreenWidth(base) - kOverlayRightMargin;
-        const float aligned = right - widest;
-        x = aligned > kOverlayFallbackLeftX ? aligned : kOverlayFallbackLeftX;
-    }
-    float y = kOverlayTopMargin;
-    draw(font, kOverlayTitle, x, y, kOverlayScale, kOverlayScale, kOverlayColor, 0, false);
-    for (std::size_t index = 0; index < lines; ++index) {
-        y += step;
-        draw(font, core.log.Line(index), x, y, kOverlayScale, kOverlayScale, kOverlayColor, 0,
-             false);
-    }
-}
+// 只从Game::Render返回处调用，保持游戏逻辑画布与上下文；不在最终Present外侧画。
+inline void SessionRenderOverlay() noexcept { RenderPanel(SessionPanelEntries()); }
 
-}  // namespace isaac::runtime::console
+} // namespace isaac::runtime::console

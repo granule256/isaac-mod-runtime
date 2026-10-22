@@ -1,0 +1,151 @@
+{
+  "schema": "isaac-api-accessor-regions/1",
+  "build_id": "91C73FDD575061318D68886316AFEAC72388B2AB",
+  "struct": "Room",
+  "note": "访问器名作为已证明区域的索引；与传统逐条指令layout-table分开schema，完整PC/NS指令/写者与宽度在evidence_files，不用PC偏移平移。置信度来自实际同算法/序列化/写者交叉核定，不来自函数名启发式。",
+  "rows": [
+    {
+      "name": "GetGridPathFromPos",
+      "kind": "accessor_region",
+      "offset": 3736,
+      "confidence": "confirmed",
+      "semantic": "原API Room:GetGridPathFromPos 所访问的实际引擎区域；以访问器名称索引，具体多字段/位/向量/树操作和读取宽度以原件契约及测试为准，不声称这是C++源成员名字。 PC完整7CE8D0..7CE940按(40,120)/40+.5向零截断、越界0；NS既有Room grid dims14/18/pathE98与完整FindGridPath读者，禁止用GetGridIndex的负坐标/越界行为代替 完整原件和中间失败保存在dist/apis300-20261014，虚调用槽按重定位核，不能按PC位宽翻倍。",
+      "evidence_files": [
+        "dist/apis300-20261014/room13-contracts.json"
+      ],
+      "judgement": "runtime/tests/test_api300_game_room.py"
+    },
+    {
+      "name": "GetRedHeartDamage",
+      "kind": "accessor_region",
+      "offset": 6464,
+      "confidence": "confirmed",
+      "semantic": "原API Room:GetRedHeartDamage 所访问的实际引擎区域；以访问器名称索引，具体多字段/位/向量/树操作和读取宽度以原件契约及测试为准，不声称这是C++源成员名字。 Player::TakeDamage2A7EBC/2A82A0 Room1940，两条PC74022A/7406AD调用Room71FF80写120C 完整原件和中间失败保存在dist/apis300-20261014，虚调用槽按重定位核，不能按PC位宽翻倍。",
+      "evidence_files": [
+        "dist/apis300-20261014/room13-contracts.json"
+      ],
+      "judgement": "runtime/tests/test_api300_game_room.py"
+    },
+    {
+      "name": "GetSecondBossID",
+      "kind": "accessor_region",
+      "offset": 8132,
+      "confidence": "confirmed",
+      "semantic": "原API Room:GetSecondBossID 所访问的实际引擎区域；以访问器名称索引，具体多字段/位/向量/树操作和读取宽度以原件契约及测试为准，不声称这是C++源成员名字。 Room::Init45C6AC读1FC0第一Boss，不同Boss45C6BC写1FC4 完整原件和中间失败保存在dist/apis300-20261014，虚调用槽按重定位核，不能按PC位宽翻倍。",
+      "evidence_files": [
+        "dist/apis300-20261014/room13-contracts.json"
+      ],
+      "judgement": "runtime/tests/test_api300_game_room.py"
+    },
+    {
+      "name": "GetWaterCurrent",
+      "kind": "accessor_region",
+      "offset": 31864,
+      "confidence": "confirmed",
+      "semantic": "原API Room:GetWaterCurrent 所访问的实际引擎区域；以访问器名称索引，具体多字段/位/向量/树操作和读取宽度以原件契约及测试为准，不声称这是C++源成员名字。 Room::update_water_current4714B4地址7C78读真实Vector应用力；PC4F3ED0按值拷两个float 完整原件和中间失败保存在dist/apis300-20261014，虚调用槽按重定位核，不能按PC位宽翻倍。",
+      "evidence_files": [
+        "dist/apis300-20261014/room13-contracts.json"
+      ],
+      "judgement": "runtime/tests/test_api300_game_room.py"
+    },
+    {
+      "name": "HasTriggerPressurePlates",
+      "kind": "accessor_region",
+      "offset": 30957,
+      "confidence": "confirmed",
+      "semantic": "原API Room:HasTriggerPressurePlates 所访问的实际引擎区域；以访问器名称索引，具体多字段/位/向量/树操作和读取宽度以原件契约及测试为准，不声称这是C++源成员名字。 Room::check_pressure_plates_triggered46D57C/46D580据实际压力板计数写78ED 完整原件和中间失败保存在dist/apis300-20261014，虚调用槽按重定位核，不能按PC位宽翻倍。",
+      "evidence_files": [
+        "dist/apis300-20261014/room13-contracts.json"
+      ],
+      "judgement": "runtime/tests/test_api300_game_room.py"
+    },
+    {
+      "name": "IsInitialized",
+      "kind": "accessor_region",
+      "offset": 0,
+      "confidence": "confirmed",
+      "semantic": "原API Room:IsInitialized 所访问的实际引擎区域；以访问器名称索引，具体多字段/位/向量/树操作和读取宽度以原件契约及测试为准，不声称这是C++源成员名字。 Room::Update46D7C0与Init45C264写真实initialized byte0 完整原件和中间失败保存在dist/apis300-20261014，虚调用槽按重定位核，不能按PC位宽翻倍。",
+      "evidence_files": [
+        "dist/apis300-20261014/room13-contracts.json"
+      ],
+      "judgement": "runtime/tests/test_api300_game_room.py"
+    },
+    {
+      "name": "IsSacrificeDone",
+      "kind": "accessor_region",
+      "offset": 8,
+      "confidence": "confirmed",
+      "semantic": "原API Room:IsSacrificeDone 所访问的实际引擎区域；以访问器名称索引，具体多字段/位/向量/树操作和读取宽度以原件契约及测试为准，不声称这是C++源成员名字。 原RoomDescriptor flags50 bit2，PC5B7590 desc44 bit2 完整原件和中间失败保存在dist/apis300-20261014，虚调用槽按重定位核，不能按PC位宽翻倍。",
+      "evidence_files": [
+        "dist/apis300-20261014/room13-contracts.json"
+      ],
+      "judgement": "runtime/tests/test_api300_game_room.py"
+    },
+    {
+      "name": "KeepDoorsClosed",
+      "kind": "accessor_region",
+      "offset": 6424,
+      "confidence": "confirmed",
+      "semantic": "原API Room:KeepDoorsClosed 所访问的实际引擎区域；以访问器名称索引，具体多字段/位/向量/树操作和读取宽度以原件契约及测试为准，不声称这是C++源成员名字。 PC7C09C7:11EC=10及RoomType16 variant3=20，与NS46E8D0/46E8D4:1918=20、46EDBC递减及同门/清房流程 完整原件和中间失败保存在dist/apis300-20261014，虚调用槽按重定位核，不能按PC位宽翻倍。",
+      "evidence_files": [
+        "dist/apis300-20261014/room13-contracts.json"
+      ],
+      "judgement": "runtime/tests/test_api300_game_room.py"
+    },
+    {
+      "name": "SetAmbushDone",
+      "kind": "accessor_region",
+      "offset": 8,
+      "confidence": "confirmed",
+      "semantic": "原API Room:SetAmbushDone 所访问的实际引擎区域；以访问器名称索引，具体多字段/位/向量/树操作和读取宽度以原件契约及测试为准，不声称这是C++源成员名字。 原RoomDescriptor flags50 bit3，PC7ED570 desc44 bit3，保其它位 完整原件和中间失败保存在dist/apis300-20261014，虚调用槽按重定位核，不能按PC位宽翻倍。",
+      "evidence_files": [
+        "dist/apis300-20261014/room13-contracts.json"
+      ],
+      "judgement": "runtime/tests/test_api300_game_room.py"
+    },
+    {
+      "name": "SetCardAgainstHumanity",
+      "kind": "accessor_region",
+      "offset": 6432,
+      "confidence": "confirmed",
+      "semantic": "原API Room:SetCardAgainstHumanity 所访问的实际引擎区域；以访问器名称索引，具体多字段/位/向量/树操作和读取宽度以原件契约及测试为准，不声称这是C++源成员名字。 Room::update_card_against_humanity468AC8 base1920，468AD4清标记，完整Room::Update消费同标记 完整原件和中间失败保存在dist/apis300-20261014，虚调用槽按重定位核，不能按PC位宽翻倍。",
+      "evidence_files": [
+        "dist/apis300-20261014/room13-contracts.json"
+      ],
+      "judgement": "runtime/tests/test_api300_game_room.py"
+    },
+    {
+      "name": "SetRedHeartDamage",
+      "kind": "accessor_region",
+      "offset": 6464,
+      "confidence": "confirmed",
+      "semantic": "原API Room:SetRedHeartDamage 所访问的实际引擎区域；以访问器名称索引，具体多字段/位/向量/树操作和读取宽度以原件契约及测试为准，不声称这是C++源成员名字。 同两端红心伤害分支、PC71FF80只写1字节1，无Level联动 完整原件和中间失败保存在dist/apis300-20261014，虚调用槽按重定位核，不能按PC位宽翻倍。",
+      "evidence_files": [
+        "dist/apis300-20261014/room13-contracts.json"
+      ],
+      "judgement": "runtime/tests/test_api300_game_room.py"
+    },
+    {
+      "name": "SetSacrificeDone",
+      "kind": "accessor_region",
+      "offset": 8,
+      "confidence": "confirmed",
+      "semantic": "原API Room:SetSacrificeDone 所访问的实际引擎区域；以访问器名称索引，具体多字段/位/向量/树操作和读取宽度以原件契约及测试为准，不声称这是C++源成员名字。 原RoomDescriptor flags50 bit2，PC497820 desc44 bit2 完整原件和中间失败保存在dist/apis300-20261014，虚调用槽按重定位核，不能按PC位宽翻倍。",
+      "evidence_files": [
+        "dist/apis300-20261014/room13-contracts.json"
+      ],
+      "judgement": "runtime/tests/test_api300_game_room.py"
+    },
+    {
+      "name": "StopRain",
+      "kind": "accessor_region",
+      "offset": 31860,
+      "confidence": "confirmed",
+      "semantic": "原API Room:StopRain 所访问的实际引擎区域；以访问器名称索引，具体多字段/位/向量/树操作和读取宽度以原件契约及测试为准，不声称这是C++源成员名字。 Room::update_rain470DE0 base7C6C，470E00读+8 bool，PC566120写7340同停止渐变标记 完整原件和中间失败保存在dist/apis300-20261014，虚调用槽按重定位核，不能按PC位宽翻倍。",
+      "evidence_files": [
+        "dist/apis300-20261014/room13-contracts.json"
+      ],
+      "judgement": "runtime/tests/test_api300_game_room.py"
+    }
+  ]
+}

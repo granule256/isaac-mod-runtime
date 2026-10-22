@@ -107,10 +107,17 @@ KNOWN_DISABLED_OK = {
 
 
 def ftp(*arguments: str) -> tuple[int, str]:
-    """调一次 `device_ftp.py`（每次调用都是**新连接**，符合项目纪律）。"""
+    """调一次 `device_ftp.py`。
+
+    ★★ **更正（2026-10-06）**：这里原来写着"每次调用都是**新连接**，符合项目纪律"，
+    并在每次调用后 `time.sleep(GAP_SECONDS)` 睡 1.5 秒。那条"纪律"（"动作之间留 1~3 秒"）
+    当天被用户当场纠正、并被实测推翻：**设备侧没有这个限制，慢的只是"我们反复新建连接 + 睡"**
+    —— `put-tree` 改成"一条连接连续传"之后，42 个文件从 **3 分 26 秒**降到 **3.2 秒**。
+    ⇒ 这个 1.5 秒的间隔**去掉了**（本脚本核 22 个文件时，那 33 秒全是纯等待）。
+    ★ 但"**不要并发**"这条仍然要守（并发确实会让服务端 reset）—— 本脚本本来就是串行的。
+    """
     result = subprocess.run([sys.executable, str(FTP_TOOL), *arguments],
                             capture_output=True, text=True, cwd=ROOT)
-    time.sleep(GAP_SECONDS)
     return result.returncode, (result.stdout + result.stderr).strip()
 
 

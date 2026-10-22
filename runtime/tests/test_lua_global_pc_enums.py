@@ -18,7 +18,26 @@ SOURCE = ROOT / "runtime" / "source"
 #: 生成器读的**用户提供的** PC 游戏源码。它不在仓库里（PC 游戏本体），所以两条需要它的用例
 #: 在缺这份夹具时按仓库惯例**跳过**而不是报错 —— 生成物本身（`pc_lua_enum_data.*`）与
 #: 它记录的 SHA-256 仍在仓库里，装了夹具的机器上照旧逐字节核对。
-PC_ENUMS_SOURCE = ROOT / "The Binding of Isaac Rebirth pc" / "resources/scripts/enums.lua"
+#:
+#: ★ 2026-10-07（批次 398）：**改成按候选路径找** —— 本机把 PC 源码放在
+#: `The Binding of Isaac Rebirth/resources/scripts/enums.lua`（SHA-256 `dce1892f…`，与生成物里
+#: 记的那份**逐字节同一份**），而这里原来只认 `The Binding of Isaac Rebirth pc/…` ⇒ 那两条
+#: **最强的检查（逐字节核对 + 逐值解析）在本机一直是 skipped**。
+#: ⇒ 现在是"找得到就跑、找不到才跳"，**没有放宽任何判据**。
+PC_ENUMS_SOURCE_CANDIDATES = (
+    ROOT / "The Binding of Isaac Rebirth pc" / "resources/scripts/enums.lua",
+    ROOT / "The Binding of Isaac Rebirth" / "resources/scripts/enums.lua",
+)
+
+
+def _resolve_pc_enums_source() -> Path:
+    for candidate in PC_ENUMS_SOURCE_CANDIDATES:
+        if candidate.is_file():
+            return candidate
+    return PC_ENUMS_SOURCE_CANDIDATES[0]
+
+
+PC_ENUMS_SOURCE = _resolve_pc_enums_source()
 
 
 def skip_without_pc_enums(test: unittest.TestCase, source: Path) -> None:
@@ -48,6 +67,52 @@ GENERATED_TABLES = (
     "EffectVariant",
     "EntityPartition",
     "Card",
+    # ---- 2026-10-07 批次 398：从 20 张补到 61 张 ----
+    # 真机实测挖出的缺口（`ActiveSlot` 缺 ⇒ `ActiveSlot.SLOT_PRIMARY` 是 nil global ⇒ 模组抛错
+    # ⇒ 整条回调登记被摘；`Music` 缺 ⇒ 音乐模组加载期就炸）。做法 = 把 PC `enums.lua`（SHA-256
+    # `dce1892f…`）的 78 张顶层表对本一遍、减去走文档生成器的那 17 张。
+    # ⚠️ `TearFlags` 仍不在（值全是 `BitSet128`，本生成器装 int32）——见生成器 `TABLES` 的注释。
+    "ActionTriggers",
+    "ActiveSlot",
+    "BabySubType",
+    "BatterySubType",
+    "BedSubType",
+    "BombSubType",
+    "BombVariant",
+    "ChampionColor",
+    "ChestSubType",
+    "CoinSubType",
+    "Difficulty",
+    "DoorSlot",
+    "DoorState",
+    "EntityCollisionClass",
+    "EntityGridCollisionClass",
+    "FamiliarVariant",
+    "GridCollisionClass",
+    "GridRooms",
+    "HeartSubType",
+    "InputHook",
+    "KeySubType",
+    "Keyboard",
+    "LaserOffset",
+    "LaserSubType",
+    "LaserVariant",
+    "LocustSubtypes",
+    "Mouse",
+    "Music",
+    "NpcState",
+    "NullItemID",
+    "PickupPrice",
+    "PlayerSpriteLayer",
+    "PoopPickupSubType",
+    "PoopSpellType",
+    "ProjectileVariant",
+    "RoomTransitionAnim",
+    "SackSubType",
+    "SkinColor",
+    "SortingLayer",
+    "TearVariant",
+    "WeaponType",
     "ModCallbacks",
 )
 
@@ -73,6 +138,48 @@ EXPECTED_ENTRY_COUNTS = {
     "EffectVariant": 200,
     "EntityPartition": 7,
     "Card": 100,
+    # ---- 2026-10-07 批次 398 新增的 41 张 ----
+    "ActionTriggers": 7,
+    "ActiveSlot": 4,
+    "BabySubType": 73,
+    "BatterySubType": 4,
+    "BedSubType": 2,
+    "BombSubType": 7,
+    "BombVariant": 21,
+    "ChampionColor": 26,
+    "ChestSubType": 2,
+    "CoinSubType": 7,
+    "Difficulty": 4,
+    "DoorSlot": 10,
+    "DoorState": 5,
+    "EntityCollisionClass": 5,
+    "EntityGridCollisionClass": 8,
+    "FamiliarVariant": 165,
+    "GridCollisionClass": 6,
+    "GridRooms": 24,
+    "HeartSubType": 12,
+    "InputHook": 3,
+    "KeySubType": 4,
+    "Keyboard": 120,
+    "LaserOffset": 7,
+    "LaserSubType": 5,
+    "LaserVariant": 16,
+    "LocustSubtypes": 5,
+    "Mouse": 12,
+    "Music": 99,
+    "NpcState": 19,
+    "NullItemID": 134,
+    "PickupPrice": 10,
+    "PlayerSpriteLayer": 16,
+    "PoopPickupSubType": 2,
+    "PoopSpellType": 15,
+    "ProjectileVariant": 17,
+    "RoomTransitionAnim": 21,
+    "SackSubType": 2,
+    "SkinColor": 8,
+    "SortingLayer": 3,
+    "TearVariant": 51,
+    "WeaponType": 16,
     "ModCallbacks": 74,
 }
 
@@ -231,6 +338,35 @@ for _, name in ipairs({'RoomShape', 'DoorVariant', 'Direction', 'StageType', 'Da
                        'RoomDescriptor'}) do
     if _G[name] == nil then error('missing PC enum table: ' .. name) end
 end
+-- 批次 207（2026-09-29）：MCM 读的两张**按位**表（`ProjectileFlags` / `EntityFlag`）。
+-- 缺表时模组拿到 nil 再按位与 ⇒ 整条回调报错被摘（与 RoomShape 那次同一形状）。
+for _, name in ipairs({'ProjectileFlags', 'EntityFlag'}) do
+    if _G[name] == nil then error('missing PC enum table: ' .. name) end
+end
+-- 批次 212（2026-09-30）：`SoundEffect` —— MCM 的声音路径（`modconfig.lua:2950`
+-- `sfx:Play(SoundEffect.SOUND_BOSS2INTRO_ERRORBUZZ, …)`）。缺表时抛"index a nil value" ⇒
+-- **整条回调**中断（不只是没声音）。真机读数 `dist/gdb-read-20260930-005757.txt` 里抓到的第 2 条。
+if SoundEffect.SOUND_BOSS2INTRO_ERRORBUZZ ~= 187 then error('SoundEffect.SOUND_BOSS2INTRO_ERRORBUZZ') end
+if SoundEffect.SOUND_NULL ~= 0 or SoundEffect.SOUND_1UP ~= 1 then error('SoundEffect 0/1') end
+-- `NUM_SOUND_EFFECTS` 在文档里**每个 DLC 档各一行**（`.rep` = 833、`.repplus` = 1091）：
+-- 生成器按登记在案的规则取最后一处 ⇒ 1091（目标版本 Rep+ / 1.7.9b）。
+if SoundEffect.NUM_SOUND_EFFECTS ~= 1091 then error('SoundEffect.NUM_SOUND_EFFECTS') end
+-- 批次 217（2026-09-30）：`SeedEffect` —— **中文版 MCM 的"开菜单"本行**：
+-- `modconfig.lua:3616` 在"显示菜单"那段里 `seeds:AddSeedEffect(SeedEffect.SEED_NO_HUD)`
+-- （`HideHudInMenu` 打开时必经）⇒ 缺表时紧跟其后的 `ModConfigMenu.IsVisible = true`
+-- **永远执行不到** ⇒ 症状是"按右摇杆菜单打不开"。真机读数 `dist/gdb-read-20260930-1411-cn-menu-broken.txt`。
+if SeedEffect.SEED_NO_HUD ~= 10 then error('SeedEffect.SEED_NO_HUD must be 10') end
+if SeedEffect.SEED_NORMAL ~= 0 then error('SeedEffect.SEED_NORMAL must be 0') end
+if SeedEffect.NUM_SEEDS ~= 80 then error('SeedEffect.NUM_SEEDS must be 80') end
+-- `CANT_HIT_PLAYER` 是 bit31 —— 与引擎 `.data` 里的 `Entity_Projectile::CANT_HIT_PLAYER = 0x80000000`
+-- 逐位吻合，也是我们读 `Entity_Projectile + 0x428` 后取的那一位。
+if ProjectileFlags.CANT_HIT_PLAYER ~= 2147483648 then error('ProjectileFlags.CANT_HIT_PLAYER') end
+if ProjectileFlags.SMART ~= 1 or ProjectileFlags.CONTINUUM ~= 1073741824 then
+    error('ProjectileFlags.SMART/CONTINUUM')
+end
+-- `FLAG_NO_QUERY` 是 bit46（1 << 46 = 70368744177664）：**超出 32 位**，32 位装会静默变 0。
+if EntityFlag.FLAG_NO_QUERY ~= 70368744177664 then error('EntityFlag.FLAG_NO_QUERY (1<<46)') end
+if EntityFlag.FLAG_NO_STATUS_EFFECTS ~= 1 then error('EntityFlag.FLAG_NO_STATUS_EFFECTS') end
 if RoomShape.ROOMSHAPE_1x1 ~= 1 or RoomShape.ROOMSHAPE_LTL ~= 9 then error('RoomShape 1x1/LTL') end
 if RoomShape.ROOMSHAPE_IIH ~= 7 or RoomShape.ROOMSHAPE_LBR ~= 12 then error('RoomShape IIH/LBR') end
 if DoorVariant.DOOR_HIDDEN ~= 7 or DoorVariant.DOOR_UNSPECIFIED ~= 0 then error('DoorVariant') end
@@ -370,7 +506,10 @@ end
         self.assertEqual(len(re.findall(r'\{"COLLECTIBLE_[A-Z0-9_]+",', generated)), 752)
         self.assertIn('{"NUM_COLLECTIBLES", 733}', generated)
         self.assertEqual(len(re.findall(r'\{"POOL_[A-Z0-9_]+",', generated)), 39)
-        self.assertEqual(len(re.findall(r'\{"ROOM_[A-Z0-9_]+",', generated)), 30)
+        # 30 → 50（2026-10-07 批次 398）：新补的 `RoomTransitionAnim` 表里有 20 条 `ROOM_*`
+        # （`ROOM_ANIM_*`）也落在这个正则下 ⇒ 计数合法地涨了。**不是放宽**：`RoomType` 那 30 条仍在
+        # （下一行 `NUM_ROOMTYPES == 30` 独立钉着）。
+        self.assertEqual(len(re.findall(r'\{"ROOM_[A-Z0-9_]+",', generated)), 50)
         self.assertEqual(len(re.findall(r'\{"STAGE[A-Z0-9_]+",', generated)), 21)
         self.assertIn('{"NUM_ITEMPOOLS", 31}', generated)
         self.assertIn('{"NUM_ROOMTYPES", 30}', generated)
@@ -521,7 +660,9 @@ end
                     f"{table}.{match.group(1)}",
                 )
         # 这个数字就是"曾经全部被截断成 1"的条目数，掉了说明用例自己失效了。
-        self.assertEqual(shift_entries, 24)
+        # 24 → 29（2026-10-07 批次 398）：新补的 `ActionTriggers` 表里有 5 条 `1 << N`
+        # （`UseFlag` 11 / `LevelCurse` 7 / `EntityPartition` 6 三条原有表不变）⇒ 合法地涨了。
+        self.assertEqual(shift_entries, 29)
 
 
 if __name__ == "__main__":

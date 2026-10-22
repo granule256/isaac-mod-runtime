@@ -3,7 +3,7 @@
 namespace isaac::runtime {
 
 Status CallbackRegistry::Register(const CallbackDescriptor& descriptor, std::int64_t filter,
-                                  std::int32_t priority) noexcept {
+                                  CallbackPriorityValue priority) noexcept {
     if (!descriptor.valid()) {
         return Status{StatusCode::InvalidArgument};
     }
@@ -27,6 +27,19 @@ Status CallbackRegistry::Register(const CallbackDescriptor& descriptor, std::int
     filters_[count_] = filter;
     // 优先级与描述符同样在**同一处**写入（同一把下标）—— 三张表永不脱钩。
     priorities_[count_] = priority;
+    std::size_t position = count_;
+    // PC在登记时倒向找同一id中最后一个<=priority的条目。
+    // NaN不满足<=；派发时重新排序或先过滤都会改变其真实顺序。
+    for (std::size_t scan = count_; scan > 0; --scan) {
+        const std::size_t existing = order_[scan - 1];
+        if (entries_[existing].id != descriptor.id) continue;
+        if (priorities_[existing] <= priority) break;
+        position = scan - 1;
+    }
+    for (std::size_t move = count_; move > position; --move) {
+        order_[move] = order_[move - 1];
+    }
+    order_[position] = static_cast<std::uint8_t>(count_);
     ++count_;
     return Status::Ok();
 }
@@ -35,8 +48,12 @@ std::int64_t CallbackRegistry::FilterAt(std::size_t index) const noexcept {
     return index < count_ ? filters_[index] : kNoCallbackFilter;
 }
 
-std::int32_t CallbackRegistry::PriorityAt(std::size_t index) const noexcept {
+CallbackPriorityValue CallbackRegistry::PriorityAt(std::size_t index) const noexcept {
     return index < count_ ? priorities_[index] : kDefaultCallbackPriority;
+}
+
+std::size_t CallbackRegistry::DispatchIndexAt(std::size_t position) const noexcept {
+    return position < count_ ? order_[position] : count_;
 }
 
 const CallbackDescriptor* CallbackRegistry::Find(CallbackId id, ModHandle owner) const noexcept {
@@ -69,6 +86,12 @@ std::uint32_t CallbackRegistry::RemoveAtIndex(std::size_t index,
     if (removed != nullptr) {
         *removed = entries_[index];
     }
+    std::size_t writeOrder = 0;
+    for (std::size_t position = 0; position < count_; ++position) {
+        const std::size_t registered = order_[position];
+        if (registered == index) continue;
+        order_[writeOrder++] = static_cast<std::uint8_t>(registered > index ? registered - 1 : registered);
+    }
     for (std::size_t move = index + 1; move < count_; ++move) {
         entries_[move - 1] = entries_[move];
         // ★ 过滤器与优先级必须跟着一起前移（见头文件里 `filters_` 的注释）：漏了这一步会让
@@ -81,23 +104,17 @@ std::uint32_t CallbackRegistry::RemoveAtIndex(std::size_t index,
     // 取决于历史操作顺序，调试读数时容易看成一条真登记。
     filters_[count_] = kNoCallbackFilter;
     priorities_[count_] = kDefaultCallbackPriority;
+    order_[count_] = 0;
     return 1;
 }
 
 std::uint32_t CallbackRegistry::RemoveOwner(ModHandle owner) noexcept {
-    std::size_t write = 0;
     std::uint32_t removed = 0;
-    for (std::size_t index = 0; index < count_; ++index) {
-        if (entries_[index].owner == owner) {
-            ++removed;
-            continue;
+    for (std::size_t index = count_; index > 0; --index) {
+        if (entries_[index - 1].owner == owner) {
+            removed += RemoveAtIndex(index - 1);
         }
-        entries_[write] = entries_[index];
-        filters_[write] = filters_[index];
-        priorities_[write] = priorities_[index];
-        ++write;
     }
-    count_ = write;
     return removed;
 }
 
@@ -138,6 +155,7 @@ void CallbackRegistry::Reset() noexcept {
     // 全零会让"空表"与"每一条都带 0 号过滤器"长得一样。
     filters_.fill(kNoCallbackFilter);
     priorities_.fill(kDefaultCallbackPriority);
+    order_ = {};
     count_ = 0;
 }
 

@@ -17,6 +17,7 @@
 """
 
 import json
+import struct
 import shutil
 import subprocess
 import sys
@@ -42,7 +43,11 @@ class DeployPackageJudgementTests(unittest.TestCase):
         # 假运行时：工具只要求这两个文件存在（内容不校验）
         exefs = self.root / "runtime" / "atmosphere" / "contents" / CONTENT_ID / "exefs"
         exefs.mkdir(parents=True)
-        (exefs / "subsdk9").write_bytes(b"fake-subsdk9")
+        nso=bytearray(256);nso[:4]=b"NSO0";struct.pack_into('<III',nso,0x30,256,0x400000,0x1000);struct.pack_into('<I',nso,0x3c,152*1024*1024)
+        (exefs / "subsdk9").write_bytes(nso)
+        budget_dir=self.root/"runtime/atmosphere/nro_patches/isaac-repentance-native-heap-budget";budget_dir.mkdir(parents=True)
+        budget=(b"PATCH"+(0x8bf884).to_bytes(3,'big')+b"\0\4"+(240*1024*1024+0x9c02000).to_bytes(4,'little')+b"EOF")
+        (budget_dir/"91C73FDD575061318D68886316AFEAC72388B2AB000000000000000000000000.ips").write_bytes(budget)
         (exefs / "main.npdm").write_bytes(b"fake-npdm")
         # 假运行时也要带"必需的中继补丁目录"：真实构建产物里每次都会生成它，
         # 打包工具现在**要求**它在（缺了就直接拒绝打包 —— 那是"EID 套装进度恒 0/3"的形态）。
@@ -51,6 +56,9 @@ class DeployPackageJudgementTests(unittest.TestCase):
         patch.mkdir(parents=True)
         (patch / "BUILDID0000000000000000000000000000000000000000000000000000000000.ips").write_bytes(
             b"fake-lifecycle-ips")
+        cold = self.root / "runtime" / "atmosphere" / "nro_patches" / "isaac-repentance-static-callbacks"
+        cold.mkdir(parents=True)
+        (cold / "BUILDID0000000000000000000000000000000000000000000000000000000000.ips").write_bytes(b"fake-cold-ips")
         # 旧 IPS 后端遗留也放一份进假运行时：打包工具**不许**把它们带进包，
         # 下面有断言钉住这一点（带上去会让所有挂点失效）。
         for name in ("isaac-repentance-manager-update-relay",
@@ -90,18 +98,19 @@ class DeployPackageJudgementTests(unittest.TestCase):
             capture_output=True, text=True, cwd=ROOT,
         )
 
-    def test_good_mod_packages_and_manifest_lists_every_mod(self):
-        """正常模组：打包成功，清单**逐条列出**（缺清单就是"模组在列表里但用不了"）。"""
+    def test_good_mod_packages_directory_scan_has_no_manifest(self):
+        """按2026-10-01实际用户指令，扫描真实模组目录加载，不能重新生成已禁止的清单。"""
         first = self.make_mod("AlphaMod", 6, png_relative="resources/gfx/a.png")
         second = self.make_mod("BetaMod", 2, png_relative="resources-dlc3/gfx/b.png")
         result = self.run_tool(first, second, extra=("--drop-mod-pcx",))
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         manifest_path = (self.root / "package" / "atmosphere" / "contents" / CONTENT_ID
                          / "romfs/isaac_mods/manifest.json")
-        self.assertTrue(manifest_path.is_file(), "包里必须有清单")
-        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-        self.assertEqual([m["directory"] for m in manifest["mods"]], ["AlphaMod", "BetaMod"])
-        self.assertEqual(manifest["mods"][0]["entry"], "mods/AlphaMod/main.lua")
+        self.assertFalse(manifest_path.exists(), "按2026-10-01用户指令，manifest.json不应重新出现")
+        mods = manifest_path.parent / "mods"
+        self.assertEqual(sorted(p.name for p in mods.iterdir()), ["AlphaMod", "BetaMod"])
+        self.assertTrue((mods / "AlphaMod" / "main.lua").is_file())
+        self.assertTrue((mods / "BetaMod" / "main.lua").is_file())
         # `resources-dlc3` 层要**原样**带进包（层名不能改，改了覆盖语义就变）
         self.assertTrue((self.root / "package" / "atmosphere" / "contents" / CONTENT_ID
                          / "romfs/isaac_mods/mods/BetaMod/resources-dlc3/gfx/b.png").is_file())
@@ -135,8 +144,8 @@ class DeployPackageJudgementTests(unittest.TestCase):
         self.assertTrue((patches / "isaac-repentance-lifecycle-relay").is_dir(),
                         "包里必须有 lifecycle-relay（缺了它套装进度恒 0/3）")
         self.assertEqual(sorted(p.name for p in patches.iterdir()),
-                         ["isaac-repentance-lifecycle-relay"],
-                         "包里只允许有 lifecycle-relay 这一份补丁")
+                         ["isaac-repentance-lifecycle-relay", "isaac-repentance-native-heap-budget", "isaac-repentance-static-callbacks"],
+                         "包里必须保留lifecycle及加载前静态回调两份生产补丁，不带冻结诊断IPS")
         # 必需补丁的**文件**也要在（目录空着等于没带）
         self.assertTrue(any(p.suffix == ".ips" for p in
                             (patches / "isaac-repentance-lifecycle-relay").iterdir()))

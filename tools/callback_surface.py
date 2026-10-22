@@ -51,7 +51,7 @@ DESCRIPTOR = ROOT / "runtime" / "src" / "domain" / "callback" / "callback_descri
 MOD_API = ROOT / "runtime" / "src" / "interfaces" / "lua" / "mod_api.cpp"
 SURFACE = ROOT / "tools" / "callback_surface.json"
 
-STATUSES = {"dispatched", "hookable", "needs_hook", "platform", "unknown"}
+STATUSES = {"dispatched", "hookable", "needs_hook", "platform", "pc_inactive", "unknown"}
 
 
 def parse_dispatch_site_names() -> set[str]:
@@ -177,7 +177,7 @@ def main() -> int:
     total = len(rows)
     done = counts.get("dispatched", 0)
     print(f"\n回调环境面：PC {total} 条，已派发 **{done}**（{100 * done // max(1, total)}%）")
-    for status in ("hookable", "needs_hook", "platform", "unknown"):
+    for status in ("hookable", "needs_hook", "platform", "pc_inactive", "unknown"):
         if counts.get(status):
             print(f"  {status:11s} {counts[status]:3d}")
     print("\n未派发的（按 ID）：")

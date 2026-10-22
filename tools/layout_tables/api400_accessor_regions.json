@@ -1,0 +1,285 @@
+{
+  "schema": "isaac-layout-table/1",
+  "build_id": "91C73FDD575061318D68886316AFEAC72388B2AB",
+  "struct": "Api400Accessor",
+  "note": [
+    "方法的引擎访问区域；字段/多字段组合的完整语义由原件矩阵核，不猜原C++成员名。"
+  ],
+  "rows": [
+    {
+      "name": "EntityGetBossID",
+      "kind": "accessor_region",
+      "offset": 768,
+      "confidence": "confirmed",
+      "semantic": "PC真实登记/wrapper/native、NS完整st_size与同算法读写者；dist/apis400-20261016原件/field-proof-matrix.json。独立正常/边界和真实生产发布；宿主替身非ARM/GPU执行。",
+      "evidence_files": [
+        "dist/apis400-20261016/entity35/report.md"
+      ],
+      "judgement": "runtime/tests/test_api400_production.py"
+    },
+    {
+      "name": "EntityEffectSetDamageSource",
+      "kind": "accessor_region",
+      "offset": 1128,
+      "confidence": "confirmed",
+      "semantic": "PC真实登记/wrapper/native、NS完整st_size与同算法读写者；dist/apis400-20261016原件/field-proof-matrix.json。独立正常/边界和真实生产发布；宿主替身非ARM/GPU执行。",
+      "evidence_files": [
+        "dist/apis400-20261016/entity35/report.md"
+      ],
+      "judgement": "runtime/tests/test_api400_production.py"
+    },
+    {
+      "name": "EntityEffectSetRadii",
+      "kind": "accessor_region",
+      "offset": 1100,
+      "confidence": "confirmed",
+      "semantic": "PC真实登记/wrapper/native、NS完整st_size与同算法读写者；dist/apis400-20261016原件/field-proof-matrix.json。独立正常/边界和真实生产发布；宿主替身非ARM/GPU执行。",
+      "evidence_files": [
+        "dist/apis400-20261016/entity35/report.md"
+      ],
+      "judgement": "runtime/tests/test_api400_production.py"
+    },
+    {
+      "name": "EntityEffectSetTimeout",
+      "kind": "accessor_region",
+      "offset": 1108,
+      "confidence": "confirmed",
+      "semantic": "PC真实登记/wrapper/native、NS完整st_size与同算法读写者；dist/apis400-20261016原件/field-proof-matrix.json。独立正常/边界和真实生产发布；宿主替身非ARM/GPU执行。",
+      "evidence_files": [
+        "dist/apis400-20261016/entity35/report.md"
+      ],
+      "judgement": "runtime/tests/test_api400_production.py"
+    },
+    {
+      "name": "EntityKnifeGetKnifeDistance",
+      "kind": "accessor_region",
+      "offset": 1076,
+      "confidence": "confirmed",
+      "semantic": "PC真实登记/wrapper/native、NS完整st_size与同算法读写者；dist/apis400-20261016原件/field-proof-matrix.json。独立正常/边界和真实生产发布；宿主替身非ARM/GPU执行。",
+      "evidence_files": [
+        "dist/apis400-20261016/entity35/report.md"
+      ],
+      "judgement": "runtime/tests/test_api400_production.py"
+    },
+    {
+      "name": "EntityKnifeGetKnifeVelocity",
+      "kind": "accessor_region",
+      "offset": 1080,
+      "confidence": "confirmed",
+      "semantic": "PC真实登记/wrapper/native、NS完整st_size与同算法读写者；dist/apis400-20261016原件/field-proof-matrix.json。独立正常/边界和真实生产发布；宿主替身非ARM/GPU执行。",
+      "evidence_files": [
+        "dist/apis400-20261016/entity35/report.md"
+      ],
+      "judgement": "runtime/tests/test_api400_production.py"
+    },
+    {
+      "name": "EntityKnifeSetPathFollowSpeed",
+      "kind": "accessor_region",
+      "offset": 1260,
+      "confidence": "confirmed",
+      "semantic": "PC真实登记/wrapper/native、NS完整st_size与同算法读写者；dist/apis400-20261016原件/field-proof-matrix.json。独立正常/边界和真实生产发布；宿主替身非ARM/GPU执行。",
+      "evidence_files": [
+        "dist/apis400-20261016/entity35/report.md"
+      ],
+      "judgement": "runtime/tests/test_api400_production.py"
+    },
+    {
+      "name": "EntityLaserGetEndPoint",
+      "kind": "accessor_region",
+      "offset": 1280,
+      "confidence": "confirmed",
+      "semantic": "PC真实登记/wrapper/native、NS完整st_size与同算法读写者；dist/apis400-20261016原件/field-proof-matrix.json。独立正常/边界和真实生产发布；宿主替身非ARM/GPU执行。",
+      "evidence_files": [
+        "dist/apis400-20261016/entity35/report.md"
+      ],
+      "judgement": "runtime/tests/test_api400_production.py"
+    },
+    {
+      "name": "EntityLaserIsCircleLaser",
+      "kind": "accessor_region",
+      "offset": 64,
+      "confidence": "confirmed",
+      "semantic": "PC真实登记/wrapper/native、NS完整st_size与同算法读写者；dist/apis400-20261016原件/field-proof-matrix.json。独立正常/边界和真实生产发布；宿主替身非ARM/GPU执行。",
+      "evidence_files": [
+        "dist/apis400-20261016/entity35/report.md"
+      ],
+      "judgement": "runtime/tests/test_api400_production.py"
+    },
+    {
+      "name": "EntityLaserIsSampleLaser",
+      "kind": "accessor_region",
+      "offset": 1101,
+      "confidence": "confirmed",
+      "semantic": "PC真实登记/wrapper/native、NS完整st_size与同算法读写者；dist/apis400-20261016原件/field-proof-matrix.json。独立正常/边界和真实生产发布；宿主替身非ARM/GPU执行。",
+      "evidence_files": [
+        "dist/apis400-20261016/entity35/report.md"
+      ],
+      "judgement": "runtime/tests/test_api400_production.py"
+    },
+    {
+      "name": "EntityLaserSetBlackHpDropChance",
+      "kind": "accessor_region",
+      "offset": 1316,
+      "confidence": "confirmed",
+      "semantic": "PC真实登记/wrapper/native、NS完整st_size与同算法读写者；dist/apis400-20261016原件/field-proof-matrix.json。独立正常/边界和真实生产发布；宿主替身非ARM/GPU执行。",
+      "evidence_files": [
+        "dist/apis400-20261016/entity35/report.md"
+      ],
+      "judgement": "runtime/tests/test_api400_production.py"
+    },
+    {
+      "name": "EntityLaserSetHomingType",
+      "kind": "accessor_region",
+      "offset": 1276,
+      "confidence": "confirmed",
+      "semantic": "PC真实登记/wrapper/native、NS完整st_size与同算法读写者；dist/apis400-20261016原件/field-proof-matrix.json。独立正常/边界和真实生产发布；宿主替身非ARM/GPU执行。",
+      "evidence_files": [
+        "dist/apis400-20261016/entity35/report.md"
+      ],
+      "judgement": "runtime/tests/test_api400_production.py"
+    },
+    {
+      "name": "EntityLaserSetMultidimensionalTouched",
+      "kind": "accessor_region",
+      "offset": 1336,
+      "confidence": "confirmed",
+      "semantic": "PC真实登记/wrapper/native、NS完整st_size与同算法读写者；dist/apis400-20261016原件/field-proof-matrix.json。独立正常/边界和真实生产发布；宿主替身非ARM/GPU执行。",
+      "evidence_files": [
+        "dist/apis400-20261016/entity35/report.md"
+      ],
+      "judgement": "runtime/tests/test_api400_production.py"
+    },
+    {
+      "name": "EntityLaserSetOneHit",
+      "kind": "accessor_region",
+      "offset": 1377,
+      "confidence": "confirmed",
+      "semantic": "PC真实登记/wrapper/native、NS完整st_size与同算法读写者；dist/apis400-20261016原件/field-proof-matrix.json。独立正常/边界和真实生产发布；宿主替身非ARM/GPU执行。",
+      "evidence_files": [
+        "dist/apis400-20261016/entity35/report.md"
+      ],
+      "judgement": "runtime/tests/test_api400_production.py"
+    },
+    {
+      "name": "EntityLaserSetTimeout",
+      "kind": "accessor_region",
+      "offset": 1096,
+      "confidence": "confirmed",
+      "semantic": "PC真实登记/wrapper/native、NS完整st_size与同算法读写者；dist/apis400-20261016原件/field-proof-matrix.json。独立正常/边界和真实生产发布；宿主替身非ARM/GPU执行。",
+      "evidence_files": [
+        "dist/apis400-20261016/entity35/report.md"
+      ],
+      "judgement": "runtime/tests/test_api400_production.py"
+    },
+    {
+      "name": "EntityProjectileAddChangeFlags",
+      "kind": "accessor_region",
+      "offset": 1080,
+      "confidence": "confirmed",
+      "semantic": "PC真实登记/wrapper/native、NS完整st_size与同算法读写者；dist/apis400-20261016原件/field-proof-matrix.json。独立正常/边界和真实生产发布；宿主替身非ARM/GPU执行。",
+      "evidence_files": [
+        "dist/apis400-20261016/entity35/report.md"
+      ],
+      "judgement": "runtime/tests/test_api400_production.py"
+    },
+    {
+      "name": "EntityProjectileAddFallingAccel",
+      "kind": "accessor_region",
+      "offset": 1032,
+      "confidence": "confirmed",
+      "semantic": "PC真实登记/wrapper/native、NS完整st_size与同算法读写者；dist/apis400-20261016原件/field-proof-matrix.json。独立正常/边界和真实生产发布；宿主替身非ARM/GPU执行。",
+      "evidence_files": [
+        "dist/apis400-20261016/entity35/report.md"
+      ],
+      "judgement": "runtime/tests/test_api400_production.py"
+    },
+    {
+      "name": "EntityProjectileAddFallingSpeed",
+      "kind": "accessor_region",
+      "offset": 1028,
+      "confidence": "confirmed",
+      "semantic": "PC真实登记/wrapper/native、NS完整st_size与同算法读写者；dist/apis400-20261016原件/field-proof-matrix.json。独立正常/边界和真实生产发布；宿主替身非ARM/GPU执行。",
+      "evidence_files": [
+        "dist/apis400-20261016/entity35/report.md"
+      ],
+      "judgement": "runtime/tests/test_api400_production.py"
+    },
+    {
+      "name": "EntityProjectileAddHeight",
+      "kind": "accessor_region",
+      "offset": 1024,
+      "confidence": "confirmed",
+      "semantic": "PC真实登记/wrapper/native、NS完整st_size与同算法读写者；dist/apis400-20261016原件/field-proof-matrix.json。独立正常/边界和真实生产发布；宿主替身非ARM/GPU执行。",
+      "evidence_files": [
+        "dist/apis400-20261016/entity35/report.md"
+      ],
+      "judgement": "runtime/tests/test_api400_production.py"
+    },
+    {
+      "name": "EntityProjectileAddProjectileFlags",
+      "kind": "accessor_region",
+      "offset": 1064,
+      "confidence": "confirmed",
+      "semantic": "PC真实登记/wrapper/native、NS完整st_size与同算法读写者；dist/apis400-20261016原件/field-proof-matrix.json。独立正常/边界和真实生产发布；宿主替身非ARM/GPU执行。",
+      "evidence_files": [
+        "dist/apis400-20261016/entity35/report.md"
+      ],
+      "judgement": "runtime/tests/test_api400_production.py"
+    },
+    {
+      "name": "EntityProjectileAddScale",
+      "kind": "accessor_region",
+      "offset": 1040,
+      "confidence": "confirmed",
+      "semantic": "PC真实登记/wrapper/native、NS完整st_size与同算法读写者；dist/apis400-20261016原件/field-proof-matrix.json。独立正常/边界和真实生产发布；宿主替身非ARM/GPU执行。",
+      "evidence_files": [
+        "dist/apis400-20261016/entity35/report.md"
+      ],
+      "judgement": "runtime/tests/test_api400_production.py"
+    },
+    {
+      "name": "EntityProjectileClearProjectileFlags",
+      "kind": "accessor_region",
+      "offset": 1064,
+      "confidence": "confirmed",
+      "semantic": "PC真实登记/wrapper/native、NS完整st_size与同算法读写者；dist/apis400-20261016原件/field-proof-matrix.json。独立正常/边界和真实生产发布；宿主替身非ARM/GPU执行。",
+      "evidence_files": [
+        "dist/apis400-20261016/entity35/report.md"
+      ],
+      "judgement": "runtime/tests/test_api400_production.py"
+    },
+    {
+      "name": "EntityTearSetKnockbackMultiplier",
+      "kind": "accessor_region",
+      "offset": 1120,
+      "confidence": "confirmed",
+      "semantic": "PC真实登记/wrapper/native、NS完整st_size与同算法读写者；dist/apis400-20261016原件/field-proof-matrix.json。独立正常/边界和真实生产发布；宿主替身非ARM/GPU执行。",
+      "evidence_files": [
+        "dist/apis400-20261016/entity35/report.md"
+      ],
+      "judgement": "runtime/tests/test_api400_production.py"
+    },
+    {
+      "name": "EntityTearSetParentOffset",
+      "kind": "accessor_region",
+      "offset": 2284,
+      "confidence": "confirmed",
+      "semantic": "PC真实登记/wrapper/native、NS完整st_size与同算法读写者；dist/apis400-20261016原件/field-proof-matrix.json。独立正常/边界和真实生产发布；宿主替身非ARM/GPU执行。",
+      "evidence_files": [
+        "dist/apis400-20261016/entity35/report.md"
+      ],
+      "judgement": "runtime/tests/test_api400_production.py"
+    },
+    {
+      "name": "EntityTearSetWaitFrames",
+      "kind": "accessor_region",
+      "offset": 1064,
+      "confidence": "confirmed",
+      "semantic": "PC真实登记/wrapper/native、NS完整st_size与同算法读写者；dist/apis400-20261016原件/field-proof-matrix.json。独立正常/边界和真实生产发布；宿主替身非ARM/GPU执行。",
+      "evidence_files": [
+        "dist/apis400-20261016/entity35/report.md"
+      ],
+      "judgement": "runtime/tests/test_api400_production.py"
+    }
+  ]
+}

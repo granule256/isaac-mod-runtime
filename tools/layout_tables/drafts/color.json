@@ -45,34 +45,18 @@
   {
    "name": "kColorModShiftOffset",
    "kind": "int32",
-   "offset": 16,
-   "width": 8,
+   "offset": 32,
+   "width": 4,
    "confidence": "candidate",
-   "semantic": "（草稿）自动取证：语义未确认，仅登记「偏移 + 一处可复核的访问指令」",
+   "semantic": "2026-10-10 更正：SetOffset 与 WriteOffset 证明偏移量在+0x20，不是染色+0x10。",
    "evidence": [
     {
      "kind": "access",
-     "function": "_ZNSt3__15stackIN15IsaacRepentance8ColorModENS_5dequeIS2_NS_9allocatorIS2_EEEEED2Ev",
-     "address": "0x000063cc",
-     "offset": 16,
-     "width": 8,
-     "why": "镜像里访问该偏移的指令（str x，宽度 8）；共找到 14081 条同类访问，此为该常量名呼应度最高的函数之一"
-    },
-    {
-     "kind": "access",
-     "function": "_ZN15IsaacRepentance4ANM217PushColorOverrideERKNS_8ColorModE",
-     "address": "0x000064a4",
-     "offset": 16,
-     "width": 8,
-     "why": "镜像里访问该偏移的指令（ldp x，宽度 8）；共找到 14081 条同类访问，此为该常量名呼应度最高的函数之一"
-    },
-    {
-     "kind": "access",
-     "function": "_ZN15IsaacRepentance4ANM217PushColorOverrideERKNS_8ColorModE",
-     "address": "0x000064a8",
-     "offset": 16,
-     "width": 8,
-     "why": "镜像里访问该偏移的指令（stp x，宽度 8）；共找到 14081 条同类访问，此为该常量名呼应度最高的函数之一"
+     "function": "_ZN15IsaacRepentance8ColorMod9SetOffsetEfff",
+     "address": "0x00037870",
+     "offset": 32,
+     "width": 4,
+     "why": "具名 SetOffset 将 s0 写至 this+0x20"
     }
    ]
   }

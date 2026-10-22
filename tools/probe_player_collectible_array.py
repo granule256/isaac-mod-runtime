@@ -38,7 +38,10 @@ SYMS = {
 # Entity_Player 的字段偏移（与 runtime/source/runtime_constants.hpp 保持一致）
 PLAYER = {
     'PlayerType(0x1738)': 0x1738,
-    'Luck(0x1920)': 0x1920,
+    # ★ 2026-10-01（批次 257）更正：`Luck` 是 **float**、偏移 `+0x1950`。
+    #   原来的 `0x1920` 是 `Entity_Player::DonateLuck` 动的那个 **int32 计数器**，不是属性。
+    #   证据见 `runtime/source/runtime_constants.hpp` 的 `kEntityPlayerLuckOffset` 注释。
+    'Luck(0x1950,float)': 0x1950,
     'Index(0x19F0)': 0x19F0,
     'CollectibleBegin(0x1AB8)': 0x1AB8,
     'CollectibleEnd(0x1AC0)': 0x1AC0,
@@ -129,7 +132,11 @@ def main() -> int:
     nonzero = [(i, v & 0xffffffff) for i, v in enumerate(vec) if (v & 0xffffffff) != 0]
     print(f'  其中非零项: {nonzero if nonzero else "（全 0）"}')
     print()
-    print(f'  参考：Luck = {fields.get("Luck(0x1920)", [0])[0] & 0xffffffff}，'
+    # ★ 2026-10-01（批次 257）：`Luck` 现在是 `+0x1950` 的 **float** ⇒ 按 32 位字取出来之后
+    #   用 `struct` 还原成浮点再打印（同一个 32 位字，解释方式不同）。
+    luck_word = fields.get('Luck(0x1950,float)', [0])[0] & 0xffffffff
+    luck_float = struct.unpack('<f', struct.pack('<I', luck_word))[0]
+    print(f'  参考：Luck = {luck_float:.4f}（+0x1950 的 float，原始字 0x{luck_word:08X}），'
           f'Trinket0 = {fields.get("Trinket0(0x1AB0)", [0])[0] & 0xffffffff}，'
           f'PlayerType = {u32("PlayerType(0x1738)")}')
     return 0

@@ -1,0 +1,99 @@
+{
+  "schema": "isaac-layout-table/1",
+  "build_id": "91C73FDD575061318D68886316AFEAC72388B2AB",
+  "struct": "EntityBomb",
+  "note": [
+    "PC字段注册与getter/setter、NS初始化/产生胎儿炸弹/更新消费者交叉证实。原件dist/static-entity-methods-20261010/，语义tools/entity_bomb_field_ledger.json。",
+    "2026-10-13追加：社区1.60恢复的真实字段；PC/NS原件与消费者见dist/callback-rplus-20261013/methods-api、health-api。"
+  ],
+  "rows": [
+    {
+      "name": "IsFetus",
+      "kind": "bool",
+      "offset": 1080,
+      "width": 1,
+      "confidence": "confirmed",
+      "semantic": "炸弹是否是胎儿；非零真，可按PC bool原样读写。",
+      "evidence": [
+        {
+          "kind": "access",
+          "function": "_ZN15IsaacRepentance11Entity_Bomb4InitENS_11eEntityTypeEjjj",
+          "address": "0x0007af7c",
+          "offset": 1080,
+          "width": 1,
+          "why": "Init初始化false"
+        },
+        {
+          "kind": "access",
+          "function": "_ZN15IsaacRepentance13Entity_Player8FireBombERKN4KAGE4Math7Vector2ES5_PNS_6EntityE",
+          "address": "0x002e4520",
+          "offset": 1080,
+          "width": 1,
+          "why": "产生胎儿炸弹写1；对应PC765E38写已命名IsFetus+398"
+        },
+        {
+          "kind": "access",
+          "function": "_ZN15IsaacRepentance11Entity_Bomb6UpdateEv",
+          "address": "0x0007b7c8",
+          "offset": 1080,
+          "width": 1,
+          "why": "更新根据真实胎儿标志选择动画帧路径"
+        }
+      ]
+    },
+    {
+      "name": "vtable",
+      "kind": "pointer",
+      "offset": 0,
+      "width": 8,
+      "confidence": "confirmed",
+      "semantic": "真实Bomb vptr存实体首8B，值为导出Entity_Bomb vtable+16即模块+A35048；PC dynamic_cast与NS type4交叉。",
+      "evidence": [
+        {
+          "kind": "access",
+          "function": "_ZN15IsaacRepentance11Entity_BombC2Ev",
+          "address": "0x0007ad64",
+          "offset": 0,
+          "width": 8,
+          "why": "7AD50加载导出Entity_Bomb vtable，7AD5C加16，7AD64 str x8,[x19]（this）；原件ns-bomb-constructor.txt。"
+        }
+      ]
+    },
+    {
+      "name": "ExplosionCountdown",
+      "kind": "i32",
+      "offset": 1024,
+      "width": 4,
+      "confidence": "confirmed",
+      "semantic": "固定PC getter与NS原生独立消费者确认；寄存器锚点及完整反汇编保存在本批证据。",
+      "evidence": [
+        {
+          "kind": "access",
+          "function": "_ZN15IsaacRepentance11Entity_Bomb6UpdateEv",
+          "address": "0x0007cc1c",
+          "offset": 1024,
+          "width": 4,
+          "why": "固定PC getter与NS原生独立消费者确认；寄存器锚点及完整反汇编保存在本批证据。"
+        }
+      ]
+    },
+    {
+      "name": "InitialExplosionCountdown",
+      "kind": "i32",
+      "offset": 1028,
+      "width": 4,
+      "confidence": "confirmed",
+      "semantic": "固定PC getter与NS原生独立消费者确认；寄存器锚点及完整反汇编保存在本批证据。",
+      "evidence": [
+        {
+          "kind": "access",
+          "function": "_ZN15IsaacRepentance11Entity_Bomb6UpdateEv",
+          "address": "0x0007cc20",
+          "offset": 1028,
+          "width": 4,
+          "why": "固定PC getter与NS原生独立消费者确认；寄存器锚点及完整反汇编保存在本批证据。"
+        }
+      ]
+    }
+  ]
+}

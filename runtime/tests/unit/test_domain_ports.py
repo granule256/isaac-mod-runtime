@@ -139,7 +139,7 @@ HOST_DRIVER = textwrap.dedent(
         Check(PersistenceCodec::kVersion == 2, "version_is_two");
         Check(PersistenceCodec::kHeaderSize == 32, "header_is_32_bytes");
         Check(PersistenceCodec::kRecordHeaderSize == 24, "record_header_is_24_bytes");
-        Check(PersistenceCodec::kMaximumFileSize == 16 * 1024, "maximum_file_is_16k");
+        Check(PersistenceCodec::kMaximumFileSize == UINT32_MAX, "maximum_file_matches_format_u32");
         Check(PersistenceCodec::kMaximumRecordCount == 256, "maximum_records_is_256");
         Check(kModDataKey == 0x6D6F642D64617461ULL, "mod_data_key_matches_on_device_format");
         Check(kStringRecordType == 1, "string_type_matches_on_device_format");
@@ -155,7 +155,7 @@ HOST_DRIVER = textwrap.dedent(
 
     void TestCodecRoundTrip() {
         std::uint8_t payload[64]{};
-        std::uint8_t file[PersistenceCodec::kMaximumFileSize]{};
+        std::uint8_t file[16 * 1024]{};
         const char* value = "12345678";
 
         PersistenceRecordView record{};
@@ -194,7 +194,7 @@ HOST_DRIVER = textwrap.dedent(
         Check(PersistenceCodec::EncodeHeader(file, sizeof(file), header).ok(), "encode_header_again");
         std::memcpy(file + PersistenceCodec::kHeaderSize, payload, next);
 
-        std::uint8_t broken[PersistenceCodec::kMaximumFileSize];
+        std::uint8_t broken[16 * 1024];
         std::memcpy(broken, file, total);
         broken[total - 1] = static_cast<std::uint8_t>(broken[total - 1] ^ 0xFF);
         Check(PersistenceCodec::ValidateFile(broken, total).code() == StatusCode::Corrupted,
@@ -292,18 +292,19 @@ COMPATIBILITY_DRIVER = textwrap.dedent(
     namespace {
 
     std::vector<unsigned char> g_written;
+    std::vector<unsigned char> g_legacy;
 
     // 内存里的"存档分区"：统一端口 `ISaveFilePort`（2026-09-17 用户指令后，
     // 持久化只认这一个接口；旧的四裸函数入口 `ConfigureFileApi` 已退休）。
     class FakeStore final : public isaac::runtime::ISaveFilePort {
     public:
-        [[nodiscard]] isaac::runtime::Status Read(std::string_view, char*, std::size_t,
+        [[nodiscard]] isaac::runtime::Status Read(std::string_view name, char* out, std::size_t capacity,
                                                   std::size_t* size) noexcept override {
-            // 还没有数据：报 NotFound，让"第一次保存"这条路径照常走。
-            if (size != nullptr) {
-                *size = 0;
-            }
-            return isaac::runtime::Status{isaac::runtime::StatusCode::NotFound};
+            *size=0;
+            if(name!="isaac-mod-data.bin" || g_legacy.empty()) return isaac::runtime::Status{isaac::runtime::StatusCode::NotFound};
+            *size=g_legacy.size();
+            if(*size>capacity) return isaac::runtime::Status{isaac::runtime::StatusCode::CapacityExceeded};
+            std::memcpy(out,g_legacy.data(),*size);return isaac::runtime::Status::Ok();
         }
 
         [[nodiscard]] isaac::runtime::Status Write(std::string_view,
@@ -342,7 +343,7 @@ COMPATIBILITY_DRIVER = textwrap.dedent(
             return 1;
         }
 
-        std::uint8_t file[PersistenceCodec::kMaximumFileSize]{};
+        std::uint8_t file[16 * 1024]{};
         std::uint8_t payload[64]{};
         PersistenceRecordView record{};
         record.namespaceId = namespaceId;
@@ -369,18 +370,14 @@ COMPATIBILITY_DRIVER = textwrap.dedent(
         std::memcpy(file + PersistenceCodec::kHeaderSize, payload, payloadLength);
         const std::size_t total = PersistenceCodec::kHeaderSize + payloadLength;
 
-        if (g_written.size() != total) {
-            std::printf("SIZE_MISMATCH legacy=%zu new=%zu\n", g_written.size(), total);
-            return 1;
-        }
-        if (std::memcmp(g_written.data(), file, total) != 0) {
-            std::printf("BYTE_MISMATCH\n");
-            return 1;
-        }
-        if (!PersistenceCodec::ValidateFile(g_written.data(), g_written.size()).ok()) {
-            std::printf("VALIDATE_LEGACY_BYTES_FAILED\n");
-            return 1;
-        }
+        g_legacy.assign(file,file+total);
+        const char* loaded=nullptr;std::size_t length=0;
+        if(ModPersistence::LoadModData(namespaceId,&loaded,&length)!=ModPersistence::Result::Success ||
+           length!=8 || std::memcmp(loaded,value,8)!=0) return 2;
+        if(ModPersistence::SaveModData(namespaceId,"updated",7)!=ModPersistence::Result::Success) return 3;
+        if(g_legacy.size()!=total || std::memcmp(g_legacy.data(),file,total)!=0) return 4;
+        if(g_written.size()<48 || std::memcmp(g_written.data(),"ISMODST3",8)!=0) return 5;
+        if(!PersistenceCodec::ValidateFile(g_legacy.data(),g_legacy.size()).ok()) return 6;
         std::printf("CODEC_MATCHES_LEGACY_ENCODER\n");
         return 0;
     }

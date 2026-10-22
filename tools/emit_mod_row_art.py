@@ -324,7 +324,7 @@ def main() -> int:
             if dump_root:
                 try:
                     written += emit_menu_anm2(str(romfs / RP_PATCH), dump_root, languages)
-                except row.ArtError as error:
+                except ArtError as error:
                     print(f"✗ 菜单动画补层失败：{error}", file=sys.stderr)
                     return 1
 

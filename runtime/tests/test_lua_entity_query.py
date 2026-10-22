@@ -147,6 +147,9 @@ enum EntitySlot {
     kGarbage,
     kEffect,
     kEffectNoQuery,
+    // 第二个**真** `Entity_Pickup`（vptr 正确、也在查询半径内），但 `Price == 0`。
+    // 它唯一的用途是钉住 `IsShopItem()` 的**否定侧**：非卖品必须答 false。
+    kPickupFree,
     kEntitySlotCount,
 };
 
@@ -250,6 +253,17 @@ void FillEntitySprite(EntitySlot slot, bool loaded, const char* name, bool longF
     const std::size_t length = std::strlen(name);
     if (longForm) {
         WriteAt<std::uint8_t>(block, kSpriteNameObjectOffset, kLibcxxStringLongFlag);
+        // ★ 2026-10-03（批次 309）：libc++ `__long` 布局里**声明长度在 string 对象 `+0x8`**
+        //   （数据指针在 `+0x10`）。批次 309 起 `sprite_api.cpp` 的 `ReadLibcxxStringAt`
+        //   先读这个长度、`declared == 0 || declared > capacity - 1` 就判"读不到"（答空串，
+        //   **不再静默截断**）—— 口径与 `isaac_api.cpp` 的 `ResolveLibcxxString` 逐字一致
+        //   （那里同样是长串长度读 `+0x8`）。夹具原先只写了首字标志与 `+0x10` 的数据指针、
+        //   漏了 `+0x8` ⇒ 被当成 `declared == 0` ⇒ `GetAnimation()` 恒答空串，本用例在
+        //   批次 309 之后开始红（证据：`dist/change-archive-20261003/309-sprite-filename/
+        //   change.patch` 的 `ReadLibcxxStringAt` 段与它新增的 `test_lua_batch309_get_filename.py`
+        //   夹具，那里正是把长度写进 `+0x8`）。补上长度后保护价值不变：短串/长串两条分支
+        //   仍各造一份，把长串分支的读法去掉仍会让本用例红。
+        WriteAt<std::uint64_t>(block, kSpriteNameObjectOffset + 8, length);
         std::memcpy(block.data() + kSpriteLongNameOffset, name, length + 1);
         WriteWord(block, kSpriteNameObjectOffset + kLibcxxStringDataOffset,
                   AddressOf(block) + kSpriteLongNameOffset);
@@ -303,6 +317,12 @@ void FillEntities() {
     WriteAt<std::uint32_t>(pickup, kEntityPickupOptionsIndexOffset, kPickupOptionsIndex);
     WriteAt<std::uint8_t>(pickup, kEntityPickupForceBlindOffset, 0);
     WriteAt<std::uint8_t>(pickup, kEntityPickupTouchedOffset, 1);
+    // 同一个房间里的第二个真 `Entity_Pickup`：vptr 同样正确、同样在查询半径内，但 `Price == 0`。
+    // 引擎/PC 口径是"`Price != 0` 才是商店里卖的东西"（见 `isaac_api.cpp` 里 `EntityPickupIsShopItem`
+    // 的上方注释），所以它必须答 false。没有这一条，实现写成"恒 true"或"`>= 0`"都不会被门禁发现。
+    FillEntity(kPickupFree, kEntityTypePickup, 100, 2, 90.0F, 285.0F, 8.0F, 12, 900,
+               g_EngineBase + kEntityPickupVtableOffset, 0);
+    WriteAt<std::uint32_t>(g_Entities[kPickupFree], kEntityPickupPriceOffset, 0);
 
     FillEntity(kTearNear, 2, 0, 0, 80.0F, 240.0F, 4.0F, 3, 900, GenericEntityVtable(), 0);
     FillEntity(kSizeOnly, 24, 7, 0, 80.0F, 305.0F, 30.0F, 4, 900, GenericEntityVtable(), 0);
@@ -344,7 +364,7 @@ void PublishEntityList(std::vector<unsigned char>& room, bool validFingerprint) 
     WriteAt<std::uint32_t>(room, kRoomEntityListOffset + kEntityListArenaCapacityOffset,
                            validFingerprint ? kEntityListArenaCapacity : 0U);
     WriteWord(room, kRoomEntityListOffset + kEntityListLiveBeginOffset, AddressOf(g_LiveArrayBytes));
-    WriteAt<std::uint32_t>(room, kRoomEntityListOffset + kEntityListLiveCountOffset, 12U);
+    WriteAt<std::uint32_t>(room, kRoomEntityListOffset + kEntityListLiveCountOffset, 13U);
     WriteWord(room, kRoomEntityListOffset + kEntityListEffectBeginOffset,
               AddressOf(g_EffectArrayBytes));
     WriteAt<std::uint32_t>(room, kRoomEntityListOffset + kEntityListEffectCapacityOffset,
@@ -352,15 +372,16 @@ void PublishEntityList(std::vector<unsigned char>& room, bool validFingerprint) 
     WriteAt<std::uint32_t>(room, kRoomEntityListOffset + kEntityListEffectCountOffset, 2U);
 }
 
-// 活表：12 个槽，最后两个是"空指针"与"vptr 越界"的坏元素。
+// 活表：13 个槽，最后两个是"空指针"与"vptr 越界"的坏元素。
 void PublishLists() {
     const std::uintptr_t live[] = {
-        AddressOf(g_Entities[kPlayer]),   AddressOf(g_Entities[kEnemyA]),
-        AddressOf(g_Entities[kPickup]),   AddressOf(g_Entities[kTearNear]),
-        AddressOf(g_Entities[kSizeOnly]), AddressOf(g_Entities[kNoQuery]),
-        AddressOf(g_Entities[kFamiliar]), AddressOf(g_Entities[kCharmed]),
-        AddressOf(g_Entities[kBullet]),   AddressOf(g_Entities[kFakePickup]),
-        0,                                AddressOf(g_Entities[kGarbage]),
+        AddressOf(g_Entities[kPlayer]),      AddressOf(g_Entities[kEnemyA]),
+        AddressOf(g_Entities[kPickup]),      AddressOf(g_Entities[kPickupFree]),
+        AddressOf(g_Entities[kTearNear]),    AddressOf(g_Entities[kSizeOnly]),
+        AddressOf(g_Entities[kNoQuery]),     AddressOf(g_Entities[kFamiliar]),
+        AddressOf(g_Entities[kCharmed]),     AddressOf(g_Entities[kBullet]),
+        AddressOf(g_Entities[kFakePickup]),  0,
+        AddressOf(g_Entities[kGarbage]),
     };
     g_LiveArrayBytes.assign(sizeof(live), 0);
     for (std::size_t index = 0; index < sizeof(live) / sizeof(live[0]); ++index) {
@@ -406,12 +427,12 @@ bool HarnessHasCollectible(void* entity, std::uint32_t collectibleId, bool ignor
 
 std::string BuildPrelude() {
     std::string text = "EXPECT = {\n";
-    const char* names[] = {"player",  "enemyA",       "pickup",     "tearNear", "sizeOnly",
-                           "noQuery", "familiar",     "charmed",    "bullet",   "fakePickup",
-                           "garbage", "effect",       "effectNoQuery"};
-    const EntitySlot slots[] = {kPlayer,  kEnemyA,       kPickup,     kTearNear, kSizeOnly,
-                                kNoQuery, kFamiliar,     kCharmed,    kBullet,   kFakePickup,
-                                kGarbage, kEffect,       kEffectNoQuery};
+    const char* names[] = {"player",  "enemyA",       "pickup",     "tearNear",     "sizeOnly",
+                           "noQuery", "familiar",     "charmed",    "bullet",       "fakePickup",
+                           "garbage", "effect",       "effectNoQuery", "pickupFree"};
+    const EntitySlot slots[] = {kPlayer,  kEnemyA,       kPickup,     kTearNear,      kSizeOnly,
+                                kNoQuery, kFamiliar,     kCharmed,    kBullet,        kFakePickup,
+                                kGarbage, kEffect,       kEffectNoQuery, kPickupFree};
     for (std::size_t index = 0; index < sizeof(slots) / sizeof(slots[0]); ++index) {
         text += "  ";
         text += names[index];
@@ -617,16 +638,16 @@ end
 local function verifyRadiusAndPartitions()
   local center = Vector(80, 280)
 
-  -- 全部七个分区、半径 100：活表 8 个（空指针/坏 vptr/FLAG_NO_QUERY 三个都被跳过）
-  -- + 玩家向量 1 个（与活表重复 → 必须去重）+ EFFECT 表 1 个 = 9。
-  checkArray(Isaac.FindInRadius(center, 100, ALL_PARTITIONS), 9, 'all partitions')
+  -- 全部七个分区、半径 100：活表 9 个（三类坏元素 —— 空指针、坏 vptr ×2、FLAG_NO_QUERY
+  -- —— 共四个被跳过）+ 玩家向量 1 个（与活表重复 → 必须去重）+ EFFECT 表 1 个 = 10。
+  checkArray(Isaac.FindInRadius(center, 100, ALL_PARTITIONS), 10, 'all partitions')
   checkSet(Isaac.FindInRadius(center, 100, ALL_PARTITIONS),
-           { 'player', 'enemyA', 'pickup', 'tearNear', 'sizeOnly', 'familiar', 'charmed',
-             'bullet', 'effect' }, 'all partitions')
+           { 'player', 'enemyA', 'pickup', 'pickupFree', 'tearNear', 'sizeOnly', 'familiar',
+             'charmed', 'bullet', 'effect' }, 'all partitions')
 
   -- EID 的真实掩码（57）：FAMILIAR+ENEMY+PICKUP+PLAYER，TEAR/BULLET/EFFECT 都要排除。
   checkSet(Isaac.FindInRadius(center, 100, EID_SEARCH_PARTITIONS),
-           { 'player', 'enemyA', 'pickup', 'sizeOnly', 'familiar', 'charmed' },
+           { 'player', 'enemyA', 'pickup', 'pickupFree', 'sizeOnly', 'familiar', 'charmed' },
            'EID searchPartitions')
 
   -- 半径含 Size，且是**严格** `dist² < (radius + Size)²`：
@@ -656,7 +677,7 @@ local function verifyRadiusAndPartitions()
   end
   checkSet(Isaac.FindInRadius(center, 100, BULLET), { 'bullet' }, 'BULLET')
   checkSet(Isaac.FindInRadius(center, 100, TEAR), { 'tearNear' }, 'TEAR')
-  checkSet(Isaac.FindInRadius(center, 100, PICKUP), { 'pickup' }, 'PICKUP')
+  checkSet(Isaac.FindInRadius(center, 100, PICKUP), { 'pickup', 'pickupFree' }, 'PICKUP')
   checkSet(Isaac.FindInRadius(center, 100, PLAYER), { 'player' }, 'PLAYER')
   checkSet(Isaac.FindInRadius(center, 100, EFFECT), { 'effect' }, 'EFFECT')
   checkSet(Isaac.FindInRadius(center, 100, ENEMY), { 'enemyA', 'sizeOnly', 'charmed' }, 'ENEMY')
@@ -676,7 +697,7 @@ local function verifyRadiusAndPartitions()
   -- 掩码 0 → 没有任何分区 → 空表（但仍然是"数组"）。
   checkArray(Isaac.FindInRadius(center, 100, 0), 0, 'mask 0')
   -- 缺第三个参数时用 PC 的默认值（0xFFFFFFFF = 全部分区）。
-  checkArray(Isaac.FindInRadius(center, 100), 9, 'default partitions')
+  checkArray(Isaac.FindInRadius(center, 100), 10, 'default partitions')
   -- 参数不可用 → 空表，不报错。
   checkArray(Isaac.FindInRadius(42, 100, ALL_PARTITIONS), 0, 'non-Vector position')
   checkArray(Isaac.FindInRadius(center, -5, ALL_PARTITIONS), 0, 'negative radius')
@@ -706,8 +727,10 @@ local function verifyFindByType()
 
   -- ★ 第 4 个参数是忏悔版的 `Cache`（纯性能提示），**不是**旧文档里的 `Nearest`：
   -- EID 用 `Isaac.FindByType(5, 100, -1, true, false)` 拿房间里**所有**收藏品底座
-  -- （`main.lua:366`/`826`/`1133`），所以传 true 时必须仍然返回全部两个。
-  checkSet(Isaac.FindByType(5, 100, -1, true, false), { 'pickup', 'fakePickup' }, 'FindByType cache=true')
+  -- （`main.lua:366`/`826`/`1133`），所以传 true 时必须仍然返回全部三个
+  -- （两个真 vptr 的 `pickup`/`pickupFree` + 一个 vptr 越界的 `fakePickup`）。
+  checkSet(Isaac.FindByType(5, 100, -1, true, false), { 'pickup', 'pickupFree', 'fakePickup' },
+           'FindByType cache=true')
 
   checkArray(Isaac.FindByType(), 0, 'FindByType no arguments')
   checkArray(Isaac.FindByType('nope', -1, -1), 0, 'FindByType non-integer type')
@@ -768,19 +791,56 @@ local function verifyEntityView()
   check(casted ~= nil, 'a player entity must cast to EntityPlayer')
   check(casted.Type == 1, 'the cast must keep the player fields')
   check(casted:GetPlayerType() == 0, 'the cast must reach EntityPlayer methods')
+  -- ★★ 玩家视图必须能走到**只挂在 `Entity` 上的**方法（PC 里 `EntityPlayer` 就是 `Entity` 的子类）。
+  --   机制在 `isaac_api.cpp` 的 `IndexEntity`：查完本视图元表的 `__methods` 之后，
+  --   `view != EntityView::Base`（Player / Pickup）会**回落到 `Entity` 的元表**再查一次。
+  --   `GetSprite` 正是那种只挂在 `Entity` 上的方法，而 EID 真的在玩家句柄上调它
+  --   （`features/eid_holdmapdesc.lua:146` 的 `player:GetSprite():GetAnimation()`）
+  --   ⇒ 这条用例钉住"玩家句柄能调基类方法"，防止有人把那段回落当成死代码删掉、
+  --   或者反过来误以为"要给每个子类族各补一条基类方法"。
+  check(casted:GetSprite() ~= nil, 'an EntityPlayer view must reach the base Entity methods')
   -- `HasCollectible` 是玩家专属引擎调用：句柄必须能走到注入的实现，参数与返回值原样往返。
   check(casted:HasCollectible(1) == true, 'HasCollectible(1) must be true')
   check(casted:HasCollectible(2) == false, 'HasCollectible(2) must be false')
 end
 
+-- 批次 242（2026-09-30）：**下转族** 5 条 —— `Entity:ToNPC` / `ToTear` / `ToLaser` /
+-- `ToEffect` / `ToKnife`。判据与 `ToPickup`/`ToFamiliar` **同一形态**：
+-- `vptr` 精确等于 `base + <类>VtableOffset` 才放行，否则返回 `nil`（PC 的"转换失败"口径，
+-- `Entity.md:631/635` 那一句 "If the conversion is not successful, this function returns nil"）。
+--
+-- 这里钉**反例方向**（宿主夹具里没有这五类的实体）：拿一条**不是**它们的实体喂进去，
+-- 五条必须都返回 `nil`，而且**不许报错** —— 报错会摘掉整条模组回调，
+-- 比返回 `nil` 严重得多（模组普遍写 `if x:ToTear() then`）。
+-- ★ 正例方向（真 `Entity_NPC`/`Entity_Tear` 能转成）需要夹具里造出对应 vtable 的实体，
+--   属**下一批**的事；本批只保证"不该转的绝不转、且不报错"。
+local function verifyDowncasts()
+  local pickup = Isaac.FindByType(5, 100, -1, false, false)[1]
+  check(pickup ~= nil, 'the fixture pickup must exist')
+  -- ★ 243 修正：判据从「精确 vptr」改成「Entity 家族区间 − 13 个非 NPC 直接子类」。
+  -- 这条掉落物的 vtable 正是 `Entity_Pickup` 那个**已知非 NPC** 的值 ⇒ 必须 nil。
+  -- （正例方向：`Entity_NPC` 及其 49 个子类都在区间内、也不在那 13 个里 ⇒ 会放行，
+  --   但那需要夹具造出对应 vtable 的实体，属下一批。）
+  check(pickup:ToNPC() == nil, 'a pickup is one of the 13 non-NPC Entity children: ToNPC must give nil')
+  check(pickup:ToTear() == nil, 'a pickup is not an Entity_Tear: ToTear must give nil')
+  check(pickup:ToLaser() == nil, 'a pickup is not an Entity_Laser: ToLaser must give nil')
+  check(pickup:ToEffect() == nil, 'a pickup is not an Entity_Effect: ToEffect must give nil')
+  check(pickup:ToKnife() == nil, 'a pickup is not an Entity_Knife: ToKnife must give nil')
+  -- 与同族的既有四条对齐：不该转的也一样是 nil。
+  check(pickup:ToPlayer() == nil, 'a pickup is not an Entity_Player: ToPlayer must give nil')
+  check(pickup:ToFamiliar() == nil, 'a pickup is not an Entity_Familiar: ToFamiliar must give nil')
+end
+
 local function verifyToPickup()
-  local pickupEntity, fakePickupEntity = nil, nil
+  local pickupEntity, fakePickupEntity, freePickupEntity = nil, nil, nil
   for _, entity in ipairs(Isaac.FindByType(5, 100, -1, false, false)) do
     if GetPtrHash(entity) == EXPECT.pickup then pickupEntity = entity
-    elseif GetPtrHash(entity) == EXPECT.fakePickup then fakePickupEntity = entity end
+    elseif GetPtrHash(entity) == EXPECT.fakePickup then fakePickupEntity = entity
+    elseif GetPtrHash(entity) == EXPECT.pickupFree then freePickupEntity = entity end
   end
   check(pickupEntity ~= nil, 'the real pickup must be found')
   check(fakePickupEntity ~= nil, 'the fake pickup must be found')
+  check(freePickupEntity ~= nil, 'the free pickup must be found')
 
   local view = pickupEntity:ToPickup()
   check(view ~= nil, 'Type==5 with the Entity_Pickup vtable must cast')
@@ -797,9 +857,17 @@ local function verifyToPickup()
   check(view.Index == 2, 'the pickup view must expose Index')
   check(type(view:GetData()) == 'table', 'the pickup view must reach Entity methods')
   check(view.NotAField == nil, 'an unknown pickup field must be nil')
-  -- `IsShopItem` 是安全 stub（恒 false）：EID 在卡片/药丸描述路径上无条件调用它
-  -- （`main.lua:1611`/`1636`），nil 方法会打断整段描述渲染。
-  check(view:IsShopItem() == false, 'EntityPickup:IsShopItem must answer false')
+  -- `IsShopItem()`：判据是 `Price != 0`（2026-09-29 取证，见 `isaac_api.cpp` 里那条的注释）——
+  -- 引擎 `Entity_Pickup::SetPrice(int)` @ `0x26B1C8` 的**首条指令**就是 `str w1, [x0, #0x564]`；
+  -- `Entity_Pickup::CanPickupShopItem` @ `0x271700` 拿 `+0x564` 做价格分支；
+  -- isaacscript 的 `PickupPrice` 枚举文档也写明「非卖品的 `Price` 恒为 0」。
+  -- `kPickup` 的 `Price` 是 15 ⇒ 必须 true；`pickupFree` 的是 0 ⇒ 必须 false。
+  -- 这一对断言同时挡掉「恒 false」「恒 true」「误用 `ShopItemId`」（它这里恰为 0）三种写法。
+  check(view:IsShopItem() == true, 'EntityPickup:IsShopItem must answer true when Price != 0')
+  local freeView = freePickupEntity:ToPickup()
+  check(freeView ~= nil, 'the free pickup (Price == 0) must cast')
+  check(freeView.Price == 0, 'the free pickup Price must be 0, got ' .. describe(freeView.Price))
+  check(freeView:IsShopItem() == false, 'EntityPickup:IsShopItem must answer false when Price == 0')
   -- `EntityPickup` 也会回落到 `Entity` 的字段（PC 里它就是 `Entity` 的子类）。
   check(view.InitSeed == EXPECTED_INIT_SEED, 'InitSeed must be readable through the pickup view')
 
@@ -941,13 +1009,13 @@ end
 
 local function verifySecondFrame()
   if SCENARIO == 'room_change' then
-    -- 换房间 → 房间 epoch 前进 → 旧的表必须失效（与 PC 的已知差异，见 `PushEntityDataTable`）。
+    -- 2026-10-14更正：2026-10-10已按PC恢复真实实体寿命，换房间不更换玩家GetData表；旧夹具原文存本批regressions。
     local player = Isaac.GetPlayer(0)
     check(player ~= nil, 'the player must still be there after the room change')
     local again = player:GetData()
     check(type(again) == 'table', 'GetData must still answer a table after a room change')
-    check(again ~= savedData, 'a room change must hand out a new table')
-    check(again.MARK == nil, 'mod data must not leak into the next room')
+    check(again == savedData, 'a surviving player must retain its data table across rooms')
+    check(again.MARK == 'v1', 'mod data must survive room changes with its owner')
     -- 查询在新的 `Room*` 上照常工作。
     checkSet(Isaac.FindInRadius(Vector(80, 280), 100, ENEMY), { 'enemyA', 'sizeOnly', 'charmed' },
              'queries after the room change')
@@ -1012,8 +1080,11 @@ local function run()
     check(Isaac.CountBosses() == 0, 'no base bosses')
     check(Isaac.GetPlayer(0) == nil, 'no base player')
     local level = Game():GetLevel()
-    local cursesOk = pcall(function() return level:GetCurses() end)
-    check(not cursesOk, 'GetCurses must report a Lua error while the state is unreadable')
+    -- 批次 250：读不到时给**回退值 0**（不再抛 Lua 错误）。旧口径"必须报错"的理由
+    -- 是"编 0 会让模组以为这一层没有诅咒"，但抛错会摘掉整条回调（GoodTrip 真机事故）。
+    local cursesOk, cursesValue = pcall(function() return level:GetCurses() end)
+    check(cursesOk, 'GetCurses must not raise while the state is unreadable')
+    check(cursesValue == 0, 'GetCurses must fall back to 0 while the state is unreadable')
     if frame == 1 then PHASE1_OK = 1 end
     if frame == 2 then PHASE2_OK = 1 end
     SCENARIO_OK = 1
@@ -1059,6 +1130,7 @@ local function run()
     verifyCounts()
     verifyEntityView()
     verifyToPickup()
+    verifyDowncasts()
     verifyEntitySprite()
     verifyPlayerGetters()
     verifyGetData()
@@ -1165,8 +1237,8 @@ class LuaEntityQueryTests(unittest.TestCase):
         self.assertIn("PHASE1_OK", result.stdout)
         self.assertIn("PHASE2_OK", result.stdout)
 
-    def test_get_data_survives_a_room_change_by_invalidating(self):
-        """换房间 → 房间 epoch 前进 → 旧的 ModData 表失效（与 PC 的已知差异）。"""
+    def test_get_data_survives_with_its_owner_across_room_changes(self):
+        """PC实体寿命：玩家仍存活时换房间保持同一GetData表与数据。"""
         result = self.run_scenario("room_change")
         self.assertIn("ENTITY_QUERY_DEGRADED scenario=room_change", result.stdout)
 

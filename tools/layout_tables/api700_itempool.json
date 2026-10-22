@@ -1,0 +1,20 @@
+{
+  "schema": "isaac-layout-table/1",
+  "build_id": "91C73FDD575061318D68886316AFEAC72388B2AB",
+  "struct": "ItemPool",
+  "rows": [
+    {
+      "name": "RoomBlacklist",
+      "offset": 2312,
+      "size": 16,
+      "type": "vector<bool>",
+      "confidence": "confirmed",
+      "semantic": "ResetRoomBlacklist独立证明908数据指针/910位数，按原生64位bitmap置位，不修改其他位。",
+      "evidence_files": [
+        "dist/apis700-20261016/ns-main/ItemPool-ResetRoomBlacklist-3caec4.txt",
+        "dist/apis700-20261016/pc-main/59fee0.txt"
+      ],
+      "judgement": "runtime/tests/test_api700_world.py"
+    }
+  ]
+}

@@ -1,0 +1,95 @@
+{
+  "schema": "isaac-mod-corpus-scope/1",
+  "note": "语料模组（`analysis/mod-corpus/*`）的**范围声明**：每个模组要么是 `target`（我们在接/已接 ⇒ 它的字段缺口必须逐条被 `tools/api_surface_ledger.json` 分诊，没登记就是红的），要么是 `deferred`（还没接 ⇒ 不要求逐条分诊，但**必须在这里点名 + 写理由**）。 为什么要有它：字段面工具（`tools/mod_api_gap_report.py` 第 ⑤ 段）对**任何**模组都能报出\"未登记缺口\"，而台账与门禁原来只覆盖默认模组（EID）⇒ 语料里其它模组的缺口\"会被打印、但没人被强迫分诊\"。2026-09-25 实测：16 个语料模组里合计 **146** 处未登记字段缺口 ⇒ \"每个模组都必须零缺口\"这种门禁装不上去；改成\"每个模组必须被显式声明\"之后，沉默消失了：要么分诊，要么写明\"还没接\"。 这份声明由 `runtime/tests/test_api_surface_ledger.py` 的门禁强制（每个语料目录都必须在这里出现、取值合法、理由够长）。",
+  "statuses": {
+    "target": "我们在接/已接这个模组 ⇒ 它的每一个字段缺口都必须被台账分诊（未登记即红）",
+    "deferred": "还没接 ⇒ 只要求在这里点名并写明理由；接它时把这一行改成 target，缺口就自动进入门禁"
+  },
+  "mods": [
+    {
+      "path": "analysis/mod-corpus/CyclingItemsAPI",
+      "status": "target",
+      "why": "2026-09-25 批次 129 起在接它（它的 `Isaac:GetFreeNearPosition` / `RNG:RandomInt` / `EntityPickup.Wait` 就是这一批摸出来的）；它的字段缺口必须逐条分诊 —— 现在那条 `Wait` 已登记进 `tools/api_surface_ledger.json`（planned）。"
+    },
+    {
+      "path": "analysis/mod-corpus/BOIStageAPI15",
+      "status": "deferred",
+      "why": "还没接这个模组（2026-09-25 只摸了 Cycling Items API）；接它时改成 target，它那几十条字段缺口就会自动进入门禁。"
+    },
+    {
+      "path": "analysis/mod-corpus/BossRushWaveCounter",
+      "status": "deferred",
+      "why": "还没接这个模组（同上）。它目前没有未登记字段缺口，但它同样要先声明 —— 免得\"没有缺口\"与\"没人看过\"混在一起。"
+    },
+    {
+      "path": "analysis/mod-corpus/ChallengeAPI",
+      "status": "deferred",
+      "why": "还没接这个模组（同上）。"
+    },
+    {
+      "path": "analysis/mod-corpus/Custom-Bossbar",
+      "status": "deferred",
+      "why": "还没接这个模组（同上）。"
+    },
+    {
+      "path": "analysis/mod-corpus/Enhanced-Boss-Bars",
+      "status": "deferred",
+      "why": "还没接这个模组（同上）。"
+    },
+    {
+      "path": "analysis/mod-corpus/FiendFolio-CommunityRooms",
+      "status": "deferred",
+      "why": "还没接这个模组（同上，且它目前没有未登记字段缺口）。"
+    },
+    {
+      "path": "analysis/mod-corpus/isaac-mod-config-menu",
+      "status": "deferred",
+      "why": "还没接这个模组（同上）。"
+    },
+    {
+      "path": "analysis/mod-corpus/isaac-planetarium-chance",
+      "status": "deferred",
+      "why": "还没接这个模组（同上）。"
+    },
+    {
+      "path": "analysis/mod-corpus/IsaacOnTwitchReloaded",
+      "status": "deferred",
+      "why": "还没接这个模组（同上）。"
+    },
+    {
+      "path": "analysis/mod-corpus/MinimapAPI",
+      "status": "deferred",
+      "why": "还没接这个模组（同上）。"
+    },
+    {
+      "path": "analysis/mod-corpus/MusicModCallback",
+      "status": "deferred",
+      "why": "还没接这个模组（同上）。"
+    },
+    {
+      "path": "analysis/mod-corpus/RepentancePlus",
+      "status": "deferred",
+      "why": "还没接这个模组（同上）。"
+    },
+    {
+      "path": "analysis/mod-corpus/TBOI_Better-Voiding",
+      "status": "deferred",
+      "why": "还没接这个模组（同上）。注：它对 `EntityPlayer:HasTrinket(x, false)`（两个参数）的调用是批次 130 修参数形状的实证来源。"
+    },
+    {
+      "path": "analysis/mod-corpus/Trinity",
+      "status": "deferred",
+      "why": "还没接这个模组（同上）。"
+    },
+    {
+      "path": "analysis/mod-corpus/whatsmydps",
+      "status": "deferred",
+      "why": "还没接这个模组（同上，且它目前没有未登记字段缺口）。"
+    },
+    {
+      "path": "analysis/mod-corpus/TheSpecialistForGoodItems",
+      "status": "target",
+      "why": "2026-09-26 起在接它（用户指定的优先模组：捡到四级物品时人物跳 Persona 4 的 Specialist 舞 + 放歌；工坊 id 2575911103，源码从用户本机创意工坊目录拷入）。它的 4 条硬缺口（Isaac:GetMusicIdByName / EntityPlayer:AddNullCostume / TryRemoveNullCostume / Isaac:GetCostumeIdByPath）与链式 MusicManager:UpdateVolume 必须逐条分诊。"
+    }
+  ]
+}

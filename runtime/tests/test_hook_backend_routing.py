@@ -26,7 +26,22 @@ EXPECTED = ("ManagerUpdate", "ManagerRender", "PreGetCollectible",
             "ImageManagerLoadFile", "ContentGetMountedFilePath",
             "MenuGameRender", "MenuTitleRender", "MenuManagerSetState",
             # 批次 098（禁成就）：闸门挂在 `SetReadOnly` 上，同样走入口中继。
-            "PersistentGameDataSetReadOnly")
+            "PersistentGameDataSetReadOnly",
+            # 批次 147（2026-09-26）：引擎那条"模组 content 加载"路的闸门
+            # （`ModManager::LoadConfigs` 入口），同样走入口中继。
+            "ModManagerLoadConfigs",
+            # 批次 363（2026-10-04）：`ANM2::Load` 入口中继（模组覆盖本体资源的最后一环）。
+            "Anm2Load",
+            # 批次 390（2026-10-07）：`MC_INPUT_ACTION` 的三条查询中继。
+            "ManagerIsActionPressed", "ManagerIsActionTriggered", "ManagerGetActionValue",
+            # 批次 396（2026-10-07）：`MC_ENTITY_TAKE_DMG` 的四条 + `MC_EVALUATE_CACHE`，
+            # 全部走零占洞入口中继。
+            "EntityTakeDamage", "EntityPlayerTakeDamage", "EntityPickupTakeDamage",
+            "EntitySlotTakeDamage", "EvaluateItems",
+            # 批次 397（2026-10-07）：补全回调（第 2 批）的三条 hookable 改走入口中继
+            # + `MC_POST_FIRE_TEAR`（同批，用批次 337 已定死的 ABI）。
+            "EntityKill", "NpcDeathRemove", "GameEnd", "FireTear",
+            'FamiliarCollision', 'NpcCollision', 'PlayerCollision', 'TearCollision', 'ProjectileCollision', 'KnifeCollision', 'BombCollision', 'NpcRender', 'ItemPoolGetPill', 'ItemPoolGetPillEffect', 'GameDevolveEnemy', 'NpcUpdateAi', 'GameSpawnEx', 'ItemPoolTrinketFirstRandom', 'ItemPoolTrinketSelected', 'RoomClearAward', 'EntityRemovePointers', 'EntityDestructorRemove', 'LevelCurseFirstRandom', 'LevelCurseEvaluation', 'PickupSelection', 'PickupSelectionSpecial', 'ItemPoolGetCard', 'ModManagerUnload', 'ConsoleUnknownLength', 'ConsoleUnknownCompare', 'HudRender', 'RoomConfigLoadStageBinary', 'LevelLoadRoom', 'ConsoleLifecycle')
 
 
 def catalog_entries(text):
@@ -57,11 +72,21 @@ class HookCatalogTests(unittest.TestCase):
             backends,
             ["EntryRelay", "EntryRelay", "EntryRelay", "GotSlot", "EntryRelay", "RelaySlot",
              "EntryRelay", "EntryRelay", "EntryRelay", "EntryRelay", "EntryRelay",
-             "EntryRelay", "EntryRelay", "EntryRelay", "EntryRelay",
+             "Internal", "EntryRelay", "EntryRelay", "EntryRelay",
              # 批次 077 的三个入口中继。
              "EntryRelay", "EntryRelay", "EntryRelay",
              # 批次 092：成就解锁的唯一漏斗（入口中继）。
-             "EntryRelay"],
+             "EntryRelay",
+             # 批次 147：模组 content 加载闸门（`ModManager::LoadConfigs` 入口中继）。
+             "EntryRelay",
+             # 批次 363：`ANM2::Load` 入口中继。
+             "EntryRelay",
+            # 批次 390（2026-10-07）：`MC_INPUT_ACTION` 的三条查询中继。
+            "EntryRelay", "EntryRelay", "EntryRelay",
+            # 批次 396（2026-10-07）：`MC_ENTITY_TAKE_DMG` 四条 + `MC_EVALUATE_CACHE`。
+            "EntryRelay", "EntryRelay", "EntryRelay", "EntryRelay", "EntryRelay",
+            # 批次 397（2026-10-07）：补全回调（第 2 批）的四条。
+            "EntryRelay", "EntryRelay", "EntryRelay", "EntryRelay"] + ["EntryRelay"] * 11 + ["GotSlot", "EntryRelay"] + ["Internal"] * 3 + ["GotSlot", "Internal"] + ["Internal"] * 4 + ["GotSlot", "GotSlot", "Internal", "Internal", "GotSlot", "GotSlot", "GotSlot", "GotSlot"],
             "M2b 之后：入口中继 + ManagerPresent 走 GOT 槽；"
             "GameStart 走 RelaySlot（引擎侧中继已放好代码，我们只往槽里写回调指针）；"
             "批次 102 的四个事件靶点都走入口中继（零占洞）")
@@ -81,7 +106,7 @@ class HookCatalogTests(unittest.TestCase):
     def test_routing_adapter_delegates_to_all_backends(self):
         cpp = (ROUTING.parent / "hook_routing_adapter.cpp").read_text(encoding="utf-8")
         self.assertIn("kHookBackends", cpp)
-        for member in ("legacy_", "relay_", "gotSlot_"):
+        for member in ("legacy_", "relay_", "gotSlot_", "relaySlot_", "internal_"):
             self.assertIn(member, cpp)
 
 

@@ -33,7 +33,79 @@ REPORT_TOOL = ROOT / "tools" / "lua_api_stub_report.py"
 
 #: ★ 桩的条数**上限**：只能降不能升（2026-09-18 首次登记 = 15；批次 026 修掉四条 ⇒ 11）。
 #: 要涨必须在提交信息里说明为什么新增一个"什么都不读的处理器"，并同时改这个数字。
-STUB_BUDGET = 11
+#:
+#: ★ 2026-09-25（批次 127）**11 → 13**：`Isaac:WorldToScreen` / `WorldToRenderPosition` 进表。
+#: 它们**不是新增的桩**，而是**一直就是桩、只是没被认出来** —— `isaac_api.cpp` 的 `enum class Stub`
+#: 里明明有这两条、注释还写着"与台账双向一致"，但它们把桩逻辑共享在具名助手 `WorldToIdentity` 里，
+#: 旧判据只看处理器自己的正文 ⇒ 判成真实现。判据补了"一层委托"与 `Stub::` 标记（见
+#: `tools/lua_api_stub_report.py` 文件头）之后，台账与源码才真的对上了。
+#: ⇒ 这个数字涨的原因是"**看见了两条原本看不见的**"，不是"新写了假实现"。
+#:
+#: ★★ 2026-09-28（审查第 3 遍，批次 174）**13 → 24**：`tools/lua_api_stub_report.py` 的
+#: `STUB_MARKERS` 补了 `lua_pushboolean(state, 0/1)` 与 `lua_pushinteger(state, 0)` 两类
+#: **直接压常量**的写法。起因是审查 Lua 接口面时把"我们实现的接口"与引擎符号表对账，
+#: 发现 7 条"引擎里**有同名成员函数**、我们却恒返回假值"的桩 —— 其中 3 条
+#: （`EntityPlayer:HasPlayerForm` / `CanPickRedHearts` / `SFXManager:IsPlaying`）
+#: **根本没进台账**，因为它们是恒假布尔而不是 `PushZero(`。
+#: 新增的 11 条**全是"一直就是桩、只是没被认出来"**（逐条已核实，见各条 `note`），
+#: 不是新写的假实现 —— 与 2026-09-25 那次 11 → 13 同一性质。
+#: 为什么**不收** `lua_pushnil(state)`："返回 nil" 常常是正确的语义（单人局的 `GetOtherTwin`），
+#: 收进来会把真实现判成桩（实测多认 6 条）⇒ 宁可漏、不可误。
+#:
+#: ★★ 2026-09-28（批次 177）**24 → 19 —— 第一次往下降**：批次 174 查出的 5 条
+#: "引擎里有同名成员函数、我们却恒返回假值"的桩**已经还清**（从手写假桩改成引擎方法数据行）：
+#: `EntityPlayer:GetPill` / `GetCard` / `GetZodiacEffect` / `HasPlayerForm` / `CanPickRedHearts`。
+#: 这 5 条**已从台账删除**（不是"留着但标已修"—— 本门禁的设计就是"修好了必须销账"，
+#: `test_ledger_matches_the_source_both_ways` 的双向判据会红）。
+#: ★ 同一批里 `EntityPlayer:GetGlyphOfBalanceDrop`（`0x0E010042`）与 `SFXManager:IsPlaying`
+#:   **当时都留在台账里**（理由逐条写在各自的 `note`）：前者引擎那个函数是
+#:   `void(this, uint&, uint&)`（**两个引用出参**）、而唯一的已知调用方 EID 要的是**表**
+#:   （`eid_repentogon.lua:265` 的 `dropIDTable[1]`），Lua 侧形状没有 PC 文档可对齐；
+#:   后者缺"引擎音效单例怎么拿"（`SoundEffects` 没有全局符号，得从 `Manager` 里翻）⇒
+#:   两条都要先把前置取证做掉，不能凭猜实现。
+#:
+#: **19 → 18（2026-09-28，批次 184）**：上面两条里的**前者做掉了** ——
+#: `EntityPlayer:GetGlyphOfBalanceDrop` 新增了形状 `EngineCallShape::Ref2U32Pair`
+#: （两个"入出参" + 返回一张两元表），手写"恒 0"桩删除 ⇒ 销账。
+#: `SFXManager:IsPlaying` **仍留在台账里**（仍然缺"音效单例怎么拿"这一条前置取证），
+#: 它的 `note` 里写着缺什么 —— 按本门禁的设计，**做不了就留着并写清缺什么，不许悄悄销账**。
+#:
+#: **18 → 17（2026-09-28，批次 185）**：上面那两条里的**后者也做掉了** ——
+#: `SFXManager:IsPlaying` 改成真调引擎（`SoundEffects::IsPlaying` @ `0x4A38AC`）。
+#: 补上了「音效单例怎么拿」：`Manager + 0x364A8`（反汇编取证：`Manager::PlaySound` 里
+#: `add x0, this, #0x364a8` 之后尾调用 import 桩 `SoundEffects::Play`）⇒ 销账。
+#: ⇒ 至此批次 177 留下的 **2 条靶子全部还清**（另一条 `GetGlyphOfBalanceDrop` 在批次 184）。
+#:
+#: （台账在本批之前已经是 **16 条** —— 那一步的来历见当时的改动日志；本批只负责下面这次下降。）
+#:
+#: ★★ **16 → 14（2026-09-29，批次 195）**：两条**恒值桩**改成真读数 ⇒ 销账 ——
+#:   * `EntityPlayer:HasGoldenBomb`：改成**字段数据行**（读 `Entity_Player + 0x16D9` 一个字节；
+#:     取值锚点 = 引擎自己的一对同名函数 `AddGoldenBomb @ 0x2FC3F0` / `RemoveGoldenBomb @ 0x2FC490`）；
+#:   * `Game:GetVictoryLap`：改成字段直读（`Game + 0x26FD50`；写它的就是 `Game::NextVictoryLap`，
+#:     另有五个独立读者）。
+#:   两条的偏移与逐条指令证据抄在 `runtime_constants.hpp`，消费者视角判据在
+#:   `runtime/tests/test_lua_entity_rng_and_fields.py`；它们同时被加进下面的
+#:   `FIXED_AND_MUST_STAY_FIXED`（修好了就不许回退成桩）。
+#:   ⚠️ 与批次 177 同一句口径：**还没上真机验收** ⇒ 只是"不再是假值"，不是"值已验真"。
+#: ★ 2026-09-29（批次 195）**14 → 3**：九条"什么都不读、直接编一个值"的处理器改成**真读数**
+#: （全部是这一批新取证的偏移/入口），它们**不再是什么都不读的桩** ⇒ 必须销账：
+#:   * `Isaac:WorldToScreen` / `WorldToRenderPosition`：真调引擎 `GetRenderPosition(pos, true)`
+#:     （两条只差"要不要再加 `Room[0x1938] + Game[0x24F9B0]`"）；同一批还新增了 `Isaac.ScreenToWorld`；
+#:   * `Input:IsButtonPressed` / `IsButtonTriggered`：真调 `KAGE::Input::ManagerBase` 的
+#:     `0x4F9504`（键盘码仍一律 false —— 平台固有，登记在偏离台账）；
+#:   * `ItemConfig:HasTags` / `ItemConfig_Item:HasTags`：tags 位掩码确证在 `Item + 0xC0`（u64/33 位），
+#:     口径 = 引擎自己三处同形的"任一命中"；
+#:   * `EntityPlayer:GetHearts` / `GetPoopMana` / `GetPoopSpell` / `GetModelingClayEffect` /
+#:     `GetPlayerFormCounter`：五个字段直读（`+0x16BC` / `+0x269C` / `+0x26A0` / `+0x2730` / `+0x1C54`）。
+#: ⚠️ 与批次 177 同一句口径：**这些新实现还没上真机验收** —— 只是"不再是假值"，不是"值已验真"。
+# ★ 2026-10-06（批次 381）：`Input:IsButtonTriggered` 不再被误判成桩 ——
+#   边沿改成"帧上采样 + 纯读"之后，处理器正文里不再直接碰引擎，而 `REAL_MARKERS` 当时
+#   只认"碰引擎 / 碰持久化层 / 碰编译进去的静态表 / 走通用跳板"这几种来源 ⇒ 漏了
+#   "**读输入边沿表**"这一种（那张表每帧由采样器读引擎设备对象填出来，见 `input_edge.hpp`）。
+#   补进 `REAL_MARKERS` 后它判回 `real`。**条数不变（仍是 3）** —— 它本来就**不在**台账里
+#   （台账里那 3 条是另外三条真桩），`--write` 也照旧写 3 条；这次是**判据补全**，
+#   不是新增或删除了桩（与批次 174 / 207 / 311 同一性质）。
+STUB_BUDGET = 3
 
 #: 已经修好的（2026-09-18，批次 018 及更早）：它们**不许**再出现在桩集合里。
 FIXED_AND_MUST_STAY_FIXED = (
@@ -50,6 +122,35 @@ FIXED_AND_MUST_STAY_FIXED = (
     "Isaac:LoadModData",
     "Isaac:SaveModData",
     "Isaac:RenderScaledText",
+    # 批次 192（2026-09-28）：`Input:IsMouseBtnPressed` 从"恒返回 false 的安全桩"改成**真实现**
+    # —— 指针源接上了触摸屏（`runtime/src/interfaces/lua/touch_pointer.hpp`），
+    # 语义由用户定为"手指在屏幕上 = 左键按下"。它**不再什么都不读**，所以必须销账。
+    # ⚠️ 它与 `Input:GetMousePosition` 一起把两条偏离从 `platform` 改档成 `debt`
+    #（见 `api_deviation.cpp` 的两条 `0x09010007`/`0x09010008`）。
+    "Input:IsMouseBtnPressed",
+    # 批次 195（2026-09-29）：两条"什么都不读、直接编一个值"的处理器改成**真读数** ——
+    #   * `EntityPlayer:HasGoldenBomb`：字段数据行，读 `Entity_Player + 0x16D9`（取值锚点 =
+    #     引擎自己的一对同名函数 `AddGoldenBomb` / `RemoveGoldenBomb`）；
+    #   * `Game:GetVictoryLap`：字段直读 `Game + 0x26FD50`（写它的就是 `Game::NextVictoryLap`）。
+    # 判据：`runtime/tests/test_lua_entity_rng_and_fields.py`（消费者视角：两个场景各读一次、
+    # 逐值可核；`HasGoldenBomb` 还在 `runtime/tests/test_lua_entity_player.py` 的夹具里钉住）。
+    "EntityPlayer:HasGoldenBomb",
+    "Game:GetVictoryLap",
+    # 批次 195（2026-09-29）：九条同上（逐条理由见 `STUB_BUDGET` 上面那段注释）。
+    # ★ 对 `Input` 那两条特别记一笔：它们进过表的理由是"引擎里没有按按键号查询的入口"，
+    #   **那条前提已被推翻**（入口在 `KAGE::Input::ManagerBase`，游戏自己就在用）——
+    #   所以这次不是"把桩换个写法"，是把整条路接上了引擎。
+    "Isaac:WorldToScreen",
+    "Isaac:WorldToRenderPosition",
+    "Input:IsButtonPressed",
+    "Input:IsButtonTriggered",
+    "ItemConfig:HasTags",
+    "ItemConfig_Item:HasTags",
+    "EntityPlayer:GetHearts",
+    "EntityPlayer:GetPoopMana",
+    "EntityPlayer:GetPoopSpell",
+    "EntityPlayer:GetModelingClayEffect",
+    "EntityPlayer:GetPlayerFormCounter",
 )
 
 

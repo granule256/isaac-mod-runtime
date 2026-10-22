@@ -134,6 +134,7 @@ enum class EntryRelayFailure : std::uint32_t {
     ArenaExhausted = 3,          // 竞技场耗尽（已用满 kMaxRelays 个槽）
     WriteVerifyFailed = 4,       // 写入后用只读地址读回校验失败
     PcRelativeInstruction = 5,   // 入口 16 字节含 PC 相对 / 相对定址指令
+    OriginalPublicationRejected = 6, // 外部回退发布被拒绝；入口未改写
 };
 
 constexpr std::uint32_t ToFailureCode(EntryRelayFailure failure) {
@@ -290,6 +291,58 @@ constexpr std::size_t SlotOffset(std::size_t index) {
 }
 
 // ---------------------------------------------------------------------------
+// 任意地址的 4 字节代码改写（"只改一条指令"的补丁与入口中继共用同一套写代码机制）
+// ---------------------------------------------------------------------------
+//
+// 由来（批次 193）：入口中继处理的是"函数入口 16 字节"这一种形态，而有一类补丁只需要把
+// **一条指令**换成另一条（原生小地图的触摸门控就是这种，见
+// `runtime/source/patch/minimap_touch_gate.hpp`）。两者"碰系统"的办法完全相同：
+// `exl::util::RwPages` 给同一块物理页映射一个可写别名 → 写 → `Flush()`
+// （`armDCacheFlush` + `armICacheInvalidate`）→ 再用只读地址读回校验。
+// 所以这里把它抽成一个 4 字节的改写原语，**不给第二套写代码的办法留位置**。
+//
+// 守卫语义与入口中继同口径（也是本项目的既定风格）：现场字与期望原值不符 ⇒
+// **一个字节都不写**，返回 `GuardMismatch`，让游戏保持原样。
+
+enum class CodeWordPatchFailure : std::uint32_t {
+    None = 0,               // 写入成功，且读回一致
+    InvalidAddress = 1,     // 地址为空 / 未按 4 字节对齐
+    GuardMismatch = 2,      // 现场 4 字节与期望原值不符（**未写任何字节**）
+    WriteVerifyFailed = 3,  // 写入后用只读地址读回不一致
+};
+
+constexpr std::uint32_t ToFailureCode(CodeWordPatchFailure failure) {
+    return static_cast<std::uint32_t>(failure);
+}
+
+// 纯函数："守卫 + 改写"都做在调用方给的 4 字节缓冲上。
+//   * 缓冲里的字（小端）≠ `expected` ⇒ 返回 `GuardMismatch`，且**一个字节都不改**；
+//   * 相等 ⇒ 把 `patched` 写进去，返回 `None`。
+//
+// 为什么守卫与写入必须是**同一个函数**：宿主机夹具（`runtime/tests/test_minimap_touch_gate.py`）
+// 把一块合成缓冲喂给**这一个函数**来证明"现场不符时不写"；真机路径则把 `RwPages` 的可写别名
+// 喂给它 —— 两边验的是同一份判据，而不是一份平行实现（本项目已经栽过
+// "两个工具各自抄一份口径 ⇒ 漂移"的跟头）。
+constexpr CodeWordPatchFailure RewriteCodeWordInBuffer(std::uint8_t* bytes, std::uint32_t expected,
+                                                       std::uint32_t patched) {
+    if (bytes == nullptr) {
+        return CodeWordPatchFailure::InvalidAddress;
+    }
+    if (LoadLittleEndianWord(bytes, 0) != expected) {
+        return CodeWordPatchFailure::GuardMismatch;
+    }
+    StoreLittleEndianWord(bytes, patched);
+    return CodeWordPatchFailure::None;
+}
+
+// 真机侧：在 `target` 处按上面的语义改写 4 字节。
+//   守卫读的是**只读**地址（游戏真正执行的那份映射）；写入走 `RwPages` 的可写别名，
+//   写完 `Flush()`；最后再用只读地址读回校验 —— 三步与 `TryInstallEntryRelay` 的入口改写
+//   逐条对应。返回失败码（`None` 表示已写入且读回一致）。
+CodeWordPatchFailure TryRewriteCodeWord(std::uintptr_t target, std::uint32_t expected,
+                                        std::uint32_t patched);
+
+// ---------------------------------------------------------------------------
 // 安装前置判定（纯函数：宿主机可直接测；真机路径同样只认这一份判定表）
 // ---------------------------------------------------------------------------
 
@@ -346,6 +399,13 @@ constexpr EntryRelayFailure EvaluateEntryRelayPreconditions(std::uintptr_t targe
 // 调用方应把它当不可恢复的异常处理，不要再重试）。
 bool TryInstallEntryRelay(std::uintptr_t target, const void* expectedEntry16,
                           std::uintptr_t callback, std::uintptr_t* outOriginalEntry);
+
+using EntryRelayOriginalPublisher = bool (*)(std::uintptr_t original, void* context) noexcept;
+// 外部callback消费的回退必须经publisher发布，而不是只写调用方局部out变量。
+// 整槽独立读回成功→publisher成功→才改入口；写后回滚不撤销已发布的有效回退。
+bool TryInstallEntryRelayWithPublisher(std::uintptr_t target, const void* expectedEntry16,
+    std::uintptr_t callback, EntryRelayOriginalPublisher publisher, void* context,
+    std::uintptr_t* outOriginalEntry = nullptr);
 
 // 已成功安装的中继数。
 std::size_t InstalledCount();

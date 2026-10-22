@@ -37,6 +37,10 @@ enum class ApiDomain : std::uint8_t {
     // 单独一个域的理由：PC 上模组开关在游戏菜单里、Lua 看不到模组清单，我们**没有**可对齐的
     // PC 语义；把它混进 `Global`/`Mod` 会让"PC 覆盖率"这类口径悄悄失真。
     ModMenu = 16,
+    // `HUD`（2026-09-29 批次 207）：`Game:GetHUD()` 的返回值。**独立域的理由与 `Seed` 逐字相同**
+    // —— 它是 `Game` 的成员，但在 PC 的 Lua 里是**自己的一个对象类**（`HUD:IsVisible()` /
+    // `SetVisible(bool)` 这些方法都不属于 `Game`）。混进 `Game` 会把"PC 覆盖率"这类口径搞歪。
+    Hud = 17,
 };
 
 // How much evidence exists for an API. Persistence stays Experimental until the

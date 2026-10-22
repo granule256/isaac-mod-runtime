@@ -27,12 +27,12 @@ struct DispatchReport {
 //
 // 汇总口径（PC 的 `ModCallbacks.md`）：
 //   * `anyTruthy` —— 任一条返回 true。`MC_PRE_*` 的"拦"约定就是它；
-//   * `hasInteger` / `integer` —— **第一条**返回整数的登记的值。`MC_POST_GET_COLLECTIBLE`
-//     的文档明确写着"返回的值不会更新后续回调看到的 SelectedCollectible"⇒ 后续回调拿到的仍是
-//     同一个原值，所以这里是"第一条胜出"，不是"最后一条覆盖"；
+//   * `hasInteger` / `integer` —— 道具池按最后一个有效整数覆盖，实参仍保持原值。
+//     输入等其他回调按各自契约汇总，不能由“实参不更新”推导“第一条胜出”。
 //   * `anyNonNil` —— 任一条返回过非 nil。用来实现"`MC_PRE_GET_COLLECTIBLE` 返回了非 nil
 //     ⇒ 跳过 `MC_POST_GET_COLLECTIBLE`"（同一份文档）。
 struct CallbackDispatchOutcome {
+    bool hasTable{false};
     std::uint32_t invoked{0};
     std::uint32_t failed{0};
     std::uint32_t skippedAffinity{0};
@@ -41,6 +41,10 @@ struct CallbackDispatchOutcome {
     bool anyTruthy{false};
     bool hasInteger{false};
     std::int64_t integer{0};
+    //: ★ 2026-10-07（批次 390）：**第一条**返回数字的登记的值（口径同 `integer` —— 第一条胜出）。
+    //: 为 `MC_INPUT_ACTION` 的 `GET_ACTION_VALUE` 加（覆盖值是 0.0~1.0 的 float）。
+    bool hasNumber{false};
+    double number{0.0};
 
     [[nodiscard]] constexpr bool blocked() const noexcept { return anyTruthy; }
 };
@@ -91,6 +95,20 @@ void ResetCallbackDispatchCounters() noexcept;
 //
 // 这是**近似**：它数的是 Runtime 的 update 派发次数，不是引擎自己的游戏内计时器
 // （引擎时钟偏移尚未定位，见 `isaac_api.cpp` 的 `Isaac.GetTime`）。
+//
+//: 帧边界钩子：每次 `MC_POST_UPDATE` 推进帧号（`ManagedFrameClock::MarkPostUpdateDispatch`）
+//: **之后**调用一次，参数 = 新的帧号。默认没有钩子（空指针）。
+//:
+//: 为什么要有它（批次 381，2026-10-06）：`Input.IsButtonTriggered` / `IsActionTriggered` 的
+//: 边沿必须"绑在引擎帧上"——每帧固定时刻采一次、只在那一帧有效（PC 契约 `Input.md:75/107`）。
+//: 采样点必须落在"帧号自增之后、回调派发之前"，否则模组在 `MC_POST_UPDATE` 里看不到本帧边沿。
+//: 用函数指针钩子（而不是在这里直接调输入层）：`callback_dispatcher` 属于 application 层，
+//: 直接调 `interfaces/lua` 会形成反向依赖；钩子由输入层在会话初始化时装一次。
+using FrameBoundaryHook = void (*)(std::uint64_t frame) noexcept;
+
+//: 装帧边界钩子（传 nullptr = 卸掉）。会话初始化时由输入层调用，幂等。
+void SetFrameBoundaryHook(FrameBoundaryHook hook) noexcept;
+
 class ManagedFrameClock {
 public:
     // 每次派发 MC_POST_UPDATE 时调用一次（dispatch 单线程路径，无锁）。
@@ -162,7 +180,8 @@ private:
         std::uint8_t* order, std::uint32_t* skippedAffinity,
         std::uint32_t* skippedFilter) noexcept {
         std::size_t count = 0;
-        for (std::size_t index = 0; index < registry.Count(); ++index) {
+        for (std::size_t position = 0; position < registry.Count(); ++position) {
+            const std::size_t index = registry.DispatchIndexAt(position);
             const CallbackDescriptor* descriptor = registry.AtIndex(index);
             if (descriptor == nullptr || descriptor->id != id) {
                 continue;
@@ -173,7 +192,8 @@ private:
             if (filterMode == FilterMode::Apply) {
                 const std::int64_t declared = registry.FilterAt(index);
                 if (declared != CallbackRegistry::kNoCallbackFilter &&
-                    (filter == CallbackRegistry::kNoCallbackFilter || declared != filter)) {
+                    filter != CallbackRegistry::kNoCallbackFilter &&
+                    declared != -1 && filter != -1 && declared != filter) {
                     if (skippedFilter != nullptr) {
                         ++(*skippedFilter);
                     }
@@ -188,18 +208,7 @@ private:
             }
             order[count++] = static_cast<std::uint8_t>(index);
         }
-        // 稳定插入排序：k 很小（EID 一家最多 10 条、GoodTrip 7 条），插入排序最快也最短，
-        // 而且天然稳定（严格大于才前移 ⇒ 相等的保持原相对次序）。
-        for (std::size_t i = 1; i < count; ++i) {
-            const std::uint8_t moved = order[i];
-            const std::int32_t movedPriority = registry.PriorityAt(moved);
-            std::size_t j = i;
-            while (j > 0 && registry.PriorityAt(order[j - 1]) > movedPriority) {
-                order[j] = order[j - 1];
-                --j;
-            }
-            order[j] = moved;
-        }
+        // 使用登记时的顺序后再过滤；删除或NaN都不能触发重新排序。
         return count;
     }
 

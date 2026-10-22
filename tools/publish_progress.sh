@@ -32,7 +32,12 @@ fi
 # 允许公开的路径（白名单）。**新增目录要显式加进来**，避免把设备备份/文档/第三方内容一起推上去。
 PUBLIC_PATHS=(runtime tools tests README.md CONTRIBUTING.md LICENSE .gitignore)
 # 白名单里也要**排除**的路径：第三方模组内容（可再分发的授权不明确），保持仓库不夹带他人作品。
-PUBLIC_EXCLUDES=(runtime/pc-mods/MuteOnPause runtime/.apiart-build)
+# ★ 2026-09-26（批次 135 收尾）补：`Stage149DrawTest` 里那三个 **EID 字体**（`eid_default.fnt` /
+#   `eid_default_0.png` / `eid_default_1.png`）是第三方模组（EID）的作品，不是我们的 ——
+#   2026-09-25 的公开仓库审计发现它们随着 `runtime/` 白名单一起被推了上去。
+#   只从**公开分支**撤下（本地文件保留、构建不受影响）；目录里只有这三个文件，所以按目录排除。
+PUBLIC_EXCLUDES=(runtime/pc-mods/MuteOnPause runtime/.apiart-build
+                 runtime/diagnostic/stage149/pc-mods/Stage149DrawTest/resources/font)
 
 # 守卫②：白名单路径下**不许有未跟踪文件/目录**。
 # 为什么：第 2 步用的是 `git add -A -- <白名单>`，它会连未跟踪文件一起收进来 ——

@@ -44,8 +44,18 @@ import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / 'tools'))
+from runtime_layout_budget import DEFAULT_CODE_LIMIT
+
 GDB_IMAGE = 'devkitpro/devkita64:latest'
-DEFAULT_ELF = 'runtime/.gdbsym-artifacts/runtime.elf'
+# 2026-10-10静态生产候选：默认符号和51hook必须来自同一冻结包。
+# 2026-10-14：100API候选采用本批最终ELF；设备仍需核实际SDK身份，未部署。
+# 2026-10-14：用户指定4MiB代码预算的同源新构建；旧API300包仍在原目录保留。
+# 2026-10-14：bug/API统一候选；尚未部署，设备读数仍需三锚点核对。
+# 2026-10-15：shader挂载读取静态修复；离线未部署，设备须核对应SDK身份。
+# 2026-10-15：补齐Random真实引擎源，278符号/8固定偏移同步；运行身份须核锚点。
+# 2026-10-16：第五批100项静态包，278符号同步；未部署，不能当作当前卡版。
+DEFAULT_ELF = 'dist/api-color-multiply-20261021/runtime-api-repairs.elf'
 
 # 运行时的符号偏移。**必须与设备上那份模块同版本**。
 # 同步时间：2026-09-14 23:09 构建（也就是设备上那份诊断版 `subsdk9`，410722 字节 /
@@ -74,95 +84,412 @@ class _SymbolTable(dict):
 
 
 SYMS = _SymbolTable({
+    # 2026-10-14统一候选：实际ELF的模组拥有者名称表。
+    'g_ModOwnerNames': 0x5612a0,
+    'shader_screen_intercept': 0x55740,
     # ---- 代码锚点（只用于核对版本，不作为"变量"读）----
-    'identity': 0x27e48,              # IsaacModRuntime_GetRuntimeIdentity
-    'exl_main': 0x8890,               # 模块入口（旧表写 0x8840，那是 20:00 那次的构建）
-    'manifest_install': 0x361c,       # TryInstallDefaultManifestMod（本次诊断改的就是它）
-    'entry_relay_update': 0x1910,     # EntryRelayManagerUpdateCallback（更新挂点入口中继）
-    'entry_relay_render': 0x1904,     # EntryRelayManagerRenderCallback（渲染挂点）
-    'entry_relay_collectible': 0x1f7c,  # EntryRelayPreGetCollectibleCallback
-    'entry_relay_rebuild': 0x1ff8,    # EntryRelayRebuildMountPointsCallback
-    'present_got_intercept': 0x16e4,  # IsaacModRuntime_PresentGotSlotIntercept
+    'identity': 0xfbb88,              # IsaacModRuntime_GetRuntimeIdentity
+    'exl_main': 0x342e0,               # 模块入口（旧表写 0x8840，那是 20:00 那次的构建）
+    'manifest_install': 0x9e38,       # TryInstallDefaultManifestMod（本次诊断改的就是它）
+    'entry_relay_update': 0x7c0c,     # EntryRelayManagerUpdateCallback（更新挂点入口中继）
+    'entry_relay_render': 0x4080,     # EntryRelayManagerRenderCallback（渲染挂点）
+    'entry_relay_collectible': 0x474c,  # EntryRelayPreGetCollectibleCallback
+    'entry_relay_rebuild': 0x4e7c,    # EntryRelayRebuildMountPointsCallback
+    'present_got_intercept': 0x2100,  # IsaacModRuntime_PresentGotSlotIntercept
     # ---- 运行状态（相对我们的运行时模块）----
-    'g_runtimeSelfAddress': 0x23476b8,
-    'g_sequence': 0x2347940,          # TestRunObserver 状态机：走过的步数
-    'g_stateDetail': 0x2347948,       # 低 32 位 = 状态号，高 32 位 = 该步的 detail
-    'g_diagnosticFileApi': 0x23478f8,
-    'g_hookCallbacks': 0x2339620,
-    'g_HookInstallResults': 0x2345c8,   # 16 字诊断数组（线格式，见 IsaacModRuntime_GetHookDiagnostics）
-    'g_HookEnabled': 0x234610,
-    'g_RenderPresentRelayState': 0x2345bc,
+    'g_runtimeSelfAddress': 0x9de01a8,
+    'g_sequence': 0x9de0410,          # TestRunObserver 状态机：走过的步数
+    'g_stateDetail': 0x9de0418,       # 低 32 位 = 状态号，高 32 位 = 该步的 detail
+    'g_diagnosticFileApi': 0x9de03e8,
+    'g_hookCallbacks': 0x9dc1370,
+    'g_HookInstallResults': 0x3f64e4,   # 16 字诊断数组（线格式，见 IsaacModRuntime_GetHookDiagnostics）
+    'g_HookEnabled': 0x3f6540,
+    'g_RenderPresentRelayState': 0x3f64d8,
     # 2026-09-16 卡上开关（一份包测多种配置，见 hook_manager.cpp 的那一节）：
     #   [0] 掩码：bit i = 第 i 个名字的 `<名字>.on` 在卡上（位序见 CARD_SWITCH_NAMES）
     #   [1] 通道：bit0 = 至少一次查询成功；bit1 = 至少一次查询失败（通道不可用）
     # 没这两个量就分不清"开关没读到"与"开关生效了但没用"——那会把整个二分带偏。
-    'g_CardSwitchMask': 0x0,
-    'g_CardSwitchChannel': 0x0,
-    'g_PresentGotSlotTarget': 0xb40f0,
+    'g_CardSwitchMask': 0x3f64d0,
+    'g_CardSwitchChannel': 0x3f64cc,
+    'g_PresentGotSlotTarget': 0x2721c0,
     # ---- 2026-09-14 夜间加：清单/挂点失败原因（这次读数的主角）----
-    'g_DefaultManifestFailureWord': 0x234598,   # 诊断字 [11]，打包格式见 mod_load_step.hpp
-    'g_DefaultManifestFailureDetail': 0x23459c,  # 步骤字（1..4 失败、5 纯资源、6 自动发现）
-    'g_DefaultManifestState': 0x2345a0,
+    'g_DefaultManifestFailureWord': 0x3f64a8,   # 诊断字 [11]，打包格式见 mod_load_step.hpp
+    'g_DefaultManifestFailureDetail': 0x3f64ac,  # 步骤字（1..4 失败、5 纯资源、6 自动发现）
+    'g_DefaultManifestState': 0x3f64b0,
     # 清单 + 扫目录的合并结果（2026-09-21：「拷进 mods/ 就能用」）：
     #   [0] = 除清单之外多追加了几个目录；[1] = 合并状态码（0 = 成功）
-    'g_AutoAppendedMods': 0x0,
-    'g_AutoAppendStatus': 0x0,          # 0 未武装 1 已武装 2 安装中 3 就绪 4 失败
-    'g_HookInstallFailureCode': 0x234614,        # 入口中继后端转发的失败码（0 = 无失败）
-    'g_HookInstallFailureSlot': 0x234618,        # 第一个失败挂点 index+1（0 = 没有装失败的）
-    'g_HookInstallInstalledCount': 0x23461c,     # 装好的挂点数（函数内静态，见 SYM_ELF_NAMES）
+    'g_AutoAppendedMods': 0x3f64a4,
+    'g_AutoAppendStatus': 0x3f64a0,          # 0 未武装 1 已武装 2 安装中 3 就绪 4 失败
+    'g_HookInstallFailureCode': 0x3f65ac,        # 入口中继后端转发的失败码（0 = 无失败）
+    'g_HookInstallFailureSlot': 0x3f65b0,        # 第一个失败挂点 index+1（0 = 没有装失败的）
+    'g_HookInstallInstalledCount': 0x3f65b4,     # 装好的挂点数（函数内静态，见 SYM_ELF_NAMES）
     # 贴图桥（2026-09-21）：转码失败计数（u32）与最近一次请求的路径（128 字节 C 串，
     # 零散读词后按 ASCII 解码——用来在真机上确认引擎传进回调的路径形状）。
-    'image_pcx_bindings': 0x0,
+    'image_pcx_bindings': 0x3f6420,
     # 模组数据容器（`ModPersistence::detail::g_cache`）的**尾部字段**：payload 是 16 KiB，
     # 尾部依次是 payloadLength(u64)/generation(u64)/loaded(u8)/exists(u8)。
     # 取值时用 `SYMS['g_ModDataCache'] + 0x4000`（见 build_requests 的 `mod_data_tail`）。
-    'g_ModDataCache': 0x2353208,
-    'g_PendingGameStarted': 0x234624,            # 待派发的"游戏开局"事件
+    'g_ModDataCache': 0x9ddbce8,
+    'g_PendingGameStarted': 0x455d78,            # 待派发的"游戏开局"事件
     # ---- Lua 侧 ----
-    'g_ModRegistered': 0x334da4,       # 模组是否登记成功（1 字节；= Lua 真的跑起来了）
+    'g_ModRegistered': 0x556a2c,       # 模组是否登记成功（1 字节；= Lua 真的跑起来了）
     # 回调派发次数（无 ELF 时的兜底偏移；有 ELF 时由 `sync_syms_from_elf()` 刷新）
-    'g_UpdateCallbackEntries': 0x2345b0,
-    'g_RenderCallbackEntries': 0x2345b4,
+    'g_UpdateCallbackEntries': 0x3f64e0,
+    'g_RenderCallbackEntries': 0x3f64dc,
     # 自 journal（模块**自己**用 libnx fs 写 SD 的那条路）：会话状态与最后一条记录。
     # 这些量没有兜底偏移 —— 没有 ELF 就如实报"读不到"，绝不用别的地址凑。
     # 2026-09-16 多模组加载：登记成功的 Mod **个数**（清单里有几个 enabled，就该是几）。
     # 偏移由 `sync_syms_from_elf()` 按符号名自动同步，这里只是无 ELF 时的兜底值。
-    'g_ModRegisteredCount': 0x334da8,
-    'g_LastLuaErrorLength': 0x334c94,
-    'g_LastLuaErrorText': 0x334c98,    # 256 字节文本
-    'g_PostUpdateCount': 0x334c80,
+    'g_ModRegisteredCount': 0x556a28,
+    'g_LastLuaErrorLength': 0x556900,
+    'g_LastLuaErrorText': 0x556910,    # 256 字节文本
+    'g_PostUpdateCount': 0x5564d0,
     # 回调派发计数（2026-09-18 新增，见 `callback_dispatcher.hpp`）：74 个 u32，下标就是 PC
     # `ModCallbacks` 的数值；相邻两个标量**分散**排布（链接器重排过），所以各读各的地址。
     # 无 ELF 时下面这三个兜底值不可信 —— 一律靠 `sync_syms_from_elf()` 按符号名同步。
-    'g_CallbackDispatchCounts': 0x0,
-    'g_LastDispatchedCallbackId': 0x0,
-    'g_CallbackDispatchGeneration': 0x0,
-    'g_CallbackRegistry': 0xa0578,     # 回调登记表：布局见下面的 `CALLBACK_REGISTRY_*` 常量
+    'g_CallbackDispatchCounts': 0x9dbcb78,
+    'g_LastDispatchedCallbackId': 0x24f800,
+    'g_CallbackDispatchGeneration': 0x9dbcb70,
+    'g_CallbackRegistry': 0x238b50,     # 回调登记表：布局见下面的 `CALLBACK_REGISTRY_*` 常量
     # ---- 运行时读进来的文件内容（诊断"模组为什么算纯资源型"的关键）----
-    'g_DefaultManifest': 0x1b4560,     # 上次读进来的 `manifest.json` 原文（512 KiB 缓冲）
-    'g_DefaultEntry': 0xb4560,         # 上次读进来的入口脚本原文（1 MiB 缓冲）
+    'g_DefaultManifest': 0x376420,     # 上次读进来的 `manifest.json` 原文（512 KiB 缓冲）
+    'g_DefaultEntry': 0x276420,         # 上次读进来的入口脚本原文（1 MiB 缓冲）
     # ---- 游戏开局中继的三格（相对**游戏模块**；来源 `runtime_constants.hpp` 的
     #      `kGameStart*` 常量。`--elf` 同步不会碰它们，因为它们是游戏模块的偏移、不是我们的符号）----
-    'gamestart_saved_callsite': 0x3F92A4,
-    'gamestart_new_callsite': 0x3F93F8,
-    'gamestart_relay_slot': 0x68CCC0,
+    'gamestart_saved_callsite': 0x3f92a4,
+    'gamestart_new_callsite': 0x3f93f8,
+    'gamestart_relay_slot': 0x68ccc0,
     # ---- 下面三条都相对**游戏模块**----
-    'manager_update_entry': 0x3F8DB8,  # `Manager::Update` 入口（该是原样 `ff4301d1...`）
-    'manager_render_entry': 0x3F9684,  # `Manager::Render` 入口（该是原样 `ffc302d1...`）
-    'present_callsite_offset': 0x3F9B40,  # `Manager::Render` 体内那次 `bl Present`
-    'present_got_slot': 0xA9E488,      # Present 的 GOT 槽（应等于 运行时基址 + present_got_intercept）
-    'present_target': 0x4F3014,        # `Present` 本体（期望值比对用）
+    'manager_update_entry': 0x3f8db8,  # `Manager::Update` 入口（该是原样 `ff4301d1...`）
+    'manager_render_entry': 0x3f9684,  # `Manager::Render` 入口（该是原样 `ffc302d1...`）
+    'present_callsite_offset': 0x3f9b40,  # `Manager::Render` 体内那次 `bl Present`
+    'present_got_slot': 0xa9e488,      # Present 的 GOT 槽（应等于 运行时基址 + present_got_intercept）
+    'present_target': 0x4f3014,        # `Present` 本体（期望值比对用）
     # ---- 游戏控制台（批次 121）----
     # 控制台**自报一份**状态面（`runtime/src/infrastructure/console/console_bridge.hpp` 的
     # `BridgeState`，18 个 u32）。没有兜底偏移：**只能靠 `--elf` 按符号名同步**，
     # 同步不到就如实报"读不到"，绝不用别的地址凑。
-    'g_ConsoleState': 0x0,
+    'g_ConsoleState': 0x3f66c8,
+    # ---- 批次 363（2026-10-04）：`ANM2::Load` 入口中继的状态面 ----
+    # 这 8 个 u32 是"模组覆盖本体资源"这条链的常驻判据（用户 2026-10-04 明确要求补一条）：
+    #   [0] relayState    0 未试 / 1 已装 / 2 未装
+    #   [1] relayFailure  安装失败码（0 = 无）
+    #   [2] callbackCount 中继被调次数（分母：0 = 这条路压根没走到）
+    #   [3] resolverAsked 问解析器次数
+    #   [4] staleFound    找到"本体旧条目"的次数
+    #   [5] evicted       真正作废并回收的次数
+    #   [6] lastPathHash  最近一条"答模组层"的路径哈希
+    #   [7] mountListFlags ★ 2026-10-05（批次 368）从"对齐保留"改成有含义：bit0 = 引擎挂载点表里
+    #                     没见过模组前缀；bit1 = 出现过"同一路径本会话已作废过 ⇒ 跳过"。
+    #                     （★ 更正：下面原文写的 "[7] reserved 对齐保留（恒 0）" 已过时，原文保留在下面。）
+    #   [7] reserved      对齐保留（恒 0）
+    #   [8] callbackFirstTicks ★★★ 2026-10-06（批次 384）：**本条中继"第一次被调用"的时刻**
+    #                     （`RuntimePerfTick()` 的低 32 位；0 = 一次都没被调过）。与 `g_EarlyMountState`
+    #                     里 `Game::Init` 那个时刻**同源同单位** ⇒ 比大小就能判"引擎最初那次读
+    #                     有没有走我们的中继"（晚于它 ⇒ 没走到 ⇒ 缓存被本体钉死）。
+    #   [9] reservedAlign 对齐保留（恒 0）
+    # 判读：`evicted > 0` 且 `staleFound > 0` ⇒ 这条链真的在修"旧缓存压住模组"。
+    # 没有兜底偏移：**只能靠 `--elf` 按符号名同步**，同步不到就如实报"读不到"。
+    'g_Anm2LoadOverrideState': 0x9de0570,
+    # ---- 批次 378（2026-10-05）：**PC 的资源层重定向**（`mod_resource_redirect.*`）----
+    # 这是"模组资源到底有没有被引擎看见"这一批的**直接证据面**（旧机制那几格挂载计数已结构性为 0）。
+    # 结构体 = 10 个相邻 `uint32`（40 字节）+ 两条定长字符数组（查询 192B / 回答 224B）⇒ 456 字节。
+    #   [0] published        名单发布过没有（1 = 已发布）
+    #   [1] modCount         发布那一刻清单里的模组数
+    #   [2] calls            ★ 这个缝一共被问过几次（**含**被跳过的那些；扣掉 [7] 才是真正探测的次数）
+    #   [3] hits             ★ 其中**答了模组层路径**的次数（> 0 ⇒ 模组资源真的经这里进了引擎）
+    #   [4] dlc3Hits         命中 `<模组>/resources-dlc3/` 的次数（PC 的第一优先）
+    #   [5] plainHits        命中 `<模组>/resources/` 的次数（PC 的第二优先）
+    #   [6] lastHitMod       最近一次命中的模组下标（`0xFFFFFFFF` = 一次都没命中）
+    #   [7] skippedResolved  跳过"引擎自己已经解析成模组路径"的次数（请求带 `rom:/isaac_mods/`）
+    #   [8] skippedTooLong   候选路径装不下的次数（正常情况下恒 0）
+    #   [9] publishCount     清单被发布过几次
+    # 判读：`hits > 0` ⇒ 这条重定向**真的在工作**（配合 `lastQuery`/`lastAnswer` 看具体那一条）；
+    #       `calls > 0 且 hits == 0` ⇒ 在问、一条都没命中（先看那两条字符串与 `skippedTooLong`）。
+    # 没有兜底偏移：**只能靠 `--elf` 按符号名同步**，同步不到就如实报"读不到"。
+    'g_ModResourceRedirectState': 0x5b7c48,
+    # ---- 批次 370（2026-10-05）：**提前注册模组挂载点**那一段的时间轴与计数 ----
+    # 这 8 格（5 个 u64 tick + 3 个 u32）回答"我们比引擎第一次读共享路径早了没有"：
+    #   [0]  workerEnteredTicks       worker 线程进入 `ModuleWorker` 的那一刻
+    #   [1]  delayStartTicks          那 5 秒等待**开始**的那一刻（= 前置步骤结束）
+    #   [2]  gameModuleFoundTicks     `ScanTargetModule()` 第一次认出游戏模块
+    #   [3]  contentManagerFoundTicks `[游戏模块 + 0xAAC748]` 首次非 0
+    #   [4]  earlyMountsDoneTicks     提前挂载跑完（含失败）的那一刻
+    #   [5]  mountsAttempted          `RegisterMod` 调了几次
+    #   [6]  mountsFailed             其中失败几次
+    #   [7]  mountListHadModPrefix    挂完之后读引擎那张表：有 `isaac_mods` 前缀 = 1
+    # tick 口径 = `cntpct_el0`（19.2 MHz）；**0 = 那一步没走到**（不是"发生在 tick 0"）。
+    # 结构体是 **5 个相邻 u64 + 6 个 u32**（40 + 24 = 64 字节）⇒ 读 8 个 8 字节字：
+    # 时间戳按字取（`first`），计数按**真正的 u32 下标**取（`u32_at`，见它的注释）。
+    # 契约写在 `runtime/source/early_mod_mount_state.hpp`（字段顺序即内存顺序，两边同步改）。
+    # 没有兜底偏移：**只能靠 `--elf` 按符号名同步**，同步不到就如实报"读不到"。
+    'g_EarlyMountState': 0x5b7e10,
+    # ---- 2026-10-05 排查（批次 371 上卡后："MC_POST_RENDER 本会话一次都没派发"）----
+    # 这条链是**两条互斥的路**：Present 前中继（`state = Success` 时唯一的路）+ `Manager::Render`
+    # 入口中继的**回退**（只有 `state != Success` 才走）。`state = Success` ⇒ 回退被抑制
+    # ⇒ 只剩"Present 桩"这一条命脉，它一断就**静默归零、不崩不报错**。
+    # 下面这几格就是把这根命脉逐环量出来（都是**只读**取一个 8 字节字）：
+    #   g_RenderPresentRelayEntries —— `Present` 前那个派发函数**真的被进了几次**
+    #                                  （0 = 桩那条路没跑到；>0 = 跑到了、问题在闸门或下游）
+    #   g_DefaultCallbackGate       —— 渲染族独有的那道"默认回调闸门"（锁存：开过就一直开）
+    #   g_LuaGameOwnerSlot / g_LuaGameIsPausedThunk / g_MusicGetCurrentMusicId
+    #                               —— 闸门的三个输入（任一为 0 ⇒ 闸门恒闭，且**不报错**）
+    #   g_RenderFrameManager        —— 本帧交给闸门的 `Manager*`（错的话音乐就绪判定恒假）
+    # 契约写在 `runtime/source/hook_manager.cpp`（这些是文件作用域/匿名命名空间的量）。
+    # 没有兜底偏移：**只能靠 `--elf` 按符号名同步**，同步不到就如实报"读不到"。
+    'g_RenderPresentRelayEntries': 0x3f64d4,
+    'g_DefaultCallbackGate': 0x3f649c,
+    'g_LuaGameOwnerSlot': 0x3f64c0,
+    'g_LuaGameIsPausedThunk': 0x3f64b8,
+    'g_MusicGetCurrentMusicId': 0x556460,
+    'g_RenderFrameManager': 0x3f6538,
+    # 闸门"为什么不开"的最后两格（都是只读一个 8 字节字）：
+    #   g_MusicResolveFailure        音乐对象/方法解析失败的理由码（2 = `manager+0x36068` 不可读、
+    #                                3 = 方法绑定为 0、4 = 16 字节指纹不符；0 = 解析成功）
+    #   g_DeepestGameOwnerObservation `ObserveGameIsPaused` 那条 owner 链**走到最深**的观察值
+    #                                （成功 = 链读通；否则是"哪一跳断的"）
+    'g_MusicResolveFailure': 0x5564d8,
+    'g_DeepestGameOwnerObservation': 0x2721a8,
+    # ---- 批次 408（2026-10-08）：`SFXManager:Play` 的真机探针（无条件计数；`extern "C"` 裸名）----
+    # 回答"模组调了没 / 我们递进去了没 / 递进去的参数对不对 / 没递进去卡在哪一步"：
+    #   g_SfxPlayCalls        —— 进了处理器且参数形状合法几次
+    #   g_SfxPlayDelivered    —— 真的把调用递进引擎几次（Calls − Delivered = 被守卫挡下的）
+    #   g_SfxPlayLast*        —— 最近一次递进去的实参（id/volume/frameDelay/loop/pitch/pan；
+    #                            volume/pitch/pan 是 **float 位模式**，读数端按 float 解）
+    #   g_SfxPlayLastFailure  —— 最近一次没递进去的失败码（0=没失败；1/2/3/4 同 g_MusicResolveFailure）
+    # 契约写着"`Play` 是空实现、恒不生效"的旧说明在本批作废；这些格就是"从空实现变真调"的尺子。
+    'g_SfxPlayCalls': 0x9dddd88,
+    'g_SfxPlayDelivered': 0x9dddd80,
+    'g_SfxPlayLastId': 0x9dddd78,
+    'g_SfxPlayLastVolume': 0x9dddd70,
+    'g_SfxPlayLastFrameDelay': 0x9dddd68,
+    'g_SfxPlayLastLoop': 0x9dddd60,
+    'g_SfxPlayLastPitch': 0x9dddd58,
+    'g_SfxPlayLastPan': 0x9dddd50,
+    'g_SfxPlayLastFailure': 0x9dddd48,
+    # 2026-10-09生产ELF全表同步；游戏相对偏移保持原值。
+    'entry_relay_use_active_item': 0x4994,
+    'entry_relay_use_card': 0x4a58,
+    'entry_relay_use_pill': 0x4aac,
+    'entry_relay_game_exit': 0x4b08,
+    'entry_relay_pickup_collision': 0x4ba0,
+    'entry_relay_image_pcx_load': 0xb2d0,
+    'entry_relay_image_mgr_load': 0xbf60,
+    'entry_relay_get_mounted_path': 0xca10,
+    'entry_relay_mod_loadconfigs': 0x7168,
+    'entry_relay_anm2_load': 0xfea30,
+    'entry_relay_entity_take_damage': 0x4c34,
+    'entry_relay_entity_player_take_damage': 0x4c4c,
+    'entry_relay_entity_pickup_take_damage': 0x4c64,
+    'entry_relay_entity_slot_take_damage': 0x4c7c,
+    'entry_relay_evaluate_items': 0x4c94,
+    'entry_relay_entity_kill': 0x4d10,
+    'entry_relay_npc_death_remove': 0x4d64,
+    'entry_relay_game_end': 0x4dc0,
+    'entry_relay_fire_tear': 0x4e00,
+    'g_LastIsPaused': 0x9dc2f20,
+    'g_ModLoadConfigsCalls': 0x3f65a8,
+    'g_ModLoadConfigsEntriesSeen': 0x3f65a4,
+    'g_ModLoadConfigsEnabledByUs': 0x3f65a0,
+    'g_ModLoadConfigsDisabledByUs': 0x3f659c,
+    'g_ModLoadConfigsDisabledKnown': 0x3f6598,
+    'g_ModLoadConfigsStateLoaded': 0x3f6594,
+    'g_ModLoadConfigsMatchedDisabled': 0x3f6590,
+    'g_ModLoadConfigsEngineOff': 0x3f658c,
+    'g_ModLoadConfigsWriteFailures': 0x3f6588,
+    'g_ModLoadConfigsFirstPath': 0x3f6548,
+    'g_ModToggleStateLoaded': 0x3f6544,
+    'g_ModEngineScanAttempts': 0x5b0f8c,
+    'g_ModEngineScanStage': 0x5b0f88,
+    'g_ModEngineModEntries': 0x5b0f84,
+    'g_ModEngineResolveFailures': 0x5b0f74,
+    'g_ModEngineCostumeLoads': 0x5b0f80,
+    'g_ModEngineMusicLoads': 0x5b0f7c,
+    'g_ModEngineModDefaultsAnm2Loads': 0x5b0f78,
+    'g_ModEnginePathResolveMisses': 0x5b0f70,
+    'g_MusicEntryCountBefore': 0x5b0f6c,
+    'g_MusicEntryCountAfter': 0x5b0f68,
+    'g_CostumeCountBefore': 0x5b0f64,
+    'g_CostumeCountAfter': 0x5b0f60,
+    'g_ModEngineCostumeForm': 0x5b0f5c,
+    'g_ModEngineMusicForm': 0x5b0f58,
+    'g_ModEngineCostumeCalls': 0x5b0f54,
+    'g_ModEngineMusicCalls': 0x5b0f50,
+    'g_ModEngineResolvedCostumes': 0x5b0e50,
+    'g_ModEngineResolvedMusic': 0x5b0d50,
+    'g_ModEngineMusicLastEntryId': 0x5b0d40,
+    'g_ModEngineMusicLastEntryRaw': 0x5b0d20,
+    'image_pcx_diag': 0x4504c0,
+    'g_throw_forensics': 0x9de04d0,
+    'g_throw_wrapper': 0xfc6f0,
+    'g_selfJournalServiceState': 0x9de017c,
+    'g_selfJournalTotalRecords': 0x9de0184,
+    'g_selfJournalLastMarker': 0x9de0180,
+    'g_selfJournalLastResults': 0x9de0160,
+    'g_LuaErrorHistory': 0x556500,
+    'g_LuaErrorHistoryCount': 0x5564f8,
+    'g_CallbackError': 0x556a18,
+    'g_RequireFailureTotal': 0x455e10,
+    'g_RequireLastFailureName': 0x455e18,
+    'g_RequireLastFailureCode': 0x455e20,
+    'g_RequireFirstFailureName': 0x455e28,
+    'g_RequireFirstFailureCode': 0x455e30,
+    'g_RequireErrorTail': 0x455e38,
+    'g_RequireFailureDetail': 0x455e40,
+    'g_Dispatchable': 0x9ddba98,
+    'g_Unhooked': 0x9ddba90,
+    'g_InputIsActionTriggeredThunk': 0x556400,
+    'g_InputActionQueriedMask': 0x9dc3798,
+    'g_TouchPointerInitState': 0x3f668c,
+    'g_TouchPointerScanAttempts': 0x3f6688,
+    'g_TouchPointerShmemLow': 0x3f6684,
+    'g_TouchPointerShmemHigh': 0x3f6680,
+    'g_TouchPointerSegmentsScanned': 0x3f667c,
+    'g_TouchPointerPollFrames': 0x3f6668,
+    'g_TouchPointerTouchFrames': 0x3f6664,
+    'g_TouchPointerLastRawX': 0x3f6660,
+    'g_TouchPointerLastRawY': 0x3f665c,
+    'g_TouchPointerLastCount': 0x3f6658,
+    'g_TouchPointerLifoBufferCount': 0x3f6678,
+    'g_TouchPointerLifoTail': 0x3f6674,
+    'g_TouchPointerLifoCount': 0x3f6670,
+    'g_TouchPointerRejectedMappings': 0x3f666c,
+    'g_TouchPointerLastSampling': 0x3f6654,
+    'g_TouchPointerLastEntryIndex': 0x3f6650,
+    'g_MinimapTouchGateState': 0x272198,
+    'g_MinimapTouchGateApplied': 0x272190,
+    'g_MinimapTouchGateGuardMismatch': 0x272188,
+    'g_MinimapTouchGateFailureCode': 0x272180,
+    'g_InputActionTriggeredMask': 0x9dc37b8,
+    'g_InputEdgeCounts': 0x9dc3658,
+    'g_InputReleaseRunPeak': 0x9dc35d8,
+    'g_InputEdgeGapMin': 0x9dc3558,
+    'g_InputEdgeGapLast': 0x9dc34d8,
+    'g_InputSampleFrame': 0x265f68,
+    'g_InputSampleCalls': 0x9dc2f50,
+    'g_InputSampleCodes': 0x9dc2f48,
+    'g_InputSampleDevices': 0x9dc2f40,
+    'g_InputSampleFailures': 0x9dc2f38,
+    'g_InputActionTriggeredMaskOther': 0x9dc37b0,
+    'g_InputActionPressedMask': 0x9dc37a8,
+    'g_InputActionPressedMaskOther': 0x9dc37a0,
+    'g_InputLastController': 0x26af98,
+    'g_InputPressedControllerMask': 0x9dc3780,
+    'g_InputTriggeredControllerMask': 0x9dc3788,
+    'g_InputLastActionCode': 0x26afa0,
+    'g_InputLastActionResult': 0x9dc3790,
+    'g_InputButtonPressedMask': 0x9dc3778,
+    'g_InputButtonQueriedMask': 0x9dc3770,
+    'g_InputIsButtonPressed': 0x556418,
+    'g_InputGetButtonValue': 0x556410,
+    'g_InputControllerMapPcId': 0x265f90,
+    'g_InputControllerMapNsId': 0x265f88,
+    'g_InputControllerMapOutcome': 0x265f80,
+    'g_InputControllerMapFallbacks': 0x9dc3768,
+    'g_InputActionMapLuaCode': 0x265f78,
+    'g_InputActionMapEngineCode': 0x265f70,
+    'g_InputActionMapAbsent': 0x9dc3760,
+    'g_EntityFieldWrites': 0x9ddb970,
+    'g_EntityFieldWriteRejected': 0x9ddb968,
+    'g_LastEntityFieldWriteName': 0x9ddb960,
+    'g_SeedsEffectWriteAttempts': 0x9dc2f10,
+    'g_InputActionAskedFrame': 0x9dc3458,
+    'g_InputActionAskedKind': 0x9dc33d8,
+    'g_InputActionAskedController': 0x9dc3358,
+    'g_InputActionAskedAnswer': 0x9dc32d8,
+    'g_InputButtonEdgeCounts': 0x9dc3258,
+    'g_InputButtonAskedFrame': 0x9dc31d8,
+    'g_InputButtonAskedKind': 0x9dc3158,
+    'g_InputButtonAskedController': 0x9dc30d8,
+    'g_InputButtonAskedAnswer': 0x9dc3058,
+    'g_InputActionHeldFrame': 0x9dc2fd8,
+    'g_InputButtonTriggeredFrame': 0x9dc2f58,
+    'g_ButtonEdge': 0x260ee8,
+    'g_ModMenuLastCode': 0x9dddd30,
+    'g_ModMenuMilestones': 0x9dddd40,
+    'g_ModMenuReportCount': 0x9dddd38,
+    'g_FontDrawCalls': 0x9dc2f08,
+    'g_FontDrawBytes': 0x9dc2f00,
+    'g_FontStorageAllocations': 0x9dc2ec8,
+    'g_FontStorageLive': 0x9dc2ec0,
+    'g_FontStorageLivePeak': 0x9dc2eb8,
+    'g_FontLoadCalls': 0x9dc2ef8,
+    'g_FontLoadResult': 0x9dc2ef0,
+    'g_OptionsProbeExists': 0x5b0fac,
+    'g_OptionsProbeStatus': 0x5b0fa8,
+    'g_OptionsProbeReadStatus': 0x5b0fa4,
+    'g_OptionsProbeSize': 0x5b0fa0,
+    'g_OptionsProbeEnableMods': 0x5b0f9c,
+    'g_OptionsProbeHeadLow': 0x5b0f98,
+    'g_OptionsProbeHeadHigh': 0x5b0f94,
+    'g_ModsGateRestores': 0x5b0f90,
+    'g_IsaacRoomIdxCalls': 0x9ddde10,
+    'g_IsaacRoomIdxEmpty': 0x9ddde08,
+    'g_IsaacRoomIdxRejectedFootprint': 0x9ddde00,
+    'g_IsaacRoomIdxEngineMapUsed': 0x9ddddf8,
+    'g_IsaacRoomIdxLastRequest': 0x26c8b8,
+    'g_IsaacRoomIdxLastResolvedGrid': 0x26c8b0,
+    'g_IsaacRoomIdxLastResolvedSafe': 0x26c8a8,
+    'g_IsaacRoomIdxLastResolvedList': 0x26c8a0,
+    'g_IsaacRoomIdxLastRejectRequest': 0x26c898,
+    'g_IsaacRoomIdxLastRejectAnchor': 0x26c890,
+    'g_IsaacRoomIdxLastRejectDeltaBias': 0x26c888,
+    'g_IsaacRoomIdxMapSlotRejected': 0x9ddddf0,
+    'g_IsaacRoomIdxAccepted': 0x9dddde8,
+    'g_IsaacRoomIdxSlotNegative': 0x9dddde0,
+    'g_IsaacRoomIdxUnallocatedAnchor': 0x9ddddd8,
+    'g_IsaacRoomIdxSlotBeyondCount': 0x9ddddd0,
+    'g_IsaacRoomIdxLastAcceptedRequest': 0x26c880,
+    'g_IsaacRoomIdxLastAcceptedSlot': 0x26c878,
+    'g_IsaacRoomIdxLastAcceptedAnchor': 0x26c870,
+    'g_IsaacRoomIdxLastAcceptedSafe': 0x26c868,
+    'g_IsaacRoomIdxNativeCalls': 0x9ddddc8,
+    'g_IsaacRoomIdxNativeFallbacks': 0x9ddddc0,
+    'g_IsaacRoomIdxNativeLastIndex': 0x26c860,
+    'g_IsaacRoomIdxNativeLastDimension': 0x26c858,
+    'g_RuntimePerfCallbackCalls': 0x561298,
+    'g_RuntimePerfCallbackTicks': 0x561290,
+    'g_RuntimePerfCallbackMaxTicks': 0x561288,
+    'g_RuntimePerfSyscalls': 0x561280,
+    'g_RuntimePerfSyscallTicks': 0x561278,
+    'g_RuntimePerfCallbackBuckets': 0x560678,
+    'g_RuntimePerfBucketOverflow': 0x560670,
+    'g_RuntimePerfApiBuckets': 0x55a670,
+    'g_RuntimePerfApiBucketOverflow': 0x55a668,
+    'g_RuntimePerfApiTotalCalls': 0x55a660,
+    'g_RuntimePerfApiTotalTicks': 0x55a658,
+    'g_RuntimePerfProfileBuckets': 0x556a58,
+    'g_RuntimePerfProfileSamples': 0x556a50,
+    'g_RuntimePerfProfileOverflow': 0x556a48,
+    'g_RuntimePerfTickCostTicks': 0x556a40,
+    'mod_menu_state': 0x24dfc0,
+    'entry_relay_familiarcollision': 0x4ed8,
+    'entry_relay_npccollision': 0x4f6c,
+    'entry_relay_playercollision': 0x5000,
+    'entry_relay_tearcollision': 0x5094,
+    'entry_relay_projectilecollision': 0x5128,
+    'entry_relay_knifecollision': 0x51bc,
+    'entry_relay_bombcollision': 0x5260,
+    'entry_relay_npcrender': 0x52f4,
+    'entry_relay_itempoolgetpill': 0x5334,
+    'entry_relay_itempoolgetpilleffect': 0x5374,
+    'entry_relay_gamedevolveenemy': 0x53bc,
+    'npc_ai_gotslot_intercept': 0x251c,
+    'npc_ai_gotslot_target': 0x2721b8,
+    'entry_relay_gamespawnex': 0x540c,
+    # 2026-10-10 EID颜色修复包：冻结ELF完整同步，补全此前由运行时动态解析的入口。
+    'entity_remove_pointer_callback': 0x60e40,
+    'g_CallbackDiagnosticViewIncomplete': 0x9dc2e90,
+    'g_CallbackDiagnosticViewOverflow': 0x9dc2e8c,
+
 })
 #: 上表里"属于**我们运行时模块**"的那些键 → 它们在本地 ELF 里的**精确符号名**。
 #: 有这张表，偏移就不必再靠人手抄：`sync_syms_from_elf()` 每次读数前直接问 ELF。
 #: 不在表里的键（`manager_update_entry` 那几条）是**游戏模块**的常量，与我们的重建无关，保持原值。
 
 SYM_ELF_NAMES = {
+    'shader_screen_intercept': 'IsaacModRuntime_ShaderScreenIntercept',
+    'entity_remove_pointer_callback': 'IsaacModRuntime_EntityRemovePointerIntercept',
     'identity': 'IsaacModRuntime_GetRuntimeIdentity',
     'exl_main': 'exl_main',
     'manifest_install': '_Z28TryInstallDefaultManifestModRK12TargetModule',
@@ -176,13 +503,140 @@ SYM_ELF_NAMES = {
     'entry_relay_use_pill': 'EntryRelayUsePillCallback',
     'entry_relay_game_exit': 'EntryRelayGameExitCallback',
     'entry_relay_pickup_collision': 'EntryRelayPickupCollisionCallback',
-    'entry_relay_room_entity_spawn': 'EntryRelayRoomEntitySpawnCallback',
     'entry_relay_image_pcx_load': 'EntryRelayImagePcxLoadCallback',
     'entry_relay_image_mgr_load': 'EntryRelayImageManagerLoadFileCallback',
     'entry_relay_get_mounted_path': 'EntryRelayContentGetMountedFilePathCallback',
+    # 批次 147（2026-09-26）：引擎那条"模组 content 加载"路的闸门
+    # （`ModManager::LoadConfigs` 入口中继）—— 回调 + 九个埋点。
+    # 埋点契约写在 `hook_manager.cpp` 那段 `g_ModLoadConfigs*` 的注释里，两边必须同步改。
+    'entry_relay_mod_loadconfigs': 'EntryRelayModManagerLoadConfigsCallback',
+    # 批次 363（2026-10-04）：`ANM2::Load` 入口中继 —— 回调 + 状态面。
+    # 状态面契约写在 `runtime/source/anm2_load_override_hook.hpp` 的 `Anm2LoadOverrideState`，
+    # 两边必须同步改（字段顺序即内存顺序）。
+    'entry_relay_anm2_load': 'EntryRelayAnm2LoadCallback',
+    # 批次 396（2026-10-07）：`MC_ENTITY_TAKE_DMG` 的四条入口中继 + `MC_EVALUATE_CACHE`。
+    # 四条受伤共用一个派发函数，但**各有各的回调符号**（`BindingOf` 里按 HookId 取），
+    # 所以这里要逐条登记（与 `RegisterEntryRelayCallbacks()` 的名字逐字一致）。
+    'entry_relay_entity_take_damage': 'EntryRelayEntityTakeDamageCallback',
+    'entry_relay_entity_player_take_damage': 'EntryRelayEntityPlayerTakeDamageCallback',
+    'entry_relay_entity_pickup_take_damage': 'EntryRelayEntityPickupTakeDamageCallback',
+    'entry_relay_entity_slot_take_damage': 'EntryRelayEntitySlotTakeDamageCallback',
+    'entry_relay_evaluate_items': 'EntryRelayEvaluateItemsCallback',
+    # 批次 397（2026-10-07）：补全回调（第 2 批）的三条（`MC_POST_ENTITY_KILL` /
+    # `MC_POST_NPC_DEATH` / `MC_POST_GAME_END`）。与 `RegisterEntryRelayCallbacks()` 逐字一致。
+    'entry_relay_entity_kill': 'EntryRelayEntityKillCallback',
+    'entry_relay_npc_death_remove': 'EntryRelayNpcDeathRemoveCallback',
+    'entry_relay_game_end': 'EntryRelayGameEndCallback',
+    'entry_relay_fire_tear': 'EntryRelayFireTearCallback',
+    'entry_relay_familiarcollision': 'EntryRelayFamiliarCollisionCallback',
+    'entry_relay_npccollision': 'EntryRelayNpcCollisionCallback',
+    'entry_relay_playercollision': 'EntryRelayPlayerCollisionCallback',
+    'entry_relay_tearcollision': 'EntryRelayTearCollisionCallback',
+    'entry_relay_projectilecollision': 'EntryRelayProjectileCollisionCallback',
+    'entry_relay_knifecollision': 'EntryRelayKnifeCollisionCallback',
+    'entry_relay_bombcollision': 'EntryRelayBombCollisionCallback',
+    'entry_relay_gamespawnex': 'EntryRelayGameSpawnExCallback',
+    'entry_relay_npcrender': 'EntryRelayNpcRenderCallback',
+    'entry_relay_itempoolgetpill': 'EntryRelayItemPoolGetPillCallback',
+    'entry_relay_itempoolgetpilleffect': 'EntryRelayItemPoolGetPillEffectCallback',
+    'entry_relay_gamedevolveenemy': 'EntryRelayGameDevolveEnemyCallback',
+    'npc_ai_gotslot_intercept': 'IsaacModRuntime_NpcUpdateAiGotSlotIntercept',
+    'npc_ai_gotslot_target': 'g_NpcUpdateAiGotSlotTarget',
+    # ★ 它是 C++ 命名空间里的变量 ⇒ ELF 里是 mangled 名（`nm` 可核对：32 字节 = 8 个 u32）。
+    'g_Anm2LoadOverrideState': '_ZN5isaac7runtime6bridge23g_Anm2LoadOverrideStateE',
+    # 批次 378（2026-10-05）：PC 的资源层重定向的状态面（10 个 u32 + 两条定长串）。
+    # 同样是 C++ 命名空间里的变量 ⇒ ELF 里是 mangled 名（`nm` 可核对：456 字节）。
+    'g_ModResourceRedirectState': '_ZN5isaac7runtime6bridge26g_ModResourceRedirectStateE',
+    # 批次 370 起、批次 371 改语义（2026-10-05）：让模组那一层早于引擎第一次读的那一段的状态面。
+    # ★ 同样是 C++ 命名空间里的变量 ⇒ ELF 里是 mangled 名（`nm` 可核对：64 字节 = 5 个 u64 + 6 个 u32）。
+    'g_EarlyMountState': '_ZN5isaac7runtime10earlymount17g_EarlyMountStateE',
+    # 2026-10-05 排查：渲染回调那条命脉的逐环判据（都在 `hook_manager.cpp` 的匿名命名空间里
+    # ⇒ ELF 里是 `_ZN12_GLOBAL__N_1L<len><name>E` 这一族）。
+    'g_RenderPresentRelayEntries': '_ZN12_GLOBAL__N_1L27g_RenderPresentRelayEntriesE',
+    'g_DefaultCallbackGate': '_ZN12_GLOBAL__N_1L21g_DefaultCallbackGateE',
+    'g_LuaGameOwnerSlot': '_ZN12_GLOBAL__N_1L18g_LuaGameOwnerSlotE',
+    'g_LuaGameIsPausedThunk': '_ZN12_GLOBAL__N_1L22g_LuaGameIsPausedThunkE',
+    # ★ 2026-10-08（排查 MCM 打不开）：`Game:IsPaused()` **最后一次返回了什么**。
+    #   MCM 的开菜单判定是 `if ControlsEnabled and not isPaused then …`，
+    #   而它只在**闸内**才问 `IsButtonTriggered(13, i)` ⇒ 如果我们这一格返回 true，
+    #   MCM 会**整段不跑**（不出菜单、也不响），且我们看不到任何 13 号的询问 —— 与现场完全一致。
+    #   所以这一格是"闸门"的直接读数：0 = 最后一次返回 false，1 = true。
+    #   （写入点：`game_api.cpp` 的 `GameIsPaused()` ⇒ `g_LastIsPaused.store(...)`。）
+    'g_LastIsPaused': '_ZN5isaac7runtime14g_LastIsPausedE',
+    # `g_MusicGetCurrentMusicId` 在 `LuaRuntime` 的匿名命名空间里 ⇒ 多一层命名空间前缀。
+    'g_MusicGetCurrentMusicId': '_ZN10LuaRuntime12_GLOBAL__N_1L24g_MusicGetCurrentMusicIdE',
+    'g_RenderFrameManager': '_ZN12_GLOBAL__N_1L20g_RenderFrameManagerE',
+    # 闸门最后两格（同在 `LuaRuntime` / `game_observer.cpp` 的匿名命名空间里）。
+    'g_MusicResolveFailure': '_ZN10LuaRuntime12_GLOBAL__N_1L21g_MusicResolveFailureE',
+    # ---- 批次 408（2026-10-08）：`SFXManager:Play` 探针（`extern "C"` ⇒ ELF 里就是裸名）----
+    # ★ 放**主表**而不是探针包专属那张：它们是**无条件写**的（同 `g_MusicResolveFailure`），
+    #   生产 ELF 里也解析得到 ⇒ 属于"主表每一项都要能解析"的守门范围。
+    'g_SfxPlayCalls': 'g_SfxPlayCalls',
+    'g_SfxPlayDelivered': 'g_SfxPlayDelivered',
+    'g_SfxPlayLastId': 'g_SfxPlayLastId',
+    'g_SfxPlayLastVolume': 'g_SfxPlayLastVolume',
+    'g_SfxPlayLastFrameDelay': 'g_SfxPlayLastFrameDelay',
+    'g_SfxPlayLastLoop': 'g_SfxPlayLastLoop',
+    'g_SfxPlayLastPitch': 'g_SfxPlayLastPitch',
+    'g_SfxPlayLastPan': 'g_SfxPlayLastPan',
+    'g_SfxPlayLastFailure': 'g_SfxPlayLastFailure',
+    'g_DeepestGameOwnerObservation': '_ZN12_GLOBAL__N_1L29g_DeepestGameOwnerObservationE',
+    'g_ModLoadConfigsCalls': 'g_ModLoadConfigsCalls',
+    'g_ModLoadConfigsEntriesSeen': 'g_ModLoadConfigsEntriesSeen',
+    'g_ModLoadConfigsEnabledByUs': 'g_ModLoadConfigsEnabledByUs',
+    'g_ModLoadConfigsDisabledByUs': 'g_ModLoadConfigsDisabledByUs',
+    'g_ModLoadConfigsDisabledKnown': 'g_ModLoadConfigsDisabledKnown',
+    'g_ModLoadConfigsStateLoaded': 'g_ModLoadConfigsStateLoaded',
+    'g_ModLoadConfigsMatchedDisabled': 'g_ModLoadConfigsMatchedDisabled',
+    'g_ModLoadConfigsEngineOff': 'g_ModLoadConfigsEngineOff',
+    'g_ModLoadConfigsWriteFailures': 'g_ModLoadConfigsWriteFailures',
+    'g_ModLoadConfigsFirstPath': 'g_ModLoadConfigsFirstPath',
+    'g_ModToggleStateLoaded': 'g_ModToggleStateLoaded',
+    # ---- 批次 148（2026-09-26）：**我们自己喊一次**引擎那条"扫模组目录 + 加载 content"的路 ----
+    # 契约写在 `mod_menu_native.cpp` 文件顶层那段 `g_ModEngine*` 的注释里，两边必须同步改。
+    # 触发点是"用户打开模组页"那一刻（批次 143/144 放在"每帧第一帧"各崩一次，见改动日志 §030/§032）。
+    'g_ModEngineScanAttempts': 'g_ModEngineScanAttempts',
+    'g_ModEngineScanStage': 'g_ModEngineScanStage',
+    'g_ModEngineModEntries': 'g_ModEngineModEntries',
+    'g_ModEngineResolveFailures': 'g_ModEngineResolveFailures',
+    'g_ModEngineCostumeLoads': 'g_ModEngineCostumeLoads',
+    'g_ModEngineMusicLoads': 'g_ModEngineMusicLoads',
+    # ★ 批次 409（2026-10-08）：引擎 `ModManager::LoadConfigs` 尾部那一步
+    # （`ANM2::Load("gfx/ui/mod_defaults.anm2", true)` 到 `ModManager+0x368`）被我们调了几次。
+    # **正常 = 1**；0 = 那一步没做 ⇒ 暂停屏画模组道具（id ≥ 733）时会写 `0x80` 崩。
+    'g_ModEngineModDefaultsAnm2Loads': 'g_ModEngineModDefaultsAnm2Loads',
+    'g_ModEnginePathResolveMisses': 'g_ModEnginePathResolveMisses',
+    'g_MusicEntryCountBefore': 'g_MusicEntryCountBefore',
+    'g_MusicEntryCountAfter': 'g_MusicEntryCountAfter',
+    'g_CostumeCountBefore': 'g_CostumeCountBefore',
+    'g_CostumeCountAfter': 'g_CostumeCountAfter',
+    # ---- 批次 149b（2026-09-26 深夜）：路径口径留证 ----------------------------------------
+    # 148d 真机读数：两个加载器**各被调 1 次**、两个容器**一条没涨** ⇒ 只可能是"喂进去的路径
+    # 形态引擎的文件层不认"。反汇编引擎自己的 `ModManager::LoadConfigs` 得到它的写法是
+    # `裸文件名 → ModEntry::GetContentPath(名) → FileManager::Exists(路径) → 加载器(路径, ModEntry*)`
+    # ⇒ 路径是**应用根相对**的；而 `GetMountedFilePath` 返回带 `rom:/` 的完整路径。
+    # 下面四格回答"哪种口径能用"与"解析回来的到底是不是模组自己的那个文件"。
+    'g_ModEngineCostumeForm': 'g_ModEngineCostumeForm',
+    'g_ModEngineMusicForm': 'g_ModEngineMusicForm',
+    'g_ModEngineCostumeCalls': 'g_ModEngineCostumeCalls',
+    'g_ModEngineMusicCalls': 'g_ModEngineMusicCalls',
+    'g_ModEngineResolvedCostumes': 'g_ModEngineResolvedCostumes',
+    'g_ModEngineResolvedMusic': 'g_ModEngineResolvedMusic',
+    # ★ 自证条目布局：最后一条的编号（`+0x00`）与名字那 32 字节原始串（`+0x08` 起）。
+    #   解码（libc++ 短/长串）放在读数侧做，运行时只搬字节。
+    'g_ModEngineMusicLastEntryId': 'g_ModEngineMusicLastEntryId',
+    'g_ModEngineMusicLastEntryRaw': 'g_ModEngineMusicLastEntryRaw',
+    # 批次 148：曲目名反查（`Isaac.GetMusicIdByName`）的现场。
+    # ★ `g_IsaacMusicIdTableCount` 就是"模组的 `content/music.xml` 进引擎了没有"的直接读数
+    #   （真机基线 119；模组的 music.xml 再加 2 条 ⇒ 121）；`0xFFFFFFFF` = 链读不到。
     # 贴图桥：**唯一**诊断入口（固定布局结构体，见 hook_manager.cpp 的 ImagePcxDiagnostics）。
     'image_pcx_diag': '_ZN12_GLOBAL__N_1L14g_imagePcxDiagE',
     'image_pcx_bindings': '_ZN12_GLOBAL__N_1L18g_ImagePcxBindingsE',
+    # L4 钩子隔离·甲案（2026-09-29 批次 196）：C++ 异常的**抛出位置**记录。
+    # 固定布局结构体 `ThrowForensics`（throwCount / reserved0 / lastThrowFrom / lastThrowType /
+    # firstThrowFrom），字段只许往后加。`throwCount > 0` = 这一局抛过 C++ 异常。
+    'g_throw_forensics': '_ZN5isaac7runtime9forensics16g_ThrowForensicsE',
+    'g_throw_wrapper': '__wrap___cxa_throw',
     'present_got_intercept': 'IsaacModRuntime_PresentGotSlotIntercept',
     'g_runtimeSelfAddress': 'g_runtimeSelfAddress',
     'g_sequence': '_ZN12_GLOBAL__N_1L10g_sequenceE',
@@ -207,7 +661,6 @@ SYM_ELF_NAMES = {
     # API 调用序列掩码（`api_sequence_probe.hpp` 的 `detail::ApiSequence()` 里的函数内静态）：
     # "哪些 API 真被调用过"的直接证据 —— 比"某个功能看起来没生效"这种间接判断硬得多。
     # 2026-09-19 加：GoodTrip 装上后界面不出现，需要先回答"它到底有没有走到 `Sprite:Render`"。
-    'g_ApiSequence': '_ZZN5isaac7runtime6detail11ApiSequenceEvE5state',
     'g_PendingGameStarted': '_ZN10LuaRuntime12_GLOBAL__N_1L20g_PendingGameStartedE',
     'g_ModRegistered': '_ZN10LuaRuntime12_GLOBAL__N_1L15g_ModRegisteredE',
     # 2026-09-16：回调派发次数的**真身**（数组里那两个槽是错的，见 `legacy` 的注释）。
@@ -254,11 +707,79 @@ SYM_ELF_NAMES = {
     'g_InputIsActionTriggeredThunk': '_ZN10LuaRuntime12_GLOBAL__N_1L24g_InputIsActionTriggeredE',
     # 菜单/输入诊断量（名字按 `nm` 直出，长度前缀由脚本核对）
     'g_InputActionQueriedMask': '_ZN5isaac7runtime24g_InputActionQueriedMaskE',
+    # 批次 192：触摸屏 → 指针。这一组是"触摸到底通没通"的唯一现场证据
+    #（★ 本批**故意不做坐标换算**：PC 的 `gameCoords` 两种口径只能真机量，
+    #  先原样交出原始坐标 —— `g_TouchPointerLastRawX/Y`）。
+    'g_TouchPointerInitState': '_ZN5isaac7runtime23g_TouchPointerInitStateE',
+    'g_TouchPointerScanAttempts': '_ZN5isaac7runtime26g_TouchPointerScanAttemptsE',
+    'g_TouchPointerShmemLow': '_ZN5isaac7runtime22g_TouchPointerShmemLowE',
+    'g_TouchPointerShmemHigh': '_ZN5isaac7runtime23g_TouchPointerShmemHighE',
+    'g_TouchPointerSegmentsScanned': '_ZN5isaac7runtime29g_TouchPointerSegmentsScannedE',
+    'g_TouchPointerPollFrames': '_ZN5isaac7runtime24g_TouchPointerPollFramesE',
+    'g_TouchPointerTouchFrames': '_ZN5isaac7runtime25g_TouchPointerTouchFramesE',
+    'g_TouchPointerLastRawX': '_ZN5isaac7runtime22g_TouchPointerLastRawXE',
+    'g_TouchPointerLastRawY': '_ZN5isaac7runtime22g_TouchPointerLastRawYE',
+    'g_TouchPointerLastCount': '_ZN5isaac7runtime23g_TouchPointerLastCountE',
+    # 批次 193：★ "这次真的认出 lifo 了吗"的证据。批次 192 只有上面那一组，于是**一块零页**
+    # 被认成触摸屏共享内存（读数报"找到共享内存"、基址 0x4cc64f000，`--read` 一看整段全 0）。
+    # `buffer_count` **必须是 17**（建表时写死、与有没有触摸无关）—— 零页在这里必然露馅。
+    'g_TouchPointerLifoBufferCount': '_ZN5isaac7runtime29g_TouchPointerLifoBufferCountE',
+    'g_TouchPointerLifoTail': '_ZN5isaac7runtime22g_TouchPointerLifoTailE',
+    'g_TouchPointerLifoCount': '_ZN5isaac7runtime23g_TouchPointerLifoCountE',
+    'g_TouchPointerRejectedMappings': '_ZN5isaac7runtime30g_TouchPointerRejectedMappingsE',
+    # ★ 最新条目的采样号低 32 位与 lifo 槽位号：判"这块内存是活的吗"。
+    # 真的 lifo 每采样一次这个号就加一（**与有没有手指无关**）⇒ 两次读数之间它应当变化；
+    # 恒 0 = 一条带采样号的条目都没有 = 这块内存没在被写（**不是**"没人在按"）。
+    'g_TouchPointerLastSampling': '_ZN5isaac7runtime26g_TouchPointerLastSamplingE',
+    'g_TouchPointerLastEntryIndex': '_ZN5isaac7runtime28g_TouchPointerLastEntryIndexE',
+    # 批次 194：原生右上角小地图的**触摸门控补丁**装没装上（改的是游戏代码里 3 条指令）。
+    # 0 = 还没试、1 = 三处都装上、2 = 有守卫不符/写失败；后三个是明细。
+    'g_MinimapTouchGateState': '_ZN5isaac7runtime23g_MinimapTouchGateStateE',
+    'g_MinimapTouchGateApplied': '_ZN5isaac7runtime25g_MinimapTouchGateAppliedE',
+    'g_MinimapTouchGateGuardMismatch': '_ZN5isaac7runtime31g_MinimapTouchGateGuardMismatchE',
+    'g_MinimapTouchGateFailureCode': '_ZN5isaac7runtime29g_MinimapTouchGateFailureCodeE',
     'g_InputActionTriggeredMask': '_ZN5isaac7runtime26g_InputActionTriggeredMaskE',
     # 批次 109：每个动作报过几次"刚按下"（32 个 u32，下标 = 动作号 & 31）。
     'g_InputEdgeCounts': '_ZN5isaac7runtime17g_InputEdgeCountsE',
     # 批次 110：每个动作观察到的最长"闪断"帧数（按住期间连续多少帧读到"没按住"）。
     'g_InputReleaseRunPeak': '_ZN5isaac7runtime21g_InputReleaseRunPeakE',
+    # 批次 213 建、批次 221 改口径：**报边沿时"距上一次读到按住"的间隔**（最小 / 最近）——
+    # 只有 1~3 帧 ⇒ **闪断**（引擎的「按住」在按着的时候断过帧，会直接多报边沿）；
+    # 几百帧 ⇒ 用户真松手再按。★ 批次 221 起**没有"去抖窗口"这个常量**了（已删除：
+    # 猜一个时长两侧都会咬人，用户两侧症状同时出现过）。
+    # ★ 符号名照 `nm` 抄（`_ZN5isaac7runtime17_/18_…`），别手数长度。
+    # ★ 更正（批次 381，2026-10-06）：上面这段的**旧语义作废**（原文保留，只作历史）。
+    #   新语义：边沿不再由"调用方询问节奏"决定，改成**每帧在引擎帧边界上采样一次、判定纯读**
+    #   ⇒ 这个量现在是「**相邻两次边沿之间隔了几帧**」。用途 = 判"两次独立按下之间隔了多久"
+    #   （"真松手再按"仍是几百帧）。★ 它**不再用来判"闪断"**：边沿不依赖调用方节奏之后，
+    #   "闪断"这个概念在本机制下不适用（旧文里"1~3 帧 ⇒ 闪断"的判据连同理由一起作废）。
+    'g_InputEdgeGapMin': '_ZN5isaac7runtime17g_InputEdgeGapMinE',
+    'g_InputEdgeGapLast': '_ZN5isaac7runtime18g_InputEdgeGapLastE',
+    # 批次 381（2026-10-06）：**"帧上采样"机制本身的现场**（5 个标量，每个 1 个 u32）。
+    # 机制：`Input.IsButtonTriggered`/`IsActionTriggered` 的边沿不再由"调用方询问节奏"决定，
+    # 改成**每帧在引擎帧边界上采样一次、判定纯读**。这 5 个量回答"这一帧到底采没采、
+    # 采了多少、有没有失败" —— 边沿链路出问题时先用它们把"没采样"与"判定不成立"分开。
+    #   * `g_InputSampleFrame`：最后一次"帧上采样"的帧号（应贴着当前帧）。
+    #   * `g_InputSampleCalls`：那一帧的引擎调用次数（真机 1 台手柄时约 32；预算有界）。
+    #   * `g_InputSampleCodes`：那一帧采了几个码（按键 18 + 动作 32）。
+    #   * `g_InputSampleDevices`：那一帧采了几台设备（+1 是"任意设备"聚合槽）。
+    #   * `g_InputSampleFailures`：采样失败累计次数（设备表读不到等 ⇒ 该帧全答 false）。
+    # ★ 这些符号**在正式包里也编**（定义在 `input_api.cpp` 匿名命名空间之外）⇒ **不要**
+    #   放进 `SYM_ELF_NAMES_PROBE_BUILD_ONLY`。
+    # ★ 符号名须在构建后用 `nm runtime/.gdbsym-artifacts/runtime.elf | grep g_InputSample` 核对
+    #   （下面的长度前缀是按 `isaac::runtime` 命名空间 + 名字长度手算的，别盲信）。
+    'g_InputSampleFrame': '_ZN5isaac7runtime18g_InputSampleFrameE',
+    'g_InputSampleCalls': '_ZN5isaac7runtime18g_InputSampleCallsE',
+    'g_InputSampleCodes': '_ZN5isaac7runtime18g_InputSampleCodesE',
+    'g_InputSampleDevices': '_ZN5isaac7runtime20g_InputSampleDevicesE',
+    'g_InputSampleFailures': '_ZN5isaac7runtime21g_InputSampleFailuresE',
+    # 批次 222：每帧"全动作快照"（我们自己普查的那四组；符号名照 `llvm-nm` 抄）。
+    # 批次 223："动作 → 绑定的按钮码"表的 dump（符号名照 `llvm-nm` 抄）。
+    # 批次 224：设备内部输入状态（符号名照 `llvm-nm` 抄，不手数长度）。
+    # 批次 225：设备对象整块原始内存（符号名照 `llvm-nm` 抄）。
+    # 批次 226：表项指针高 32 位 + 当次选中的设备号（修"截断"与"缓存旧指针"两个 bug）。
+    # 批次 227：一致性验证（连读两遍 + 来源核对 + 选中项下标；符号名照 `llvm-nm` 抄）。
+    # 批次 229：读表失败计数（符号名照 `llvm-nm` 抄）。
     'g_InputActionTriggeredMaskOther': '_ZN5isaac7runtime31g_InputActionTriggeredMaskOtherE',
     'g_InputActionPressedMask': '_ZN5isaac7runtime24g_InputActionPressedMaskE',
     'g_InputActionPressedMaskOther': '_ZN5isaac7runtime29g_InputActionPressedMaskOtherE',
@@ -267,11 +788,92 @@ SYM_ELF_NAMES = {
     'g_InputTriggeredControllerMask': '_ZN5isaac7runtime30g_InputTriggeredControllerMaskE',
     'g_InputLastActionCode': '_ZN5isaac7runtime21g_InputLastActionCodeE',
     'g_InputLastActionResult': '_ZN5isaac7runtime23g_InputLastActionResultE',
+    # 批次 195（2026-09-29）加的**按键号**那三条查询的现场；批次 209 才接进读数。
+    # ★ 那两个变量在源码里的注释写着"真机上唯一能判'到底读到了没有'的就是这两个计数"，
+    #   却一直没人读它 ⇒ 典型的"设施做了、判据没接上"（本项目反复犯）。补上。
+    'g_InputButtonPressedMask': '_ZN5isaac7runtime24g_InputButtonPressedMaskE',
+    'g_InputButtonQueriedMask': '_ZN5isaac7runtime24g_InputButtonQueriedMaskE',
+    # ★★★ 批次 210（2026-09-29 深夜）：**按键号那条链"发布没发布"** —— 这一对把 209 那条
+    #   错结论钉死的地方说清楚了。两个槽是 `TryInstallInputButtonBindings` 写进去的引擎入口地址：
+    #   守卫（序言 16 字节 + `entry+0xE0` 的 4 字节判别式）任一条不符 ⇒ **槽保持 0** ⇒
+    #   `Input.IsButtonPressed` / `IsButtonTriggered` 立刻返回 false（**不报错、也不置任何探针位**）。
+    #   ⇒ 只看那两个掩码会把"守卫没过"误读成"模组没问"。判据就是这两个槽是不是 0。
+    'g_InputIsButtonPressed': '_ZN10LuaRuntime12_GLOBAL__N_1L22g_InputIsButtonPressedE',
+    'g_InputGetButtonValue': '_ZN10LuaRuntime12_GLOBAL__N_1L21g_InputGetButtonValueE',
+    # ★★★ 批次 211（2026-09-30）：**PC→NS 手柄号映射**的现场。为什么必须有它：模组问的"手柄号"
+    #   是 PC 的编号（0=键盘、1..4=第几台手柄），引擎要的是 Switch 的设备号（0=触摸屏、33=手柄）。
+    #   翻错了就是**恒答 false、什么线索都没有**（MCM 那一轮就是这么卡住的）。
+    # ★ 符号名里的长度是**实测**的（`nm` 核过：24/24/27/29）—— 第一次凭手数写成了 25/25/28/30，
+    #   读数会静默把它当成"未解析到"。改这类条目**必须** `nm <elf> | grep <名字>` 复核。
+    'g_InputControllerMapPcId': '_ZN5isaac7runtime24g_InputControllerMapPcIdE',
+    'g_InputControllerMapNsId': '_ZN5isaac7runtime24g_InputControllerMapNsIdE',
+    'g_InputControllerMapOutcome': '_ZN5isaac7runtime27g_InputControllerMapOutcomeE',
+    'g_InputControllerMapFallbacks': '_ZN5isaac7runtime29g_InputControllerMapFallbacksE',
+    # ★ 批次 230（2026-09-30）：**模组动作号 → 引擎内部动作号**翻译的现场。
+    #   为什么必须有它：PC 的 `ButtonAction` 与 Switch 引擎的内部表不是同一张（PC 的
+    #   `ACTION_MENULEFT = 20`，引擎的 20 = "菜单下"）⇒ 翻译错了就是"推摇杆下被读成按左"，
+    #   而且**不报错、不崩**；翻没翻、翻成几号、有多少次因为"Switch 上没有"直接回答，都要能看见。
+    #   口径与逐行证据 = `runtime/src/interfaces/lua/input_action_map.hpp`。
+    #   ★ 符号名照 `nm runtime/.gdbsym-artifacts/runtime.elf | grep InputActionMap` 抄（别手数长度）。
+    'g_InputActionMapLuaCode': '_ZN5isaac7runtime23g_InputActionMapLuaCodeE',
+    'g_InputActionMapEngineCode': '_ZN5isaac7runtime26g_InputActionMapEngineCodeE',
+    'g_InputActionMapAbsent': '_ZN5isaac7runtime22g_InputActionMapAbsentE',
+    # ★★★ 批次 212（2026-09-30）：**玩家字段写**的现场。为什么必须有它：字段写守卫是"**报错**"不是
+    #   "静默忽略" ⇒ 模组写了我们没实现的字段就**整条回调当场中断**（MCM 的菜单就是这么画不出来的：
+    #   它在渲染回调里 `player.Velocity = vecZero`）。"它写了什么、有没有被拒"必须不靠眼睛就能读到。
+    #   ★ 符号名照 `nm runtime/.gdbsym-artifacts/runtime.elf | grep EntityFieldWrite` 抄下来
+    #     （2026-09-30 教训：手数长度编码会静默读不到）。
+    'g_EntityFieldWrites': '_ZN5isaac7runtime19g_EntityFieldWritesE',
+    'g_EntityFieldWriteRejected': '_ZN5isaac7runtime26g_EntityFieldWriteRejectedE',
+    'g_LastEntityFieldWriteName': '_ZN5isaac7runtime26g_LastEntityFieldWriteNameE',
+    # 批次 214（2026-09-30）：`Seeds:AddSeedEffect`/`RemoveSeedEffect`（**按设计不生效**的空实现）
+    #   被调用了几次。为什么必须有它：那两条的整条理由就是"宁可不生效也不抛错"，
+    #   真机上唯一能证明"模组真的调了、我们真的接住了、而且没抛错"的就是这个数。
+    'g_SeedsEffectWriteAttempts': '_ZN5isaac7runtime26g_SeedsEffectWriteAttemptsE',
+    # 批次 217（2026-09-30）：**每个动作"最后一次被问到时"的现场**（帧号 / 哪条 API / controller / 答案）。
+    #   为什么要有它：原来的 `g_InputActionQueriedMask` 那几张是**粘性**的（一旦置位永不清），
+    #   真机上早饱和成 `0x0fffffff` ⇒ 分不出"用户按下的那一刻，菜单问没问、我们答了什么"。
+    #   ★ 符号名照 `nm runtime/.gdbsym-artifacts/runtime.elf | grep InputActionAsked` 抄（别手数长度）。
+    'g_InputActionAskedFrame': '_ZN5isaac7runtime23g_InputActionAskedFrameE',
+    'g_InputActionAskedKind': '_ZN5isaac7runtime22g_InputActionAskedKindE',
+    'g_InputActionAskedController': '_ZN5isaac7runtime28g_InputActionAskedControllerE',
+    'g_InputActionAskedAnswer': '_ZN5isaac7runtime24g_InputActionAskedAnswerE',
+    # 批次 218（2026-09-30）：**按键侧**的独立计数与"最后一次被问"的现场。
+    #   为什么：原来按键号与动作号共用 `g_InputEdgeCounts` ⇒ 分不出"菜单走了按键分支还是动作分支"。
+    #   ★ 符号名照 `nm runtime/.gdbsym-artifacts/runtime.elf | grep InputButton` 抄。
+    'g_InputButtonEdgeCounts': '_ZN5isaac7runtime23g_InputButtonEdgeCountsE',
+    'g_InputButtonAskedFrame': '_ZN5isaac7runtime23g_InputButtonAskedFrameE',
+    'g_InputButtonAskedKind': '_ZN5isaac7runtime22g_InputButtonAskedKindE',
+    'g_InputButtonAskedController': '_ZN5isaac7runtime28g_InputButtonAskedControllerE',
+    'g_InputButtonAskedAnswer': '_ZN5isaac7runtime24g_InputButtonAskedAnswerE',
+    # 批次 219：**"最后一次真的被激活"的帧号**（动作侧 / 按键侧各一张）。
+    'g_InputActionHeldFrame': '_ZN5isaac7runtime22g_InputActionHeldFrameE',
+    'g_InputButtonTriggeredFrame': '_ZN5isaac7runtime27g_InputButtonTriggeredFrameE',
+    # 批次 379（2026-10-06）：按键侧**上升沿表本体**（`LuaRuntime::g_ButtonEdge`，定义在
+    # `input_api.cpp` 的匿名命名空间里 ⇒ 符号名带 `12_GLOBAL__N_1L`，照
+    # `nm runtime/.gdbsym-artifacts/runtime.elf | grep g_ButtonEdge` 抄）。
+    #   为什么非要有它：`IsButtonTriggered` 的答案 = **引擎的"按住"** + **我们自己求的边沿**，
+    #   而批次 218 那组探针只能告诉你"模组问过、我们答 false" —— **分不出**是引擎没答"按住"，
+    #   还是我们的边沿判定没成立（两条路的修法完全不同）。这张表里的 `held`（这一格上一次
+    #   采样时引擎答的"按住"）与 `lastEdgeFrame`（**粘性**：引擎只要答过一次"按住"就留下
+    #   帧号）正好把这两件事分开 ⇒ 真机上"按键按下去毫无反应"的唯一判据。
+    # ★ 更正（批次 381，2026-10-06）：字段名由 `lastPressedFrame` 改名为 `lastEdgeFrame`，
+    #   语义也变了 —— 它现在记的是**边沿发生的那一帧**（不再是"上一次读到按住"的帧号）。
+    #   这张表的**读法没变**：行 1 = 设备 33（第 1 台手柄）、行 31 = 任意设备（0xFFFFFFFF）。
+    'g_ButtonEdge': '_ZN5isaac7runtime12_GLOBAL__N_1L12g_ButtonEdgeE',
     'g_ModMenuLastCode': '_ZN5isaac7runtime17g_ModMenuLastCodeE',
     'g_ModMenuMilestones': '_ZN5isaac7runtime19g_ModMenuMilestonesE',
     'g_ModMenuReportCount': '_ZN5isaac7runtime20g_ModMenuReportCountE',
     'g_FontDrawCalls': '_ZN5isaac7runtime15g_FontDrawCallsE',
     'g_FontDrawBytes': '_ZN5isaac7runtime15g_FontDrawBytesE',
+    # 批次 415：Font 存储改走 **Lua 分配器**（`lua_getallocf`），四格读数替换 414 的池五格。
+    # ★ 判据：`g_FontStorageLive`（当前活着没归还的 Font 数）**应当停在个位数** ——
+    #   模组 `whatsmydps` 每帧建一个、随即该被 GC 回收；414 那版真机实测是 **288**（= 不回收）。
+    #   `g_FontStorageFailures` **应当恒 0**（>0 = 拿不到分配器或分配返回空）。
+    'g_FontStorageAllocations': '_ZN5isaac7runtime24g_FontStorageAllocationsE',
+    # ★ 2026-10-09 更正：417 ELF 中标识符长度是 17 / 21，旧 18 / 22 根本解析不到。
+    'g_FontStorageLive': '_ZN5isaac7runtime17g_FontStorageLiveE',
+    'g_FontStorageLivePeak': '_ZN5isaac7runtime21g_FontStorageLivePeakE',
     'g_FontLoadCalls': '_ZN5isaac7runtime15g_FontLoadCallsE',
     'g_FontLoadResult': '_ZN5isaac7runtime16g_FontLoadResultE',
     # ---- 数据行 API 的"调用 / 静默降级"计数器（批次 069，2026-09-19）----
@@ -279,25 +881,40 @@ SYM_ELF_NAMES = {
     # 数据行处理器（字段行 `FieldApiHandler` / 引擎方法行 `EngineMethodHandler`）拿不到接收者、
     # 偏移或入口指纹时**静默降级**（不报错），于是"没生效"与"没被调用"在设备上分不开 ——
     # 下面这九个量就是分开它们的那把尺子。名字是 `extern "C"` 的，不进名称改编。
-    'g_IsaacApiRowCalls': 'g_IsaacApiRowCalls',
-    'g_IsaacApiRowLastCallId': 'g_IsaacApiRowLastCallId',
-    'g_IsaacApiRowLastCallKind': 'g_IsaacApiRowLastCallKind',
-    'g_IsaacEngineRowCalls': 'g_IsaacEngineRowCalls',
-    'g_IsaacEngineRowRejectReceiver': 'g_IsaacEngineRowRejectReceiver',
-    'g_IsaacEngineRowRejectOffset': 'g_IsaacEngineRowRejectOffset',
-    'g_IsaacEngineRowRejectEntry': 'g_IsaacEngineRowRejectEntry',
-    'g_IsaacEngineRowLastRejectId': 'g_IsaacEngineRowLastRejectId',
-    'g_IsaacEngineRowLastRejectReason': 'g_IsaacEngineRowLastRejectReason',
+    # ---- 第 4 类降级 + 服装查表现场（批次 141，2026-09-26）----
+    # 由来：The Specialist for Good Items 在**文件作用域**用 `Isaac.GetCostumeIdByPath` 建服装表
+    # （23 条），跳舞时把结果直接喂给 `player:AddNullCostume(id)`；真机崩在
+    # `Entity_Player::AddCostume + 0x3c`（空指针）。这几格分开两件事：
+    #   ① `GetCostumeIdByPath` 到底查到没有（查了几次 / 中几次 / 最后一次中的是几 / 容器里有几条）；
+    #   ② 模组实际喂进"加/摘临时服装"的编号是几，以及我们**主动挡下**过几次
+    #      （`g_IsaacEngineRowRejectGuard`；挡下 = 编号无效时不再往引擎里调，见 `isaac_api.cpp`）。
+    # `g_IsaacCostumePathNullCount` 里的 `0xFFFFFFFF` = 那条链当时读不到（**不是**"容器空"）；
+    # `g_IsaacCostumePathLastId` 同理 = 一次都没命中过。
+    # 批次 154（2026-09-27）：`Music:Play` 的**编号保险**挡下几次 —— 真机事故
+    # `dist/crash-153-20260927-1121.log`（模组拿 `-1` 去 `Music::Play`，`Data Abort` 崩在 +0x68）
+    # 之后加的。这一格是"这次没放歌"与"我们挡了"的唯一区分点。
+    # ---- 批次 144（2026-09-26）：只读看一眼引擎存档分区里的 `options.ini`（EnableMods）----
+    'g_OptionsProbeExists': 'g_OptionsProbeExists',
+    'g_OptionsProbeStatus': 'g_OptionsProbeStatus',
+    'g_OptionsProbeReadStatus': 'g_OptionsProbeReadStatus',
+    'g_OptionsProbeSize': 'g_OptionsProbeSize',
+    'g_OptionsProbeEnableMods': 'g_OptionsProbeEnableMods',
+    'g_OptionsProbeHeadLow': 'g_OptionsProbeHeadLow',
+    'g_OptionsProbeHeadHigh': 'g_OptionsProbeHeadHigh',
+    # 批次 145：我们每帧把"启用模组"总闸置回 1 的次数（引擎自带的模组页会按键翻转它）。
+    'g_ModsGateRestores': 'g_ModsGateRestores',
+    #: 补加载那一半（引擎已经加载过时，我们替它再调一次 `Manager::LoadConfigs()`）。
+    #: 引擎那个"启用模组"总开关（`Manager + 0x36519`）的原值/现值/我们补写次数，
+    #: 以及"引擎自己没置位、由我们补写"的条数（`Fallback > 0` = 我们没赶上 ListMods）。
+    # ---- 批次 143（2026-09-26）：按 PC 逻辑"喊引擎自己重扫一遍模组目录"的现场 ----
+    # 走的是引擎自己的 `ModManager::Reset()`（扫 `mods/` → 看 `disable.it` + EnableMods 总闸
+    # → 写每条模组的启用位 → `ModManager::LoadConfigs()` 读 `costumes2.xml`/`music.xml`）。
+    # 判读：`State=1` 且 `MusicAfter > MusicBefore`（或 `NullAfter > NullBefore`）就是**成了**。
     # ---- `RoomDescriptor.Data` 读不出来时的现场（批次 071）----
     # 真机上 `crd.Data` 返回 nil 让 GoodTrip 的 `MC_POST_NEW_ROOM` 回调每次崩
     # （`control.lua:339`）。这几个量回答"是哪种房间、描述符对不对"：
     # GridIndex = 0xFFFFFFFF 表示那个槽位**没填**（我们拿到的是引擎的空描述符）；
     # GridIndex 正常而 Data 仍读不到 ⇒ 那个房间确实没有配置对象（贪婪模式一类）。
-    'g_IsaacRoomDescDataMisses': 'g_IsaacRoomDescDataMisses',
-    'g_IsaacRoomDescDataGridIndex': 'g_IsaacRoomDescDataGridIndex',
-    'g_IsaacRoomDescDataSafeGridIndex': 'g_IsaacRoomDescDataSafeGridIndex',
-    'g_IsaacRoomDescDataListIndex': 'g_IsaacRoomDescDataListIndex',
-    'g_IsaacRoomDescDataDescriptorLow': 'g_IsaacRoomDescDataDescriptorLow',
     # ---- 房间描述符**解析现场**（批次 074）----
     # 用户报"从部分房间回到两格房时小地图不出现"：GoodTrip 的地图绘制依赖
     # `grid_room[crd.SafeGridIndex] ~= nil`（条件为假 ⇒ 不画、也**不报错**）。
@@ -349,12 +966,10 @@ SYM_ELF_NAMES = {
     'g_RuntimePerfProfileOverflow': 'g_RuntimePerfProfileOverflow',
     # ---- 分配账（批次 091）----
     'g_RuntimePerfTickCostTicks': 'g_RuntimePerfTickCostTicks',
-    'g_RuntimePerfEmptyCallTicks': 'g_RuntimePerfEmptyCallTicks',
-    'g_RuntimePerfEmptyCallCount': 'g_RuntimePerfEmptyCallCount',
-    'g_RuntimePerfAllocCalls': 'g_RuntimePerfAllocCalls',
-    'g_RuntimePerfAllocBytes': 'g_RuntimePerfAllocBytes',
-    'g_RuntimePerfAllocNewCalls': 'g_RuntimePerfAllocNewCalls',
-    'g_RuntimePerfFreeCalls': 'g_RuntimePerfFreeCalls',
+    # ★ 2026-10-04（批次 363）：这六条**不在这里** —— 它们在本构建的 ELF 里不存在
+    # （只写不读 ⇒ `--gc-sections` 回收；批次 361 那版同样没有）。原因与处置见
+    # 下面 `SYM_UNRESOLVABLE` 的注释。放回这里会让 `test_elf_syms` 判红，
+    # 而"红"是对的：符号表不该声称一个有读口的量具存在。
     # ---- 模组那一行 + 模组页（**生产版**，批次 077）--------------------------------
     # 状态面结构体在 `runtime/source/mod_menu_native.hpp`（20 个 u32），定义在 `.cpp` 里。
     # ★★ 符号名是**裸名**，不是改编名：它声明成 `extern "C"`（C 语言链接 ⇒ 不加命名空间前缀、
@@ -362,6 +977,15 @@ SYM_ELF_NAMES = {
     #    符号是 `_ZN5isaac7runtime5probe26g_NativeModsMenuProbeStateE`。
     #    核对办法：`nm -C runtime/.gdbsym-artifacts/runtime.elf | grep g_ModMenuState`。
     'mod_menu_state': 'g_ModMenuState',
+    # ---- 批次 418（2026-10-09）：**owner 编号 → 模组名** 的那张表 ------------------
+    # 掉了帧要"点名"就得有它：回调耗时桶只给属主编号（`[#17]`），而"模组清单"是引擎给的目录列表、
+    # **包含被禁用的模组** ⇒ 两套编号之间**没有固定偏移**（实测两对锚点是 +6 与 +4）。
+    # 只有"分配 owner 号的那一刻"知道这个编号是谁 ⇒ 表在 `lua_runtime.cpp` 的 `RegisterMod` 里写。
+    # 32 行 × 64 字节 = 2048 字节 = **256 个字**（读取宽度见 `build_requests()`）。
+    # 符号是**裸名**（`extern "C"` + `[[gnu::used]]`，定义在全局作用域 —— 不这么做的话
+    # `section GC` 会把它整个丢掉、或者符号名带 `_GLOBAL__N_1` 让这里对不上）。
+    # 核对办法：`nm runtime/.gdbsym-artifacts/runtime.elf | grep g_ModOwnerNames`。
+    'g_ModOwnerNames': 'g_ModOwnerNames',
     # ---- 游戏控制台（批次 121）----
     # ★ 这一份是**改编名**（不是裸名）：它声明成命名空间内的普通 `inline` 变量
     #   （`isaac::runtime::console::g_ConsoleState`），因为 `extern "C"` + 初始化列表会让
@@ -375,21 +999,172 @@ SYM_ELF_NAMES = {
 #: （`PROBE_BREAK=0` 时整个 TU 被编译掉），所以它们单独一张表：解析到就用，解析不到就删键
 #: 并如实记账，主表那两条断言的语义一个字都不动。
 #: 名字前缀是探针自己的命名空间 `isaac::runtime::probe`，同一条门禁里另有断言钉住这一点。
+# 2026-10-10：RoomEntitySpawn旧入口在内部71桥版本中不再被引用；
+# Font分配使用Lua longjmp，旧失败计数没有消费者，可被链接GC移除。
+# 保留旧包解析能力，但缺席必须明确未读，不能算0或当成必备符号。
+SYM_ELF_NAMES_OPTIONAL = {
+    'g_CallbackDiagnosticViewIncomplete': '_ZN5isaac7runtime34g_CallbackDiagnosticViewIncompleteE',
+    'g_CallbackDiagnosticViewOverflow': '_ZN5isaac7runtime32g_CallbackDiagnosticViewOverflowE',
+    'entry_relay_room_entity_spawn': 'EntryRelayRoomEntitySpawnCallback',
+    'g_FontStorageFailures': '_ZN5isaac7runtime21g_FontStorageFailuresE',
+}
+
 SYM_ELF_NAMES_PROBE_ONLY = {
     # 原生模组页探针的诊断字（**109 个 u32**，布局见 `native_mods_menu_probe.hpp` ——
     # 单元数由 `runtime/tests/test_probe_state_layout.py` 在 .cpp/.hpp/本工具三处一起钉住；
     # 这个注释以前写着"42 个 u32"（批次 019 时的数字），已经过期过很久）。
     'native_mods_probe': '_ZN5isaac7runtime5probe26g_NativeModsMenuProbeStateE',
 }
+#: **批次 232（2026-09-30）：只有探针包（`DIAGNOSTIC_PROBES=1`）里才存在**的采集量。
+#:
+#: 为什么单开一张表：这批把正式包里的探针采集动作整个编译掉了（见 `runtime/source/probe_gate.hpp`），
+#: 而正式包是全量 section GC 链接的 ⇒ **没人写的全局量会被链接器整个丢掉**
+#: ⇒ 下面这些符号在正式 ELF 里**根本不存在**（实测 77 个）。
+#:
+#: 主表那两条断言要求「每一项都能在当前**生产** ELF 里解析到」（= 偏移表不许过期的守门人），
+#: 不该为探针放宽 —— 与 `SYM_ELF_NAMES_PROBE_ONLY` 同一个理由，所以再分一张：
+#:   * 探针包：解析得到 ⇒ 照常进 `SYMS`，读数一切照旧；
+#:   * 正式包：解析不到 ⇒ **如实记账**进 `SYM_MISSING`，读数报「本构建没有这项探针」，
+#:     绝不用过期偏移去猜一个位置（那是「看起来有值、其实是别人的变量」）。
+#:
+#: 门禁 `test_elf_syms.py::test_probe_build_only_hints_are_accounted_for` 钉住三件事：
+#: ① 名单里每一项要么进 `SYMS`、要么进 `SYM_MISSING`，**不许静默消失**；
+#: ② 三张符号表互不重叠；③ 反向自证 —— 能解析到的符号不许混进这张表。
+SYM_ELF_NAMES_PROBE_BUILD_ONLY = {
+    # ---- 批次 235（2026-09-30）：启动期"读模组"分段计时（`load_phase_probe.hpp`）---------
+    # 为什么在生产 ELF 里找不到：整段包在 `#if EXL_DIAGNOSTIC_PROBES` 里，
+    # 正式包（默认 0）连符号都不编进去。要看这几个数必须出 `DIAGNOSTIC_PROBES=1` 的包。
+    # ★ 名字口径不统一，别照抄：前两个在 `isaac::runtime::loadprobe` 里（**改编名**），
+    #   后三个写在 `hook_manager.cpp` 的**文件作用域**（**裸名**）。核对办法：
+    #   `nm runtime/.sdmc-test-artifacts/runtime.elf | grep -E "LoadPhaseMicros|ModLoadMicros"`。
+    'g_LoadPhaseMicros': '_ZN5isaac7runtime9loadprobe17g_LoadPhaseMicrosE',  # u32[8]
+    'g_LoadTotalMicros': '_ZN5isaac7runtime9loadprobe17g_LoadTotalMicrosE',  # u32
+    'g_ModLoadMicros': 'g_ModLoadMicros',   # u32[16]，每个模组的加载耗时（微秒）
+    'g_ModLoadCount': 'g_ModLoadCount',     # u32，上面写了几个
+    'g_ModLoadTotal': 'g_ModLoadTotal',     # u32，本次一共几个模组
+    # 批次 236 补：这条加载**跨了几帧**。≈15~20 = 拆帧生效（卡顿来自"每帧仍很重"）；
+    # == 1 = 拆帧没生效（整条路还是在一帧里跑完，那是我这侧的 bug）。
+    'g_LoadFramesUsed': 'g_LoadFramesUsed',  # u32
+    'g_LoadStartFrame': 'g_LoadStartFrame',  # u32，起步那一帧的 Update 进入次数
+    'g_ApiSequence': '_ZZN5isaac7runtime6detail11ApiSequenceEvE5state',
+    # 批次 250：**原生状态回退**计数（`native_state_fallback.hpp` 的 `detail::NativeFallback()`）。
+    # 读法：`count == 0` ⇒ 我们的地址链没问题；`count > 0` ⇒ 看 `lastApi` 是哪一个接口
+    # （编号表 = 那个头文件里的 `NativeFallbackApi`），再去回查那一条链。
+    # 为什么必须有它：把"读不到就抛错"改成"给回退值"之后，回退会让"地址链错了"**看起来正常**
+    # ⇒ 没有这个计数就没有任何东西能把真问题顶出来（这是那次改动唯一的风险控制）。
+    'g_NativeFallback': '_ZZN5isaac7runtime6detail14NativeFallbackEvE5state',
+    'g_InputActionSnapshotPressed': '_ZN5isaac7runtime28g_InputActionSnapshotPressedE',
+    'g_InputActionSnapshotValue': '_ZN5isaac7runtime26g_InputActionSnapshotValueE',
+    'g_InputBindingActionCount': '_ZN5isaac7runtime25g_InputBindingActionCountE',
+    'g_InputBindingArrayPtr': '_ZN5isaac7runtime22g_InputBindingArrayPtrE',
+    'g_InputBindingCodes': '_ZN5isaac7runtime19g_InputBindingCodesE',
+    'g_InputBindingDumpDone': '_ZN5isaac7runtime22g_InputBindingDumpDoneE',
+    'g_InputButtonSnapshotPressed': '_ZN5isaac7runtime28g_InputButtonSnapshotPressedE',
+    'g_InputDeviceRawBeginHigh': '_ZN5isaac7runtime25g_InputDeviceRawBeginHighE',
+    'g_InputDeviceRawBeginLow': '_ZN5isaac7runtime24g_InputDeviceRawBeginLowE',
+    'g_InputDeviceRawBeginPass2High': '_ZN5isaac7runtime30g_InputDeviceRawBeginPass2HighE',
+    'g_InputDeviceRawBeginPass2Low': '_ZN5isaac7runtime29g_InputDeviceRawBeginPass2LowE',
+    'g_InputDeviceRawDumpCount': '_ZN5isaac7runtime25g_InputDeviceRawDumpCountE',
+    'g_InputDeviceRawEndHigh': '_ZN5isaac7runtime23g_InputDeviceRawEndHighE',
+    'g_InputDeviceRawEndLow': '_ZN5isaac7runtime22g_InputDeviceRawEndLowE',
+    'g_InputDeviceRawEndPass2High': '_ZN5isaac7runtime28g_InputDeviceRawEndPass2HighE',
+    'g_InputDeviceRawEndPass2Low': '_ZN5isaac7runtime27g_InputDeviceRawEndPass2LowE',
+    'g_InputDeviceRawHead': '_ZN5isaac7runtime20g_InputDeviceRawHeadE',
+    'g_InputDeviceRawId': '_ZN5isaac7runtime18g_InputDeviceRawIdE',
+    'g_InputDeviceRawManagerHigh': '_ZN5isaac7runtime27g_InputDeviceRawManagerHighE',
+    'g_InputDeviceRawManagerLow': '_ZN5isaac7runtime26g_InputDeviceRawManagerLowE',
+    'g_InputDeviceRawPointerHigh': '_ZN5isaac7runtime27g_InputDeviceRawPointerHighE',
+    'g_InputDeviceRawPointerLow': '_ZN5isaac7runtime26g_InputDeviceRawPointerLowE',
+    'g_InputDeviceRawTail': '_ZN5isaac7runtime20g_InputDeviceRawTailE',
+    'g_InputDeviceRawValues': '_ZN5isaac7runtime22g_InputDeviceRawValuesE',
+    'g_InputDeviceRawValuesPrevious': '_ZN5isaac7runtime30g_InputDeviceRawValuesPreviousE',
+    'g_InputDeviceSelectedId': '_ZN5isaac7runtime23g_InputDeviceSelectedIdE',
+    'g_InputDeviceSelectedIndex': '_ZN5isaac7runtime26g_InputDeviceSelectedIndexE',
+    'g_InputDeviceStateActionCount': '_ZN5isaac7runtime29g_InputDeviceStateActionCountE',
+    'g_InputDeviceStateActionValue': '_ZN5isaac7runtime29g_InputDeviceStateActionValueE',
+    'g_InputDeviceStateAxes': '_ZN5isaac7runtime22g_InputDeviceStateAxesE',
+    'g_InputDeviceStateDeadzone': '_ZN5isaac7runtime26g_InputDeviceStateDeadzoneE',
+    'g_InputDeviceStateDeadzoneAlt': '_ZN5isaac7runtime29g_InputDeviceStateDeadzoneAltE',
+    'g_InputDeviceStateDumpCount': '_ZN5isaac7runtime27g_InputDeviceStateDumpCountE',
+    'g_InputDeviceStateEnabled': '_ZN5isaac7runtime25g_InputDeviceStateEnabledE',
+    'g_InputDeviceStateKeysCurrent': '_ZN5isaac7runtime29g_InputDeviceStateKeysCurrentE',
+    'g_InputDeviceStateKeysPrevious': '_ZN5isaac7runtime30g_InputDeviceStateKeysPreviousE',
+    'g_InputDeviceStateStickCurrent': '_ZN5isaac7runtime30g_InputDeviceStateStickCurrentE',
+    'g_InputDeviceStateStickPrevious': '_ZN5isaac7runtime31g_InputDeviceStateStickPreviousE',
+    'g_InputDeviceTableCount': '_ZN5isaac7runtime23g_InputDeviceTableCountE',
+    'g_InputDeviceTableId': '_ZN5isaac7runtime20g_InputDeviceTableIdE',
+    'g_InputDeviceTablePass2Count': '_ZN5isaac7runtime28g_InputDeviceTablePass2CountE',
+    'g_InputDeviceTablePass2Id': '_ZN5isaac7runtime25g_InputDeviceTablePass2IdE',
+    'g_InputDeviceTablePass2Pointer': '_ZN5isaac7runtime30g_InputDeviceTablePass2PointerE',
+    'g_InputDeviceTablePass2PointerHigh': '_ZN5isaac7runtime34g_InputDeviceTablePass2PointerHighE',
+    'g_InputDeviceTablePointer': '_ZN5isaac7runtime25g_InputDeviceTablePointerE',
+    'g_InputDeviceTablePointerHigh': '_ZN5isaac7runtime29g_InputDeviceTablePointerHighE',
+    'g_InputDeviceTableReadFailures': '_ZN5isaac7runtime30g_InputDeviceTableReadFailuresE',
+    'g_InputSnapshotFrame': '_ZN5isaac7runtime20g_InputSnapshotFrameE',
+    'g_IsaacApiRowCalls': 'g_IsaacApiRowCalls',
+    'g_IsaacApiRowLastCallId': 'g_IsaacApiRowLastCallId',
+    'g_IsaacApiRowLastCallKind': 'g_IsaacApiRowLastCallKind',
+    'g_IsaacCostumePathCalls': 'g_IsaacCostumePathCalls',
+    'g_IsaacCostumePathHits': 'g_IsaacCostumePathHits',
+    'g_IsaacCostumePathLastId': 'g_IsaacCostumePathLastId',
+    'g_IsaacCostumePathMisses': 'g_IsaacCostumePathMisses',
+    'g_IsaacCostumePathNullCount': 'g_IsaacCostumePathNullCount',
+    'g_IsaacEngineRowCalls': 'g_IsaacEngineRowCalls',
+    'g_IsaacEngineRowLastRejectId': 'g_IsaacEngineRowLastRejectId',
+    'g_IsaacEngineRowLastRejectReason': 'g_IsaacEngineRowLastRejectReason',
+    'g_IsaacEngineRowRejectEntry': 'g_IsaacEngineRowRejectEntry',
+    'g_IsaacEngineRowRejectGuard': 'g_IsaacEngineRowRejectGuard',
+    'g_IsaacEngineRowRejectOffset': 'g_IsaacEngineRowRejectOffset',
+    'g_IsaacEngineRowRejectReceiver': 'g_IsaacEngineRowRejectReceiver',
+    'g_IsaacMusicIdCalls': 'g_IsaacMusicIdCalls',
+    'g_IsaacMusicIdHits': 'g_IsaacMusicIdHits',
+    'g_IsaacMusicIdLastName': 'g_IsaacMusicIdLastName',
+    'g_IsaacMusicIdLastResult': 'g_IsaacMusicIdLastResult',
+    'g_IsaacMusicIdTableCount': 'g_IsaacMusicIdTableCount',
+    'g_IsaacNullCostumeGuardUnknown': 'g_IsaacNullCostumeGuardUnknown',
+    'g_IsaacNullCostumeLastRequestedId': 'g_IsaacNullCostumeLastRequestedId',
+    'g_IsaacRoomDescDataDescriptorLow': 'g_IsaacRoomDescDataDescriptorLow',
+    'g_IsaacRoomDescDataGridIndex': 'g_IsaacRoomDescDataGridIndex',
+    'g_IsaacRoomDescDataListIndex': 'g_IsaacRoomDescDataListIndex',
+    'g_IsaacRoomDescDataMisses': 'g_IsaacRoomDescDataMisses',
+    'g_IsaacRoomDescDataSafeGridIndex': 'g_IsaacRoomDescDataSafeGridIndex',
+    'g_MusicPlayGuardBlocked': 'g_MusicPlayGuardBlocked',
+}
 #: 表里有、但**这次构建的 ELF 里已经找不到**的符号：不能沿用过期的偏移（那是"看起来有值、
 #: 其实是别人的变量"），只能在读数时报"读不到"。这里只记账，方便汇报时说明缺了什么。
 SYM_MISSING: dict[str, str] = {}
+#: ★ 批次 232：**本构建没有探针包**而缺席的键（`SYM_ELF_NAMES_PROBE_BUILD_ONLY` 的子集）。
+#: 与 `SYM_MISSING` 分开记：前者是"设计如此"，后者是"该有却没有"（符号改名/过期）。
+SYM_PROBE_BUILD_ABSENT: list[str] = []
 #: 已经不再存在的全局量（2026-09-15：装好的挂点数改为从 `g_HookInstallResults` 现算，没有独立变量）。
 #: 曾经"这次构建里不存在"的全局量。2026-09-17 复查：`g_HookInstallInstalledCount` 其实是
 #: `HookInstallInstalledCount()` 里的**函数内静态**（`_ZZN…HookInstallInstalledCountEvE5value`），
 #: 现在在 SYM_ELF_NAMES 里指向了那个符号，所以从这个名单里拿掉。
-SYM_UNRESOLVABLE = ()
+#: ★ 2026-10-04（批次 363 实施中查出）：**六个性能计数器在本构建的 ELF 里根本不存在** ——
+#: `g_RuntimePerfEmptyCallTicks` / `g_RuntimePerfEmptyCallCount` / `g_RuntimePerfAllocCalls` /
+#: `g_RuntimePerfAllocBytes` / `g_RuntimePerfAllocNewCalls` / `g_RuntimePerfFreeCalls`。
+#:
+#: **为什么**：它们定义在 `runtime/source/lua_runtime.cpp` 的匿名命名空间里、带
+#: `visibility("hidden")`，**只被写、没有任何地方读** ⇒ 链接期的 `--gc-sections` 直接把它们回收。
+#: 对照实验（2026-10-04）：批次 361 那一版的 `runtime.elf` 里同样一个都找不到（不是本批引入的）。
+#:
+#: **为什么放进这个名单而不是删掉**：删掉会让读数工具"静默少读几行"，而那几行是性能线
+#: （`perf-line`）在用的量具 —— 它们的**代码还在**（`MeasureEmptyCallCost` 照样在写），
+#: 只是产物里没有符号。放进这个名单 = 读数里明确打印"本构建已无此全局量"，
+#: 谁要恢复这几行，就得先让它们**被真的读到**（例如加一个 `extern "C"` 读口），
+#: 而不是把符号表改回"看起来有"。
+SYM_UNRESOLVABLE = ('g_RuntimePerfEmptyCallTicks', 'g_RuntimePerfEmptyCallCount',
+                    'g_RuntimePerfAllocCalls', 'g_RuntimePerfAllocBytes',
+                    'g_RuntimePerfAllocNewCalls', 'g_RuntimePerfFreeCalls')
 _syms_synced = False
+#: `g_imagePcxDiag` 在**本构建**里的字节数（由 `sync_syms_from_elf` 从 ELF 的符号大小填）。
+#: 用途：诊断结构体是"表尾追加"演进的（270 起 736 字节、271 起 800、272 起 824…），
+#: 旧构建上按固定偏移硬读会打印**垃圾值**（2026-10-02 在 `270-prod` 上就发生过一次，
+#: 读数里出现了"Font:Load 窗口 2577779712 次"这种明显不成立的行）。
+#: ⇒ 判据必须是"**构建里真的有多少字节**"，不是"我们读回了多少字节"。
+IMAGE_PCX_DIAG_BYTES = 0
+# 418: Cache从内嵌数组变为动态指针；由ELF大小辨别历史与当前布局。
+MOD_DATA_CACHE_BYTES = 0
 
 HOOK_NAMES = ['ManagerUpdate', 'ManagerRender', 'PreGetCollectible',
               'ManagerPresent', 'RebuildMountPoints', 'GameStart',
@@ -402,9 +1177,82 @@ HOOK_NAMES = ['ManagerUpdate', 'ManagerRender', 'PreGetCollectible',
               'ImagePcxLoad', 'ImageManagerLoadFile', 'ContentGetMountedFilePath',
               # 模组那一行 + 模组页（批次 077）：三个入口中继（生产版接线）。
               'MenuGameRender', 'MenuTitleRender', 'MenuManagerSetState',
-    'PersistentGameDataSetReadOnly',]
+    'PersistentGameDataSetReadOnly',
+    # 批次 147（2026-09-26）：引擎那条"模组 content 加载"路的闸门（入口中���）。
+    'ModManagerLoadConfigs',
+    # 批次 363（2026-10-04）：`ANM2::Load` 入口中继 —— 让"模组覆盖本体资源"真正生效。
+    'Anm2Load',
+    # 批次 390（2026-10-07）：`MC_INPUT_ACTION` 的三条查询中继（`KAGE::Input::ManagerBase::*`）。
+    'ManagerIsActionPressed',
+    'ManagerIsActionTriggered',
+    'ManagerGetActionValue',
+    # 批次 396（2026-10-07）：`MC_ENTITY_TAKE_DMG` 的四条（基类 + 玩家/掉落物/槽位）
+    # 与 `MC_EVALUATE_CACHE`。顺序必须与 `HookId` 一致。
+    'EntityTakeDamage',
+    'EntityPlayerTakeDamage',
+    'EntityPickupTakeDamage',
+    'EntitySlotTakeDamage',
+    'EvaluateItems',
+    # 批次 397（2026-10-07）：补全回调（第 2 批）的三条。顺序必须与 `HookId` 一致。
+    'EntityKill',
+    'NpcDeathRemove',
+    'GameEnd',
+    'FireTear',
+    'FamiliarCollision', 'NpcCollision', 'PlayerCollision', 'TearCollision',
+    'ProjectileCollision', 'KnifeCollision', 'BombCollision', 'NpcRender', 'ItemPoolGetPill', 'ItemPoolGetPillEffect', 'GameDevolveEnemy', 'NpcUpdateAi', 'GameSpawnEx',
+    'ItemPoolTrinketFirstRandom', 'ItemPoolTrinketSelected', 'RoomClearAward',
+    'EntityRemovePointers', 'EntityDestructorRemove', 'LevelCurseFirstRandom', 'LevelCurseEvaluation', 'PickupSelection', 'PickupSelectionSpecial', 'ItemPoolGetCard', 'ModManagerUnload', 'ConsoleUnknownLength', 'ConsoleUnknownCompare', 'HudRender', 'RoomConfigLoadStageBinary', 'LevelLoadRoom', 'ConsoleLifecycle', 'PressurePlateAnimationWriter', 'PressurePlateDestructor', 'PressurePlateDeletingDestructor',]
+# 这些地址相对固定游戏NRO；内部挂点不使用g_hookCallbacks的旧入口槽。
+INTERNAL_HOOK_SITES = {
+    'RoomEntitySpawn': (0x452984, 0x68CFD0, 16),
+    'ItemPoolTrinketFirstRandom': (0x3C7668, 0x68CFE0, 16),
+    'ItemPoolTrinketSelected': (0x3C784C, 0x68CFF0, 16),
+    'RoomClearAward': (0x456988, 0x68CDB8, 8),
+    'EntityDestructorRemove': (0x58A00, 0x68CDA8, 8),
+    'LevelCurseFirstRandom': (0x3E0B34, 0x68CF98, 8),
+    'PressurePlateDestructor': (0x38F294, 0x68CD20, 16),
+    'PressurePlateDeletingDestructor': (0x38F2D4, 0x68CD30, 16),
+}
+
+INTERNAL_LITERAL_SLOTS = {'RoomClearAward':0x68CD68, 'LevelCurseFirstRandom':0x68CD70,
+                          'EntityDestructorRemove':0x68CD78}
+
+COLD_HOOK_SITES = {'LevelCurseEvaluation':(0x3E0C88,0x68CDC0,0xF9400309),
+                   'PickupSelection':(0x269D50,0x68CDE0,0x7100A29F),
+                   'PickupSelectionSpecial':(0x269D08,0x68CD00,0xB85FC3B4)}
+
+ENTITY_REMOVE_POINTER_SITES = (0xA34FB0,0xA350A0,0xA35198,0xA35290,0xA35BA0,0xA37168,
+                               0xA37468,0xA37560,0xA37690,0xA37788,0xA9F910)
+
+def decode_internal_branch(word: int, address: int) -> int | None:
+    if (word & 0xFC000000) != 0x14000000:
+        return None
+    imm = word & 0x03FFFFFF
+    if imm & 0x02000000:
+        imm -= 0x04000000
+    return address + imm * 4
+
+def decode_internal_veneer(words, address: int, size: int, literal_slot=None, literal_target=None) -> int | None:
+    if not words:
+        return None
+    low, high = words[0] & 0xFFFFFFFF, words[0] >> 32
+    if high != 0xD61F0200:
+        return None
+    if size == 16:
+        return words[1] if len(words) >= 2 and low == 0x58000050 else None
+    if size == 8 and (low & 0xFF00001F) == 0x58000010:
+        imm = (low >> 5) & 0x7FFFF
+        if imm & 0x40000:
+            imm -= 0x80000
+        return literal_target if address + imm * 4 == literal_slot and literal_target else None
+    if size != 8 or (low & 0x9F00001F) != 0x90000010:
+        return None
+    imm = ((low >> 5) & 0x7FFFF) * 4 + ((low >> 29) & 3)
+    if imm & 0x100000:
+        imm -= 0x200000
+    return (address & ~0xFFF) + imm * 0x1000
 # 只用来做比对、本身不是"要读的内存变量"的符号（读数请求要跳过它们）。
-SYM_ONLY = ('identity', 'manifest_install',
+SYM_ONLY = ('shader_screen_intercept', 'identity', 'manifest_install', 'entity_remove_pointer_callback',
             'entry_relay_update', 'entry_relay_render',
             'entry_relay_collectible', 'entry_relay_rebuild',
             'entry_relay_use_active_item', 'entry_relay_use_card',
@@ -412,7 +1260,20 @@ SYM_ONLY = ('identity', 'manifest_install',
             'entry_relay_pickup_collision', 'entry_relay_room_entity_spawn',
             'entry_relay_image_pcx_load', 'entry_relay_image_mgr_load',
             'entry_relay_get_mounted_path',
+            # 批次 147：模组 content 加载闸门的回调（`g_hookCallbacks` 里比对用）。
+            'entry_relay_mod_loadconfigs',
+            # 批次 363：`ANM2::Load` 入口中继的回调（同上）。
+            'entry_relay_anm2_load',
+            # 批次 396：`MC_ENTITY_TAKE_DMG` 四条 + `MC_EVALUATE_CACHE` 的回调（同上）。
+            'entry_relay_entity_take_damage', 'entry_relay_entity_player_take_damage',
+            'entry_relay_entity_pickup_take_damage', 'entry_relay_entity_slot_take_damage',
+            'entry_relay_evaluate_items',
+            # 批次 397：补全回调（第 2 批）的三条回调（同上）。
+            'entry_relay_entity_kill', 'entry_relay_npc_death_remove', 'entry_relay_game_end',
+            'entry_relay_fire_tear',
             'present_got_slot', 'present_target', 'present_callsite_offset')
+# 中继地址只用于身份比对；所有新增中继自动排除普通u32读数。
+SYM_ONLY += tuple(key for key in SYM_ELF_NAMES if key.startswith('entry_relay_') and key not in SYM_ONLY)
 # 已经切到零占洞入口中继的挂点 → 它的回调应当等于"模块基址 + 下面这个符号的偏移"。
 RELAY_BY_HOOK = {'ManagerUpdate': 'entry_relay_update',
                  'ManagerRender': 'entry_relay_render',
@@ -427,7 +1288,30 @@ RELAY_BY_HOOK = {'ManagerUpdate': 'entry_relay_update',
                  'RoomEntitySpawn': 'entry_relay_room_entity_spawn',
                  'ImagePcxLoad': 'entry_relay_image_pcx_load',
                  'ImageManagerLoadFile': 'entry_relay_image_mgr_load',
-                 'ContentGetMountedFilePath': 'entry_relay_get_mounted_path'}
+                 'ContentGetMountedFilePath': 'entry_relay_get_mounted_path',
+                 # 批次 147（模组 content 加载闸门）。
+                 'ModManagerLoadConfigs': 'entry_relay_mod_loadconfigs',
+                 # 批次 363（`ANM2::Load` 入口中继）。
+                 'Anm2Load': 'entry_relay_anm2_load',
+                 # 批次 396（`MC_ENTITY_TAKE_DMG` 四条 + `MC_EVALUATE_CACHE`）。
+                 'EntityTakeDamage': 'entry_relay_entity_take_damage',
+                 'EntityPlayerTakeDamage': 'entry_relay_entity_player_take_damage',
+                 'EntityPickupTakeDamage': 'entry_relay_entity_pickup_take_damage',
+                 'EntitySlotTakeDamage': 'entry_relay_entity_slot_take_damage',
+                 'EvaluateItems': 'entry_relay_evaluate_items',
+                 # 批次 397（补全回调第 2 批）。
+                 'EntityKill': 'entry_relay_entity_kill',
+                 'NpcDeathRemove': 'entry_relay_npc_death_remove',
+                 'GameEnd': 'entry_relay_game_end',
+                 'FireTear': 'entry_relay_fire_tear',
+                 'FamiliarCollision': 'entry_relay_familiarcollision',
+                 'NpcCollision': 'entry_relay_npccollision',
+                 'PlayerCollision': 'entry_relay_playercollision',
+                 'TearCollision': 'entry_relay_tearcollision',
+                 'ProjectileCollision': 'entry_relay_projectilecollision',
+                 'KnifeCollision': 'entry_relay_knifecollision',
+                 'BombCollision': 'entry_relay_bombcollision',
+                 'GameSpawnEx': 'entry_relay_gamespawnex', 'NpcRender': 'entry_relay_npcrender','ItemPoolGetPill': 'entry_relay_itempoolgetpill','ItemPoolGetPillEffect': 'entry_relay_itempoolgetpilleffect','GameDevolveEnemy': 'entry_relay_gamedevolveenemy'}
 # 插件里 g_helper 的位置：0xd220 就是它在插件 ELF 里的虚拟地址——插件的段是连续的，
 # 所以**物理地址 = 插件代码段基址 + 虚拟地址**（实测：0x090ec1e000 + 0xd220 = 0x090ec2b220）。
 PLUGIN_HELPER = 0xd220
@@ -659,7 +1543,43 @@ def parse_words(text: str) -> dict[str, list[int]]:
                     values[current].append(int(tok, 16))
                 except ValueError:
                     pass
+    if 'mod_data_head_bytes' in values:
+        raw = bytes(values.pop('mod_data_head_bytes'))
+        values['mod_data_head'] = [int.from_bytes(raw[i:i+8], 'little')
+                                   for i in range(0, len(raw), 8)]
     return values
+
+
+def recover_font_storage_from_raw(text: str, base: int,
+                                  values: dict[str, list[int]]) -> dict[str, str]:
+    """只恢复同一 raw 已读到且地址与 ELF 匹配的 Font u32，不用邻居关系猜值。"""
+    fields = ('g_FontStorageAllocations', 'g_FontStorageLive',
+              'g_FontStorageLivePeak', 'g_FontStorageFailures')
+    recovered: dict[str, str] = {}
+    source = None
+    for line in text.splitlines():
+        if line.startswith('TAG '):
+            source = line[4:].strip()
+            continue
+        if source not in fields or source not in SYMS or not base:
+            continue
+        match = re.match(r'^0x([0-9a-f]+)\s*(?:<[^>]*>)?:\s*(.*)', line)
+        if not match:
+            continue
+        address = int(match.group(1), 16)
+        if address != base + SYMS[source]:
+            continue  # 指定的 ELF 与原始取数地址不一致，禁止恢复。
+        words = [int(tok, 16) for tok in match.group(2).split()
+                 if re.fullmatch(r'0x[0-9a-f]+', tok)]
+        raw = words_to_bytes(words)
+        for key in fields:
+            if values.get(key) or key not in SYMS:
+                continue
+            offset = base + SYMS[key] - address
+            if 0 <= offset <= len(raw) - 4:
+                values[key] = [int.from_bytes(raw[offset:offset + 4], 'little')]
+                recovered[key] = f'{source} 原始字节 @0x{address + offset:x}（ELF 地址一致）'
+    return recovered
 
 
 def parse_mappings(text: str) -> list[tuple[int, int, str, str]]:
@@ -704,36 +1624,60 @@ def locate_by_scan(session: 'GdbSession', elf: Path, *, max_candidates: int = 48
     而 `Manager::Update` 入口那 8 字节要么是原版序言、要么是我们自己的入口中继桩，二者都认识。
     两处都只用"模块起始 + 已知偏移"，不依赖调试桩的模块表。
     """
-    maps = parse_mappings(session.command('monitor get mappings'))
-    if len(maps) < 3:
-        # ★ 2026-09-19 实测：`attach` 刚返回时 `monitor get mappings` 可能只给一小部分段
-        # （97 段、且**不含我们的代码段**）⇒ 候选只剩 1 个、基址取不到，白烧一次挂载。
-        # 稍后同一次挂载再问一遍就能拿到完整的 148 段，所以这里重试一次。
-        maps = parse_mappings(session.command('monitor get mappings')) or maps
-    if not maps:
-        return None, None
-    candidates = scan_candidates(maps, SYMS['identity'] + 0x100)[:max_candidates]
-    print(f'  （monitor get info 没给模块表，改用 mappings 扫描：{len(maps)} 段里 '
-          f'{len(candidates)} 个可执行候选）')
+    # ★★ 2026-09-27 改：**最多读三次段表**，每次都把"这次新出现的候选"试一遍。
+    #
+    # 为什么不是"读一次、失败再补读一次"：`monitor get mappings` 在 `attach` 刚返回时给的表
+    # **可以一次比一次完整**（同一次挂载里慢慢补齐）。实测两种坏形态：
+    #   * 2026-09-27 上午：**119 段、可执行候选只剩 1 个**（那一个是游戏模块的 `AliasCode`），
+    #     而同一次会话末尾再问就给出了含我们代码段的完整列表（7 个可执行段）；
+    #   * 2026-09-27 中午：**126 段、候选又只剩 1 个**，我补的那次重读**也没拿到新候选** ⇒
+    #     还是认不出来、还是被读成"游戏没在运行"（而游戏明明在跑，用户报的就是局内）。
+    # ⇒ 判据是"**还没认出模块**"（不是"段数少"），动作是**再读一次并把新候选也试掉**，最多三轮。
     identity_expect = local_bytes(elf, SYMS['identity'], 16)
-    cmds = []
-    for i, start in enumerate(candidates):
-        cmds.append(f'echo TAG cand_{i}\\n')
-        cmds.append(f'x/2gx 0x{start + SYMS["identity"]:x}')
-        cmds.append(f'echo TAG game_{i}\\n')
-        cmds.append(f'x/2gx 0x{start + SYMS["manager_update_entry"]:x}')
-    values = parse_words(session.command('\n'.join(cmds)))
     module = game = None
-    for i, start in enumerate(candidates):
-        got = b''.join(v.to_bytes(8, 'little') for v in (values.get(f'cand_{i}') or [])[:2])
-        if got and got == identity_expect and module is None:
-            module = start
-        entry = values.get(f'game_{i}') or []
-        if entry and game is None:
-            word = entry[0] & 0xFFFFFFFF
-            # 我们的入口中继桩（`ldr x16,#8; br x16`）或原版 `Manager::Update` 序言。
-            if word in (0x58000050, 0xFF4301D1):
-                game = start
+    tried: set = set()
+    candidates: list = []
+    values: dict = {}
+    for attempt in range(3):
+        maps = parse_mappings(session.command('monitor get mappings'))
+        if not maps:
+            continue
+        candidates = scan_candidates(maps, SYMS['identity'] + 0x100)[:max_candidates]
+        if attempt == 0:
+            print(f'  （monitor get info 没给模块表，改用 mappings 扫描：{len(maps)} 段里 '
+                  f'{len(candidates)} 个可执行候选）')
+        fresh = [start for start in candidates if start not in tried]
+        if not fresh:
+            print(f'  （第 {attempt + 1} 次读段表：{len(maps)} 段 / {len(candidates)} 个候选，'
+                  '没有新东西 ⇒ 再读一次）')
+            continue
+        tried.update(fresh)
+        cmds = []
+        for i, start in enumerate(fresh):
+            cmds.append(f'echo TAG cand_{i}\\n')
+            cmds.append(f'x/2gx 0x{start + SYMS["identity"]:x}')
+            cmds.append(f'echo TAG game_{i}\\n')
+            cmds.append(f'x/2gx 0x{start + SYMS["manager_update_entry"]:x}')
+        values = parse_words(session.command('\n'.join(cmds)))
+        for i, start in enumerate(fresh):
+            got = b''.join(v.to_bytes(8, 'little')
+                           for v in (values.get(f'cand_{i}') or [])[:2])
+            if got and got == identity_expect and module is None:
+                module = start
+            entry = values.get(f'game_{i}') or []
+            if entry and game is None:
+                word = entry[0] & 0xFFFFFFFF
+                # 我们的入口中继桩（`ldr x16,#8; br x16`）或原版 `Manager::Update` 序言。
+                if word in (0x58000050, 0xFF4301D1):
+                    game = start
+        if module is not None and game is not None:
+            if attempt > 0:
+                print(f'  ★ 第 {attempt + 1} 次读段表才认出来（前几次的段表不完整）：'
+                      f'运行时模块基址 = 0x{module:x}、游戏模块基址 = 0x{game:x}')
+            break
+        if attempt < 2:
+            print(f'  （第 {attempt + 1} 次读段表：{len(maps)} 段 / {len(candidates)} 个候选、'
+                  f'新增 {len(fresh)} 个 —— 还没对上，再读一次）')
     # 候选被拒时**把"读到什么 / 期望什么"打出来**（2026-09-18 加）。
     #
     # 为什么值得打：此前这条路的失败信息只有一句"基址没取全"，看不出是"段起点不是模块基址"
@@ -768,6 +1712,9 @@ def locate_by_scan(session: 'GdbSession', elf: Path, *, max_candidates: int = 48
     return module, game
 
 
+ENTITY_FIELD_WRITES_BYTES = 21 * 4  # 旧包无ELF时的已知边界；新包按真实符号size刷新
+
+
 def sync_syms_from_elf(elf: Path, *, verbose: bool = False) -> dict[str, str]:
     """用**本地这份 ELF**的符号表刷新"模块内偏移"，返回没解析到的符号。
 
@@ -776,12 +1723,13 @@ def sync_syms_from_elf(elf: Path, *, verbose: bool = False) -> dict[str, str]:
     解析不到的符号**直接从表里删掉**——沿用过期的偏移比读不到更糟：它会把别人的变量
     当成我们要的那个，读数"看起来有值"却是错的。
     """
-    global _syms_synced
+    global _syms_synced, IMAGE_PCX_DIAG_BYTES, MOD_DATA_CACHE_BYTES, CALLBACK_REGISTRY_COUNT_OFFSET, CALLBACK_REGISTRY_LAYOUT_KNOWN, ENTITY_FIELD_WRITES_BYTES
     tools_dir = str(Path(__file__).resolve().parent)
     if tools_dir not in sys.path:
         sys.path.insert(0, tools_dir)
     import elf_syms  # 同目录的极简 ELF 解析器（只依赖标准库）
 
+    CALLBACK_REGISTRY_LAYOUT_KNOWN = False
     if not elf.exists():
         _syms_synced = False
         print(f'  ⚠ 找不到本地 ELF（{elf}），沿用表内偏移 —— 读数可能与当前构建不符')
@@ -793,11 +1741,17 @@ def sync_syms_from_elf(elf: Path, *, verbose: bool = False) -> dict[str, str]:
         return {'(整个 ELF)': '没有符号表'}
 
     missing: dict[str, str] = {}
-    for key, name in {**SYM_ELF_NAMES, **SYM_ELF_NAMES_PROBE_ONLY}.items():
+    probe_build_only_absent: list[str] = []
+    for key, name in {**SYM_ELF_NAMES, **SYM_ELF_NAMES_OPTIONAL, **SYM_ELF_NAMES_PROBE_ONLY,
+                    **SYM_ELF_NAMES_PROBE_BUILD_ONLY}.items():
         hit = symbols.get(name)
         if hit is None:
             missing[key] = name
             SYMS.pop(key, None)
+            if key in SYM_ELF_NAMES_PROBE_BUILD_ONLY:
+                # ★ 批次 232：这一档的缺席是**设计如此**（正式包不编进探针采集 ⇒ 符号被 GC 掉），
+                #   与"符号改名/过期"不是一回事 ⇒ 分开记账、分开报，别让 77 条噪声淹没真问题。
+                probe_build_only_absent.append(key)
         else:
             SYMS[key] = hit[0]
     for key in SYM_UNRESOLVABLE:            # 这次构建里已经不存在的全局量
@@ -805,11 +1759,34 @@ def sync_syms_from_elf(elf: Path, *, verbose: bool = False) -> dict[str, str]:
         missing[key] = '（本构建已无此全局量）'
     SYM_MISSING.clear()
     SYM_MISSING.update(missing)
+    SYM_PROBE_BUILD_ABSENT.clear()
+    SYM_PROBE_BUILD_ABSENT.extend(sorted(probe_build_only_absent))
+    # 贴图桥诊断结构体在本构建里到底多大 —— 后面按它决定"哪几段字段真的存在"。
+    # ★ 注意：`SYMS[key]` 在**上面那个循环之后**已经变成**地址**（`hit[0]`），不再是符号名
+    #   ⇒ 必须回头查这张名字表拿 mangled 名（第一版就是在这里取错、读成 0 字节的）。
+    diag_name = {**SYM_ELF_NAMES, **SYM_ELF_NAMES_PROBE_ONLY,
+                 **SYM_ELF_NAMES_PROBE_BUILD_ONLY}.get('image_pcx_diag')
+    diag_symbol = symbols.get(diag_name) if diag_name else None
+    IMAGE_PCX_DIAG_BYTES = int(diag_symbol[1]) if diag_symbol else 0
+    cache_symbol = symbols.get(SYM_ELF_NAMES['g_ModDataCache'])
+    MOD_DATA_CACHE_BYTES = int(cache_symbol[1]) if cache_symbol else 0
+    write_symbol = symbols.get(SYM_ELF_NAMES['g_EntityFieldWrites'])
+    ENTITY_FIELD_WRITES_BYTES = int(write_symbol[1]) if write_symbol else 0
+    registry_symbol = symbols.get(SYM_ELF_NAMES.get('g_CallbackRegistry', ''))
+    registry_size = registry_symbol[1] if registry_symbol else 0
+    registry_count_offset = {0x2008: 0x2000, 0x2508: 0x2500, 0x2d08: 0x2d00}.get(registry_size)
+    if registry_count_offset is not None:
+        CALLBACK_REGISTRY_COUNT_OFFSET = registry_count_offset
+        CALLBACK_REGISTRY_LAYOUT_KNOWN = True
     _syms_synced = True
     if verbose:
-        print(f'  偏移已按 {elf.name} 的符号表刷新（{len(SYM_ELF_NAMES)} 项）')
-        if missing:
-            print(f'  ⚠ 未解析到（读数会显示"读不到"）：{", ".join(sorted(missing))}')
+        print(f'  偏移已按 {elf.name} 的符号表刷新（主表 {len(SYM_ELF_NAMES)} 项）')
+        stale = sorted(k for k in missing if k not in SYM_ELF_NAMES_PROBE_BUILD_ONLY)
+        if stale:
+            print(f'  ⚠ 未解析到（读数会显示"读不到"）：{", ".join(stale)}')
+        if probe_build_only_absent:
+            print(f'  · 本构建没有探针包（DIAGNOSTIC_PROBES=0）⇒ 这 {len(probe_build_only_absent)} 项'
+                  f'不采集、符号也不在 ELF 里（正常，不是过期）。要读数请出 `DIAGNOSTIC_PROBES=1` 的包。')
     return missing
 
 
@@ -852,6 +1829,26 @@ def build_requests(base: int, game_base: int, plugin_base: int):
         ('hook_results', base + SYMS['g_HookInstallResults'], 5),
         ('update_entries', base + SYMS['g_UpdateCallbackEntries'], 1),
         ('render_entries', base + SYMS['g_RenderCallbackEntries'], 1),
+        # 2026-10-05 排查：渲染回调那条命脉的逐环判据（各自独立全局 ⇒ 一个一个读）。
+        ('render_present_relay_entries', base + SYMS['g_RenderPresentRelayEntries'], 1),
+        ('default_callback_gate', base + SYMS['g_DefaultCallbackGate'], 1),
+        ('lua_game_owner_slot', base + SYMS['g_LuaGameOwnerSlot'], 1),
+        ('lua_game_ispaused_thunk', base + SYMS['g_LuaGameIsPausedThunk'], 1),
+        ('last_is_paused', base + SYMS['g_LastIsPaused'], 1),
+        ('music_get_current_id', base + SYMS['g_MusicGetCurrentMusicId'], 1),
+        ('render_frame_manager', base + SYMS['g_RenderFrameManager'], 1),
+        ('music_resolve_failure', base + SYMS['g_MusicResolveFailure'], 1),
+        # 批次 408：`SFXManager:Play` 探针（9 个 u32，各自独立地址 ⇒ 逐个读 1 个字）。
+        ('sfx_play_calls', base + SYMS['g_SfxPlayCalls'], 1),
+        ('sfx_play_delivered', base + SYMS['g_SfxPlayDelivered'], 1),
+        ('sfx_play_last_id', base + SYMS['g_SfxPlayLastId'], 1),
+        ('sfx_play_last_volume', base + SYMS['g_SfxPlayLastVolume'], 1),
+        ('sfx_play_last_frame_delay', base + SYMS['g_SfxPlayLastFrameDelay'], 1),
+        ('sfx_play_last_loop', base + SYMS['g_SfxPlayLastLoop'], 1),
+        ('sfx_play_last_pitch', base + SYMS['g_SfxPlayLastPitch'], 1),
+        ('sfx_play_last_pan', base + SYMS['g_SfxPlayLastPan'], 1),
+        ('sfx_play_last_failure', base + SYMS['g_SfxPlayLastFailure'], 1),
+        ('deepest_owner_observation', base + SYMS['g_DeepestGameOwnerObservation'], 1),
         ('callback_error', base + SYMS['g_CallbackError'], 1),
         ('self_journal', base + SYMS['g_selfJournalServiceState'], 1),
         # ★ 这几个量是**分散**排布的（链接器按大小/对齐重排过），所以逐个地址各读各的，
@@ -862,6 +1859,7 @@ def build_requests(base: int, game_base: int, plugin_base: int):
         # 8 条 × 128 字节 = 1024 字节（按 8 字节字读 ⇒ 128 个字）；计数单独一个全局。
         ('lua_error_history', base + SYMS['g_LuaErrorHistory'], 128),
         ('lua_error_history_count', base + SYMS['g_LuaErrorHistoryCount'], 1),
+        # 历史内嵌布局仅用于旧ELF；当前动态Cache在下方按符号大小另建请求。
         ('mod_data_tail', base + SYMS['g_ModDataCache'] + 0x4000, 3),  # 模组数据容器尾部（见 SYMS 注释）
         # 模组数据容器的**开头 1 KiB**：记录表（每条 24 字节头 + 值，见
         # `ModPersistence::detail::RecordAt`）。读它就能把探针写进 `Mod:SaveData` 的文本
@@ -871,23 +1869,183 @@ def build_requests(base: int, game_base: int, plugin_base: int):
         # 而现象是"某条模组的记录不见了"（2026-09-20 实测：EID 的配置记录比 GoodTrip 的大，
         # 4096 字节的窗口正好把它切掉 ⇒ 读数里只有别的模组）。
         # 容器容量是 0x4000（16 KiB）、当前用量在 `mod_data_tail` 里报；这里给 8192 字节。
-        ('mod_data_head', base + SYMS['g_ModDataCache'], 1024),
+        # 447起不再从指针变量后盲读8192B；动态记录需按当前Cache布局解引用。
         # API 调用序列（`ApiSequenceState` 的声明顺序：u64 mainMask、u64 secondaryMask、
         # u32 drawCalls、u32 drawBytes、u32 itemConfigFound、u32 itemConfigMissing、
         # u64 filterMask、u32 lastPrimary、u32 lastPrimaryCalls）—— 读前 5 个字（40 字节）够用。
         ('api_sequence', base + SYMS['g_ApiSequence'], 5),
+        # 批次 250：原生状态回退（`NativeFallbackState` = u32 count + u32 lastApi ⇒ 1 个字）。
+        ('native_fallback', base + SYMS['g_NativeFallback'], 1),
         ('manifest_head', base + SYMS['g_DefaultManifest'], 24),   # 清单原文前 192 字节
         ('entry_head', base + SYMS['g_DefaultEntry'], 8),          # 入口脚本前 64 字节
         # 回调登记表：**按字节**解（每项 20 字节，见 `decode_callback_entries`）。
         # 请求 90 个 8 字节字 = 720 字节 ⇒ 够看满 36 条登记（容量 256 条，EID 一家约 34 条）。
-        ('callback_registry', base + SYMS['g_CallbackRegistry'], 90),
+        # ★ 2026-10-08（排查 MCM 打不开）：**整张表读满**（原来只读 90 字 = 36 条，
+        #   而容量 256 条 ⇒ 关键的那几条（例如某个 owner 的 `MC_POST_RENDER`）
+        #   经常落在"前 3 后 3"之外，看不到就无从判"它到底注册上没有"。
+        #   360 字 = 144 条 ≥ 常见条数；不够也不影响（下面的解码只取 count 条）。
+        ('callback_registry', base + SYMS['g_CallbackRegistry'], 360),
         ('callback_count', base + SYMS['g_CallbackRegistry'] + CALLBACK_REGISTRY_COUNT_OFFSET, 1),
         # 批次 109：`Input.IsActionTriggered` **每个动作报过几次**（32 个 u32 = 16 个字）。
         # 用途：按**一次**键之后读这里 —— 某个动作 +2 就是"一次按键报了两次边沿"
         # （用户实测的"按一次跳两格"就是这么来的）；+1 才是正常。
         ('input_edge_counts', base + SYMS['g_InputEdgeCounts'], 16),
-        # 批次 110：最长"闪断"帧数（32 个 u32 = 16 个字）。去抖窗口够不够看它。
+        # 批次 110 建、批次 221 改口径：最长"闪断"帧数（32 个 u32 = 16 个字）。
+        # 批次 221 起边沿是**严格相邻帧差分** ⇒ 闪断会**直接多报边沿**（没有窗口挡它了）。
         ('input_release_peak', base + SYMS['g_InputReleaseRunPeak'], 16),
+        # 批次 209：按键号那三条查询的两个掩码（各 1 个 u32，走 `first_u32`）。
+        ('input_button_pressed', base + SYMS['g_InputButtonPressedMask'], 1),
+        ('input_button_queried', base + SYMS['g_InputButtonQueriedMask'], 1),
+        # 批次 213：边沿间隔（32 个 u32 = 128 字节 = 16 个字）。
+        ('input_edge_gap_min', base + SYMS['g_InputEdgeGapMin'], 16),
+        ('input_edge_gap_last', base + SYMS['g_InputEdgeGapLast'], 16),
+        # 批次 381（2026-10-06）：**"帧上采样"机制本身的现场**（5 个 `std::atomic<uint32_t>`
+        # 标量，各 1 个 u32）。用途见 `SYM_ELF_NAMES` 里那 5 个键的注释。
+        ('input_sample_frame', base + SYMS['g_InputSampleFrame'], 1),
+        ('input_sample_calls', base + SYMS['g_InputSampleCalls'], 1),
+        ('input_sample_codes', base + SYMS['g_InputSampleCodes'], 1),
+        ('input_sample_devices', base + SYMS['g_InputSampleDevices'], 1),
+        ('input_sample_failures', base + SYMS['g_InputSampleFailures'], 1),
+        # 批次 222：每帧"全动作快照" —— 我们**自己**把全部动作号/按键号各问一遍
+        # （口径与三条纪律见 `input_api.cpp` 里 `g_InputSnapshotFrame` 的声明处）。
+        # 用途：真机上"推摇杆下"时 MCM 问的那 10 个号里只有 `ACTION_PILLCARD(10)` 为真，
+        # 另外 18 个号是黑的 ⇒ 这段把它们全暴露出来。
+        ('input_snapshot_frame', base + SYMS['g_InputSnapshotFrame'], 1),
+        ('input_action_snapshot_pressed', base + SYMS['g_InputActionSnapshotPressed'], 1),
+        ('input_button_snapshot_pressed', base + SYMS['g_InputButtonSnapshotPressed'], 1),
+        ('input_action_snapshot_value', base + SYMS['g_InputActionSnapshotValue'], 16),
+        # 批次 223："动作 → 绑定的按钮码"表的现场（查"+17 错位"的根因；表只采一次）。
+        ('input_binding_dump_done', base + SYMS['g_InputBindingDumpDone'], 1),
+        ('input_binding_action_count', base + SYMS['g_InputBindingActionCount'], 1),
+        ('input_binding_ptr', base + SYMS['g_InputBindingArrayPtr'], 16),
+        ('input_binding_codes', base + SYMS['g_InputBindingCodes'], 64),
+        # 批次 224：设备内部输入状态（模拟量 / 位图 / 死区；每帧采）。
+        ('input_device_state_dump_count', base + SYMS['g_InputDeviceStateDumpCount'], 1),
+        ('input_device_state_enabled', base + SYMS['g_InputDeviceStateEnabled'], 1),
+        ('input_device_state_action_count', base + SYMS['g_InputDeviceStateActionCount'], 1),
+        ('input_device_state_keys_current', base + SYMS['g_InputDeviceStateKeysCurrent'], 1),
+        ('input_device_state_keys_previous', base + SYMS['g_InputDeviceStateKeysPrevious'], 1),
+        ('input_device_state_stick_current', base + SYMS['g_InputDeviceStateStickCurrent'], 1),
+        ('input_device_state_stick_previous', base + SYMS['g_InputDeviceStateStickPrevious'], 1),
+        ('input_device_state_deadzone', base + SYMS['g_InputDeviceStateDeadzone'], 1),
+        ('input_device_state_deadzone_alt', base + SYMS['g_InputDeviceStateDeadzoneAlt'], 1),
+        ('input_device_state_action_value', base + SYMS['g_InputDeviceStateActionValue'], 32),
+        ('input_device_state_axes', base + SYMS['g_InputDeviceStateAxes'], 4),
+        # 批次 225：设备对象**整块原始内存**（用户要求"读全"，不再逐字段猜）。
+        ('input_device_raw_dump_count', base + SYMS['g_InputDeviceRawDumpCount'], 1),
+        ('input_device_raw_pointer_low', base + SYMS['g_InputDeviceRawPointerLow'], 1),
+        ('input_device_raw_pointer_high', base + SYMS['g_InputDeviceRawPointerHigh'], 1),
+        ('input_device_raw_id', base + SYMS['g_InputDeviceRawId'], 1),
+        ('input_device_raw_head', base + SYMS['g_InputDeviceRawHead'], 64),      # 128 u32
+        ('input_device_raw_tail', base + SYMS['g_InputDeviceRawTail'], 20),      # 40 u32
+        ('input_device_raw_values', base + SYMS['g_InputDeviceRawValues'], 16),
+        ('input_device_raw_values_previous', base + SYMS['g_InputDeviceRawValuesPrevious'], 16),
+        ('input_device_table_count', base + SYMS['g_InputDeviceTableCount'], 1),
+        ('input_device_table_pointer', base + SYMS['g_InputDeviceTablePointer'], 4),
+        # 批次 226：表项指针的**高 32 位** + "当次选中的设备号"（修"只存低 32 位被截断"与
+        # "缓存旧设备指针导致同帧两份数据不一致"这两个 bug）。
+        ('input_device_table_pointer_high', base + SYMS['g_InputDeviceTablePointerHigh'], 4),
+        ('input_device_selected_id', base + SYMS['g_InputDeviceSelectedId'], 1),
+        # 批次 227：表/来源的一致性验证（连读两遍 + 来源核对 + 选中项下标）。
+        ('input_device_raw_manager_low', base + SYMS['g_InputDeviceRawManagerLow'], 1),
+        ('input_device_raw_manager_high', base + SYMS['g_InputDeviceRawManagerHigh'], 1),
+        ('input_device_raw_begin_low', base + SYMS['g_InputDeviceRawBeginLow'], 1),
+        ('input_device_raw_begin_high', base + SYMS['g_InputDeviceRawBeginHigh'], 1),
+        ('input_device_raw_end_low', base + SYMS['g_InputDeviceRawEndLow'], 1),
+        ('input_device_raw_end_high', base + SYMS['g_InputDeviceRawEndHigh'], 1),
+        ('input_device_raw_begin_pass2_low', base + SYMS['g_InputDeviceRawBeginPass2Low'], 1),
+        ('input_device_raw_begin_pass2_high', base + SYMS['g_InputDeviceRawBeginPass2High'], 1),
+        ('input_device_raw_end_pass2_low', base + SYMS['g_InputDeviceRawEndPass2Low'], 1),
+        ('input_device_raw_end_pass2_high', base + SYMS['g_InputDeviceRawEndPass2High'], 1),
+        ('input_device_table_pass2_count', base + SYMS['g_InputDeviceTablePass2Count'], 1),
+        ('input_device_table_pass2_pointer', base + SYMS['g_InputDeviceTablePass2Pointer'], 4),
+        ('input_device_table_pass2_pointer_high',
+         base + SYMS['g_InputDeviceTablePass2PointerHigh'], 4),
+        ('input_device_table_pass2_id', base + SYMS['g_InputDeviceTablePass2Id'], 4),
+        ('input_device_selected_index', base + SYMS['g_InputDeviceSelectedIndex'], 1),
+        # 批次 229：读表失败的次数（>0 ⇒ 表里有格子读不到，别把哨兵 0xFFFFFFFF 当真值）。
+        ('input_device_table_read_failures', base + SYMS['g_InputDeviceTableReadFailures'], 1),
+        ('input_device_table_id', base + SYMS['g_InputDeviceTableId'], 4),
+        # 批次 235：启动期"读模组"分段计时。数组按 **u32** 读（`first_u32` 是按 8 字节字取的，
+        # 数组要用下面 `_u32_at` 那一套解码 —— 这是 232 查出来的老坑）。
+        ('load_phase_micros', base + SYMS['g_LoadPhaseMicros'], 4),        # 8 个 u32 = 4 个字
+        ('load_total_micros', base + SYMS['g_LoadTotalMicros'], 1),
+        ('mod_load_micros', base + SYMS['g_ModLoadMicros'], 8),            # 16 个 u32 = 8 个字
+        ('mod_load_count', base + SYMS['g_ModLoadCount'], 1),
+        ('mod_load_total', base + SYMS['g_ModLoadTotal'], 1),
+        ('load_frames_used', base + SYMS['g_LoadFramesUsed'], 1),
+        # 批次 210：发布槽（0 = 守卫没过 ⇒ 那两条 API 恒答假值）。
+        ('input_button_thunk', base + SYMS['g_InputIsButtonPressed'], 1),
+        ('input_get_button_value_thunk', base + SYMS['g_InputGetButtonValue'], 1),
+        # 批次 211：PC→NS 手柄号映射的现场（最近一次翻译 + 兜底次数）。
+        ('input_controller_map_pc_id', base + SYMS['g_InputControllerMapPcId'], 1),
+        ('input_controller_map_ns_id', base + SYMS['g_InputControllerMapNsId'], 1),
+        ('input_controller_map_outcome', base + SYMS['g_InputControllerMapOutcome'], 1),
+        ('input_controller_map_fallbacks', base + SYMS['g_InputControllerMapFallbacks'], 1),
+        # 批次 230：动作号翻译的现场（最近一次"模组号 → 引擎内部号" + 因平台上没有而直接回答的次数）。
+        ('input_action_map_lua_code', base + SYMS['g_InputActionMapLuaCode'], 1),
+        ('input_action_map_engine_code', base + SYMS['g_InputActionMapEngineCode'], 1),
+        ('input_action_map_absent', base + SYMS['g_InputActionMapAbsent'], 1),
+        # 批次 212：玩家字段写（4 个计数 + 被拒 + 最近写的字段名哈希）。
+        ('entity_field_writes', base + SYMS['g_EntityFieldWrites'],
+         (ENTITY_FIELD_WRITES_BYTES + 7) // 8),
+        ('entity_field_write_rejected', base + SYMS['g_EntityFieldWriteRejected'], 1),
+        ('last_entity_field_write_name', base + SYMS['g_LastEntityFieldWriteName'], 1),
+        # 批次 214：`Seeds:AddSeedEffect`/`RemoveSeedEffect` 被调用的次数（>0 = 模组真的走了那两条路）。
+        ('seeds_effect_write_attempts', base + SYMS['g_SeedsEffectWriteAttempts'], 1),
+        # 批次 217：每个动作"最后一次被问"的四项现场（各 32 个 u32）。
+        ('input_action_asked_frame', base + SYMS['g_InputActionAskedFrame'], 32),
+        ('input_action_asked_kind', base + SYMS['g_InputActionAskedKind'], 32),
+        ('input_action_asked_controller', base + SYMS['g_InputActionAskedController'], 32),
+        ('input_action_asked_answer', base + SYMS['g_InputActionAskedAnswer'], 32),
+        # 批次 218：按键侧的边沿计数（与动作侧**分开**）与"最后一次被问"的四项现场。
+        ('input_button_edge_counts', base + SYMS['g_InputButtonEdgeCounts'], 16),
+        ('input_button_asked_frame', base + SYMS['g_InputButtonAskedFrame'], 32),
+        ('input_button_asked_kind', base + SYMS['g_InputButtonAskedKind'], 32),
+        ('input_button_asked_controller', base + SYMS['g_InputButtonAskedController'], 32),
+        ('input_button_asked_answer', base + SYMS['g_InputButtonAskedAnswer'], 32),
+        # 批次 219：两侧"最后一次真的被激活"的帧号（各 32 个 u32）。
+        ('input_action_held_frame', base + SYMS['g_InputActionHeldFrame'], 32),
+        ('input_button_triggered_frame', base + SYMS['g_InputButtonTriggeredFrame'], 32),
+    ]
+    # 批次 379（2026-10-06）：按键侧上升沿表的两行本体（布局见 `BUTTON_EDGE_*` 常量）。
+    #   * 行 1  = `controller & 31 == 1` ⇒ 真机那台手柄（设备 33）—— MCM 的
+    #     `Input.IsButtonTriggered(13, 1)`（PC 的"第 1 台手柄"）经翻译后正落在这里；
+    #   * 行 31 = `0xFFFFFFFF`（引擎的"任意设备"）—— 模组直接传 33 之外的 NS 原生态时落这里。
+    # 只在符号解析到时才加这两条：`SYMS` 缺键会退化成 `base + 0`，而这里的地址是
+    # `base + 偏移`（不等于 base）⇒ 上面那条"缺偏移就丢掉"的守卫**抓不到**它。
+    if SYMS.get('g_ButtonEdge'):
+        req.append(('input_button_edge_row_gamepad',
+                    base + SYMS['g_ButtonEdge'] + BUTTON_EDGE_ROW_BYTES, 80))
+        req.append(('input_button_edge_row_any',
+                    base + SYMS['g_ButtonEdge'] + 31 * BUTTON_EDGE_ROW_BYTES, 80))
+    req += [
+        # 批次 192：触摸屏 → 指针（8 个 u32，逐项分明，不用整块解）。
+        # 这一组回答三件事：初始化成没成、到底读没读、**手指的原始坐标是多少**
+        #（最后一项是本批的核心产出 —— 坐标换算要靠它，不靠猜）。
+        ('touch_init_state', base + SYMS['g_TouchPointerInitState'], 1),
+        ('touch_scan_attempts', base + SYMS['g_TouchPointerScanAttempts'], 1),
+        ('touch_shmem_low', base + SYMS['g_TouchPointerShmemLow'], 1),
+        ('touch_shmem_high', base + SYMS['g_TouchPointerShmemHigh'], 1),
+        ('touch_segments', base + SYMS['g_TouchPointerSegmentsScanned'], 1),
+        ('touch_poll_frames', base + SYMS['g_TouchPointerPollFrames'], 1),
+        ('touch_frames', base + SYMS['g_TouchPointerTouchFrames'], 1),
+        ('touch_last_raw_x', base + SYMS['g_TouchPointerLastRawX'], 1),
+        ('touch_last_raw_y', base + SYMS['g_TouchPointerLastRawY'], 1),
+        ('touch_last_count', base + SYMS['g_TouchPointerLastCount'], 1),
+        # 批次 193：★ "这次真的认出 lifo 了吗"的三条证据（认出那块内存时读的 lifo 表头）
+        # + 两个"这块内存是活的吗"的量。批次 192 只有上面那一组，结果**一块零页**被认成了触摸屏。
+        ('touch_lifo_buffer_count', base + SYMS['g_TouchPointerLifoBufferCount'], 1),
+        ('touch_lifo_tail', base + SYMS['g_TouchPointerLifoTail'], 1),
+        ('touch_lifo_count', base + SYMS['g_TouchPointerLifoCount'], 1),
+        ('touch_rejected_mappings', base + SYMS['g_TouchPointerRejectedMappings'], 1),
+        ('touch_last_sampling', base + SYMS['g_TouchPointerLastSampling'], 1),
+        ('touch_last_entry_index', base + SYMS['g_TouchPointerLastEntryIndex'], 1),
+        # 批次 194：小地图触摸门控补丁的三处引擎改写结果（游戏模块代码，不属我们模块）。
+        ('minimap_gate_state', base + SYMS['g_MinimapTouchGateState'], 1),
+        ('minimap_gate_applied', base + SYMS['g_MinimapTouchGateApplied'], 1),
+        ('minimap_gate_guard_mismatch', base + SYMS['g_MinimapTouchGateGuardMismatch'], 1),
+        ('minimap_gate_failure_code', base + SYMS['g_MinimapTouchGateFailureCode'], 1),
         # 回调耗时桶（批次 086）：按 `PERF_BUCKET_COUNT × PERF_BUCKET_BYTES` 整块读，
         # 旁边那个溢出计数是独立全局 ⇒ 各读各的。
         ('perf_buckets',
@@ -908,13 +2066,17 @@ def build_requests(base: int, game_base: int, plugin_base: int):
         ('perf_profile_samples', base + SYMS['g_RuntimePerfProfileSamples'], 1),
         ('perf_profile_overflow', base + SYMS['g_RuntimePerfProfileOverflow'], 1),
         # 分配账（批次 091）：四个独立标量各读各的。
-        ('perf_alloc_calls', base + SYMS['g_RuntimePerfAllocCalls'], 1),
+        # ★ 2026-10-04（批次 363）：这六条在**本构建里没有符号**（见 `SYM_UNRESOLVABLE` 的注释）
+        #   ⇒ 用 `perf_optional` 收集，符号不在就**不发这条请求**（而不是 KeyError 崩掉读数）。
+        *[(key, base + SYMS[name], 1)
+          for key, name in (('perf_alloc_calls', 'g_RuntimePerfAllocCalls'),
+                            ('perf_empty_call_ticks', 'g_RuntimePerfEmptyCallTicks'),
+                            ('perf_empty_call_count', 'g_RuntimePerfEmptyCallCount'),
+                            ('perf_alloc_bytes', 'g_RuntimePerfAllocBytes'),
+                            ('perf_alloc_new_calls', 'g_RuntimePerfAllocNewCalls'),
+                            ('perf_free_calls', 'g_RuntimePerfFreeCalls'))
+          if name in SYMS],
         ('perf_tick_cost', base + SYMS['g_RuntimePerfTickCostTicks'], 1),
-        ('perf_empty_call_ticks', base + SYMS['g_RuntimePerfEmptyCallTicks'], 1),
-        ('perf_empty_call_count', base + SYMS['g_RuntimePerfEmptyCallCount'], 1),
-        ('perf_alloc_bytes', base + SYMS['g_RuntimePerfAllocBytes'], 1),
-        ('perf_alloc_new_calls', base + SYMS['g_RuntimePerfAllocNewCalls'], 1),
-        ('perf_free_calls', base + SYMS['g_RuntimePerfFreeCalls'], 1),
         # 回调派发计数（2026-09-18）：74 个 u32 是**一个数组**（连续），所以一次读完；
         # 旁边那两个标量是**独立全局**（链接器可能重排）⇒ 各读各的，绝不连读。
         ('callback_dispatch_counts',
@@ -924,16 +2086,105 @@ def build_requests(base: int, game_base: int, plugin_base: int):
         ('callback_dispatch_generation', base + SYMS['g_CallbackDispatchGeneration'], 1),
         ('filetable', base + SYMS['g_diagnosticFileApi'], 4),
         ('hook_callbacks', base + SYMS['g_hookCallbacks'], len(HOOK_NAMES)),
+        *[(f'cold_{name}_source',game_base+site,1) for name,(site,gate,original) in COLD_HOOK_SITES.items()],
+        *[(f'cold_{name}_gate',game_base+gate,4) for name,(site,gate,original) in COLD_HOOK_SITES.items()],
+        *[(f'entity_remove_pointer_{i}',game_base+site,1)
+          for i,site in enumerate(ENTITY_REMOVE_POINTER_SITES)],
+        *[(f'internal_{name}_source',game_base+site,1)
+          for name,(site,veneer,size) in INTERNAL_HOOK_SITES.items()],
+        *[(f'internal_{name}_veneer',game_base+veneer,size//8)
+          for name,(site,veneer,size) in INTERNAL_HOOK_SITES.items()],
+        *[(f'internal_{name}_literal',game_base+slot,1)
+          for name,slot in INTERNAL_LITERAL_SLOTS.items()],
         ('update_entry', game_base + SYMS['manager_update_entry'], 2),
         # 贴图桥 v2/v3 的挂点入口（0x4d1fe4，相对**游戏模块**）：期望是我们写进去的
         # 入口补丁（`ldr x16,#8; br x16; .quad 槽` ⇒ 首四字 `5000005800021fd6`）。
         ('imagemanager_entry', game_base + 0x4D1FE4, 2),
         # v4 新挂点的入口（相对游戏模块）：期望也是入口补丁。
         ('getmounted_entry', game_base + 0x4C2340, 2),
+        # 批次 147（2026-09-26）：引擎那条"模组 content 加载"路的闸门。
+        # `ModManager::LoadConfigs` 的**入口**（相对游戏模块 0x41E388）：期望是入口中继
+        # 写进去的 `ldr x16,#8; br x16; .quad 槽`（首四字 = 5000005800021fd6）。
+        ('modmanager_loadconfigs_entry', game_base + 0x41E388, 2),
+        # ---- 批次 363（2026-10-04）：`ANM2::Load` 入口中继 ----
+        # 入口（相对游戏模块 0xC970）：期望是入口中继写进去的
+        # `ldr x16,#8; br x16; .quad 槽`（首四字 = 5000005800021fd6）。
+        ('anm2load_entry', game_base + 0xC970, 2),
+        # 状态面（8 个 u32 连续 ⇒ 一次读 4 个字 = 32 字节，正好是那个结构体）。
+        # ★ 批次 384：元素数 4 → **5**（结构体从 8 个 u32 加到 10 个 u32 = 40 字节；每个元素 8 字节）。
+        ('anm2load_state', base + SYMS['g_Anm2LoadOverrideState'], 5),
+        # ---- 批次 378（2026-10-05）：PC 的资源层重定向（10 u32 + 192B 查询 + 224B 回答 = 456B）----
+        ('mod_redirect_state', base + SYMS['g_ModResourceRedirectState'], 57),
+        # ---- 批次 370 起、批次 371 改语义（2026-10-05）：早于引擎第一次读的那一段 ----
+        # 结构体 = 5 个相邻 u64 + **8** 个 u32（40 + 32 = **72 字节**）⇒ 一次读 **9** 个字。
+        # ★ 批次 385（2026-10-06）在末尾追加了 `[11] earlyResourceRelaysAttempted` /
+        #   `[12] earlyResourceRelaysInstalled`（原来 5 个 u64 + 6 个 u32 = 64 字节 / 8 个字）。
+        ('early_mount_state', base + SYMS['g_EarlyMountState'], 9),
+        # 闸门的九个标量埋点：**各自独立全局** ⇒ 一个一个读，绝不连读（链接器会重排）。
+        ('mod_loadcfg_calls', base + SYMS['g_ModLoadConfigsCalls'], 1),
+        ('mod_loadcfg_entries', base + SYMS['g_ModLoadConfigsEntriesSeen'], 1),
+        ('mod_loadcfg_enabled', base + SYMS['g_ModLoadConfigsEnabledByUs'], 1),
+        ('mod_loadcfg_disabled', base + SYMS['g_ModLoadConfigsDisabledByUs'], 1),
+        ('mod_loadcfg_disabled_known', base + SYMS['g_ModLoadConfigsDisabledKnown'], 1),
+        ('mod_loadcfg_state_loaded', base + SYMS['g_ModLoadConfigsStateLoaded'], 1),
+        ('mod_loadcfg_matched', base + SYMS['g_ModLoadConfigsMatchedDisabled'], 1),
+        ('mod_loadcfg_engine_off', base + SYMS['g_ModLoadConfigsEngineOff'], 1),
+        ('mod_loadcfg_write_failures', base + SYMS['g_ModLoadConfigsWriteFailures'], 1),
+        ('mod_loadcfg_first_path', base + SYMS['g_ModLoadConfigsFirstPath'], 8),
+        ('mod_toggle_state_loaded', base + SYMS['g_ModToggleStateLoaded'], 1),
+        # ---- 批次 148（2026-09-26）：我们自己喊一次引擎那条路（触发点 = 进模组页）----
+        # 同样**一个一个读**（链接器会重排）；字符串缓冲各读 8 个字 = 64 字节。
+        ('mod_engine_attempts', base + SYMS['g_ModEngineScanAttempts'], 1),
+        ('mod_engine_stage', base + SYMS['g_ModEngineScanStage'], 1),
+        ('mod_engine_entries', base + SYMS['g_ModEngineModEntries'], 1),
+        ('mod_engine_resolve_failures', base + SYMS['g_ModEngineResolveFailures'], 1),
+        ('mod_engine_costume_loads', base + SYMS['g_ModEngineCostumeLoads'], 1),
+        ('mod_engine_music_loads', base + SYMS['g_ModEngineMusicLoads'], 1),
+        # 批次 409：`gfx/ui/mod_defaults.anm2` → `ModManager+0x368` 那一步的调用次数（正常 = 1）。
+        ('mod_engine_mod_defaults_anm2_loads',
+         base + SYMS['g_ModEngineModDefaultsAnm2Loads'], 1),
+        ('mod_engine_path_misses', base + SYMS['g_ModEnginePathResolveMisses'], 1),
+        ('music_entries_before', base + SYMS['g_MusicEntryCountBefore'], 1),
+        ('music_entries_after', base + SYMS['g_MusicEntryCountAfter'], 1),
+        ('costume_entries_before', base + SYMS['g_CostumeCountBefore'], 1),
+        ('costume_entries_after', base + SYMS['g_CostumeCountAfter'], 1),
+        # 批次 149b：路径口径（哪种让容器涨了）+ 解析回来的原始串（两个 256 字节缓冲 = 32 个字）。
+        ('mod_engine_costume_form', base + SYMS['g_ModEngineCostumeForm'], 1),
+        ('mod_engine_music_form', base + SYMS['g_ModEngineMusicForm'], 1),
+        ('mod_engine_costume_calls', base + SYMS['g_ModEngineCostumeCalls'], 1),
+        ('mod_engine_music_calls', base + SYMS['g_ModEngineMusicCalls'], 1),
+        ('mod_engine_resolved_costumes', base + SYMS['g_ModEngineResolvedCostumes'], 32),
+        ('mod_engine_resolved_music', base + SYMS['g_ModEngineResolvedMusic'], 32),
+        # 曲目表最后一条：编号（+0x00）+ 名字 32 字节原始串（+0x08 起）。
+        ('mod_engine_music_last_entry_id', base + SYMS['g_ModEngineMusicLastEntryId'], 1),
+        ('mod_engine_music_last_entry_raw', base + SYMS['g_ModEngineMusicLastEntryRaw'], 4),
+        # 批次 148：曲目名反查（`Isaac.GetMusicIdByName`）。
+        ('music_id_calls', base + SYMS['g_IsaacMusicIdCalls'], 1),
+        ('music_id_hits', base + SYMS['g_IsaacMusicIdHits'], 1),
+        ('music_id_last_result', base + SYMS['g_IsaacMusicIdLastResult'], 1),
+        ('music_id_table_count', base + SYMS['g_IsaacMusicIdTableCount'], 1),
+        ('music_id_last_name', base + SYMS['g_IsaacMusicIdLastName'], 8),
         # 贴图桥用到的 8 个引擎绑定指针（全 0 = 守卫没过、整套绑定没发布）。
         ('image_pcx_bindings', base + SYMS['image_pcx_bindings'], 8),
         # 贴图桥诊断结构体（ImagePcxDiagnostics）：一次性读全。
-        ('image_pcx_diag', base + SYMS['image_pcx_diag'], 40),
+        # ★ 276-perf：结构体加长到 856 字节；277 到 888；★ 279 到 896 ⇒ 这里 104 → 107 → 111 → 112 个字
+        #   ★ 批次 351（2026-10-04）到 1196 字节 ⇒ 150 个字（多出来的是"非 `.pcx` 挂载查询"那几条）。
+        #   ★ 批次 352（2026-10-04）到 2100 字节 ⇒ 263 个字（多出来的是"按路径记"与"主动探测"那几格）。
+        #   ★ 批次 353（2026-10-04）到 4896 字节 ⇒ 612 个字（模组名单 + 四条探测路径 + 最近 6 条查询）。
+        #   ★ 批次 354（2026-10-04）到 5000 字节 ⇒ 625 个字（模组**挂载成败**两张表）。
+        #   ★ 批次 356（2026-10-04）到 5176 字节 ⇒ 647 个字（排除回声的计数 + 刚挂完的检查点）。
+        #   ★ 批次 357（2026-10-04）到 5368 字节 ⇒ 671 个字（时间轴位图 + 重挂试验）。
+        #   ★ 批次 358（2026-10-04）到 5408 字节 ⇒ 676 个字（重建中继的失败码 + 现场字节）。
+        #   ★ 批次 359（2026-10-04）到 5424 字节 ⇒ 678 个字（**活路径**上的入口中继结果 + 包装调用数）。
+        #   ★ 批次 360（2026-10-04）到 5440 字节 ⇒ 681 个字（自愈看门狗：检查次数 / 补挂次数）。
+        #   ★ 批次 361（2026-10-04）到 5816 字节 ⇒ 727 个字（探测上下文 + 挂载后的一对测量）。
+        #   （**读取长度是"够不够读新的尾字段"，而"这个字段在本构建里存不存在"必须看符号大小**，
+        #    见 `IMAGE_PCX_DIAG_BYTES` 那条纪律）。
+        ('image_pcx_diag', base + SYMS['image_pcx_diag'], 727),
+        # L4 钩子隔离·甲案（2026-09-29 批次 196）：C++ 异常的抛出位置记录
+        # （`ThrowForensics` 5 个字段 = 4 个 8 字节字：count/reserved 一个、lastFrom、
+        # lastType、firstFrom）。
+        ('throw_forensics', base + SYMS['g_throw_forensics'], 4),
         # 批次 019/040/041/042/043/046：原生模组页探针的诊断字（58 个 u32 = 232 字节，所以读 29 个字）。
         # 040 新增 4 格：`Menu_Title::Render` 入口中继的安装结果 + 原始失败码，以及
         # 页面空间→屏幕的偏移（`MenuManager+0x3c`）那两组 float。
@@ -987,7 +2238,29 @@ def build_requests(base: int, game_base: int, plugin_base: int):
         #   把留存接回来过几次 —— 用户裁定"继续同一份存档算同一局"）⇒ 224 字节 = **28 个字**。
         # ★ 2026-09-25（批次 120）起是 **58 个 u32**（[56]..[57] = 存档分区里那个"污染过"标记
         #   我们认为它是几 / 读写失败几次 —— 用户裁定"比 PC 严"：跨重启也要保持）⇒ 232 字节 = **29 个字**。
-        ('mod_menu_state', base + SYMS['mod_menu_state'], 29),
+        # ★ 2026-09-26（批次 135）起是 **60 个 u32**（[58]..[59] = 本模块堆的**空闲**/*已用*字节数，
+        #   口径 newlib `mallinfo()` —— 转码峰值撞满堆那次就是靠它以后现场可见）⇒ 240 字节 = **30 个字**。
+        # ★ 2026-09-27（批次 153）起是 **61 个 u32**（[60] = 「喂模组 content 给引擎」的**触发时机**：
+        #   1 = 模组脚本之前 / 2 = 进模组页 —— 真机已证明"喂成功了但喂晚了"与"压根没喂"读数一模一样，
+        #   必须能分开）⇒ 244 字节 = **31 个字**。
+        # ★ 2026-09-27（批次 159）起是 **64 个 u32**（[62]/[63] = 引擎说「继续游戏」可不可选 /
+        #   因为它不可选而跳过它的次数 —— "没有可继续的局时它不该能选中"那条 bug 就靠这两格自证）
+        #   ⇒ 256 字节 = **32 个字**。
+        # ★ 2026-09-28（批次 180）起是 **68 个 u32**（[64]~[67] = 进程内存总量 / 已用、
+        #   系统资源池总量 / 已用）⇒ 272 字节 = **34 个字**。
+        # ★ 2026-10-05（批次 378）起是 **74 个 u32**（[68]~[73] = 把"逐模组喂 content"从 2 项
+        #   补到引擎那 16 项之后的六格：入口解析成功位图 / 失败位图（含 bit16 = `ModEntry::ctor`、
+        #   bit17 = `std::string::assign` 桩）/ 14 项加载器调用次数 / `PostLoadMods` 次数 /
+        #   `LoadCustomResources` 次数 / 真 `ModEntry` 构造次数）⇒ 296 字节 = **37 个字**。
+        # ★ 2026-10-08（批次 409）起是 **75 个 u32**（[74] = 引擎 `ModManager::LoadConfigs` 尾部
+        #   那一步 —— `gfx/ui/mod_defaults.anm2` 载进 `ModManager+0x368` 那个默认模组道具 ANM2
+        #   的次数，正常 = 1；0 = 那一步没做 ⇒ 暂停屏画模组道具（id ≥ 733）会写 `0x80` 崩）；
+        # ★ **批次 417（2026-10-08）起是 76 个**（[75] = **Lua 状态自己占多少字节**，
+        #   用来把"已用 122.8 MB"拆成 Lua 侧与其它：其它 = [59] − [75]）。
+        #   ⇒ **304 字节 = 38 个字**（读宽不用改：75 个时按 300 字节向上取整也读 38 个字）。
+        #   加字段只能往后加 ⇒ 这里跟着改（与 `test_mod_menu_native_production.py` 的
+        #   `STATE_FIELDS` 一起钉住）。
+        ('mod_menu_state', base + SYMS['mod_menu_state'], 45),
         # 批次 121：游戏控制台自己的状态面（18 个 u32 = 72 字节 = **9 个字**）。
         # ★ 2026-09-25（批次 122）起是 **19 个 u32**（[18] = "被按住过的动作号"累计位图 ——
         #   [10] 只留最后一个，连打时会被顶掉，一次读数拿不到整张映射）⇒ 76 字节 = **10 个字**。
@@ -1010,15 +2283,47 @@ def build_requests(base: int, game_base: int, plugin_base: int):
         ('present_callsite', game_base + SYMS['present_callsite_offset'], 1),
         ('present_body', game_base + SYMS['present_target'], 1),
     ]
+    req = [r for r in req if r[0] not in ('mod_data_head', 'mod_data_tail')]
+    cache_offset = SYMS.get('g_ModDataCache')
+    if cache_offset and MOD_DATA_CACHE_BYTES == 40:
+        req.append(('mod_data_descriptor', base + cache_offset, 5))
+    elif cache_offset and MOD_DATA_CACHE_BYTES == 16408:
+        req.extend([('mod_data_tail', base + cache_offset + 0x4000, 3),
+                    ('mod_data_head', base + cache_offset, 1024)])
+    else:
+        skipped.append('mod_data_cache_layout')
     if plugin_base:
         req.append(('helper', plugin_base + PLUGIN_HELPER, 14))
     # 上面每条都用 `SYMS[...]` 直接取；这里做一遍守卫，缺的进 `skipped` 而不是让整个函数崩掉。
     skipped.extend(SYMS.missing)
     del SYMS.missing[:]
     # 缺偏移的量地址会退化成 `base + 0`（模块基址），必须剔掉 —— 否则会拿一段无关内存当读数。
+    for key in ('g_CallbackDiagnosticViewIncomplete', 'g_CallbackDiagnosticViewOverflow'):
+        if key in SYMS:
+            req.append((key, base + SYMS[key], 1))
+    if not CALLBACK_REGISTRY_LAYOUT_KNOWN:
+        req = [row for row in req if row[0] != 'callback_count']
+        skipped.append('callback_count_layout')
     present = [(key, address, count) for key, address, count in req
                if not (key in skipped and address == base)]
     return present, skipped
+
+
+
+def mod_data_payload_commands(base: int) -> list[str]:
+    """当前Cache的指针与长度在同一次attach里解引用；窗口上限8192，绝不读取越界尾字。"""
+    offset = SYMS.get('g_ModDataCache')
+    if not offset or MOD_DATA_CACHE_BYTES != 40:
+        return []
+    address = base + offset
+    return [f'set $isaac_data_ptr = *(unsigned long long*)0x{address:x}',
+            f'set $isaac_data_capacity = *(unsigned long long*)0x{address + 8:x}',
+            f'set $isaac_data_length = *(unsigned long long*)0x{address + 16:x}',
+            'if $isaac_data_ptr != 0 && $isaac_data_length > 0 && $isaac_data_length <= $isaac_data_capacity && $isaac_data_length <= 0xffffffff',
+            'set $isaac_data_window = $isaac_data_length > 8192 ? 8192 : $isaac_data_length',
+            'echo TAG mod_data_head_bytes\\n',
+            'eval "x/%lubx 0x%lx", $isaac_data_window, $isaac_data_ptr',
+            'end']
 
 
 #: 回调登记表（`CallbackRegistry`）在模块内的**布局** —— 三张平行数组 + 一个计数，全是手算的：
@@ -1035,7 +2340,11 @@ def build_requests(base: int, game_base: int, plugin_base: int):
 #: 2026-09-20 实测：`+0x1400` 读到了 `filters_[0]` 的哨兵 `kNoCallbackFilter`（= `0x8000000000000000`
 #: = 打印出来的 9223372036854775808）。所以下面读回来会**先做合理性判断**
 #: （超过容量就响亮报"布局可能变过、来核对这里"），而不是把它当真的登记数念出来。
-CALLBACK_REGISTRY_COUNT_OFFSET = 0x2000
+CALLBACK_REGISTRY_COUNT_OFFSET = 0x2D00
+# 2026-10-10：float优先级及持久order数组版本为size=0x2508/count@0x2500；
+# integer/float精确保留版本为size=0x2d08/count@0x2d00。
+# 历史size=0x2008仍用旧偏移。由当批ELF识别，未知布局不读取count。
+CALLBACK_REGISTRY_LAYOUT_KNOWN = False
 #: 与 `CallbackRegistry::kCapacity` 一致（门禁 `test_callback_dispatch_counters` 会核对表长那一条，
 #: 这一条靠这里的一致性判断兜住）。
 CALLBACK_REGISTRY_CAPACITY = 256
@@ -1049,6 +2358,35 @@ CALLBACK_REGISTRY_CAPACITY = 256
 #: 读出来的东西（`id = 281483566645271`）谁也认不出来。表项大小与字段宽度都以
 #: `runtime/src/domain/callback/callback_descriptor.hpp` 为准。
 CALLBACK_ENTRY_BYTES = 20
+
+#: 按键侧上升沿表（`LuaRuntime::InputFrameEdges g_ButtonEdge`）在模块内的**布局**
+#: ★ 更正（批次 381，2026-10-06）：类型由 `ActionEdgeTracker` 改名为 `InputFrameEdges`；
+#:   `Entry` 的字段顺序与大小**未变**（20 字节），所以下面的 layout 与行字节数继续有效。
+#: —— 与上面那张回调表同一类"手算的偏移"，任何一次改 `input_edge.hpp` 的 `Entry` 都会让
+#: 这里的解码整体错位（**症状不是报错、是读出一个像模像样的垃圾**）：
+#:
+#:   | 成员 | 元素大小 | 总计 |
+#:   | --- | --- | --- |
+#:   | `entries_[controller & 31][code & 31]`（`Entry`） | 20 B | 32 × 32 × 20 = **0x5000** |
+#:
+#: `Entry` 的字段（`runtime/source/input_edge.hpp`）：
+#:   +0 `frame`(u32，`0xFFFFFFFF` = 还没采过)、+4 `edge`(u8，本帧是否边沿)、
+#:   +5 `held`(u8，本帧是否按住 —— "最后一次采样时本帧按住状态"，供"按住与边沿同源"用)、
+#:   +8 `lastEdgeFrame`(u32；★ 更正（批次 381）：由 `lastPressedFrame` 改名，语义从"上一次
+#:      **读到按住**的帧号"变为"**上一次边沿**的帧号")、
+#:   +12 `releaseRun`(u8)、+13 `peakReleaseRun`(u8)、
+#:   +14 `minEdgeGap`(u16)、+16 `lastEdgeGap`(u16)。
+#: ★ 更正（批次 381，2026-10-06）：上面 +12/+13/+14/+16 的语义随"帧上采样 + 纯读"更新 ——
+#:   `releaseRun` = 连续多少次采样读到"未按住"、`peakReleaseRun` = 其峰值（旧文里的"闪断"
+#:   在本机制下不适用）；`minEdgeGap`/`lastEdgeGap` = **相邻两次边沿之间的帧数间隔**
+#:   （用途 = 判"两次独立按下之间隔了多久"，不再是"距上一次读到按住"）。
+#: 两处自证：`nm -S runtime/.gdbsym-artifacts/runtime.elf | grep g_ButtonEdge` = **0x5000 字节**；
+#: 行号 = `controller & 31` ⇒ 真机那台手柄（设备 33）落在**行 1**、引擎的"任意设备"
+#: （`0xFFFFFFFF`）落在**行 31**。★ 布局数值（每行 640 字节 / 整表 0x5000 字节 /
+#: 行 1 = 设备 33 / 行 31 = 任意设备）批次 381 **全部不变**。
+BUTTON_EDGE_ENTRY_BYTES = 20
+BUTTON_EDGE_ROW_BYTES = 32 * BUTTON_EDGE_ENTRY_BYTES
+BUTTON_EDGE_NO_FRAME = 0xFFFFFFFF
 
 #: `ModCallbacks` 里我们**已经接线**（代码里真有派发点）的 id → 名字。
 #: 名字必须与 `callback_descriptor.hpp` 里的常量逐字对应（去前缀后）；
@@ -1100,6 +2438,18 @@ CALLBACK_NAMES = {
     38: 'MC_PRE_PICKUP_COLLISION',
     63: 'MC_POST_GET_COLLECTIBLE',
     71: 'MC_PRE_ROOM_ENTITY_SPAWN',
+    # 批次 390（2026-10-07）：`MC_INPUT_ACTION` 接线后从 `CALLBACK_NOT_WIRED` 挪过来。
+    13: 'MC_INPUT_ACTION',
+    # --- 2026-10-07 批次 396（补全回调第 1 批）----------------------------------------
+    # 补登是为了读数里能认出这几条 —— 不补的话它们的派发次数会被归到"其它种类"，
+    # 而"某条新回调到底派发了几次"正是这几批**唯一能拿到的机器判据**。
+    8: 'MC_EVALUATE_CACHE',
+    11: 'MC_ENTITY_TAKE_DMG',
+    # --- 2026-10-07 批次 397（补全回调第 2 批）----------------------------------------
+    16: 'MC_POST_GAME_END',
+    29: 'MC_POST_NPC_DEATH',
+    61: 'MC_POST_FIRE_TEAR',
+    68: 'MC_POST_ENTITY_KILL',
 }
 
 #: 我们**故意还没接线**、但读数里要标出名字的 id（标名字是为了"这个数字是哪一种"一眼可读）。
@@ -1109,10 +2459,9 @@ CALLBACK_NAMES = {
 #: 或**连常量都还没有**；一旦它的常量进了 `HasDispatchSite`，就该挪到上面那张表去。
 #: （2026-09-20 修正注释：原文说"门禁要求这里没有对应常量"，而门禁实际只判"不在派发点名单里"。）
 CALLBACK_NOT_WIRED = {
-    13: 'MC_INPUT_ACTION  ← 已登记但无派发点（见 `HasDispatchSite` 的注释）',
-    # 17 `MC_PRE_GAME_EXIT`（批次 102）、38 `MC_PRE_PICKUP_COLLISION`（批次 103）、
-    # 71 `MC_PRE_ROOM_ENTITY_SPAWN`（批次 104）都已接线 ⇒ 都挪到上面的 `CALLBACK_NAMES`。
-    # 也就是说：EID 在意的 9 种里，现在只剩 `MC_INPUT_ACTION`(13) 故意不接（它要钩热函数）。
+    # ★ 2026-10-07（批次 390）：`MC_INPUT_ACTION`(13) **已接线**（三条 `KAGE::Input::ManagerBase::*`
+    #   查询中继 + `LuaRuntime::DispatchInputAction`）⇒ 按本表的口径挪到上面的 `CALLBACK_NAMES`。
+    #   现在这张表**是空的**（EID 在意的 9 种已全部接线），留着它是为了下一个"故意不接"的条目。
 }
 
 #: 派发计数表的长度（= PC `ModCallbacks` 的最大值 73 + 1）。与 `callback_dispatcher.hpp` 的
@@ -1176,8 +2525,10 @@ def profile_records(values: dict[str, list[int]]) -> list[tuple[int, int, str, s
 
     raw = words_to_bytes(values.get('perf_profile_buckets') or [])
     records = []
-    for offset in range(0, min(len(raw), PROFILE_BUCKET_COUNT * PROFILE_BUCKET_BYTES),
-                        PROFILE_BUCKET_BYTES):
+    available = min(len(raw), PROFILE_BUCKET_COUNT * PROFILE_BUCKET_BYTES)
+    if available % PROFILE_BUCKET_BYTES:
+        print('  ⚠ Lua 采样桶末条不完整 ⇒ 只解释完整记录')
+    for offset in range(0, available - PROFILE_BUCKET_BYTES + 1, PROFILE_BUCKET_BYTES):
         hits, line = struct.unpack_from('<Ii', raw, offset)
         if not hits:
             continue
@@ -1256,6 +2607,43 @@ def perf_bucket_owner(key: int) -> str:
     return f"#{key >> 32 & 0xFFFF} 代{key >> 48}"
 
 
+def owner_name_table(values: dict[str, list[int]]) -> list[tuple[int, str]]:
+    """批次 418：把 `g_ModOwnerNames` 那张表解成 `[(owner 编号, 模组名), …]`（只列非空的）。
+
+    读不到（老读数件 / 老构建）⇒ 返回**空表**，调用方什么都不印 —— **缺就说缺**。
+    """
+    raw = words_to_bytes(values.get('mod_owner_names') or [])
+    if len(raw) < 32 * 64:
+        return []
+    rows: list[tuple[int, str]] = []
+    for index in range(32):
+        slot = index * 64
+        name = raw[slot:slot + 64].split(b'\0')[0].decode('utf-8', 'replace')
+        if name:
+            rows.append((index, name))
+    return rows
+
+
+def owner_display_name(values: dict[str, list[int]], owner_index: int) -> str:
+    """批次 418：`[#N]` 里的 N → **模组名**（读 `g_ModOwnerNames` 那张表）。
+
+    为什么要有它：掉帧归因一直卡在"桶只给属主编号、点不出名"上（2026-10-08 那次就是这样
+    停在"最贵的那两个桶是 #17 / #14"）。这张表在 `RegisterMod` **分配 owner 号的那一刻**写下来
+    —— 只有那一刻知道这个编号是谁。**不能用"模组清单的下标"去凑**：那份清单是引擎给的目录
+    列表、**包含被禁用的模组**，而 owner 号只给真的调了 `RegisterMod` 的模组，两套编号之间
+    没有固定偏移（实测两对锚点是 +6 与 +4，不是同一个数）。
+
+    ★ 读不到就返回**空串**（老读数件、或没编进这一格的构建）⇒ 调用方什么都不加。
+      **缺就说缺**，绝不用清单下标凑一个名字出来（那正是这套东西要根治的错）。
+    """
+    if owner_index < 0 or owner_index >= 32:
+        return ''
+    for index, name in owner_name_table(values):
+        if index == owner_index:
+            return name
+    return ''
+
+
 def callback_name(identifier: int) -> str:
     return CALLBACK_NAMES.get(identifier, '其它种类')
 
@@ -1266,6 +2654,9 @@ CATALOG_DOMAINS = {
     'Global': 0, 'Mod': 1, 'Game': 2, 'Level': 3, 'Room': 4, 'ItemPool': 5, 'Music': 6,
     'Rng': 7, 'Persistence': 8, 'Input': 9, 'Diagnostic': 10, 'Font': 11, 'Vector': 12,
     'Sprite': 13, 'Isaac': 14, 'Seed': 15, 'ModMenu': 16,
+    # 批次 207（2026-09-29）：`Hud`（域 17，`Game:GetHUD()` 的返回值）—— 读数工具要能
+    # 认出 `0x11…` 的 id，否则 HUD 那两条在"风险面"里会被静默丢掉。
+    'Hud': 17,
 }
 CATALOG_ENTRY = re.compile(
     r"\{MakeId\(ApiDomain::(?P<domain>\w+),\s*(?P<group>\d+),\s*(?P<seq>0x[0-9A-Fa-f]+)\),"
@@ -1369,6 +2760,67 @@ def parse_extra_reads(text: str):
     return items
 
 
+#: 玩家链路的两个**游戏侧**偏移（来自 `runtime_constants.hpp`，游戏版本不变就稳定）。
+#: ★★ 形状（2026-09-28 更正）：`Game*` 要**解两次** ——
+#:     `slot  = *(game_base + 0xAAC698)`   ；槽里放的是 `g_Game` **指针变量的地址**
+#:     `Game* = *slot`
+#: 这个形状有**两条独立证据**：① 引擎自己的指令（`TriggerPreVictoryLap @0x2FC54C`、
+#: `HUD::Render @0x3AD734` 都是 `ldr x,[x,#0x698]` 之后再 `ldr x,[x]`）；
+#: ② 我们运行时的 `ResolveGameAddress()`（`isaac_api.cpp:989-1000`）也是两次读。
+#: 本工具原来**只解一次**（注释还写着"只解一次"）⇒ 拿到的是"指针变量的地址"而不是对象，
+#: 于是"玩家实体地址"在最近几次会话里**一直读不到**（而同一次会话 update/render 在派发、
+#: 局内闩锁已置位）。现在改成"两级优先、一级兜底"，并把**走的是哪条**报出来 ——
+#: 让下一次真机读数**自己证明**哪一种对（不再靠推断）。
+PLAYER_CHAIN_GAME_SLOT = 0xAAC698     # game_base + 它 ⇒ 存 `g_Game` 指针变量地址的那个槽
+PLAYER_CHAIN_PLAYERS_BEGIN = 0x25C50  # Game + 它 ⇒ `vector<Entity_Player*>` 的 begin
+#: `KAGE::Input::ManagerBase::IsButtonPressed` 的模块内偏移（`kKageIsButtonPressedOffset`，
+#: 批次 210 用它当"发布槽对不对"的期望值）。
+KAGE_IS_BUTTON_PRESSED_OFFSET = 0x4F9504
+
+
+def resolve_player_entity_address(session, game_base: int) -> tuple[int, str]:
+    """把 `players[0]`（玩家实体）的地址读出来 —— **只读**，任何一步失败就算了。
+
+    为什么加它（2026-09-25 记下的缺环）：做 `player.QueuedItem` / 扫玩家对象找字段偏移时，
+    要先拿到**玩家实体地址**，而读数里原来不打印它，只能靠外部猜。
+
+    链：`game_base + 0xAAC698` → `Game*` → `Game + 0x25C50`（`players` 的 begin）
+        → 那个 `Entity_Player*`。
+    返回 `(地址, 失败原因)`；失败时地址为 0。
+    """
+    if not game_base:
+        return 0, '（没有游戏模块基址，跳过）'
+
+    def read_u64(address: int, tag: str) -> int:
+        got = parse_words(session.command(f'echo TAG {tag}\\n\nx/1gx 0x{address:x}')).get(tag, [])
+        return got[0] if got else 0
+
+    slot = read_u64(game_base + PLAYER_CHAIN_GAME_SLOT, 'pl_game')
+    if not slot:
+        # ★★★ 2026-10-04 用户纠正："我从来都是在局内的……你对调试桩的使用容易出问题，非常多次都误以为
+        #     调试桩不可用，读错数据，误以为我在局外非局内。" ⇒ **这一格读不到 ≠ 人没进局**。
+        #     以前这里写"多半还没进局"，我照着它反推，连着几轮把"人明明在局内"当成"在菜单"。
+        #     现在只报事实，并明确禁止从它反推局内/局外。
+        return 0, ('（`g_Game` 槽这一格没读出来。★ 这**不代表"人没进局"** —— 2026-10-04 用户明确纠正过：'
+                   '他一直在局内、工具却反复报"多半还没进局"。判局内状态请用别的判据'
+                   '（update/render 回调计数，或直接问用户），**不要**用这一格反推）')
+
+    # 两级优先（引擎与运行时都是这个形状）；一级兜底并**报告走了哪条**，让真机读数自证。
+    for levels, game_ptr in ((2, read_u64(slot, 'pl_game2')), (1, slot)):
+        if not game_ptr:
+            continue
+        players_begin = read_u64(game_ptr + PLAYER_CHAIN_PLAYERS_BEGIN, 'pl_begin')
+        if not players_begin:
+            continue
+        player0 = read_u64(players_begin, 'pl_p0')
+        if player0:
+            route = '两级（= 引擎与运行时同一形状）' if levels == 2 else '**一级**（兜底；若读数里是这条，说明我改错了，请报告）'
+            return player0, route
+    return 0, ('（`players[0]` 读不到：两级与一级兜底都没读出非空的 begin/元素。'
+               '★ 这**不代表"人没进局"**（同上的纠正）—— 只说明这条链的某一格没读出来：'
+               '要么链形状变了，要么这一次 attach 没读上）')
+
+
 def run_one_shot(ip: str, elf: Path, pid: int = 0, base: int = 0, game_base: int = 0,
                  plugin_base: int = 0, extra_reads=()) -> int:
     session = GdbSession()
@@ -1421,13 +2873,22 @@ def run_one_shot(ip: str, elf: Path, pid: int = 0, base: int = 0, game_base: int
         for label, addr, count in requests:
             lines.append(f'echo TAG {label}\\n')
             lines.append(f'x/{count}gx 0x{addr:x}')
+        lines.extend(mod_data_payload_commands(base))
         out = session.command('\n'.join(lines))
+        # ★ 玩家实体地址（三级链，见 `resolve_player_entity_address`）—— 在**同一个会话**里补读，
+        #   因为它的中间地址依赖上一步的结果（不能塞进上面那批一次性请求里）。
+        player0, player_why = resolve_player_entity_address(session, game_base)
         session.command('detach')
     finally:
         session.close()
 
     save_raw(out, base, game_base, plugin_base)
     values = parse_words(out)
+    if player0:
+        print(f'  ★ 玩家实体地址 = 0x{player0:x}（链走的是 {player_why}）'
+              f'　← 扫玩家对象用 `--read 0x{player0 + 0x1800:x}:0x400` 这种口径（0x1800 起是道具/饰品区）')
+    else:
+        print(f'  玩家实体地址：读不到 {player_why}')
 
     # ---- 版本核对：三个代码锚点必须与本地 ELF 逐字节相同 ----
     checks = {'identity': 'anchors', 'exl_main': 'anchor_exl_main', 'manifest_install': 'anchor_manifest'}
@@ -1443,7 +2904,7 @@ def run_one_shot(ip: str, elf: Path, pid: int = 0, base: int = 0, game_base: int
         if name == 'exl_main' and not same:
             # 入口偏移会随构建变；把设备上真实的偏移反推出来（`g_runtimeSelfAddress` 存的就是它）。
             self_addr = first(values, 'g_runtimeSelfAddress')
-            if self_addr and base and 0 < self_addr - base < 0x200000:
+            if self_addr and base and 0 < self_addr - base < DEFAULT_CODE_LIMIT:
                 extra = f'（设备上入口在 +0x{self_addr - base:x}）'
         print(f'  锚点 {name:18} @+0x{offset:<7x} '
               + ('✓ 与本地构建逐字节相同' if same else
@@ -1464,7 +2925,7 @@ def run_one_shot(ip: str, elf: Path, pid: int = 0, base: int = 0, game_base: int
               '  ← 「把模组文件夹拷进 mods/ 就能用」')
         self_addr = first(values, 'g_runtimeSelfAddress')
         sane = (seq < 10000 and state < 16 and mstate < 8
-                and (self_addr == 0 or (base and 0 < self_addr - base < 0x200000)))
+                and (self_addr == 0 or (base and 0 < self_addr - base < DEFAULT_CODE_LIMIT)))
         print(f'  布局自检：sequence={seq}、状态机={state}、清单状态={mstate}、'
               f'入口自地址差={hex(self_addr - base) if self_addr and base else "n/a"} ⇒ '
               + ('看着自洽，继续读数（偏移表可用）' if sane else '不自洽 ⇒ 偏移表不可用，停止解释'))
@@ -1486,6 +2947,61 @@ def run_one_shot(ip: str, elf: Path, pid: int = 0, base: int = 0, game_base: int
 def first(values: dict[str, list[int]], key: str, index: int = 0, default: int = 0) -> int:
     seq = values.get(key) or []
     return seq[index] if index < len(seq) else default
+
+
+def optional_counter(values: dict[str, list[int]], key: str, *, bits: int = 64) -> int | None:
+    """标量只取首字；缺失与实测零分开，避免把相邻字拼成更大的计数。"""
+    words = values.get(key) or []
+    return (words[0] & ((1 << bits) - 1)) if words else None
+
+
+def print_callback_diagnostic_view(values: dict[str, list[int]]) -> bool:
+    incomplete = optional_counter(values, 'g_CallbackDiagnosticViewIncomplete', bits=32)
+    if incomplete is None:
+        return False
+    overflow = optional_counter(values, 'g_CallbackDiagnosticViewOverflow', bits=32)
+    overflow_text = '未读' if overflow is None else str(overflow)
+    print('  回调登记表 = 诊断快照；Lua共享表决定实际执行，快照可能过期或截断')
+    print(f'    快照不完整标记 = {incomplete}；超出诊断容量的条目 = {overflow_text}（缺读数不按0解释）')
+    return True
+
+
+def print_font_storage(values: dict[str, list[int]]) -> None:
+    def count(key):
+        value = optional_counter(values, key, bits=32)
+        return '缺失（本次没有有效读数）' if value is None else str(value)
+    print('  === Font 存储（实际计数；仅凭分配器路径不能证明 GC 记账）===')
+    print(f'    累计分配 = {count("g_FontStorageAllocations")}｜★ 当前活着 = {count("g_FontStorageLive")}'
+          f'｜峰值 = {count("g_FontStorageLivePeak")}｜★ 失败 = {count("g_FontStorageFailures")}')
+
+
+def first_u32(values: dict[str, list[int]], key: str, index: int = 0, default: int = 0) -> int:
+    """读一个**我们自己的 `uint32` 全局**（取低 32 位）。
+
+    读数工具是按 8 字节取字的，而我们的埋点大多是相邻的 `uint32` —— 一个 8 字节字里装着
+    **两个**全局。直接拿整字会把隔壁的值一起算进来。2026-09-26 实测：`mod_engine_stage`
+    （真值 2）被印成 `4294967298`（= 2 | 1<<32，高 32 位是隔壁 `mod_engine_attempts` 的 1），
+    而同一段里 `LoadCostumes` 的调用次数也被印成 `17179869184` ⇒ 差点据此读错
+    （"调了 4 次"与"一次都没调"是完全相反的结论）。凡是我们自己的 `uint32` 全局一律走这里。
+    """
+    return first(values, key, index, default) & 0xFFFFFFFF
+
+
+def u32_at(values: dict[str, list[int]], key: str, index: int, default: int = 0) -> int:
+    """按**真正的 `uint32` 下标**取一个我们自己埋的 `uint32` **数组**里的元素。
+
+    ★ 为什么不能直接用 `first_u32`（批次 232 定案）：读数工具是**按 8 字节取字**的，
+    `first_u32(values, key, i)` 的语义是"第 i 个 8 字节字的低 32 位" ⇒ 对 `u32` **数组**，
+    下标 `i` 实际取到的是 **u32 下标 `2i`**，而且 `i` 超过字数一半之后恒返回 0。
+    用它读数组会得出"偏移只有真值一半、后半段全是 0"的假结论（批次 225 那次
+    "设备号在 `+0x4`"的自相矛盾就是这么来的 —— 其实一直在 `+0x8`）。
+    **标量没问题；数组一律走这里。**
+    """
+    words = values.get(key) or []
+    word = words[index // 2] if (index // 2) < len(words) else None
+    if word is None:
+        return default
+    return (word >> (32 * (index % 2))) & 0xFFFFFFFF
 
 
 def words_to_bytes(words: list[int]) -> bytes:
@@ -1517,7 +3033,9 @@ NATIVE_MODS_ACTIONS = {
     4: 'ACTION_SHOOTLEFT', 5: 'ACTION_SHOOTRIGHT', 6: 'ACTION_SHOOTUP', 7: 'ACTION_SHOOTDOWN',
     8: 'ACTION_BOMB', 9: 'ACTION_ITEM', 10: 'ACTION_PILLCARD', 11: 'ACTION_DROP',
     12: 'ACTION_PAUSE', 13: 'ACTION_MAP', 14: 'ACTION_MENUCONFIRM', 15: 'ACTION_MENUBACK',
-    16: 'ACTION_RESTART', 17: 'ACTION_FULLSCREEN', 18: 'ACTION_MUTE', 19: 'ACTION_JOINMULTIPLAYER',
+    16: 'ACTION_FULLSCREEN', 17: 'ACTION_MUTE', 18: 'ACTION_RESTART', 19: 'ACTION_JOINMULTIPLAYER',
+    # ★ 2026-09-30 批次 222 更正：16/17/18 在 **Rep+** 里换了名字（运行时表 `kButtonActionConstants`
+    #   早已改对，这张显示用的表却还留着 AB/AB+ 那一套 ⇒ 读数里会把动作名印错、误导判读）。
     20: 'ACTION_MENULEFT', 21: 'ACTION_MENURIGHT', 22: 'ACTION_MENUUP', 23: 'ACTION_MENUDOWN',
     24: 'ACTION_MENULT', 25: 'ACTION_MENURT', 26: 'ACTION_MENUTAB', 27: '(27 未定义)',
 }
@@ -1931,9 +3449,28 @@ def print_mod_menu_native(values: dict[str, list[int]]) -> None:
     # 批次 118 起是 **54 个**（[51]..[53] = 在一局里吗 / 边沿写位调用几次 / 边沿写位的结果）；
     # 批次 119 起是 **56 个**（[54]..[55] = 出局时留存的污染 / 把留存接回来过几次）；
     # 批次 120 起是 **58 个**（[56]..[57] = 存档分区里那个标记我们认为它是几 / 读写失败几次）。
-    # 更老的读数文件里只有 56 / 54 / 51 / 45 / 41 / 40 个 ⇒ 逐级回退，下面凡是用到新格的地方
-    # 都由 `len(f) >= N` 守住（离线重放老文件不会炸）。
-    f = (_struct.unpack_from('<58I', raw, 0) if len(raw) >= 58 * 4
+    # 批次 135 起是 **60 个**（[58]..[59] = 本模块堆的**空闲**/*已用*字节数，口径 newlib `mallinfo()`）。
+    # 批次 153 起是 **61 个**（[60] = 喂模组 content 的触发时机）。
+    # 批次 154 起是 **62 个**（[61] = "模组脚本之前"那一次走到了哪一步 0..3）。
+    # 批次 159 起是 **64 个**（[62]/[63] = 引擎说「继续游戏」可不可选 / 因为它不可选而跳过它的次数）。
+    # 批次 180 起是 **68 个**（[64]~[67] = 进程内存总量 / 已用、系统资源池总量 / 已用；
+    # `svcGetInfo` 的 6/7/16/17，失败 = 0xFFFFFFFF）。
+    # 批次 378 起是 **74 个**（[68]~[73] = 16 项入口解析成功/失败位图 + 四格调用计数；
+    # 见下面 `if len(f) >= 74` 那一段的判读表）。
+    # 批次 409 起是 **75 个**（[74] = `ModManager+0x368` 那个默认模组道具 ANM2 的载入次数，正常 = 1）。
+    # 更老的读数文件里只有 68 / 64 / 62 / 61 / 60 / 58 / 56 / 54 / 51 / 45 / 41 / 40 个
+    # ⇒ 逐级回退，下面凡是用到新格的地方都由 `len(f) >= N` 守住（离线重放老文件不会炸）。
+    # 当前生产State为90格；保留旧raw快照的76格及以下解码。
+    f = (_struct.unpack_from('<90I', raw, 0) if len(raw) >= 90 * 4
+         else _struct.unpack_from('<76I', raw, 0) if len(raw) >= 76 * 4
+         else _struct.unpack_from('<75I', raw, 0) if len(raw) >= 75 * 4
+         else _struct.unpack_from('<74I', raw, 0) if len(raw) >= 74 * 4
+         else _struct.unpack_from('<68I', raw, 0) if len(raw) >= 68 * 4
+         else _struct.unpack_from('<64I', raw, 0) if len(raw) >= 64 * 4
+         else _struct.unpack_from('<62I', raw, 0) if len(raw) >= 62 * 4
+         else _struct.unpack_from('<61I', raw, 0) if len(raw) >= 61 * 4
+         else _struct.unpack_from('<60I', raw, 0) if len(raw) >= 60 * 4
+         else _struct.unpack_from('<58I', raw, 0) if len(raw) >= 58 * 4
          else _struct.unpack_from('<56I', raw, 0) if len(raw) >= 56 * 4
          else _struct.unpack_from('<54I', raw, 0) if len(raw) >= 54 * 4
          else _struct.unpack_from('<51I', raw, 0) if len(raw) >= 51 * 4
@@ -2103,6 +3640,110 @@ def print_mod_menu_native(values: dict[str, list[int]]) -> None:
                       + f'｜读写失败 [57] = {f[57]} 次'
                       + ('　⚠ 非 0 ⇒ 存档分区那条路有问题（读失败按"干净"处理，不会误禁）'
                          if f[57] else '　← 恒 0 才算"这条路是好的"'))
+    if len(f) >= 60:
+        # [58]/[59]：本模块自己的堆。撞满历史上的表现 = 转码时 `std::bad_alloc`
+        # （09-25 无声卡死 / 09-26 崩溃报告），所以这一行是那类问题的现场判据。
+        # 注意：每 60 帧才采一次 ⇒ 刚进游戏时可能是 0（还没采到）。
+        print(f'  ★ 本模块堆：空闲 [58] = {f[58] / 1048576:.1f} MB｜已用 [59] = {f[59] / 1048576:.1f} MB'
+              + ('　← 两格都是 0：还没采到（每 60 帧采一次）' if f[58] == 0 and f[59] == 0 else
+                 ('　⚠ 空闲不足 4 MB ⇒ 大贴图转码有撞满风险' if 0 < f[58] < 4 * 1048576 else '')))
+        # 批次 417：把"已用"拆成 **Lua 侧** 与 **其它**（这一格就是为此加的）。
+        lua_bytes = (f[75] & 0xFFFFFFFF) if len(f) > 75 else 0
+        if f[59] != 0 or lua_bytes != 0:
+            others = (f[59] - lua_bytes) if f[59] >= lua_bytes else 0
+            print(f'    └ Lua 状态 [75] = {lua_bytes / 1048576:.1f} MB｜'
+                  f'其它（我们自己 malloc 的：Font/转码缓冲/挂载表/名字层…）≈ {others / 1048576:.1f} MB'
+                  + ('　← [75] 还是 0：没采到（每 60 帧采一次）' if lua_bytes == 0 else ''))
+    if len(f) >= 68:
+        # [64]~[67]：批次 180（2026-09-28）加的**进程内存四格**。
+        # 本批把 `HeapSize` 32 → 128 MiB（治"D6 跳舞模组卡死 / 人物模型消失"：转码单笔要
+        # 4.62 MB 连续空间，而 09-27 的读数显示 32 MB 那块堆已经顶满、空闲只剩 2.2 MB ——
+        # 见 `dist/specialist-heap-exhaustion-20260928.md`）。
+        # ★ `0xFFFFFFFF` 是哨兵 = `svcGetInfo` 调用失败，**不是** 0 字节（两者必须分开）；
+        #   四格全 0 = 还没采到（每 60 帧一次）或宿主构建。
+        #
+        # ★★ 2026-09-28 18:00 首次真机读数之后的**口径更正**（**别再按"余量很小 = 快爆了"去读**）：
+        #   第一批真机数字 = `[64] = 3189.0 MB` / `[65] = 3188.0 MB`（该口径下"余量 1.0 MB"），
+        #   而**同一刻游戏完全正常**（贴图桥 `实际转码 13 / 失败 0`，模块堆 arena 47.4 MB）——
+        #   见 `dist/gdb-read-20260928-133745.txt` 与 `docs/改动日志-20260928.md` §180。
+        #   ⇒ 这说明 `UsedMemorySize` 不是"进程实际写了多少"，而更接近"整个应用内存池已被提交"的量
+        #     （Switch 应用内存池约 3.1 GB，与这里的 3189 MB 吻合）。**两边几乎相等是常态。**
+        #   ⇒ **所以这两个数答不了"堆还能不能再抬"**（我当初写这个字段时的期望没兑现）。
+        #     要判断"能不能往上抬"只有一个办法：**抬了之后能不能开机**（128 MiB 就是这么验的）。
+        #   ⇒ `[66]`/`[67]` 恒 0 也不是错误：那是"系统资源池"，普通 Application 不使用它。
+        _pm = (f[64], f[65], f[66], f[67])
+
+        def _mem_mb(value):
+            return '调用失败(0xFFFFFFFF)' if value == 0xFFFFFFFF else f'{value / 1048576:.1f} MB'
+
+        if _pm == (0, 0, 0, 0):
+            print('  ★ 进程内存：四格都是 0 ⇒ 还没采到（每 60 帧采一次）或宿主构建')
+        else:
+            print(f'  ★ 进程内存：可用总量 [64] = {_mem_mb(f[64])}｜已用 [65] = {_mem_mb(f[65])}'
+                  f'｜系统资源池总量 [66] = {_mem_mb(f[66])}｜其中已用 [67] = {_mem_mb(f[67])}')
+            if 0 < f[64] < 0xFFFFFFFF and f[64] >= f[65]:
+                print(f'     ⇒ 该口径下余量 = {(f[64] - f[65]) / 1048576:.1f} MB'
+                      '　★ 两边几乎相等是**常态** ⇒ 不能据此说"内存快满了"，也答不了"堆还能不能抬"')
+            if 0 < f[66] < 0xFFFFFFFF and f[66] >= f[67]:
+                left = f[66] - f[67]
+                print(f'     ⇒ 系统资源池余量 = {left / 1048576:.1f} MB'
+                      + ('　⚠ 余量不足 16 MB ⇒ 模块体积/挂载再涨就要顶到墙了'
+                         if left < 16 * 1048576 else ''))
+    if len(f) >= 74:
+        # ★★ 批次 378（2026-10-05）：**把"逐模组喂 content"从 2 项补到引擎那 16 项**之后的六格。
+        #
+        # 为什么要有它们：本批之前只喂 `costumes2.xml` / `music.xml`，其余 12 个文件的内容在
+        # Switch 上**从来就没进过引擎**（引擎自己那条 `ModManager::LoadConfigs @ 0x41E388`
+        # 在本版镜像里从不执行）。而"某个加载器入口没解析到"和"喂进去了但没生效"在旧读数里
+        # **长得一模一样** ⇒ 没有这六格，下一轮只能再猜一遍。
+        #
+        # 判读表：
+        #   * [68] 应当**恒为 0xFFFF**（16 项入口全部解析到）。少哪一位就查下表那个名字 ——
+        #     解析失败**不报错、不崩**，只表现为"那个文件的内容不进引擎"；
+        #   * [69] = [68] 的补码（bit0..15）+ bit16/bit17/bit18 三个"额外入口"：
+        #     bit16 = `ModEntry::ctor`（去掉 ⇒ 8 个要 `ModEntry*` 的项全跳过）、
+        #     bit17 = `std::string::assign` 那条 PLT 桩（去掉 ⇒ 真条目的 `+0x48`/`+0x60`
+        #     填不上 ⇒ `LoadCustomResources` 一个资源都找不到）、
+        #     ★ bit18（批次 409）= `ANM2::Load` 入口（去掉 ⇒ 收尾那一步不调 ⇒
+        #     `ModManager+0x368` 的默认模组道具 ANM2 是空的 ⇒ 暂停屏画模组道具时会崩）；
+        #   * [70] = 14 项加载器被调了几次（累加）。**正常 ≥ 启用模组数 × 14**；
+        #     远大于它 = 重试那几轮把同一条内容喂了多遍（引擎只喂一遍）；
+        #   * [71] = `EntityConfig::PostLoadMods()` 调了几次 —— **正常 = 1**（引擎在循环外调一次；
+        #     本批用一次性闩锁保证），>1 说明闩锁没生效；
+        #   * [72] = `ModEntry::LoadCustomResources()` 调了几次 —— 正常 = 启用模组数；
+        #   * [73] = 真 `ModEntry` 构造了几个 —— 正常 = 启用模组数（按下标惰性、只造一次）。
+        feed_rows = ('entities2.xml', 'items.xml', 'pocketitems.xml', 'costumes2.xml',
+                     'items_metadata.xml', 'wisps.xml', 'locusts.xml', 'recipes.xml',
+                     'bombcostumes.xml', 'challenges.xml', 'players.xml', 'sounds.xml',
+                     'music.xml', 'nightmares.xml', 'LoadCustomResources', 'PostLoadMods')
+        resolved = f[68]
+        missing = [feed_rows[i] for i in range(len(feed_rows)) if not (resolved >> i) & 1]
+        print(f'  ★ 引擎 16 项入口解析 [68] = 0x{resolved:04X}'
+              + ('　← ★ 全 16 项都在（应当如此）' if resolved == 0xFFFF else
+                 '　⚠ 缺：' + '、'.join(missing) + '　⇒ 那几项的内容不进引擎（不报错）'))
+        extra = []
+        if f[69] & (1 << 16):
+            extra.append('`ModEntry::ctor`（带 `ModEntry*` 的 8 项全跳过）')
+        if f[69] & (1 << 17):
+            extra.append('`std::string::assign` 桩（`+0x48`/`+0x60` 填不上 ⇒ 模组资源找不到）')
+        if f[69] & (1 << 18):
+            extra.append('`ANM2::Load`（收尾那一步不调 ⇒ 默认模组道具 ANM2 空 ⇒ 暂停屏画模组道具会崩）')
+        print(f'  解析失败位图 [69] = 0x{f[69]:05X}'
+              + ('　← ★ 一条都不缺' if f[69] == 0 else '　⚠ ' + '；'.join(extra) if extra
+                 else '　⚠ 见表内位号'))
+        print(f'  14 项加载器调用 [70] = {f[70]} 次｜`LoadCustomResources` [72] = {f[72]} 次'
+              f'｜真 `ModEntry` 构造 [73] = {f[73]} 个')
+        print('  `EntityConfig::PostLoadMods`（所有模组喂完之后收尾）[71] = ' + str(f[71])
+              + ('　← ★ 正常（只调一次）' if f[71] == 1 else
+                 ('　⚠ 0 ⇒ 还没轮到最后一次尝试，或那一项没解析到' if f[71] == 0 else
+                  '　⚠ >1 ⇒ 一次性闩锁没生效（收尾跑了多遍）')))
+        # ★ 批次 409：引擎 `ModManager::LoadConfigs` 尾部那一步（默认模组道具 ANM2）。
+        if len(f) >= 75:
+            print('  ★ 默认模组道具 ANM2（`gfx/ui/mod_defaults.anm2` → `ModManager+0x368`）载入 [74] = '
+                  + str(f[74])
+                  + ('　← ★ 正常（这一步做了；暂停屏画模组道具不会再崩）' if f[74] == 1 else
+                     ('　⚠ 0 ⇒ **这一步没做**：暂停屏上出现模组道具（id ≥ 733）时会写 `0x80` 崩'
+                      if f[74] == 0 else '　⚠ >1 ⇒ 一次性闩锁没生效（重复载入）')))
     if len(f) >= 27:
         print('  按 PC 规则**本局该禁**成就（查询结果）= '
               + ('★ 是 —— 判据 = 有真实模组处于**启用状态** **且** 妈腿成就未解锁' if f[26]
@@ -2202,10 +3843,41 @@ def hook_name(slot: int) -> str:
     return HOOK_NAMES[slot - 1] if 1 <= slot <= len(HOOK_NAMES) else f'越界({slot})'
 
 
+def describe_runtime_address(address: int, base: int) -> str:
+    """把一个**运行时绝对地址**讲成 `（模块内偏移 0x…，落在 <符号>+0x…）`。
+
+    为什么需要它：异常抛出位置（`ThrowForensics.lastThrowFrom`）里存的是运行时绝对地址，
+    它每次启动都随 ASLR 变（拿两次读数的地址直接比毫无意义）；减去**运行时模块基址**才得到
+    稳定的"模块内偏移"，再拿 `runtime.elf` 的符号表反查，就能当场说出"是哪个函数抛的" ——
+    比丢给用户一串十六进制、让他自己去查友好得多。ELF 不在（或被 strip）时**只给偏移、不猜**。
+    """
+    offset = address - base
+    text = f'（模块内偏移 0x{offset:x}'
+    try:
+        import elf_syms  # 同目录的极简 ELF 解析器（只依赖标准库）
+        elf = ROOT / DEFAULT_ELF
+        if elf.exists():
+            symbols = elf_syms.load_symbols(elf.read_bytes())
+            hit = None
+            for name, (value, size) in symbols.items():
+                if size and value <= offset < value + size:   # 取"最内层"（起始地址最大的那个）
+                    if hit is None or value > hit[1]:
+                        hit = (name, value)
+            if hit is not None:
+                text += f'，落在 {hit[0]}+0x{offset - hit[1]:x}'
+    except Exception:  # 反查只是锦上添花，失败不该让整份读数崩掉（读数本身还有别的用）
+        pass
+    return text + '）'
+
+
 def report(values: dict[str, list[int]], base: int, game_base: int, plugin_base: int) -> None:
     print()
     print('=== 启动状态机（TestRunObserver：游戏主循环那条线程每次启动只走一遍）===')
-    seq = first(values, 'g_sequence')
+    #: ★ `first_u32`：`g_sequence` 是 4 字节的 `uint32`（`nm` 实测 size=4），直接 `first(...)`
+    #: 会把**隔壁那个全局**取进高 32 位 —— 与 `first_u32` 文档里 `mod_engine_stage`
+    #: "真值 2 被印成 4294967298"是同一形状。2026-09-28 批次 192 新加的门禁
+    #: （`test_elf_syms.py::U32ReadMaskingTests`）把这一处扫了出来 —— 它此前一直没被发现。
+    seq = first_u32(values, 'g_sequence')
     detail_word = first(values, 'g_stateDetail')
     state = detail_word & 0xFFFFFFFF
     detail = detail_word >> 32
@@ -2303,6 +3975,54 @@ def report(values: dict[str, list[int]], base: int, game_base: int, plugin_base:
     print(f'  Present 前派发点（GOT 槽方案）状态 = {present_state} = '
           f'{PRESENT_RELAY_CODES.get(present_state, "未知")}')
 
+    # ★ 2026-10-05 新增：`MC_POST_RENDER` 这条命脉**逐环**量出来（"本会话一次都没派发"时看这里）。
+    #   为什么必须分层：`present_state == Success` 会把 `Manager::Render` 入口中继那边的**回退**
+    #   关掉（`hook_manager.cpp` 的 `if (!IsRenderPresentRelayInstalled())`）⇒ 只剩这一条路，
+    #   它任何一环断了都是**静默归零**。三档结论互斥、一眼可判：
+    #     entries == 0            ⇒ 桩那条路压根没跑到（GOT 槽/调用方过滤/桩那一层）
+    #     entries > 0 且 闸门开   ⇒ 前两环都好、问题在下游（会话/登记）
+    #     entries > 0 且 闸门关   ⇒ 渲染族独有的那道闸门从没开（更新族走另一套门，所以它正常）
+    if 'render_present_relay_entries' in values:
+        relay_entries = first(values, 'render_present_relay_entries') & 0xFFFFFFFF
+        gate = first(values, 'default_callback_gate') & 0xFFFFFFFF
+        owner_slot = first(values, 'lua_game_owner_slot')
+        paused_thunk = first(values, 'lua_game_ispaused_thunk')
+        music_fn = first(values, 'music_get_current_id')
+        frame_manager = first(values, 'render_frame_manager')
+        print('  ── 每帧渲染回调（`MC_POST_RENDER`）逐环判据'
+              '（`present_state = Success` 时这条路是**唯一**的）──')
+        print(f'    ① `Present` 前那个派发函数**被进了几次**   = {relay_entries}'
+              '（0 = 这条路没跑到；>0 = 跑到了、看下一环）')
+        print(f'    ② 默认回调闸门 g_DefaultCallbackGate      = 0x{gate:08x}'
+              f'（最低位 = {gate & 1}；**锁存**：开过就一直开）')
+        print(f'    ③ 闸门三个输入：Game owner 槽 = 0x{owner_slot:012x}'
+              f'｜IsPaused thunk = 0x{paused_thunk:012x}｜GetCurrentMusicID = 0x{music_fn:012x}')
+        if 'last_is_paused' in values:
+            last_paused = first(values, 'last_is_paused') & 0xFFFFFFFF
+            print(f'    ③b ★ `Game:IsPaused()` **最后一次返回** = {last_paused}'
+                  f'（0 = false、1 = true；★ MCM 的开菜单闸门是 `if ControlsEnabled and not isPaused` '
+                  f'⇒ 这一格是 1 的话，MCM 会**整段不跑**：不出菜单、也不响、'
+                  f'并且**不会去问** `IsButtonTriggered(13,…)`）')
+        print(f'    ④ 本帧 Manager*（g_RenderFrameManager）    = 0x{frame_manager:012x}')
+        if 'music_resolve_failure' in values:
+            resolve_fail = first(values, 'music_resolve_failure') & 0xFFFFFFFF
+            deepest = first(values, 'deepest_owner_observation') & 0xFFFFFFFF
+            print(f'    ⑤ 音乐解析失败码 = {resolve_fail}'
+                  '（0 = 解析成功；2 = `manager+0x36068` 不可读；3 = 方法绑定为 0；4 = 16 字节指纹不符）'
+                  f'｜owner 链最深观察 = {deepest}')
+        if relay_entries == 0:
+            print('    ⇒ ① 为 0 ⇒ 问题在"**GOT 槽 → 桩 → 调用方过滤**"那一层'
+                  '（槽值/过滤值对不上，或那处调用没经过槽）')
+        elif gate & 1:
+            print('    ⇒ ① > 0 且闸门已开 ⇒ 前两环都好，问题在更下游（会话/登记）')
+        else:
+            print('    ★ ① > 0、但**闸门从没打开** ⇒ 渲染族（`*_RENDER` / `MC_POST_RENDER`）'
+                  '的回调全都不派发；更新族走的是**另一套门**，所以 `MC_POST_UPDATE` 正常 '
+                  '—— 与"只卡渲染族、不崩不报错"完全吻合')
+            if owner_slot == 0 or paused_thunk == 0 or music_fn == 0:
+                print('      ⚠ ③ 里有**为 0** 的输入 ⇒ 那是"守卫不符 ⇒ 字段被留 0"'
+                      '（那一族是可选项，失败不报错、不记为挂点失败）')
+
     # 卡上开关：**先读它再解释任何"开关好像没生效"** —— 掩码为 0 且通道正常时，
     # 说明卡上确实没有开关文件（配置就是"什么都没跳过"），而不是"开关机制坏了"。
     if 'g_CardSwitchMask' in values:
@@ -2330,7 +4050,9 @@ def report(values: dict[str, list[int]], base: int, game_base: int, plugin_base:
         # 只有 1 而清单里明明有 2 ⇒ 第二个 Mod 的脚本没跑到 `RegisterMod`（去看它的错误文本）。
         print(f'  g_ModRegisteredCount = {first(values, "g_ModRegisteredCount") & 0xFFFFFFFF}'
               '  ⇒ 登记成功的 Mod 个数（清单里几个 enabled 就该是几）')
-    if 'mod_data_tail' in values:
+    if 'mod_data_descriptor' in values and len(values['mod_data_descriptor']) >= 5:
+        values['mod_data_tail'] = values['mod_data_descriptor'][2:5]
+    if 'mod_data_tail' in values and len(values['mod_data_tail']) >= 3:
         # 模组数据容器（存档分区）：这三条一起看 —— 存在与否、第几代、多大。
         tail = values['mod_data_tail']
         length = tail[0] & 0xFFFFFFFFFFFFFFFF
@@ -2342,13 +4064,14 @@ def report(values: dict[str, list[int]], base: int, game_base: int, plugin_base:
               f'{"已加载" if loaded else "未加载"}、'
               f'{"存档里有" if exists else "存档里没有"}、'
               f'generation={generation}、payload={length} 字节')
-        print('    ⇒ 第一次开机后应当"存档里有 + generation>=1"；'
-              '重启后再读一次 generation 应当继续增大（说明真的落盘了）')
+        print('    ⇒ generation只在内容变化时递增；重启后不变不能证明未落盘。')
+        if length > 8192:
+            print('    记录读取窗口为8192字节，超出部分缺失，不能据此判断记录不存在。')
     # ⚠️ `payload_sources` 原来只在"读到了 API 序列那一段"时才被赋值，而**一次读数里只要有一个
     # 地址读不到（例如 `--read` 指到未映射区），gdb 那批输出就会缺后面几段** ⇒ 后面用到它时
     # `UnboundLocalError`，**整份报告崩掉**（2026-09-20 实测）。所以在这里先置空表：
     # "读不到"应当表现为"少一段"，不是"整份报告看不到"。
-    payload_sources: list[str] = []
+    payload_sources: list[str] = [key for key in values if key == 'mod_data_head' or key.startswith('extra_')]
     # 模组数据的**记录表**（探针把报告写在 `Mod:SaveData` 里就从这儿读回来）。
     # 除了固定读的那一段，`--read` 指定的区域里也一起找 —— 报告超过固定窗口时（2026-09-18
     # 真机就发生了：payload 长到 1060 字节、探针那条记录被挤出 1 KiB 窗口），
@@ -2362,6 +4085,7 @@ def report(values: dict[str, list[int]], base: int, game_base: int, plugin_base:
         last_primary = int.from_bytes(raw[36:40], 'little')
         known = {16: 'Isaac.GetPlayer', 17: 'Isaac.GetItemConfig', 18: 'Isaac.FindInRadius',
                  19: 'Isaac.FindByType', 20: 'Isaac.CountEnemies', 21: 'Isaac.CountBosses',
+                 22: 'Isaac.CountEntities', 23: 'Isaac.RunCallbackWithParam',
                  32: 'Font:DrawString', 33: 'Font:DrawStringScaled', 34: 'Font:DrawStringUTF8',
                  35: 'Font:DrawStringScaledUTF8', 48: 'Sprite:Render', 49: 'Sprite:RenderLayer',
                  50: 'Sprite:GetTexel'}
@@ -2378,6 +4102,14 @@ def report(values: dict[str, list[int]], base: int, game_base: int, plugin_base:
             print(f'    Sprite bit{bit}（{known[bit]}）：'
                   + ('**被调用过** ✓' if hit else '从未被调用'))
         payload_sources = [key for key in values if key == 'mod_data_head' or key.startswith('extra_')]
+    if 'native_fallback' in values:
+        raw = words_to_bytes(values['native_fallback'])
+        fallback_count = int.from_bytes(raw[0:4], 'little')
+        fallback_last = int.from_bytes(raw[4:8], 'little')
+        print('  === 原生状态回退（批次 250：读不到引擎状态时给"该类型下的默认值"而不是抛错）===')
+        print(f'    回退次数 = {fallback_count}；最后一次 = 接口 #{fallback_last}')
+        print('    口径：0 次 ⇒ 地址链正常（这些接口在本次会话里都读到了真值）；'
+              '>0 ⇒ 编号见 runtime/src/interfaces/lua/native_state_fallback.hpp 的 NativeFallbackApi')
     if 'g_IsaacApiRowCalls' in values:
         row_calls = first(values, 'g_IsaacApiRowCalls') & 0xFFFFFFFF
         engine_calls = first(values, 'g_IsaacEngineRowCalls') & 0xFFFFFFFF
@@ -2386,16 +4118,20 @@ def report(values: dict[str, list[int]], base: int, game_base: int, plugin_base:
         rej_receiver = first(values, 'g_IsaacEngineRowRejectReceiver') & 0xFFFFFFFF
         rej_offset = first(values, 'g_IsaacEngineRowRejectOffset') & 0xFFFFFFFF
         rej_entry = first(values, 'g_IsaacEngineRowRejectEntry') & 0xFFFFFFFF
+        rej_guard = first(values, 'g_IsaacEngineRowRejectGuard') & 0xFFFFFFFF
         rej_id = first(values, 'g_IsaacEngineRowLastRejectId') & 0xFFFFFFFF
         rej_reason = first(values, 'g_IsaacEngineRowLastRejectReason') & 0xFFFFFFFF
         kind_name = {1: '字段行', 2: '引擎方法行'}.get(last_kind, '（还没调用过）')
         reason_name = {0: '（没发生过）', 1: '接收者解析失败', 2: '偏移拿不到',
-                       3: '入口 4 字节指纹不匹配'}.get(rej_reason, f'未知({rej_reason})')
+                       3: '入口 4 字节指纹不匹配',
+                       4: '参数校验挡下（无效的 null 服装编号）'}.get(rej_reason,
+                                                                    f'未知({rej_reason})')
         print('  === 数据行 API 的调用 / 静默降级（批次 069：不用探针也能回答"调到了没"）===')
         print(f'    数据行被调用 = {row_calls} 次（其中引擎方法行 {engine_calls} 次）')
         print(f'    最后一次调用 = {api_name(last_id)}（{kind_name}）')
-        print(f'    引擎方法行被降级 = {rej_receiver + rej_offset + rej_entry} 次'
-              f'（接收者 {rej_receiver} / 偏移 {rej_offset} / 入口指纹 {rej_entry}）')
+        print(f'    引擎方法行被降级 = {rej_receiver + rej_offset + rej_entry + rej_guard} 次'
+              f'（接收者 {rej_receiver} / 偏移 {rej_offset} / 入口指纹 {rej_entry} /'
+              f' 参数校验挡下 {rej_guard}）')
         print(f'    最后一次降级 = {api_name(rej_id)}：{reason_name}')
         if row_calls == 0:
             print('    ⇒ ★ 一条数据行 API 都没被调用过 ⇒ 问题在"模组没走到那里"，'
@@ -2406,6 +4142,110 @@ def report(values: dict[str, list[int]], base: int, game_base: int, plugin_base:
         elif rej_entry:
             print('    ⇒ ★ 有"入口指纹不匹配" ⇒ 至少有一条引擎方法的偏移/指纹是错的，'
                   '按上面最后一条降级的名字去核对。')
+        # ---- 批次 141：服装查表 / 加摘服装的现场 ----
+        if 'g_IsaacCostumePathCalls' in values:
+            cp_calls = first(values, 'g_IsaacCostumePathCalls') & 0xFFFFFFFF
+            cp_hits = first(values, 'g_IsaacCostumePathHits') & 0xFFFFFFFF
+            cp_misses = first(values, 'g_IsaacCostumePathMisses') & 0xFFFFFFFF
+            cp_last = first(values, 'g_IsaacCostumePathLastId') & 0xFFFFFFFF
+            cp_null = first(values, 'g_IsaacCostumePathNullCount') & 0xFFFFFFFF
+            nc_last = first(values, 'g_IsaacNullCostumeLastRequestedId') & 0xFFFFFFFF
+            nc_unknown = first(values, 'g_IsaacNullCostumeGuardUnknown') & 0xFFFFFFFF
+            cp_last_text = '（一次都没命中过）' if cp_last == 0xFFFFFFFF else str(cp_last)
+            cp_null_text = '读不到（不是"容器空"）' if cp_null == 0xFFFFFFFF else str(cp_null)
+            # 按 int32 解：`-1` 就是 `0xFFFFFFFF`，与"一次都没收到过"同一个位模式 ⇒
+            # 靠"加/摘服装那一行被调用过没有"（`g_IsaacEngineRowCalls` 与挡下次数）区分，
+            # 不要只看这一格。
+            nc_text = str(nc_last - 0x100000000 if nc_last >= 0x80000000 else nc_last)
+            print('  === 服装查表 / 加摘临时服装（批次 141：跳舞模组"崩在空指针"的两半）===')
+            print(f'    `Isaac.GetCostumeIdByPath` 被调 {cp_calls} 次：'
+                  f'命中 {cp_hits} 次、没命中 {cp_misses} 次')
+            print(f'    最后一次命中的编号 = {cp_last_text}')
+            print(f'    最后一次查表时 null 服装容器条目数 = {cp_null_text}')
+            print(f'    "加/摘临时服装"最后一次收到的编号 = {nc_text}'
+                  f'（0x{nc_last:08X}）；编号判定不了而放行 {nc_unknown} 次')
+            if cp_calls and cp_hits == 0:
+                print('    ⇒ ★ `GetCostumeIdByPath` **一次都没命中**：先看上面那行"容器条目数" ——'
+                      '若条目数正常，说明容器里**没有模组那 23 条路径**（资源/加载时机问题，'
+                      '不是比对口径问题）；若不正常，说明那条链当时读不到。')
+            elif cp_hits:
+                print('    ⇒ 命中过：核对"最后命中的编号"与"加/摘服装收到的编号"是否同一个 —— '
+                      '相同却仍有无效编号进来，说明是**别的调用点**给的。')
+            if rej_guard:
+                print(f'    ⇒ ★ 兜底挡下 {rej_guard} 次（编号无效，没往引擎里调）—— '
+                      '这是**保险生效**，不是功能生效：跳舞服装仍然没有穿上。')
+            if nc_unknown:
+                print(f'    ⇒ ★ 有 {nc_unknown} 次"编号有效性判定不了"（我们的 `ItemConfig` 链'
+                      '当时读不到）⇒ 那些次是**照原样调进去的**，先查我们自己的链。')
+        # ---- 批次 154：`Music:Play` 的编号保险（真机崩在 `Music::Play + 0x68` 之后加的）----
+        if 'g_MusicPlayGuardBlocked' in values:
+            mp_blocked = first(values, 'g_MusicPlayGuardBlocked') & 0xFFFFFFFF
+            print('  === 放歌的编号保险（批次 154：`Music:Play` 收到确认无效的编号就静默挡下）===')
+            print(f'    挡下次数 = {mp_blocked}'
+                  + ('　← 0 说明没有模组拿越界/负数编号来播（正常）' if mp_blocked == 0 else
+                     '　★ 非 0 ⇒ 有模组拿着**无效编号**来放歌，我们挡下了（不挡就是'
+                     '`Music::Play + 0x68` 的 Data Abort）；'
+                     '先查它为什么会拿到无效编号（多半是 `content/music.xml` 没进引擎）'))
+        # ---- 批次 408（2026-10-08）：`SFXManager:Play`（**真调引擎**的尺子）----
+        # 在此之前 `Play` 是**空实现**（批次 045 的占位）⇒ 真机上所有模组的音效都是哑的
+        # （中文版 MCM"房间不安全"该响 `SOUND_BOSS2INTRO_ERRORBUZZ`，实测一点声音都没有）。
+        # 这三问分开回答：模组调了没（calls）/ 我们递进去了没（delivered）/ 参数对不对（last*）/
+        # 没递进去卡在哪一步（last_failure）。
+        if 'sfx_play_calls' in values:
+            def _sfx_f32(key: str) -> float:
+                return struct.unpack('<f', struct.pack('<I', first_u32(values, key)))[0]
+
+            sfx_calls = first_u32(values, 'sfx_play_calls')
+            sfx_delivered = first_u32(values, 'sfx_play_delivered')
+            sfx_fail = first_u32(values, 'sfx_play_last_failure')
+            print('  === 音效 `SFXManager:Play`（批次 408：从空实现改成 **真调引擎**）===')
+            print(f'    模组调用（形状合法）= {sfx_calls}；其中**真的递进引擎** = {sfx_delivered}')
+            if sfx_delivered:
+                print('    最近一次递进去的实参：'
+                      f'id = {first_u32(values, "sfx_play_last_id")}、'
+                      f'volume = {_sfx_f32("sfx_play_last_volume"):.4g}、'
+                      f'frameDelay = {first_u32(values, "sfx_play_last_frame_delay")}、'
+                      f'loop = {first_u32(values, "sfx_play_last_loop")}、'
+                      f'pitch = {_sfx_f32("sfx_play_last_pitch"):.4g}、'
+                      f'pan = {_sfx_f32("sfx_play_last_pan"):.4g}')
+            _sfx_fail_names = {0: '没失败过', 1: '不在托管回调派发里', 2: 'Manager 或音效子对象读不到',
+                               3: '方法地址缺失（`EngineOffsetAddress` 返回 0）', 4: '入口 16 字节指纹不符'}
+            print(f'    最近一次**没递进去**的失败码 = {sfx_fail}'
+                  f'（{_sfx_fail_names.get(sfx_fail, "未知")}）')
+            if sfx_calls == 0 and sfx_delivered == 0:
+                print('      ⇒ 两格都是 0：要么没有模组调 `SFXManager:Play`，要么这份构建没带探针')
+            elif sfx_delivered == 0:
+                print('      ★ 调了却一次都没递进去 ⇒ 按上面的失败码定位'
+                      '（1/2 是环境、3 是基址、4 是指纹）')
+        # ---- 批次 144：引擎配置文件的真相（只读 options.ini 的 EnableMods）----
+        if 'g_OptionsProbeExists' in values:
+            op_exists = first(values, 'g_OptionsProbeExists') & 0xFFFFFFFF
+            op_status = first(values, 'g_OptionsProbeStatus') & 0xFFFFFFFF
+            op_read = first(values, 'g_OptionsProbeReadStatus') & 0xFFFFFFFF
+            op_size = first(values, 'g_OptionsProbeSize') & 0xFFFFFFFF
+            op_enable = first(values, 'g_OptionsProbeEnableMods') & 0xFFFFFFFF
+            op_low = first(values, 'g_OptionsProbeHeadLow') & 0xFFFFFFFF
+            op_high = first(values, 'g_OptionsProbeHeadHigh') & 0xFFFFFFFF
+            head = (op_high << 32) | op_low
+            head_text = head.to_bytes(8, 'little').decode('ascii', 'replace') if head else '（空）'
+            enable_text = '文件里没有这一行' if op_enable == 0xFFFFFFFF else str(op_enable)
+            print('  === 引擎配置文件的真相（批次 144：只读 options.ini 的 EnableMods）===')
+            print(f'    `save:/options.ini` 存在 = {op_exists}（Exists 码 {op_status}）；'
+                  f'读取码 {op_read}、读回 {op_size} 字节；头 8 字节 = {head_text!r}')
+            print(f'    ★ EnableMods = {enable_text}')
+            gate_restores = first(values, 'g_ModsGateRestores') & 0xFFFFFFFF
+            print(f'    引擎那个总闸被我们纠正回来的次数 = {gate_restores}'
+                  '（>0 ⇒ 引擎自带的模组页确实翻转了它，批次 145 的修法在生效）')
+            if op_exists and op_status == 0 and op_read == 0:
+                if op_enable == 0:
+                    print('    ⇒ ★★ **根因坐实**：文件里 EnableMods=0 ⇒ 引擎启动时总闸就是 0 ⇒ 它扫目录时'
+                          '把每条模组都标成未启用 ⇒ content 不加载。**按 PC 逻辑的修法就是把这一行改成 1**。')
+                elif op_enable == 1:
+                    print('    ⇒ 文件里就是 1 ⇒ "总闸是 0"的推断要换来源（查是谁在运行时把它写回 0）。')
+                else:
+                    print('    ⇒ 文件里没有 EnableMods 这一行（引擎默认 1）⇒ 还要查是谁在运行时写成 0。')
+            elif op_read != 0:
+                print(f'    ⇒ 读失败（码 {op_read}）⇒ 路径/时机不对（存档挂载点或文件名）。')
     if 'g_IsaacRoomIdxCalls' in values:
         idx_calls = first(values, 'g_IsaacRoomIdxCalls') & 0xFFFFFFFF
         if idx_calls:
@@ -2472,6 +4312,21 @@ def report(values: dict[str, list[int]], base: int, game_base: int, plugin_base:
             else:
                 print('    ⇒ 槽位是有效的、但 `+0x10` 读出 0 ⇒ 这类房间（贪婪模式一类）'
                       '没有 RoomConfig 对象；我们已按字段全 0 返回（不再给 nil）。')
+    # ★ `--read` 读回来的原始字节要**原样**看得见（2026-09-28 批次 193 加的）。
+    # 原来这些段只喂给"模组数据记录"解码器：解不出记录就等于**什么都没打印** ——
+    # 而调查 hid 共享内存这类"看原始位模式"的场合，要的就是那几个字。
+    extra_keys = [key for key in values if key.startswith('extra_')]
+    if extra_keys:
+        print()
+        print('=== 额外读回来的原始字节（`--read`；每行一个 8 字节字，小端）===')
+        for key in sorted(extra_keys):
+            raw = words_to_bytes(values[key])
+            print(f'  {key}（{len(raw)} 字节）')
+            for offset in range(0, len(raw), 16):
+                chunk = raw[offset:offset + 16]
+                hex_pairs = ' '.join(f'{int.from_bytes(chunk[i:i+8], "little"):016x}'
+                                     for i in range(0, len(chunk), 8))
+                print(f'    +0x{offset:03x}: {hex_pairs}')
     payload_records = {}
     for key in payload_sources:
         for record in decode_mod_data_records(words_to_bytes(values[key])):
@@ -2501,17 +4356,18 @@ def report(values: dict[str, list[int]], base: int, game_base: int, plugin_base:
                 print('      ⇒ ★ 这是**诊断伴生采样**（批次 070，运行时自带、不占模组位）：'
                       '上面几行是模组内部状态，`<missing>`/`<error>` 表示那条读不到而不是采样失败。')
     if 'g_RuntimePerfCallbackCalls' in values:
-        def u64(key: str) -> int:
+        def u64(key: str) -> int | None:
             # ★ 2026-09-21：这里**必须容忍缺键**。同一段报告也要能读"不是生产包"的那份 ELF
             # （例如探针构建），而 `--gc-sections` 会把"本构建里没人读"的计数器整个丢掉
             # （实测：探针包里没有 `g_RuntimePerfSyscalls`，生产包里有）。
-            # 缺键就报 0 并打印"读不到"，**不许抛 KeyError** —— 那会让整次 attach 白烧，
+            # 历史口径是缺键报 0；★ 2026-10-09 更正：缺键返回 None，不伪造实测零。
+            # **不许抛 KeyError** —— 那会让整次 attach 白烧，
             # 而这台机器一个启动周期只允许几次 attach（`build_requests` 的 docstring 同一条纪律）。
             words = values.get(key)
             if not words:
-                print(f'  （{key} 读不到：本构建里没有这个符号）')
-                return 0
-            return int.from_bytes(words_to_bytes(words), 'little')
+                print(f'  （{key} 缺失：本次没有有效读数）')
+                return None
+            return optional_counter(values, key)
         cb_calls, cb_ticks, cb_max = (u64('g_RuntimePerfCallbackCalls'),
                                       u64('g_RuntimePerfCallbackTicks'),
                                       u64('g_RuntimePerfCallbackMaxTicks'))
@@ -2529,24 +4385,39 @@ def report(values: dict[str, list[int]], base: int, game_base: int, plugin_base:
         if tick_cost:
             print(f'    量具自校准：读一次 cntpct_el0 ≈ {tick_cost} tick = {tick_cost / 19.2:.3f} µs'
                   f'{"" if tick_cost < 100 else "  ⇒ ★ 读数本身不便宜，所有耗时都被它抬高，结论要打折"}')
-        if cb_calls:
+        if None in (cb_calls, cb_ticks, cb_max):
+            print('    托管回调：缺失（次数/累计耗时/最大耗时未取全）')
+        elif cb_calls:
             print(f'    托管回调 {cb_calls} 次：合计 {to_us(cb_ticks) / 1000.0:.1f} ms、'
                   f'平均 {to_us(cb_ticks) / cb_calls:.1f} µs、最慢一次 {to_us(cb_max):.0f} µs')
-        print(f'    引擎内存查询（svcQueryMemory）{syscalls} 次：合计 {to_us(syscall_ticks) / 1000.0:.1f} ms'
-              + (f'、平均 {to_us(syscall_ticks) / syscalls:.1f} µs' if syscalls else ''))
-        if cb_calls and cb_ticks:
-            share = 100.0 * syscall_ticks / cb_ticks
-            print(f'    其中"读引擎内存"占回调总耗时的 {share:.1f}%'
-                  + ('  ⇒ ★ 大头在我们自己的内存查询上' if share > 40 else ''))
+        if syscalls is None or syscall_ticks is None:
+            print('    引擎内存查询（svcQueryMemory）：缺失（次数/累计耗时未取全）')
+        else:
+            print(f'    引擎内存查询（svcQueryMemory）{syscalls} 次：合计 {to_us(syscall_ticks) / 1000.0:.1f} ms'
+                  + (f'、平均 {to_us(syscall_ticks) / syscalls:.3f} µs' if syscalls else ''))
+        # Syscall 在加载和回调路径都会记账；回调总耗时又已包含回调内的 Syscall。
+        print('    内存查询含加载等回调外路径；回调内的查询已包含在回调耗时，不能与回调耗时相加。')
         # 批次 086：按 (事件 id, 属主模组) 分开，回答"贵的是哪一个回调"。
         buckets = perf_bucket_records(values)
         if buckets:
             buckets.sort(key=lambda record: record[2], reverse=True)
             print('    最贵的回调（按 (事件 id, 属主模组) 分开；批次 086）——')
             for rank, (key, count, ticks, max_ticks, bins) in enumerate(buckets[:10], start=1):
-                print(f'      {rank:>2}. {callback_name(key & 0xFFFFFFFF)} [{perf_bucket_owner(key)}]'
+                owner_named = owner_display_name(values, (key >> 32) & 0xFFFF)
+                print(f'      {rank:>2}. {callback_name(key & 0xFFFFFFFF)}'
+                      f' [{perf_bucket_owner(key)}{" = " + owner_named if owner_named else ""}]'
                       f'  {count} 次 / 合计 {to_us(ticks) / 1000.0:.1f} ms'
                       f' / 平均 {to_us(ticks) / count:.1f} µs / 最慢 {to_us(max_ticks):.0f} µs')
+            # ★ 2026-10-08（排查"某一家模组的回调到底跑没跑"）：**全槽列出**（不只前 10 名）。
+            #   为什么非要有：上面那张表只印前 10 名 ⇒ "某个 (事件, 属主) 不在表里" **不能**推出
+            #   "它没被派发"（可能只是排在第 11 名以后）。判"这一家跑没跑"必须看全槽：
+            #   只要它的 count > 0 就是跑过；count == 0 或键不存在才是真没跑。
+            print(f'    ★ 全部 {len(buckets)} 个非空 (事件, 属主) 桶（`grep` 用，例如 `grep "#7 代1"`；'
+                  f'缺席不能证明未派发：还须核对短读、溢出及计时是否启用）：')
+            for rank, (key, count, ticks, max_ticks, bins) in enumerate(
+                    sorted(buckets, key=lambda record: (-record[2], record[0])), start=1):
+                print(f'      · {callback_name(key & 0xFFFFFFFF):26s} [{perf_bucket_owner(key)}]'
+                      f'  {count} 次 / 合计 {to_us(ticks) / 1000.0:.1f} ms')
                 if rank <= 3 and sum(bins):
                     share = [100.0 * value / sum(bins) for value in bins]
                     print(f'          分布：<250µs {share[0]:.0f}% / <1ms {share[1]:.0f}%'
@@ -2574,12 +4445,14 @@ def report(values: dict[str, list[int]], base: int, game_base: int, plugin_base:
                              f'我们自己的开销 {to_us(ticks - inside) / 1000.0:.1f} ms）')
                 print(line)
             print('      （"其中引擎调用"只有画字那条路径单独量过；其余接口的合计含引擎调用）')
-            total_calls = first(values, 'g_RuntimePerfApiTotalCalls')
-            total_ticks = first(values, 'g_RuntimePerfApiTotalTicks')
-            if total_calls:
-                print(f'    ★ 全部接口合计（含没进表的）：{total_calls} 次 / '
+            total_calls = optional_counter(values, 'g_RuntimePerfApiTotalCalls')
+            total_ticks = optional_counter(values, 'g_RuntimePerfApiTotalTicks')
+            if total_calls is None or total_ticks is None:
+                print('    ★ API 计时合计：缺失（次数/累计耗时未取全）')
+            elif total_calls:
+                print(f'    ★ API 计时合计（含没进表的、含引擎段及嵌套计时）：{total_calls} 次 / '
                       f'{to_us(total_ticks) / 1000.0:.1f} ms / 平均 {to_us(total_ticks) / total_calls:.2f} µs'
-                      f' —— 读两次做差即得"每帧多少次、每帧多少 µs"，与回调耗时直接对账')
+                      f' —— 各层可能重复覆盖同一时间，不能当作互斥开销或唯一接口调用次数')
             api_overflow = first(values, 'g_RuntimePerfApiBucketOverflow')
             if api_overflow:
                 print(f'      ⚠ API 桶表满溢出 {api_overflow} 次 ⇒ 有接口没被单独统计（把 '
@@ -2655,16 +4528,20 @@ def report(values: dict[str, list[int]], base: int, game_base: int, plugin_base:
     # `RuntimeTest.MarkPostUpdate()` 累加（`lua_runtime.cpp` 的 `MarkPostUpdate`），
     # 真实派发走的是 `g_CallbackDispatchCounts[MC_POST_UPDATE]`（上面那段）。别把它当故障。
     print(f'  g_PostUpdateCount = {first(values, "g_PostUpdateCount") & 0xFFFFFFFF}')
+    diagnostic_view = print_callback_diagnostic_view(values)
+    count_label = '诊断快照登记数' if diagnostic_view else '回调登记数'
     count = first(values, 'callback_count')
-    if count > CALLBACK_REGISTRY_CAPACITY:
+    if not values.get('callback_count'):
+        print(f'  {count_label} = 未读（缺读数或ELF布局未知，不按0解释）')
+    elif count > CALLBACK_REGISTRY_CAPACITY:
         # 响亮地报"这个数不可信"，而不是把它当真的念出来 —— 布局一变这里就会漂
         # （2026-09-20 就是这么读到 `kNoCallbackFilter` 的哨兵值的）。
-        print(f'  回调登记数 = {count} ⚠ **不合理**（容量只有 {CALLBACK_REGISTRY_CAPACITY}）'
+        print(f'  {count_label} = {count} ⚠ **不合理**（容量只有 {CALLBACK_REGISTRY_CAPACITY}）'
               f' ⇒ `CallbackRegistry` 的布局可能变过了：'
               f'去核对 `callback_registry.hpp` 的平行数组与 `CALLBACK_REGISTRY_COUNT_OFFSET`'
               f'（= 0x{CALLBACK_REGISTRY_COUNT_OFFSET:X}）')
     else:
-        print(f'  回调登记数 = {count}')
+        print(f'  {count_label} = {count}')
     reg = values.get('callback_registry') or []
     entries = decode_callback_entries(words_to_bytes(reg))[:count]
     if entries:
@@ -2692,6 +4569,35 @@ def report(values: dict[str, list[int]], base: int, game_base: int, plugin_base:
         print(f'    ⇒ {len(entries)} 条登记的 owner 分布：{summary}'
               + ('  ← 多个 owner = 多个模组的回调确实并存' if len(owners) > 1 else
                  '  ← 只有一个 owner：多模组下说明只登记上了一家'))
+        # ★ 2026-10-08（排查 MCM 打不开）：**带过滤器的登记**与**某个回调的全部登记**。
+        #   为什么要这两张：MCM 的识别特征是它注册了
+        #   `MC_PRE_NPC_UPDATE + affinity = EntityType.ENTITY_DARK_ESAU`（全表里极少见），
+        #   而它的开菜单回调是 `MC_POST_RENDER` ⇒ 只要看到"同一个 owner
+        #   **既有那条带过滤器的登记、又有 `MC_POST_RENDER`**"，就能断定
+        #   **MCM 的 PostRender 确实注册上了**；反之则说明它的脚本没跑到那一行。
+        filtered = [e for e in entries if e['affinity']]
+        if filtered:
+            print(f'    ⇒ **带过滤器的登记** {len(filtered)} 条（MCM 那条 `MC_PRE_NPC_UPDATE` '
+                  f'+ `ENTITY_DARK_ESAU` 就在这里）：')
+            for entry in filtered[:12]:
+                print(f'        id = {entry["id"]}（{callback_name(entry["id"])}）、'
+                      f'owner = #{entry["owner_index"]} 代{entry["owner_generation"]}、'
+                      f'affinity = {entry["affinity"]}')
+        for target_id, target_name in ((2, 'MC_POST_RENDER'),):
+            same = [e for e in entries if e['id'] == target_id]
+            print(f'    ⇒ `{target_name}`(id={target_id}) 的**全部登记** {len(same)} 条'
+                  f'（属主分布＝谁在每帧渲染回来）：')
+            for entry in same:
+                print(f'        owner = #{entry["owner_index"]} 代{entry["owner_generation"]}、'
+                      f'luaReference = {entry["lua_reference"]}')
+        # ★ 2026-10-08：**逐条全表**（排查"某个模组的某条登记到底在不在"）。
+        #   142 行很长，但它是判"某个回调注册上了没有"的唯一直接证据；
+        #   找的时候 `grep` 就行（例如 `grep 'MC_EXECUTE_CMD'`）。
+        print(f'    ⇒ **全表逐条**（{len(entries)} 条；按 `id（名字）｜属主` 排列，'
+              f'用来判"某模组的某条登记在不在"）：')
+        for index, entry in enumerate(entries):
+            print(f'        [{index:3d}] id={entry["id"]:3d} {callback_name(entry["id"]):28s}'
+                  f' owner=#{entry["owner_index"]} 代{entry["owner_generation"]}')
     # 回调派发计数（2026-09-18）：这张表回答"某种回调**到底被派发过几次**"。
     # 与上面那张登记表合起来才分得清三种情况：① 根本没登记；② 登记了但一次没触发
     # （= 事件没送到）；③ 触发了很多次但模组自己没干活。以前只能看出 ① 和 ② 的前半截。
@@ -2757,15 +4663,466 @@ def report(values: dict[str, list[int]], base: int, game_base: int, plugin_base:
     for i, name in enumerate(HOOK_NAMES):
         ptr = callbacks[i] if i < len(callbacks) else None
         relay_key = RELAY_BY_HOOK.get(name)
-        if ptr is None:
+        if name in COLD_HOOK_SITES:
+            site,gate,original=COLD_HOOK_SITES[name]
+            source=(values.get(f'cold_{name}_source') or [None])[0]
+            words=values.get(f'cold_{name}_gate') or []
+            target=decode_internal_branch(source&0xFFFFFFFF,game_base+site) if source is not None else None
+            raw=words_to_bytes(words)
+            installed=target==game_base+gate and len(raw)>=32 and raw[:16]==bytes.fromhex('d000001010fedfc8500000b400021fd6') and int.from_bytes(raw[16:20],'little')==original and decode_internal_branch(int.from_bytes(raw[20:24],'little'),game_base+gate+20)==game_base+site+4
+            pointer=int.from_bytes(raw[24:32],'little') if installed else 0
+            if installed:print(f'  [{i}] {name:20} 加载前中继完整，发布gateway '+(f'0x{pointer:x}' if pointer else '尚未发布'))
+            else:print(f'  [{i}] {name:20} 原源B/中继缺失或不匹配，不判成已安装')
+        elif name == 'EntityRemovePointers':
+            wanted = base + SYMS['entity_remove_pointer_callback'] if 'entity_remove_pointer_callback' in SYMS else None
+            pointers = [(values.get(f'entity_remove_pointer_{j}') or [None])[0]
+                        for j in range(len(ENTITY_REMOVE_POINTER_SITES))]
+            matched = sum(p == wanted for p in pointers) if wanted is not None else 0
+            print(f'  [{i}] {name:20} GOT/虚表 {matched}/{len(pointers)} 个指针与本包拦截器一致；缺读数不算已装')
+        elif name in INTERNAL_HOOK_SITES:
+            site,veneer,size = INTERNAL_HOOK_SITES[name]
+            raw = values.get(f'internal_{name}_source') or []
+            landed = decode_internal_branch(raw[0]&0xFFFFFFFF,game_base+site) if raw else None
+            slot = INTERNAL_LITERAL_SLOTS.get(name)
+            pointer = (values.get(f'internal_{name}_literal') or [None])[0]
+            gateway = decode_internal_veneer(values.get(f'internal_{name}_veneer'),game_base+veneer,size,
+                                             game_base+slot if slot is not None else None,pointer)
+            if landed == game_base+veneer and gateway is not None:
+                print(f'  [{i}] {name:20} 内部单B → 游戏+0x{veneer:x} → gateway 0x{gateway:x}')
+            else:
+                print(f'  [{i}] {name:20} 内部挂点读不到或指令不匹配；不以旧入口槽判安装成功')
+        elif ptr is None:
             print(f'  [{i}] {name:20} 读不到')
-        elif relay_key and ptr == base + SYMS[relay_key]:
+        elif relay_key and relay_key in SYMS and ptr == base + SYMS[relay_key]:
             print(f'  [{i}] {name:20} 0x{ptr:012x} ← 零占洞入口中继（模块+0x{SYMS[relay_key]:x}）★')
         elif ptr == 0:
             note = '（该路走 GOT 槽，判据见下）' if name == 'ManagerPresent' else '（该路未走入口中继）'
             print(f'  [{i}] {name:20} 0x{ptr:012x} ← {note}')
         else:
             print(f'  [{i}] {name:20} 0x{ptr:012x}')
+
+    print()
+    print('=== 让模组那一层早于引擎第一次读：`Game::Init` 入口中继（批次 371；1 ms = 19200 tick）===')
+    early = values.get('early_mount_state') or []
+    if len(early) < 8:
+        print('  状态面 = 读不到（本构建里没有 `g_EarlyMountState`，或符号没同步上）')
+    else:
+        # ★ 结构体是 **5 个相邻 u64 + 6 个 u32**（见 `early_mod_mount_state.hpp`）：
+        #   时间戳是 u64 ⇒ 按 8 字节字取（`first`）；计数是 u32 ⇒ 必须按**真正的 u32
+        #   下标**取（`u32_at`）—— 一个 8 字节字里装着两个 u32，用 `first` 读会把隔壁的值
+        #   算进来（这正是 `u32_at` 注释里那个 2026-09-26 的坑）。
+        em_worker = first(values, 'early_mount_state', 0)
+        em_delay = first(values, 'early_mount_state', 1)
+        em_module = first(values, 'early_mount_state', 2)
+        em_installed = first(values, 'early_mount_state', 3)
+        em_callback = first(values, 'early_mount_state', 4)
+        em_install_attempted = u32_at(values, 'early_mount_state', 10)
+        em_install_failure = u32_at(values, 'early_mount_state', 11)
+        em_callback_fired = u32_at(values, 'early_mount_state', 12)
+        em_mounts_attempted = u32_at(values, 'early_mount_state', 13)
+        em_mounts_failed = u32_at(values, 'early_mount_state', 14)
+        em_prefix = u32_at(values, 'early_mount_state', 15)
+        # ★★★ 批次 387（2026-10-07 00:0x）：**u32 下标 16/17** —— `[11]/[12]`（前置步骤里"早装资源类中继"的结果）。
+        #   ★ 这里第一版写成 18/19 **是错的**（我按"字段序号"数，忘了前面 5 个是 **u64**、各占 2 个 u32 位）：
+        #     正确换算 = 5×2 + (字段序号-5) ⇒ `[11]`→16、`[12]`→17。写错的下标读到越界垃圾（恒 0），
+        #     表现为"早装没走到"——差点把一个**已经生效**的改动判成没生效。
+        #   ⇒ 教训：**改了结构体就要把下标重算一遍**（"前 5 个是 u64"就是这条的坑）。
+        # 原文保留（下面是这两格当初加进来时的说明）：
+        #   ★★★ 批次 385（2026-10-06）：u32 下标 18/19 = `[11]/[12]` —— 前置步骤里"早装资源类中继"的结果。
+        #   第一次早装**静默失败**了（少了 `RegisterEntryRelayCallbacks()` ⇒ 判定拒绝），
+        #   而读数上只表现为"`ANM2` 中继首次被调仍然很晚" ⇒ 白改一轮才发现。
+        #   ⇒ 这两格就是为"**不再静默**"加的：`installed < attempted` 就是早装失败。
+        em_early_attempted = u32_at(values, 'early_mount_state', 16)
+        em_early_installed = u32_at(values, 'early_mount_state', 17)
+
+        def em_rel(tick: int) -> str:
+            """相对"worker 进入"的毫秒数；tick 0 = **那一步没走到**（不是"发生在 tick 0"）。"""
+            if tick == 0:
+                return '没走到'
+            if em_worker == 0:
+                return f'{tick / 19200.0:.1f} ms（无基准，按绝对 tick 换算）'
+            return f'{(tick - em_worker) / 19200.0:+.1f} ms'
+
+        prelude_ms = None
+        if em_worker and em_delay and em_delay >= em_worker:
+            prelude_ms = (em_delay - em_worker) / 19200.0
+        print(f'  worker 进入            = {em_rel(em_worker)}')
+        # ★★ 批次 384（2026-10-06）：把"worker 进入"的**原始 tick**也打出来 —— 新增的那格
+        #   （`anm2load_state[8]` = `ANM2` 中继"首次被调"的时刻）是**绝对 tick 的低 32 位**，
+        #   而上面这些行都只打了相对值 ⇒ **不给绝对基准就没法跟它比大小**。这一行就是那个基准。
+        #   ★ 两边都取低 32 位：19.2 MHz 的计数器开机约 223 秒回绕一次，本判据只看开机后头几百秒
+        #     ⇒ 够用；比较时若算出"负数"，加 2**32 再比（那是回绕，不是"发生在过去"）。
+        if em_worker:
+            print(f'  ★ worker 进入的绝对 tick = {em_worker}（低 32 位 = {em_worker & 0xFFFFFFFF}）'
+                  f'  ← 与 `ANM2` 中继「首次被调」那格**同源同单位**，可直接比大小')
+        print('  5 秒等待开始（= 前置步骤结束）= ' + em_rel(em_delay)
+              + (f'（前置步骤花了 {prelude_ms:.1f} ms）' if prelude_ms is not None else ''))
+        print(f'  认出游戏模块           = {em_rel(em_module)}')
+        print(f'  `Game::Init` 中继装成  = {em_rel(em_installed)}'
+              + f'（试装 {em_install_attempted}、失败码 {em_install_failure}）')
+        print(f'  中继回调第一次被调     = {em_rel(em_callback)}（共被调 {em_callback_fired} 次）')
+        print(f'  回调里调 RegisterMod   = {em_mounts_attempted} 次、失败 {em_mounts_failed} 次')
+        # ★★★ 批次 385：前置步骤里"早装资源类中继"的结果（两条 = `GetMountedFilePath` + `Anm2Load`）。
+        #   `installed < attempted` ⇒ **早装失败**（第一版就是 0/2：少了 `RegisterEntryRelayCallbacks()`）。
+        if em_early_attempted or em_early_installed:
+            print(f'  ★ 早装资源类中继       = 试 {em_early_attempted} 条、成 {em_early_installed} 条'
+                  + ('  ⇒ **有失败**：绑定表没先注册是最常见的原因'
+                     if em_early_installed < em_early_attempted else '  ⇒ 两条都装上了'))
+        else:
+            print('  ★ 早装资源类中继       = **没走到**（0 条尝试）')
+        # 判读按"我们走到了哪一步"分档（tick 0 = 没走到）—— 每档只说那一档能得出的结论：
+        # "中继没装上"与"装上了但引擎从没调它"是两件完全不同的事，不许混成一句话。
+        if em_worker == 0:
+            print('  ⇒ 状态面还是空的：worker 还没走到那一步（或本构建是诊断构建，'
+                  '那一段按 `EXL_DIAGNOSTIC_STAGE` 不编译）')
+        elif em_module == 0:
+            print('  ⇒ 2 秒内没认出游戏模块 ⇒ 前置步骤在第一步就收工（后面那条既有扫描照旧等满 30 秒）')
+        elif em_installed == 0:
+            if em_install_failure == 0xFFFFFFFE:
+                print('  ⚠ 走到了装中继那一步，但**靶点不可挂**（对齐/不在 `.text`/那一页现在不可执行）'
+                      '⇒ 看 `Game::Init` 入口那 16 字节与 `kGameInitEntryExpectedBytes` 是否还一致')
+            elif em_install_failure == 0:
+                print('  ⇒ 还没装（不是失败）—— 走到第三步之前就收工了？看上面的时间轴')
+            else:
+                print(f'  ⚠ 装中继**失败**（`TryInstallEntryRelay` 失败码 {em_install_failure}；'
+                      '码表见 `runtime/source/relay/entry_relay.hpp`）')
+        elif em_callback_fired == 0:
+            print('  ★ 中继**装上了**、但引擎**从没调过它** ⇒ `Game::Init` 的第一次调用早于我们装钩子 '
+                  '⇒ 下一步必须往**更早的入口**走（例如引擎重建内容挂载点表那一次调用）')
+        else:
+            print(f'  ★ 中继装上了、且被引擎调了 {em_callback_fired} 次 ⇒ 回调确实排在 `Minimap::Init` 之前')
+            if em_mounts_attempted == 0:
+                print('  ⚠ 但回调里**一次都没挂**（文件绑定不齐，或清单与自动发现都读不出来）')
+            elif em_prefix:
+                print('  ★★ 挂完之后引擎那张表里**有** `isaac_mods` 前缀 ⇒ 模组层在引擎第一次读之前就存在了')
+            else:
+                print(f'  ⚠ 挂了 {em_mounts_attempted} 次（失败 {em_mounts_failed} 次）、但读表时**没有** '
+                      '`isaac_mods` 前缀 ⇒ 与 `image_pcx_diag` 的挂载后探测/时序位图对照')
+
+    print()
+    print('=== 模组覆盖本体资源：`ANM2::Load` 入口中继（批次 363）===')
+    anm2_entry = values.get('anm2load_entry') or []
+    anm2_hex = b''.join(w.to_bytes(8, 'little') for w in anm2_entry[:2]).hex()
+    if not anm2_entry:
+        print('  目标入口（游戏模块 0xc970）= 读不到')
+    elif anm2_hex.startswith('5000005800021fd6'):
+        print(f'  目标入口（游戏模块 0xc970）= {anm2_hex[:32]}… ← 已是入口补丁')
+    else:
+        print(f'  目标入口（游戏模块 0xc970）= {anm2_hex[:32]}… ← **仍是原版序言**（中继没装上）')
+    print('  --- PC 的资源层重定向（批次 378）---')
+    redirect_published = u32_at(values, 'mod_redirect_state', 0)
+    redirect_mods = u32_at(values, 'mod_redirect_state', 1)
+    redirect_calls = u32_at(values, 'mod_redirect_state', 2)
+    redirect_hits = u32_at(values, 'mod_redirect_state', 3)
+    redirect_dlc3 = u32_at(values, 'mod_redirect_state', 4)
+    redirect_plain = u32_at(values, 'mod_redirect_state', 5)
+    redirect_last_mod = u32_at(values, 'mod_redirect_state', 6)
+    redirect_skipped = u32_at(values, 'mod_redirect_state', 7)
+    redirect_toolong = u32_at(values, 'mod_redirect_state', 8)
+    redirect_publishes = u32_at(values, 'mod_redirect_state', 9)
+    if not (values.get('mod_redirect_state') or []):
+        print('  状态面 = 读不到（`--elf` 同步一下符号；或这一版还没有这段代码）')
+    else:
+        last_mod_text = ('没命中过' if redirect_last_mod == 0xFFFFFFFF
+                         else f'模组 #{redirect_last_mod}')
+        print(f'  名单发布 = {"已发布" if redirect_published else "还没发布"}'
+              f'（发布过 {redirect_publishes} 次 / 那一刻清单里 {redirect_mods} 个模组）')
+        print(f'  被问 {redirect_calls} 次｜★ 答了模组层 {redirect_hits} 次'
+              f'（`resources-dlc3/` {redirect_dlc3} / `resources/` {redirect_plain}）｜'
+              f'最近命中 = {last_mod_text}')
+        print(f'  跳过"引擎已解析" {redirect_skipped} 次｜装不下 {redirect_toolong} 次')
+        raw = words_to_bytes(values.get('mod_redirect_state') or [])
+        query = raw[40:40 + 192].split(b'\x00', 1)[0].decode('utf-8', errors='replace')
+        answer = raw[232:232 + 224].split(b'\x00', 1)[0].decode('utf-8', errors='replace')
+        print(f'  最近一次问的路径 = {query!r}')
+        print(f'  最近一次答的路径 = {answer!r}')
+        print('  判读：')
+        if redirect_publishes == 0:
+            print('    ★ 清单**一次都没发布** ⇒ 这条重定向不可能生效（先查"重活之前"那一步有没有跑到）。')
+        elif redirect_calls == 0:
+            print('    ★ 发表了但**一次都没被问到** ⇒ 这一局没有任何资源请求走到那个缝上'
+                  '（或挂点没装上 —— 看入口那两行的字节）。')
+        elif redirect_hits == 0:
+            print('    ★ 问到了、但**一次都没命中模组** ⇒ 模组资源这一局没被引擎看见：'
+                  '先看上面两条路径是不是这一条、再看清单里的模组目录对不对。')
+        else:
+            print(f'    ⇒ 这条重定向**真的在工作**：{redirect_hits} 次把请求指到了模组目录。')
+
+    anm2_state = values.get('anm2load_state') or []
+    if len(anm2_state) < 5:
+        print('  状态面 = 读不到')
+    else:
+        # ★★ 2026-10-05 修（批次 364 的读数当场抓到的工具缺陷）：`Anm2LoadOverrideState` 是
+        #    **10 个相邻 `uint32`**（40 字节 = 读数工具取的 **5** 个 8 字节字；★ 批次 384（2026-10-06）
+        #    又在末尾追加了 `[8] callbackFirstTicks` / `[9] reservedAlign`，原来只有 8 个）⇒ 必须按**真正的
+        #    u32 下标**解码（`u32_at`），一个 8 字节字里装着**两个**字段。
+        #    原来的 `[w & 0xffffffff for w in anm2_state]` 把每个字当成一个字段 ⇒
+        #    ① 印出来的"失败码/被调次数"是隔壁字段的值（2026-10-05 01:24 实测把
+        #    `callbackCount = 161` 印成"失败码 161"、"被调次数 0"）；
+        #    ② 取 `u[4]` 时直接 `IndexError`，**把整份读数打断在最后一段**。
+        #    标量走 `first_u32`、数组一律走 `u32_at` —— 这是仓库里已有的口径（见 `u32_at` 注释）。
+        relay_state = u32_at(values, 'anm2load_state', 0)
+        relay_failure = u32_at(values, 'anm2load_state', 1)
+        callback_count = u32_at(values, 'anm2load_state', 2)
+        resolver_asked = u32_at(values, 'anm2load_state', 3)
+        stale_found = u32_at(values, 'anm2load_state', 4)
+        evicted = u32_at(values, 'anm2load_state', 5)
+        last_path_hash = u32_at(values, 'anm2load_state', 6)
+        # ★ 2026-10-05（批次 368）：第 8 格从"对齐保留"改成有含义的 `mountListFlags`。
+        mount_flags = u32_at(values, 'anm2load_state', 7)
+        # ★★ 批次 384（2026-10-06）：第 9 格 = **本条中继"第一次被调用"的时刻**（低 32 位 tick）。
+        #    用它回答"引擎第一次读共享资源时、我们的中继装了没有"：与上面那段「`Game::Init` 中继
+        #    回调第一次被调」（`g_EarlyMountState` 里的一个 u64 时间戳，同源同单位 19.2 MHz）
+        #    **比大小**即可。只取低 32 位 —— 19.2 MHz 的计数器在开机约 223 秒内不回绕，够本判据用。
+        callback_first_ticks = u32_at(values, 'anm2load_state', 8)
+        relay = {0: '未试', 1: '已装', 2: '未装'}.get(relay_state, f'未知({relay_state})')
+        print(f'  中继装上没有 = {relay}｜失败码 {relay_failure}')
+        print(f'  中继被调次数 = {callback_count}｜问解析器 = {resolver_asked}')
+        if callback_first_ticks:
+            print(f'  ★★ 中继**首次被调** = tick {callback_first_ticks}'
+                  f'（≈ {callback_first_ticks / 19200.0:.1f} ms）')
+            # ★★★ 批次 384：**自动与 `Game::Init` 的时刻比大小** —— 这一格的全部意义就在这里。
+            #   两个数都是"绝对 tick 的低 32 位"、同源同单位（19.2 MHz；见上面那行新增的基准）。
+            #   ★ 回绕：19.2 MHz 的计数器开机约 223 秒后低位绕回来 ⇒ 差值为负时加 2**32 再判。
+            em_worker_here = first(values, 'early_mount_state', 0)
+            em_callback_here = first(values, 'early_mount_state', 4)
+            if em_worker_here and em_callback_here:
+                game_init_ticks = em_callback_here & 0xFFFFFFFF
+                delta = callback_first_ticks - game_init_ticks
+                if delta < 0:
+                    delta += 1 << 32
+                if delta < 0x40000000:      # 55.8 秒以内算"晚于"；超过它基本是回绕（= 早于）
+                    print(f'  ★★★ 与 `Game::Init`（tick {game_init_ticks}）比：**晚于**它'
+                          f' {delta / 19200.0 / 1000.0:.1f} 秒 ⇒ **引擎最初那次读没走我们的中继**'
+                          f' ⇒ 治法是"把资源类中继提前到 worker 的前置步骤"（见'
+                          f' `docs/分析-红字根因-模组覆盖是事后修正而PC是启动期前置-20261006.md` §8.4）')
+                else:
+                    print(f'  ★★★ 与 `Game::Init`（tick {game_init_ticks}）比：**早于**它'
+                          f' ⇒ 最初那次读**走了**我们的中继（那就别再往"提前装中继"改）')
+            else:
+                print('  （`g_EarlyMountState` 那段没读到 ⇒ 这次没法自动比，请手工比两个 tick）')
+        else:
+            print('  ★★ 中继**首次被调** = 0（一次都没被调过 ⇒ 先查它装上没有）')
+        print(f'  ★ 找到本体旧条目 = {stale_found}｜真正作废并回收 = {evicted}｜'
+              f'最近一条模组层路径哈希 = 0x{last_path_hash:08x}')
+        # ★ 把"这一格会不会撒谎"当场判出来，别让后来者再被它误导一次：
+        #   入口已经是补丁、这一格却还写着"未试" ⇒ 安装结果根本没人记账
+        #   （`NoteAnm2LoadRelayInstalled` 直到批次 363 为止**一个调用点都没有**）。
+        if mount_flags & 0x1:
+            print('  ⚠ 引擎那张挂载点表里**没有模组前缀**（开机快照）⇒ 反推 owner 前缀不成立，'
+                  '已按"每个键都算压着模组"处理')
+        if mount_flags & 0x2:
+            print('  · 出现过"同一路径本会话已作废过 ⇒ 跳过"（防空转）')
+        if relay_state == 0 and anm2_entry and anm2_hex.startswith('5000005800021fd6'):
+            print('  ⚠ 入口已是补丁、这一格却仍是"未试" ⇒ **安装结果没被记账**'
+                  '（`NoteAnm2LoadRelayInstalled` 没有调用点）—— 以入口那一行为准。')
+        if callback_count == 0:
+            print('  ⇒ 中继一次都没被调到：`ANM2::Load` 这条路本次启动没走过（或中继没装上）')
+        elif evicted > 0:
+            print('  ⇒ 这条链**真的在修**"旧缓存压住模组"：有共享路径被作废过。')
+        elif stale_found > 0:
+            print('  ⇒ 找到过旧条目但没作废（计数为 0 或绑定不齐）—— 看失败码那一格。')
+        elif resolver_asked == 0:
+            print('  ⇒ 中继被调到过，但**一次都没走到"问解析器"那一步**（缓存里没有'
+                  '"压着模组"的旧条目）⇒ 这条链本次**没有被真正考到**，别据此判"修好了"。')
+        else:
+            print('  ⇒ 走过这条路，但没有"解析器答模组层"的路径 ⇒ 本次没有共享资源被模组覆盖。')
+
+    print()
+    print('=== 引擎那条"模组 content 加载"路的闸门（批次 147：挂 `ModManager::LoadConfigs` 入口）===')
+    ml_entry = values.get('modmanager_loadconfigs_entry') or []
+    ml_hex = b''.join(w.to_bytes(8, 'little') for w in ml_entry[:2]).hex()
+    if not ml_entry:
+        print('  目标入口（游戏模块 0x41e388）= 读不到')
+    elif ml_hex.startswith('5000005800021fd6'):
+        print(f'  目标入口（游戏模块 0x41e388）= {ml_hex} ← 已是我们的入口中继 ★')
+    else:
+        print(f'  目标入口（游戏模块 0x41e388）= {ml_hex}'
+              '  ← **不是**入口补丁 ⇒ 挂点没装上（本段其余数字都会是 0）')
+    ml_calls = first(values, 'mod_loadcfg_calls') or 0
+    ml_entries = first(values, 'mod_loadcfg_entries') or 0
+    ml_enabled = first(values, 'mod_loadcfg_enabled') or 0
+    ml_disabled = first(values, 'mod_loadcfg_disabled') or 0
+    ml_known = first(values, 'mod_loadcfg_disabled_known') or 0
+    ml_stateloaded = first(values, 'mod_loadcfg_state_loaded') or 0
+    ml_matched = first(values, 'mod_loadcfg_matched') or 0
+    ml_engineoff = first(values, 'mod_loadcfg_engine_off') or 0
+    print(f'  闸门被引擎调到 {ml_calls} 次｜那一次看到模组 {ml_entries} 条：'
+          f'我们置"要加载" {ml_enabled} 条、置"不加载" {ml_disabled} 条')
+    print(f'  那一刻：存档侧记着关掉 {ml_known} 个模组、状态读过存档没有 = {ml_stateloaded}；'
+          f'命中"我们关掉的目录名" {ml_matched} 条')
+    print(f'  引擎自己说"这条关着"（`ModEntry + 0x138` 为 0）的有 {ml_engineoff} 条'
+          '（那些我们不动 —— 与 Lua 侧认 `disable.it` 的口径一致）')
+    ml_writefail = first(values, 'mod_loadcfg_write_failures') or 0
+    print(f'  写 `+0x139` 被内存判定挡下 {ml_writefail} 次'
+          + ('（非 0 ⇒ 引擎会按它自己那份值走，本闸门没生效）' if ml_writefail else ' ⇒ 全部写下去了'))
+    path_raw = words_to_bytes(values.get('mod_loadcfg_first_path') or [])
+    path_text = path_raw.split(b'\x00', 1)[0].decode('utf-8', errors='replace')
+    print(f'  第一条 `ModEntry+0x48` 的字符串 = {path_text!r}'
+          '（期望形如 "<模组目录>/content/"；空 = 偏移或取串口径不对）')
+    toggle_loaded = first(values, 'mod_toggle_state_loaded') or 0
+    print(f'  存档侧模组开关"读过一次"标志 = {toggle_loaded}')
+    print('  判读：')
+    if ml_calls == 0:
+        print('    ★ 引擎**一次都没调** `ModManager::LoadConfigs` ⇒ 这个挂点（或这个时机）不成立，'
+              '再谈内容加载没有意义 —— 下一步要改用别的靶点（例如它上游的 `Reset`）。')
+    elif ml_entries == 0:
+        print('    ★ 调到了，但那一刻模组列表是空的 ⇒ 我们比 `ListMods` 更早，标志没地方施加。')
+    elif ml_stateloaded == 0:
+        print('    ★ 列表有了，但**我们的开关状态还没读** ⇒ 这一次是按"全都不拦"放行的：'
+              '模组内容会进来，被关掉的那些也会。需要把状态读取挪到引擎扫目录之前。')
+        print(f'        置位：要加载 {ml_enabled}、不加载 {ml_disabled}（其中引擎自己关着 {ml_engineoff}）')
+    else:
+        print(f'    ✓ 时机与状态都对上了：置"要加载" {ml_enabled} 条、'
+              f'置"不加载" {ml_disabled} 条（其中引擎自己关着 {ml_engineoff}、'
+              f'命中我们存档侧开关 {ml_matched} 条）。')
+        print('      下一步看上面"服装查表/null 服装容器"与 Music 表条数有没有从 132 / 119 涨上去。')
+
+    print()
+    print('=== 把模组的 content 喂给引擎（批次 152/153：直接调两个加载器 + 时机必须早于模组脚本）===')
+    me_attempts = first_u32(values, 'mod_engine_attempts')
+    me_stage = first_u32(values, 'mod_engine_stage')
+    me_entries = first_u32(values, 'mod_engine_entries')
+    me_costume = first_u32(values, 'mod_engine_costume_loads')
+    me_music = first_u32(values, 'mod_engine_music_loads')
+    me_fail = first_u32(values, 'mod_engine_resolve_failures')
+    me_miss = first_u32(values, 'mod_engine_path_misses')
+    me_before = first_u32(values, 'music_entries_before')
+    me_after = first_u32(values, 'music_entries_after')
+    cc_before = first_u32(values, 'costume_entries_before')
+    cc_after = first_u32(values, 'costume_entries_after')
+    stage_text = {0: '没做（没进过模组页？）', 1: '两个入口已解析（还没加载）',
+                  2: '★ 全部走完**且容器涨了**（真喂进去了）', 3: '失败',
+                  4: '跑完了但**两个容器一条没涨**（文件没打开 / 路径不对 / 挂载没就绪）'
+                  }.get(me_stage, f'未知({me_stage})')
+    # ★ 批次 153：**触发时机**（`g_ModMenuState` 的第 [60] 格）。
+    # 真机已证明"喂成功了但喂晚了"与"压根没喂"在其他读数上长得一模一样 —— 这一格是唯一能分开的。
+    _state_raw = words_to_bytes(values.get('mod_menu_state') or [])
+    me_trigger = (int.from_bytes(_state_raw[60 * 4:61 * 4], 'little')
+                  if len(_state_raw) >= 61 * 4 else 0)
+    trigger_text = {
+        0: '没跑过（或这一版运行时还没有这一格）',
+        1: '★ 模组脚本**执行之前**（正确时机）',
+        2: '模组页那一刻（兜底：早期那次没喂成）',
+        3: '每帧重试（早期那次没喂成，靠后来的重试补上）',
+    }.get(me_trigger, f'未知({me_trigger})')
+    # 批次 154：「模组脚本之前」**那一次**走到了哪一步（会被后来的重试覆盖，所以单独留了一格）。
+    me_early = (int.from_bytes(_state_raw[61 * 4:62 * 4], 'little')
+                if len(_state_raw) >= 62 * 4 else 0)
+    early_text = {0: '没跑过', 1: '两个入口已解析（还没加载）',
+                  2: '★ 跑完且容器涨了（**真喂进去了**）', 3: '失败（那一轮没喂成）',
+                  4: '跑完了但**一条都没加载**（挂载解析那时还没就绪）'
+                  }.get(me_early, f'未知({me_early})')
+    # ★ 批次 159：「继续游戏」现在可不可选（`g_ModMenuState` 的第 [62] 格）+ 我们跳过它几次 [63]。
+    # 判据：没有可继续的局时引擎把那一项画成灰帧并跳过它，我们那一列的导航必须照抄这条规则；
+    # [62] 是"引擎到底怎么说的"（2 = 我们读不到），[63] 是"这条规则真的生效过几次"。
+    me_continue = (int.from_bytes(_state_raw[62 * 4:63 * 4], 'little')
+                   if len(_state_raw) >= 63 * 4 else None)
+    me_continue_skips = (int.from_bytes(_state_raw[63 * 4:64 * 4], 'little')
+                         if len(_state_raw) >= 64 * 4 else 0)
+    if me_continue is not None:
+        continue_text = {0: '不可选（引擎把它画成灰帧）', 1: '可选',
+                         2: '⚠ 读不到（按"可选"处理，旧行为）'}.get(
+                             me_continue, f'未知({me_continue})')
+        print(f'  引擎说「继续游戏」[62] = {me_continue} = {continue_text}'
+              f'｜我们因为它不可选而跳过 [63] = {me_continue_skips} 次'
+              + ('　← ★ 这条规则生效过（光标不会停在灰项上）' if me_continue_skips else ''))
+    print(f'  本函数被走过 {me_attempts} 次｜阶段 = {stage_text}')
+    print(f'  触发时机 [60] = {me_trigger} = {trigger_text}')
+    print(f'  早期那次（模组脚本之前）走到 [61] = {me_early} = {early_text}'
+          + ('' if me_early == 2 else
+             '　← ★ 不是"真喂进去了"：那次没成（或还没轮到它）。'
+             '**这一格才是"舞能不能出来"的判据** —— 服装编号是模组在它自己 Lua 文件的'
+             '文件作用域查死并固定的，那之后我们再把服装喂进引擎也没用。'))
+    print(f'  处理了 {me_entries} 个启用着的模组｜`LoadCostumes` 调 {me_costume} 次、'
+          f'`Music::LoadConfig` 调 {me_music} 次；挂载解析不到 {me_miss} 条（那些跳过了）')
+    if me_fail:
+        print(f'  ★ 入口核对失败位图 = {me_fail}（bit0 LoadCostumes / bit1 Music::LoadConfig）'
+              ' ⇒ 对不上就一次都不调')
+    print(f'  ★★ 验收判据：曲目表 {me_before} → {me_after}（模组 music.xml 2 条 ⇒ 121）；'
+          f'null 服装容器 {cc_before} → {cc_after}（模组 costumes2.xml 23 条 ⇒ 155）')
+    if me_stage == 2 and me_after == me_before and cc_after == cc_before:
+        print('     ⚠ 走完了但两个容器都没涨 ⇒ 文件没被引擎读到：查路径写法'
+              '（`isaac_mods/mods/<目录>/content/<文件名>`）与目录名是否与发现结果一致。')
+    if me_stage == 2 and (me_after > me_before or cc_after > cc_before):
+        print('     ✓ 模组 content 真的进了引擎 —— 这就是"跳舞模组能生效"的前提。')
+
+    # ---- 批次 149b：路径口径（哪个让容器涨了）+ 解析回来的原始串 ----------------------------
+    #
+    # 148d 那轮是"两个加载器各被调 1 次、容器一条没涨"，只能怀疑路径形态；这一段的判读表：
+    #   * form == 1 ⇒ 引擎的文件层要的是**相对应用根**（去 `rom:/`）—— 与 085 的口径一致；
+    #   * form == 2 ⇒ 引擎的文件层要的**带 `rom:/`**（那我们原来那条路其实是对的，得另找原因）；
+    #   * form == 0 ⇒ 两种口径都不行 ⇒ **不是路径口径的问题**，下一个怀疑对象是
+    #     `ItemConfig::LoadCostumes` 的第二个参数（引擎自己传的是真 `ModEntry*`，我们传 `nullptr`）。
+    me_cform = first_u32(values, 'mod_engine_costume_form')
+    me_mform = first_u32(values, 'mod_engine_music_form')
+    me_ccalls = first_u32(values, 'mod_engine_costume_calls')
+    me_mcalls = first_u32(values, 'mod_engine_music_calls')
+    form_text = {0: '两种口径都没让容器涨', 1: '★ 去掉 `rom:/` 后涨了（= 引擎认相对应用根）',
+                 2: '★ 带 `rom:/` 才涨（= 原来那条路其实对）'}
+    if me_ccalls or me_mcalls or me_cform or me_mform:
+        print(f'  路径口径：服装 {form_text.get(me_cform, me_cform)}'
+              f'｜音乐 {form_text.get(me_mform, me_mform)}')
+        print(f'  加载器实际调用次数：`LoadCostumes` {me_ccalls} 次、`Music::LoadConfig` {me_mcalls} 次'
+              '　（两种口径各算一次；命中一种就停）')
+        for label, key in (('服装', 'mod_engine_resolved_costumes'), ('音乐', 'mod_engine_resolved_music')):
+            raw = words_to_bytes(values.get(key) or []).split(b'\x00', 1)[0]
+            text = raw.decode('utf-8', errors='replace')
+            print(f'  `GetMountedFilePath` 为{label}返回的串 = {text!r}')
+        # ★ 自证条目布局：曲目表最后一条的编号（`+0x00`）与名字串（`+0x08` 起 32 字节）。
+        #   解码口径 = **libc++ `std::string` 的真实布局**（与运行时 `ResolveLibcxxString` 同一套；
+        #   2026-09-27 我在这里**写错过一次**：以为短串标志在首字节最高位，实际在**最低位**）：
+        #     * 首字节 bit0 == 1 ⇒ **长串**：`+0x00` 是指针、`+0x08` 是长度、`+0x10` 是容量；
+        #     * 首字节 bit0 == 0 ⇒ **短串**：长度 = 首字节 >> 1（**存的是 size*2**）、字符从 `+0x01` 起。
+        #   真机实证：模组那条 `paincialist` 的首字节是 `0x16` = (11<<1)|0 ⇒ 长度 11、短串 ✓。
+        #   这段自证的意义：`Isaac:GetMusicIdByName` 靠"名字在条目 `+0x08`"命中；
+        #   它不命中 ⇒ 模组拿 `-1` 去 `MusicManager():Play` ⇒ 引擎按 `-1*0x70` 越界索引而**崩**。
+        last_id = first_u32(values, 'mod_engine_music_last_entry_id')
+        last_raw = words_to_bytes(values.get('mod_engine_music_last_entry_raw') or [])
+        if last_raw:
+            head = last_raw[0]
+            if head & 1:
+                decoded = None
+                shape = '长串（本读数不解引用它的指针）'
+            else:
+                short_len = head >> 1
+                decoded = last_raw[1:1 + short_len].decode('utf-8', errors='replace')
+                shape = f'短串（长度 {short_len}）'
+            print(f'  曲目表最后一条：编号 = {last_id}｜名字串 = {decoded!r}（{shape}）')
+            if me_after and me_after != 0xFFFFFFFF:
+                if decoded == 'paincialist':
+                    print('     ✓ 名字读对了（= 模组 music.xml 的第二条）⇒ 「名字在条目 +0x08」成立'
+                          '⇒ `GetMusicIdByName` 会命中 ⇒ 模组不会拿 `-1` 去 `Play`（那条会崩）。')
+                elif decoded is None:
+                    print('     · 长串：本条不是 `paincialist` 那种短名 —— 需要按指针再读一次'
+                          '（多半是本体那条很长的曲目名）。')
+                else:
+                    print(f'     ⚠ 名字不是 `paincialist`（读到 {decoded!r}）⇒ 偏移可能又错了，'
+                          '先别进局。')
+        if me_cform == 0 or me_mform == 0:
+            print('     ⚠ 有一侧两种口径都没涨 ⇒ 先看上面那两个串"指到哪里"：'
+                  '若指到**模组自己的目录**，那问题不在路径口径，而在加载器的第二个参数'
+                  '（引擎自己传的是真 `ModEntry*`，我们传 `nullptr`）。')
+
+    print('=== 曲目名反查（批次 148：`Isaac.GetMusicIdByName`）===')
+    mi_calls = first_u32(values, 'music_id_calls')
+    mi_hits = first_u32(values, 'music_id_hits')
+    mi_last = first_u32(values, 'music_id_last_result')
+    mi_table = first_u32(values, 'music_id_table_count')
+    mi_last_i = mi_last if mi_last < 0x80000000 else mi_last - 0x100000000
+    mi_last_text = '（-1，没找到）' if mi_last_i < 0 else str(mi_last_i)
+    mi_table_text = '读不到（不是"表空"）' if mi_table == 0xFFFFFFFF else str(mi_table)
+    name_raw = words_to_bytes(values.get('music_id_last_name') or [])
+    name_text = name_raw.split(b'\x00', 1)[0].decode('utf-8', errors='replace')
+    print(f'  被调 {mi_calls} 次、命中 {mi_hits} 次；最后一次结果 = {mi_last_text}、'
+          f'查询名 = {name_text!r}')
+    print(f'  ★ 查表那一刻曲目表里有 {mi_table_text} 条'
+          '（119 = 模组的 music.xml **没进引擎**；>119 = 进了 ⇒ 反查才有意义）')
+    if mi_calls and mi_hits == 0 and mi_table == 0xFFFFFFFF:
+        print('     ⇒ 曲目表整条链读不到 ⇒ 先看上面批次 148 那一段（`Manager+0x36068`）。')
+    elif mi_calls and mi_hits == 0:
+        print('     ⇒ 表读得到、名字却都没命中 ⇒ 要么模组的 track 名不在表里，'
+              '要么 `kMusicEntryNameStringOffset` 这个偏移不对（看上面那段的条数有没有涨）。')
 
     print()
     print('=== 贴图桥（.pcx 缺失时内存转码）===')
@@ -2792,6 +5149,565 @@ def report(values: dict[str, list[int]], base: int, game_base: int, plugin_base:
         print(f'  模组 PNG 顶掉本体 .pcx：{f[11]} 次')
         print(f'  依赖绑定掩码 = 0x{f[10]:x}' + (f' ⇒ 没过的是：{bad}' if bad else ' ⇒ 全部通过 ✓'))
         print(f'  最近请求路径 = {last_req!r}｜最近兜底路径 = {last_fb!r}')
+        # ★★★ 270-perf（2026-10-02）：取证字段（**只往后加**，偏移见
+        # `runtime/source/image_pcx_bridge_hook.cpp` 的 `ImagePcxDiagnostics`）。
+        #   ① 268（在 `ImageManager::LoadImage` 中继里换参数）到底有没有执行；
+        #   ② 兜底那 ~1 秒/张花在"读 `.png` / 转码 / 喂引擎"的哪一步。
+        if IMAGE_PCX_DIAG_BYTES >= 736:
+            g = _struct.unpack_from('<12I', diag_raw, 304)
+            last_load = diag_raw[352:480].split(b'\x00', 1)[0].decode('utf-8', errors='replace')
+            swap_from = diag_raw[480:608].split(b'\x00', 1)[0].decode('utf-8', errors='replace')
+            swap_to = diag_raw[608:736].split(b'\x00', 1)[0].decode('utf-8', errors='replace')
+            print(f'  `ImagePcx::Load` 中继被调用 {g[0]} 次；'
+                  f'`ImageManager::LoadImage` 中继收到的 `.pcx` 实参 {g[1]} 次｜'
+                  f'★ 真换参数 {g[2]} 次（★ 280 起**应恒 0**：268 的换参数已撤）')
+            print(f'  最近 LoadImage 实参 = {last_load!r}')
+            print(f'  最近换参数 = {swap_from!r} → {swap_to!r}')
+            if g[3] > 0:
+                print(f'  兜底分段计时（{g[3]} 次转码，单位 ms；累计 / 单次最大）：'
+                      f'读 {g[4] / 1000:.1f}/{g[5] / 1000:.1f}｜'
+                      f'转码 {g[6] / 1000:.1f}/{g[7] / 1000:.1f}｜'
+                      f'喂引擎 {g[8] / 1000:.1f}/{g[9] / 1000:.1f}｜'
+                      f'★ 整条兜底 {g[10] / 1000:.1f}/{g[11] / 1000:.1f}')
+                print(f'    ⇒ 单次最大那条里：读 {g[5] / 1000:.1f} + 转 {g[7] / 1000:.1f} + '
+                      f'喂 {g[9] / 1000:.1f} = {(g[5] + g[7] + g[9]) / 1000:.1f} ms，'
+                      f'兜底自身 {(g[11] - g[5] - g[7] - g[9]) / 1000:.1f} ms')
+            else:
+                print('  兜底分段计时：本会话一次转码都没发生')
+        else:
+            print(f'  （本构建没有 270-perf 的取证字段：本构建结构体共 {IMAGE_PCX_DIAG_BYTES} 字节，需要 736）')
+        # ★★★ 271-perf（2026-10-02）：`Font::Load` 窗口归属 + 文件调用标定。
+        # 回答"`Font::Load` 那 ~1 秒花在谁的代码里"：窗口内我们自己的图像层占多少、
+        # 以及"一次文件调用值多少微秒"（同一文件上"整块读 vs 10 字节小读"的 A/B）。
+        if IMAGE_PCX_DIAG_BYTES >= 800:
+            h = _struct.unpack_from('<16I', diag_raw, 736)
+            print('  ── 271：Font::Load 窗口归属 + 文件调用标定 ──')
+            if h[0] > 0:
+                print(f'    Font:Load 窗口 {h[0]} 次｜累计 {h[1] / 1000:.1f} ms｜单次最长 {h[2] / 1000:.1f} ms'
+                      f'（平均 {h[1] / max(h[0], 1) / 1000:.1f} ms）')
+                print(f'    窗口内：ImageManager::LoadImage 中继 {h[3]} 次 / 引擎里花 {h[4] / 1000:.1f} ms｜'
+                      f'ImagePcx::Load 中继 {h[5]} 次 / 引擎里花 {h[6] / 1000:.1f} ms')
+                print(f'    ⇒ 其中花在**引擎自己的代码**（`original(...)`）里的是 {((h[4] + h[6]) / 1000):.1f} ms，'
+                      f'窗口内其余（我们这侧的胶水 + 引擎的解析/建对象/缓存）{((h[1] - h[4] - h[6]) / 1000):.1f} ms')
+                print(f'    最近一次字体：字形数 = {h[7]}｜字形块大小/10 = {h[8]}'
+                      f'（20 字节/字形 ⇒ 约 {h[8] * 10} 字节的字形数据）')
+            else:
+                print('    Font:Load 窗口：一次都没开过（本会话还没调过 Font:Load）')
+            if h[9] == 1:
+                per_open = h[11] / max(h[10], 1)
+                per_read = h[13] / max(h[12], 1)
+                print(f'    文件调用标定（文件 {h[14]} 字节）：'
+                      f'开+关 {h[10]} 次 = {h[11] / 1000:.1f} ms（每次 {per_open:.1f} µs）｜'
+                      f'10 字节读 {h[12]} 次 = {h[13] / 1000:.1f} ms（每次 {per_read:.1f} µs）')
+                print(f'    ★ 判读：若"每次小读"是几十微秒量级，那么"上万次小读"就足以吃掉 1 秒；'
+                      f'若是亚微秒，则文件调用不是那 1 秒的来源。')
+            elif h[9] == 2:
+                print('    文件调用标定：**跑失败**（绑定不全或打不开文件）')
+            else:
+                print('    文件调用标定：还没跑（本会话还没走到过贴图兜底）')
+        elif IMAGE_PCX_DIAG_BYTES >= 736:
+            print(f'  （本构建没有 271 的窗口字段：本构建结构体共 {IMAGE_PCX_DIAG_BYTES} 字节，需要 800）')
+        # ★★★ 272-perf（2026-10-02）：修法计数 —— 模组自带的 `.png` 有多少次被改道去走我们的转码路。
+        if IMAGE_PCX_DIAG_BYTES >= 824:
+            j = _struct.unpack_from('<6I', diag_raw, 800)
+            print('  ── 272：模组 `.png` 改道（修法）──')
+            print(f'    `ImageManager::LoadImage` 收到 `.png` 实参 {j[0]} 次｜'
+                  f'★ 改道成功 {j[1]} 次｜不是模组文件 {j[2]}｜格式不支持原样放行 {j[3]}｜'
+                  f'改道自身开销（276 起含"真转一遍"）{j[4] / 1000:.1f} ms｜绑定不全没跑起来 {j[5]}')
+            if j[5] > 0:
+                print(f'    ⚠ 有 {j[5]} 次因为"绑定不全"直接放行了 —— 这一条有值就说明改道根本没生效'
+                      f'（272 就是栽在这上面：getMountedFilePath 那个字段从来没被填过，要用 Original<> 跳板）。')
+            if j[0] > 0:
+                print(f'    ⇒ 效果对照：若改道生效，上面那段"窗口内 ImageManager::LoadImage 花在引擎里的时间"'
+                      f'应从 ~18000 ms 掉到接近 0（改道后走的是我们那条 3~7 ms 的路）。')
+        elif IMAGE_PCX_DIAG_BYTES >= 800:
+            print(f'  （本构建没有 272 的改道字段：本构建结构体共 {IMAGE_PCX_DIAG_BYTES} 字节，需要 824）')
+        # ★★★ 276-perf（2026-10-02）：把改道做成"**绝不留下空页图**"（273 真机崩溃之后重做）。
+        #   本批的硬判据就两条：`feedFailures`（喂引擎被拒）与 `pngNativeRetry`（改道后没拿到图）
+        #   **必须都是 0**；`pngRouted` 应 ≈ 40。
+        if IMAGE_PCX_DIAG_BYTES >= 856:
+            k = _struct.unpack_from('<8I', diag_raw, 824)
+            print('  ── 276：改道前的"真转一遍" + 交付保底（重做版）──')
+            print(f'    拒绝改道：解码尺寸超上限 {k[0]}｜真转一遍失败 {k[1]}｜格式接不了 {j[3]}｜'
+                  f'不是模组文件 {j[2]}｜绑定不全 {j[5]}')
+            if k[6] + k[7] > 0:
+                print(f'    改道前的真转码耗时：累计 {k[5] / 1000:.1f} ms / 单次最大 {k[6] / 1000:.1f} ms'
+                      f'（这两笔就是我们替引擎省下来的钱 —— 引擎自己解 PNG 平均 456 ms/次）')
+            else:
+                print('    改道前的真转码：一次都没发生（说明一次都没走到"可以改道"那一步）')
+            print(f'    ★ 交付：喂引擎被拒 {k[2]} 次｜改道后没拿到图退回原生 PNG {k[3]} 次'
+                  f'（其中救回 {k[4]} 次）')
+            if k[2] == 0 and k[3] == 0:
+                print('    ⇒ 两条都是 0：改道**每一张都交付成功**，没有留下空页图'
+                      '（这是本批的硬判据）。')
+            else:
+                print('    ⚠ 有交付失败 —— "喂引擎被拒"有值说明引擎不收这块 PCX 字节'
+                      '（273 的崩因最可能就是这条）；"退回原生 PNG"有值说明改道这一步本身有问题。'
+                      '这两条一有值就必须先查清再谈提速。')
+        elif IMAGE_PCX_DIAG_BYTES >= 824:
+            print(f'  （本构建没有 276 的字段：本构建结构体共 {IMAGE_PCX_DIAG_BYTES} 字节，需要 856）')
+        # ★★★ 277-perf（2026-10-02）：276 上卡读数换来的两条修正 ——
+        #   ① 合成路径改用**虚拟路径**（引擎的挂载解析只认相对路径，喂它 `rom:/…` 会直接失败）；
+        #   ② 把挂载解析中继里那几个**静默返回空**的分支做成计数（276 就是栽在 `mountPngMiss` 上）。
+        if IMAGE_PCX_DIAG_BYTES >= 888:
+            m = _struct.unpack_from('<8I', diag_raw, 856)
+            print('  ── 277：合成路径改用"虚拟路径" + 中继静默分支的计数 ──')
+            print(f'    收到本来就是绝对路径的 `.png` 实参（不改道）{m[0]} 次｜'
+                  f'真转失败细分：读不到 {m[1]} / 转码失败 {m[2]}')
+            print(f'    挂载解析中继：收到 `.pcx` 请求 {m[3]} 次｜其中补位成功 {m[4]}｜'
+                  f'问 `.png` 也没问到 {m[5]}｜模组自带 `.pcx` 原样交回 {m[6]}')
+            # ★ 277 上卡读数（2026-10-02 16:10）后的口径更正：`mountPngMiss` 是一个**大漏斗**——
+            #   引擎会对大量**根本不存在的 `.pcx`**（各种贴图探测）问路，那些既没有 `.pcx` 也没有同名 `.png`
+            #   ⇒ 全部计在这里（实测一局 1873 次，而改道 60 张**全部**补位成功、`pngNativeRetry` = 0）。
+            #   ⇒ **它不适合当"我们这侧有没有出错"的判据**；判据仍然是 `pngNativeRetry`（= 0 就说明每张都送到了）。
+            print('    ★ 口径：`问 .png 也没问到` 是**常规未命中**（引擎会探很多不存在的 `.pcx`），'
+                  '不是故障信号；')
+            print('      我们这侧"每张都送到"的判据看上面 276 段的 `pngNativeRetry`（必须为 0），'
+                  '这里的补位成功数应当 **明显大于 30**（原有模组贴图那条路就是 30）。')
+            if m[4] <= 30 and m[3] > 30:
+                print('    ⚠ 补位成功没有涨过 30 —— 说明"改道交给引擎的路径"一条都没被解析到。')
+        elif IMAGE_PCX_DIAG_BYTES >= 856:
+            print(f'  （本构建没有 277 的字段：本构建结构体共 {IMAGE_PCX_DIAG_BYTES} 字节，需要 888）')
+        # ★★★ 279-perf（2026-10-02）：**只改道大图** —— 修"开着 visible tinted rocks 时所有石头隐形"。
+        #   原因：引擎里所有 `.anm2` 的精灵表都写成 `.png`（石头表 / EID 的图标表 / GoodTrip 的精灵表…），
+        #   276 的"模组 `.png` 全改道"会把这些小精灵表也变成 `ImagePcx`，而 anm2 那条取表的路认不下 ⇒ 表变空。
+        #   收益本来全在大图（2048×2048 的字体页图），小表改道几乎零收益 ⇒ 加像素数下限。
+        if IMAGE_PCX_DIAG_BYTES >= 896:
+            o = _struct.unpack_from('<2I', diag_raw, 888)
+            print('  ── 279：只改道大图（小精灵表原样放行给引擎）──')
+            print(f'    因"太小"被放行的次数 {o[0]}｜最近一张被放行的像素数 = {o[1]}'
+                  f'（阈值 {1 << 20}；字体页图 2048×2048 = 4194304）')
+            if o[0] > 0:
+                print('    ⇒ 有值说明**小精灵表确实被放行给引擎自己解**了（这正是本批要的：anm2 的表回到 ImagePng）。')
+        elif IMAGE_PCX_DIAG_BYTES >= 888:
+            print(f'  （本构建没有 279 的字段：本构建结构体共 {IMAGE_PCX_DIAG_BYTES} 字节，需要 896）')
+        # ★★★ 批次 351（2026-10-04）：**非 `.pcx` 的挂载查询** —— `.anm2` 这类"文件本身"走的就是这条路。
+        #   取证目标：minimapi 的 `IsBadLoad()` 为什么判坏（它拿 `Sprite:Load("gfx/ui/minimap1.anm2")`
+        #   数帧，期望读到它自己那份 1 帧的，真机却拿到 13 帧的本体那份 ⇒ 打两行红字、不画地图）。
+        #   三个量分别回答：① 非 `.pcx` 查询有没有发生；② `.anm2` 几次；③ 引擎答的是不是模组目录。
+        if IMAGE_PCX_DIAG_BYTES >= 1196 and len(diag_raw) >= 1196:
+            p = _struct.unpack_from('<3I', diag_raw, 896)
+            last_anm2_path = diag_raw[908:1036].split(b'\x00', 1)[0].decode('utf-8', errors='replace')
+            last_anm2_answer = diag_raw[1036:1196].split(b'\x00', 1)[0].decode('utf-8', errors='replace')
+            print('  ── 351：非 `.pcx` 的挂载查询（`.anm2` 到底"谁覆盖谁"，看这一段）──')
+            print(f'    非 `.pcx` 查询 {p[0]} 次｜其中 `.anm2` {p[1]} 次｜'
+                  f'★ 引擎答出**模组目录**下路径 {p[2]} 次（= 覆盖生效）')
+            print(f'    最近一条 `.anm2` 查询 = {last_anm2_path!r}')
+            print(f'    引擎对它的回答     = {last_anm2_answer!r}')
+            if p[1] == 0:
+                print('    ⇒ `.anm2` 一次都没走这条中继 ⇒ **这条不是它的解析路**（靶子错了，别在优先级上耗）。')
+            else:
+                print(f'    ⚠ **本诊断的自动判读到此为止**：全局计数只能说"这条路能答出模组目录"'
+                      f'（{p[2]}/{p[1]}），**它判不了"某一条具体路径归谁"** —— '
+                      f'模组独有的路径必然答模组、本体独有的路径必然答本体，这两种都计在里面。')
+                print('    ⇒ 要判"共享路径"（两边都有的）归谁，得看上面那两行"最近一条"；'
+                      '并且**要拿那条路径去卡上核对"模组是不是也带了这个文件"**。')
+                print('    ⚠ 教训（2026-10-04 本批实测）：判据只用全局计数会**下错结论** —— '
+                      '本批第一版就是这么写的，读数里"最近一条"恰好是**本体独有**的文件（模组没带），'
+                      '于是"答 rp_patch"完全正常、什么都证明不了。')
+        elif IMAGE_PCX_DIAG_BYTES >= 896 and len(diag_raw) < 1196:
+            if IMAGE_PCX_DIAG_BYTES >= 1196:
+                print(f'  （这份读数里没有 351 的字段：原始读数只有 {len(diag_raw)} 字节、需要 1196'
+                      f' —— 多半是拿旧读数件在新构建上回放）')
+            else:
+                print(f'  （本构建没有 351 的"非 .pcx 查询"字段：本构建结构体共 {IMAGE_PCX_DIAG_BYTES} 字节，'
+                      f'需要 1196）')
+        # ★★★ 批次 352（2026-10-04）：**按路径**回答"这条共享路径归谁"（351 的全局计数答不出来）。
+        #   判读顺序（这张表就是结论表，照着念即可）：
+        #     ① `主动探测` 那一行的"引擎解析到哪" —— 它由**我们**问，所以最可信：
+        #        答模组目录 ⇒ 解析层没问题 ⇒ 问题在"缓存/时序"（minimapi 拿到的是早先缓存的那份）；
+        #        答本体     ⇒ 解析层就答错了 ⇒ 修路径解析的优先级。
+        #     ② `minimapi 自己来问` 那一行 —— 次数 0 表示它**压根不走这条中继**（同理，去查缓存）。
+        if IMAGE_PCX_DIAG_BYTES < 2100:
+            print(f'  （本构建没有 352 的"按路径/主动探测"字段：本构建结构体共 {IMAGE_PCX_DIAG_BYTES} 字节，'
+                  f'需要 2100）')
+        elif len(diag_raw) < 2100:
+            print(f'  （这份读数里没有 352 的字段：原始读数只有 {len(diag_raw)} 字节、需要 2100'
+                  f' —— 多半是拿旧读数件在新构建上回放）')
+        else:
+            def _diag_str(start, length):
+                return diag_raw[start:start + length].split(b'\x00', 1)[0].decode('utf-8',
+                                                                                 errors='replace')
+
+            o352 = _struct.unpack_from('<6I', diag_raw, 1196)
+            mm1_query = _diag_str(1220, 128)
+            mm1_answer = _diag_str(1348, 160)
+            mm2_query = _diag_str(1508, 128)
+            mm2_answer = _diag_str(1636, 160)
+            probe = _struct.unpack_from('<3I', diag_raw, 1796)
+            probe_query = _diag_str(1808, 128)
+            probe_answer = _diag_str(1936, 160)
+            print('  ── 352：按路径取证 —— "这条共享路径归谁"，看这一段（不是全局计数）──')
+            print(f'    非 `.pcx` 总账：答模组目录 {o352[0]} 次｜答非模组（本体或空）{o352[1]} 次')
+            print(f'    ★ 主动探测（我们自己问 {probe_query!r}）：跑过 {probe[0]} 次｜'
+                  f'最近一次答模组目录 = {"是" if probe[1] else "否"}'
+                  f'｜第一次 = {"是" if probe[2] else "否"}')
+            print(f'      探测得到的回答 = {probe_answer!r}')
+            print(f'    minimapi 自己来问 `minimap1.anm2`：{o352[2]} 次（答模组目录 {o352[3]} 次）')
+            if o352[2] > 0:
+                print(f'      最近一条查询 = {mm1_query!r}')
+                print(f'      引擎的回答   = {mm1_answer!r}')
+            print(f'    minimapi 自己来问 `minimap2.anm2`：{o352[4]} 次（答模组目录 {o352[5]} 次）')
+            if o352[4] > 0:
+                print(f'      最近一条查询 = {mm2_query!r}')
+                print(f'      引擎的回答   = {mm2_answer!r}')
+            if probe[0] == 0:
+                print('    ⇒ 主动探测一次都没跑（本会话非 `.pcx` 查询没过 1 次？）—— 这份读数说明不了归属。')
+            elif probe[2] != probe[1]:
+                print('    ⚠ 第一次与最近一次的探测结论**不一致** ⇒ 引擎对这条路径的解析结果**会变**'
+                      '（缓存 / 挂载时序在起作用），下面按"最近一次"判。')
+            if probe[1]:
+                print('    ⇒ **解析层是好的**（引擎此刻把这条共享路径解析到了模组目录）'
+                      '⇒ minimapi 仍拿到本体那份的话，问题在**缓存/时序**那一侧。')
+            else:
+                print('    ⇒ **解析层答的是本体那份**（模组自带的那份没赢）⇒ 这是"覆盖没生效"的直接证据，'
+                      '修法应落在**路径解析的优先级**上。')
+            if o352[2] == 0:
+                print('    ⇒ minimapi **一次都没来问过** `minimap1.anm2` ⇒ 它的加载根本不走这条中继'
+                      '（先去看别处：缓存 / 它自己的加载路），不要再在这条中继上加力气。')
+        # ★★★ 批次 353（2026-10-04）：**回答"甲' 还是 乙'"** —— 352 只说明"没赢"，说明不了为什么。
+        #   两种成因的修法完全不同：甲' = 解析顺序/优先级；乙' = 解析结果被**记住**了
+        #   （那条路径在模组挂载之前就被本体用过）。分开它们的办法 = 问**一组性质不同的路径**。
+        if IMAGE_PCX_DIAG_BYTES < 4896:
+            print(f'  （本构建没有 353 的"模组名单/探测组/环形历史"字段：本构建结构体共 '
+                  f'{IMAGE_PCX_DIAG_BYTES} 字节，需要 4896）')
+        elif len(diag_raw) < 4896:
+            print(f'  （这份读数里没有 353 的字段：原始读数只有 {len(diag_raw)} 字节、需要 4896'
+                  f' —— 多半是拿旧读数件在新构建上回放）')
+        else:
+            def _diag_str353(start, length):
+                return diag_raw[start:start + length].split(b'\x00', 1)[0].decode('utf-8',
+                                                                                  errors='replace')
+
+            print('  ── 353：探测一组路径 + 模组名单 + 最近 6 条查询（分"甲\'/乙\'"用这一段）──')
+            mount_count = _struct.unpack_from('<I', diag_raw, 2100)[0]
+            names = [_diag_str353(2104 + 48 * i, 48) for i in range(12)]
+            shown = [n for n in names if n]
+            print(f'    我们登记过的模组目录：{mount_count} 个'
+                  f'{"（名单只留前 12 个）" if mount_count > 12 else ""}')
+            for i, name in enumerate(shown):
+                print(f'      [{i}] {name}')
+            if mount_count == 0:
+                print('    ⚠ **一个都没登记** ⇒ 模组内容挂载根本没走到这一步，先查那条路（别谈优先级）。'
+                      '另外：本行也可能因为"读取时还没走到挂载那一步"而为零，看计数即可。')
+            if mount_count > 12:
+                print(f'    ⚠ 登记数 {mount_count} > 名单容量 12 ⇒ 名单被截断（只留了前 12 个）。')
+
+            ring_count = _struct.unpack_from('<I', diag_raw, 2680)[0]
+            print(f'    最近 6 条非 `.pcx` 查询（累计 {ring_count} 次，环形；按写入顺序印）：')
+            slots = min(6, ring_count)
+            base_slot = ring_count - slots
+            for i in range(slots):
+                slot = (base_slot + i) % 6
+                rp = _diag_str353(2684 + 88 * slot, 88)
+                ra = _diag_str353(3212 + 120 * slot, 120)
+                print(f'      {rp!r} ⇒ {ra!r}')
+
+            print('    ★ 四条探测路径（每条各自留痕；【正对照】= 模组独有，【分层】= 共享但本体在哪一层）：')
+            probes = []
+            for i in range(4):
+                off = 3932 + 240 * i
+                runs, mod_wins, last_win, first_win = _struct.unpack_from('<4I', diag_raw, off)
+                query = _diag_str353(off + 16, 64)
+                answer = _diag_str353(off + 80, 160)
+                probes.append((query, runs, mod_wins, last_win, first_win, answer))
+                print(f'      [{i}] {query!r}：跑过 {runs} 次｜答模组 {mod_wins} 次'
+                      f'｜最近一次答模组={"是" if last_win else "否"}'
+                      f'｜第一次={"是" if first_win else "否"}'
+                      f'{"（★ 两次不一致 ⇒ 结果会变）" if runs > 1 and first_win != last_win else ""}')
+                print(f'          回答 = {answer!r}')
+            # ★ 判读表**随探测路径表一起变** —— 具体判读在下面 354 那一段里做（那里知道当前表是什么）。
+            print('    （这几条的判读见下面"354"那一段；探测路径表每次换，别在这里硬编码结论。）')
+        # ★★★ 批次 354（2026-10-04）：**挂载成败 + 换键形状的探测**。
+        #   353 的读数把范围缩到"模组独有的路径在 `GetMountedFilePath` 上直接答空"，
+        #   于是要分清两件事：① 挂载本身失败？ ② 挂载成功但解析器看不到（键形状/层级不对）？
+        _STATUS_CODES = {0: 'Ok', 1: 'InvalidArgument', 2: 'InvalidState', 3: 'Unsupported',
+                         4: 'NotFound', 5: 'CapacityExceeded', 6: 'IoFailure', 7: 'Corrupted',
+                         8: 'Rejected'}
+        _LEAF_NAMES = ['resources', 'resources/gfx', 'content', 'content/gfx',
+                       'resources-dlc3', 'resources-dlc3/gfx']
+        if IMAGE_PCX_DIAG_BYTES < 5000:
+            print(f'  （本构建没有 354 的"挂载成败"字段：本构建结构体共 {IMAGE_PCX_DIAG_BYTES} 字节，'
+                  f'需要 5000）')
+        elif len(diag_raw) < 5000:
+            print(f'  （这份读数里没有 354 的字段：原始读数只有 {len(diag_raw)} 字节、需要 5000'
+                  f' —— 多半是拿旧读数件在新构建上回放）')
+        else:
+            def _diag_str354(start, length):
+                return diag_raw[start:start + length].split(b'\x00', 1)[0].decode('utf-8',
+                                                                                  errors='replace')
+
+            mount_count = _struct.unpack_from('<I', diag_raw, 2100)[0]
+            print('  ── 354：挂载成败（`RegisterMod` 的返回值 + 失败在哪个叶子）＋ 换键形状的探测 ──')
+            print(f'    登记尝试 {mount_count} 次（★ 这是"试过几次"，不是"成功几个"）：')
+            for i in range(min(12, mount_count)):
+                name = _diag_str354(2104 + 48 * i, 48)
+                code = _struct.unpack_from('<I', diag_raw, 4896 + 4 * i)[0]
+                leaf = _struct.unpack_from('<I', diag_raw, 4944 + 4 * i)[0]
+                verdict = '成功' if code == 0 else f'**失败（{_STATUS_CODES.get(code, code)}）**'
+                if code == 0:
+                    leaf_text = '—'
+                elif leaf < len(_LEAF_NAMES):
+                    leaf_text = f'第 {leaf} 个叶子 = `{_LEAF_NAMES[leaf]}`'
+                else:
+                    leaf_text = f'{leaf}（不在叶子表里）'
+                print(f'      [{i}] {name} ⇒ {verdict}｜失败叶子 = {leaf_text}')
+            ok_count = sum(1 for i in range(min(12, mount_count))
+                           if _struct.unpack_from('<I', diag_raw, 4896 + 4 * i)[0] == 0)
+            print(f'    ⇒ 成功 {ok_count} 个 / 尝试 {mount_count} 个')
+            print('    探测（★ 换过键形状：叶子相对 vs 应用根相对）：')
+            probes354 = []
+            for i in range(4):
+                off = 3932 + 240 * i
+                runs, mod_wins, last_win, first_win = _struct.unpack_from('<4I', diag_raw, off)
+                query = _diag_str354(off + 16, 64)
+                answer = _diag_str354(off + 80, 160)
+                probes354.append((query, runs, mod_wins, last_win, first_win, answer))
+                print(f'      [{i}] {query!r}')
+                print(f'          跑过 {runs} 次｜答模组 {mod_wins} 次｜回答 = {answer!r}')
+            app_root_hits = [p for p in probes354[2:] if p[2] > 0]
+            leaf_only_hits = [p for p in probes354[:2] if p[2] > 0]
+            print('    判读：')
+            if app_root_hits:
+                print('      ⇒ **模组文件能被这个解析器找到**（应用根相对形式答出了模组目录）'
+                      '⇒ 问题在"**叶子相对**这种键形状 / 我们的挂载层级"，不是"模组树不可见"。'
+                      '下一刀：让叶子相对查询也能落到模组那一层。')
+            elif leaf_only_hits:
+                print('      ⇒ 叶子相对能命中、应用根相对反而不能 ⇒ 键形状的口径与我们设想相反，'
+                      '按实际命中的那种形式设计修法。')
+            else:
+                print('      ⇒ **三条模组路径全空** ⇒ 这个解析器**看不到模组树**。'
+                      '先看上面的"挂载成败"：若全成功 ⇒ 是挂载之后被清掉/或该 API 不收模组挂载点；'
+                      '若有失败 ⇒ 从失败的那个叶子查起。')
+        # ★★★ 批次 356（2026-10-04）：**"回声"与"真覆盖"分开** + **刚挂完的检查点**（时间轴切一刀）。
+        if IMAGE_PCX_DIAG_BYTES < 5176:
+            print(f'  （本构建没有 356 的"排除回声/刚挂完检查点"字段：本构建结构体共 '
+                  f'{IMAGE_PCX_DIAG_BYTES} 字节，需要 5176）')
+        elif len(diag_raw) < 5176:
+            print(f'  （这份读数里没有 356 的字段：原始读数只有 {len(diag_raw)} 字节、需要 5176'
+                  f' —— 多半是拿旧读数件在新构建上回放）')
+        else:
+            def _diag_str356(start, length):
+                return diag_raw[start:start + length].split(b'\x00', 1)[0].decode('utf-8',
+                                                                                  errors='replace')
+
+            real_wins, probe_runs, probe_win = _struct.unpack_from('<3I', diag_raw, 5000)
+            probe_answer = _diag_str356(5012, 160)
+            total_wins = _struct.unpack_from('<I', diag_raw, 1196)[0]
+            print('  ── 356：回声 vs 真覆盖 ＋ 刚挂完的检查点（把时间轴切一刀）──')
+            print(f'    答出模组目录 共 {total_wins} 次｜其中"**查询本身带 `rom:/isaac_mods/` 前缀**"以外的 = {real_wins} 次')
+            # ★ 2026-10-04 实测更正（我自己的谓词写错了，必须写在读数旁边，免得后人照着它下结论）：
+            #   实际查询用的是**应用根相对**形式（`isaac_mods/…`，**不带** `rom:/`）⇒ 全都被算成
+            #   "不是模组路径"⇒ 这个数字到现在还是**分不开"回声"与"真覆盖"**，**不要拿它下结论**。
+            print('      ⚠ **这一格目前没有判别力（谓词写错了）**：实际查询用的是"应用根相对"形式'
+                  '（`isaac_mods/…`，不带 `rom:/`）⇒ 全被算成"非模组路径"。要区分"回声"与"真覆盖"，'
+                  '谓词应改成"**回答是否恰好等于把查询串加上 `rom:/`**"。**别用这一格下结论。**')
+            print(f'    ★ 刚挂完那一刻的检查点（问 `sprite/gt/gt_ui.anm2`，叶子相对）：跑过 {probe_runs} 次'
+                  f'｜答模组目录 = {"是" if probe_win else "否"}')
+            print(f'      回答 = {probe_answer!r}')
+            if probe_runs == 0:
+                print('      ⇒ 检查点没跑（入口中继那时还没装上？）⇒ 这一格说明不了时间轴，如实记 0。')
+            elif probe_win:
+                print('      ⇒ **挂载当时叶子相对就能命中** ⇒ 后来问不到 ⇒ **中途被清掉/被换掉**了'
+                      '（去找那个清理点，别再改键形状）。')
+            else:
+                print('      ⇒ **挂载当时叶子相对就命中不了** ⇒ 不是"后来被清掉"，而是**这种键形状'
+                      '从来就不在表里** ⇒ 修法落在"让模组挂载点的键能被叶子相对地问到"。')
+        # ★★★ 批次 357（2026-10-04）：**挂载点什么时候没的（时间轴）+ 重挂试过没有**。
+        if IMAGE_PCX_DIAG_BYTES < 5368:
+            print(f'  （本构建没有 357 的"时间轴位图/重挂试验"字段：本构建结构体共 '
+                  f'{IMAGE_PCX_DIAG_BYTES} 字节，需要 5368）')
+        elif len(diag_raw) < 5368:
+            print(f'  （这份读数里没有 357 的字段：原始读数只有 {len(diag_raw)} 字节、需要 5368'
+                  f' —— 多半是拿旧读数件在新构建上回放）')
+        else:
+            def _diag_str357(start, length):
+                return diag_raw[start:start + length].split(b'\x00', 1)[0].decode('utf-8',
+                                                                                  errors='replace')
+
+            o357 = _struct.unpack_from('<6I', diag_raw, 5176)
+            bitmap, runs, relay_ok, remount_tried, remount_code, remount_win = o357
+            remount_answer = _diag_str357(5200, 160)
+            names = ['挂载收尾', '内容步收尾', '第一个 update 回调', '第一次非 .pcx 查询']
+            print('  ── 357：挂载点什么时候没的（时间轴）＋ 重挂试过没有 ──')
+            print(f'    检查点跑了 {runs} 次｜位图 = 0b{bitmap:04b}（同一个查询：'
+                  f'`sprite/gt/gt_ui.anm2`，叶子相对）')
+            for i, name in enumerate(names):
+                print(f'      bit{i} {name:<18s} = {"★ 命中模组" if (bitmap >> i) & 1 else "答空"}')
+            if runs == 0:
+                print('    ⚠ 检查点一次都没跑 ⇒ 时间轴这几格说明不了任何事（先查为什么没跑）。')
+            else:
+                lost = next((i for i in range(len(names)) if not (bitmap >> i) & 1), None)
+                if lost is None:
+                    print('    ⇒ 四个点**全都命中** ⇒ 到"第一次非 .pcx 查询"为止挂载点都还在；'
+                          '那 354/356 里"游戏里问不到"就发生在更晚的点（或与查询形式有关）。')
+                elif lost == 0:
+                    print('    ⇒ **连挂载收尾那一刻就没命中** ⇒ 与 356 的读数矛盾（356 说命中了）'
+                          '⇒ 先怀疑这次挂载没成功或读的是另一版构建。')
+                else:
+                    print(f'    ⇒ **消失点在 "{names[lost-1]}" 与 "{names[lost]}" 之间** '
+                          f'⇒ 找那一段里谁清的表（`RebuildContentMountPoints()` 开头就是 '
+                          f'`ClearMountPoints(false)`）。')
+            print(f'    重建挂载点中继：**装上没有 = {"是" if relay_ok else "否"}**'
+                  f'（"跑过 0 次"与"没装上"是两件事）')
+            if not relay_ok:
+                print('      ⇒ **没装上** ⇒ 引擎一旦重建挂载点表，模组挂载点就再也不会被恢复 —— '
+                      '这与"挂载点中途消失"完全吻合，是**首要嫌疑**。')
+            print(f'    重挂试验：{"试过" if remount_tried else "**没试过**"}'
+                  f'｜`RemountAll` 返回 = {remount_code}（0 = Ok）'
+                  f'｜重挂后再问同一句 = {"★ 命中模组" if remount_win else "仍然答空"}')
+            print(f'      重挂后的回答 = {remount_answer!r}')
+            if not remount_tried:
+                print('      ⇒ 还没到那一帧（第 300 个 update 回调），或者游戏没跑到那么久。')
+            elif remount_win:
+                print('      ⇒ ★★ **重挂能救回来** ⇒ 修法方向确定：**在引擎自己初始化内容表之后把模组'
+                      '挂载点补回去**（而不是改键形状、也不是改路径解析）。')
+            else:
+                print('      ⇒ 重挂没救回来 ⇒ 要么 `RemountAll` 没真的把表补上（看返回码/挂载成败），'
+                      '要么之后又被清了一次 ⇒ 用上面的时间轴定位。')
+        # ★★★ 批次 358（2026-10-04）：重建挂载点中继**卡在哪一条**（357 已证它没装上）。
+        _RELAY_FAILURES = {
+            0: '没有失败（装上且发布了）',
+            1: '前置守卫：空指针 / base 为 0 / buildId 不符 / 长度越界',
+            2: '范围与对齐：不在模块内、不在可执行窗口、未对齐',
+            3: '★ **目标处字节对不上**（入口那条分支 或 其后 12 字节）',
+            4: '★ **代码洞桩字节对不上**',
+            5: '桩长度超出本地缓冲',
+            6: '发布失败：槽 / 回调非法（0 或未对齐）',
+            7: '发布失败：**槽非空**（已经有人占着）',
+            8: '发布失败：写进去读回来不一致',
+        }
+        if IMAGE_PCX_DIAG_BYTES < 5408:
+            print(f'  （本构建没有 358 的"重建中继失败码/现场字节"字段：本构建结构体共 '
+                  f'{IMAGE_PCX_DIAG_BYTES} 字节，需要 5408）')
+        elif len(diag_raw) < 5408:
+            print(f'  （这份读数里没有 358 的字段：原始读数只有 {len(diag_raw)} 字节、需要 5408'
+                  f' —— 多半是拿旧读数件在新构建上回放）')
+        else:
+            code = _struct.unpack_from('<I', diag_raw, 5368)[0]
+            target_hex = diag_raw[5372:5388].hex()
+            stub_hex = diag_raw[5388:5404].hex()
+            print('  ── 358：重建挂载点中继"卡在哪一条"（★ 如实说：这一整段测的是**死代码**）──')
+            print(f'    失败码 = {code}：{_RELAY_FAILURES.get(code, "未知")}')
+            print(f'    目标处（游戏模块 0x3B36F4）实际 16 字节 = {target_hex}')
+            print(f'    代码洞桩（0x68CFA0）实际 16 字节        = {stub_hex}')
+            print(f'    期望：目标处前 4 字节 = `2b660b14`（一条 `b`，目标 0x68CFA0）'
+                  f'｜此时实际前 4 字节 = {target_hex[:8]}')
+            if code == 3 and target_hex[:8] != '2b660b14':
+                print('    ⇒ **入口那条分支没打上** ⇒ 这套中继是"入口分支 + 零页桩"，分支不在就等于整套没装。'
+                      '下一步：查那个 `nro_patches/…-rebuild-mount-points-relay.ips` 到底有没有上卡、'
+                      '或者改用**已经证明可用的入口中继机制**去包这个函数（语义相同：先跑原函数、再重挂）。')
+            elif code == 4:
+                print('    ⇒ 分支在、但**桩字节不对** ⇒ 代码洞被别的东西占了或版本不匹配。')
+            elif code == 2:
+                print('    ⇒ 地址/映射这一步就过不去 ⇒ 多半是**目标偏移随版本变了**，要对着本机镜像重算。')
+            elif code in (6, 7, 8):
+                print('    ⇒ 校验全过、**只有发布那一步失败** ⇒ 槽的问题（被占/写不进），不是字节的问题。')
+            elif code == 0:
+                print('    ⇒ 装了 ⇒ 与 357 的"没装上"矛盾 ⇒ 先看这一版是不是把补丁也一起刷上卡了。')
+            print('    ⚠ **这一整段的解释力有限**：挂点目录把 `RebuildMountPoints` 的后端定成 `EntryRelay`，'
+                  '所以 `exlaunch_hook_adapter.cpp` 里那一支**永远不会被派到** ⇒ 这几格恒为 0/空。'
+                  '要动它，请看下面 **359** 那一段（活的那条路）。')
+        # ★★★ 批次 359（2026-10-04）：**活的那条路** —— 入口中继 + 我们那层包装的调用数。
+        if IMAGE_PCX_DIAG_BYTES < 5424:
+            print(f'  （本构建没有 359 的"入口中继结果/包装调用数"字段：本构建结构体共 '
+                  f'{IMAGE_PCX_DIAG_BYTES} 字节，需要 5424）')
+        elif len(diag_raw) < 5424:
+            print(f'  （这份读数里没有 359 的字段：原始读数只有 {len(diag_raw)} 字节、需要 5424'
+                  f' —— 多半是拿旧读数件在新构建上回放）')
+        else:
+            inst, fail, calls = _struct.unpack_from('<3I', diag_raw, 5408)
+            print('  ── 359：重建挂载点中继 —— **活的那条路**（入口中继 + 包装调用数）──')
+            print(f'    入口中继（`HookId::RebuildMountPoints`）装上没有 = {"是" if inst else "否"}'
+                  f'｜失败码 = {fail}（0 = 成功）')
+            print(f'    ★ 我们那层包装（先跑原函数、再重挂）被调用 = **{calls}** 次')
+            if not inst:
+                print('      ⇒ **入口中继没装上** ⇒ 引擎一旦重建挂载点表就没人补 ⇒ 与现象吻合。'
+                      '下一步看失败码（`entry_relay` 的码表：1 地址/边界 2 入口字节不符 3 洞用尽 4 写完读回不一致 5 相对指令）。')
+            elif calls == 0:
+                print('      ⇒ 装了、但**一次都没被调到** ⇒ **引擎清空挂载点表根本不经过这个函数**')
+                print('         ⇒ 在 `RebuildContentMountPoints` 身上挂钩子**永远救不了它**，'
+                      '修法要换成"在清表之后、由一个我们控制的时机把模组挂载点补回去"。')
+            else:
+                print(f'      ⇒ 包装跑过 {calls} 次 ⇒ 引擎确实走这个函数清表；再看上面的'
+                      f'「重建挂载点中继：跑过 N 次」是否为 0 —— 那说明"包装跑了但重挂动作没跑"。')
+        # ★★★ 批次 360（2026-10-04）：**修法**（自愈补挂）的留痕 —— 这段正常时应该长什么样，写在下面。
+        if IMAGE_PCX_DIAG_BYTES < 5440:
+            print(f'  （本构建没有 360 的"自愈看门狗"字段：本构建结构体共 {IMAGE_PCX_DIAG_BYTES} 字节，'
+                  f'需要 5440）')
+        elif len(diag_raw) < 5440:
+            print(f'  （这份读数里没有 360 的字段：原始读数只有 {len(diag_raw)} 字节、需要 5440'
+                  f' —— 多半是拿旧读数件在新构建上回放）')
+        else:
+            checks, heals = _struct.unpack_from('<2I', diag_raw, 5424)
+            print('  ── 360：**修法**（自愈补挂）—— 模组挂载点是否被维持住 ──')
+            print(f'    看门狗检查 = **{checks}** 次｜发现"不在"并补挂 = **{heals}** 次')
+            if checks == 0:
+                print('      ⚠ 一次都没检查 ⇒ 主循环的 update 回调没跑到，或没走到挂载那一步（`mod_count` 为 0）。')
+            elif heals == 0:
+                print('      ⇒ 全程都没发现"不在" ⇒ 挂载点**一直有效**（若这与"354 段探测答本体/空"同时出现，'
+                      '说明判据本身有问题，先查那一段）。')
+            else:
+                print(f'      ⇒ 补挂过 {heals} 次（配合上面的「重挂试验」那几格看补挂后是否命中）'
+                      f'⇒ ★ 这就是本条链的修法生效现场。')
+            print('    ★ 期望的正常形态：**检查 > 0 次 且 补挂 ≥ 1 次**，且 357 那一段的'
+                  '「重挂后再问同一句」= **命中模组**。')
+        # ★★★ 批次 361（2026-10-04）：**按时间量** —— 每格带"当时的模组数"，另加挂载后的那一对测量。
+        if IMAGE_PCX_DIAG_BYTES < 5816:
+            print(f'  （本构建没有 361 的"探测上下文/晚点试验"字段：本构建结构体共 '
+                  f'{IMAGE_PCX_DIAG_BYTES} 字节，需要 5816）')
+        elif len(diag_raw) < 5816:
+            print(f'  （这份读数里没有 361 的字段：原始读数只有 {len(diag_raw)} 字节、需要 5816'
+                  f' —— 多半是拿旧读数件在新构建上回放）')
+        else:
+            def _diag_str361(start, length):
+                return diag_raw[start:start + length].split(b'\x00', 1)[0].decode('utf-8',
+                                                                                  errors='replace')
+
+            seq = _struct.unpack_from('<4I', diag_raw, 5440)
+            modcount = _struct.unpack_from('<4I', diag_raw, 5456)
+            trial_tick, before_win, after_win, modonly_win = _struct.unpack_from('<4I',
+                                                                                 diag_raw, 5472)
+            before_answer = _diag_str361(5488, 160)
+            after_answer = _diag_str361(5648, 160)
+            print('  ── 361：**按时间**看探测（每格带"当时的模组数"）＋ 挂载后的那一对测量 ──')
+            print('    四条探测的上下文（`模组数 = 0` ⇒ **这次探测跑在挂载之前，不算数**）：')
+            for i in range(4):
+                off = 3932 + 240 * i
+                query = diag_raw[off + 16:off + 80].split(b'\x00', 1)[0].decode('utf-8',
+                                                                               errors='replace')
+                verdict = '（模组数 0 ⇒ 忽略）' if modcount[i] == 0 else ''
+                print(f'      [{i}] {query!r}：序号 {seq[i]}｜当时模组数 {modcount[i]} {verdict}')
+            print('    ★ 挂载之后的晚点试验：')
+            if trial_tick == 0:
+                print('      ⇒ **没跑**（模组挂上之前就结束了？或 update 回调没走到 30 帧）。')
+            else:
+                print(f'      跑过｜重挂**前**共享路径答模组 = {"是" if before_win else "否"}'
+                      f'｜重挂**后** = {"是" if after_win else "否"}'
+                      f'｜模组独有路径（对照）= {"是" if modonly_win else "否"}')
+                print(f'      重挂前回答 = {before_answer!r}')
+                print(f'      重挂后回答 = {after_answer!r}')
+                if not before_win and after_win:
+                    print('      ⇒ ★★★ **病根 = 注册顺序**：模组挂载点被本体层（后注册的）压过；'
+                          '**重挂一次就翻过来了** ⇒ 修法 = 在引擎初始化之后把模组挂载点补到最后。')
+                elif before_win and after_win:
+                    print('      ⇒ 共享路径本来就归模组 ⇒ **minimapi 的两行红字另有原因**'
+                          '（它读的是别的东西/别的时机），别再查挂载了。')
+                elif not before_win and not after_win:
+                    print('      ⇒ 重挂也翻不过来 ⇒ 不是"注册顺序"能解释的 ⇒ 要去看解析本身'
+                          '（例如 `rp_patch` 层根本不参与同名比较）。')
+                else:
+                    print('      ⇒ 重挂后**反而**不命中 ⇒ 重挂把某些东西弄乱了，先回退这一条。')
+        # ★★★ 批次 411（2026-10-08）：PC 路径分隔符归一化次数（消费了 361 的一个占位槽，
+        #   偏移 5808；**总大小仍是 5816、旧偏移一格没动**）。
+        #   判据：选带 `\` 写路径的模组角色（如 Trinity 的 Peter）进局，这一格应 > 0；
+        #   而且**卡上模组文件保持原样** —— 两者同时成立才说明修的是平台层，不是改模组。
+        if len(diag_raw) >= 5812:
+            sep_norm = _struct.unpack_from('<I', diag_raw, 5808)[0]
+            print(f'  ── 411：PC 路径分隔符归一化（`\\` → `/`）{sep_norm} 次'
+                  + ('（> 0 ⇒ 真的有一条模组路径是靠这一层才解析到的）' if sep_norm else
+                     '（0 ⇒ 本会话没有带 `\\` 的路径进来过）')
+                  + ' ──')
     binds = values.get('image_pcx_bindings') or []
     zero = sum(1 for v in binds if v == 0)
     print(f'  绑定指针：8 个里 {zero} 个为空')
@@ -2807,6 +5723,29 @@ def report(values: dict[str, list[int]], base: int, game_base: int, plugin_base:
         print(f'  游戏模块 LoadImage 入口 = {got} ← 已是我们的入口补丁 ★')
     else:
         print(f'  游戏模块 LoadImage 入口 = {got} ← **不是**入口补丁（应为 5000005800021fd6…）')
+
+    print()
+    print('=== C++ 异常抛出位置（L4 钩子隔离·甲案，批次 196）===')
+    # 固定布局 `ThrowForensics`（`runtime/source/throw_forensics.cpp`）：throwCount(u32) +
+    # reserved(u32) + lastThrowFrom(u64) + lastThrowType(u64) + firstThrowFrom(u64) = 4 个 8 字节字。
+    # ★ 批次日 196 只把符号接进了读取列表、**漏了这一段打印** ⇒ 真机验收时"读得到却看不见"。
+    tf_words = values.get('throw_forensics') or []
+    tf_raw = b''.join(w.to_bytes(8, 'little') for w in tf_words)
+    if len(tf_raw) < 32:
+        print('  （读不到或长度不足 ⇒ 运行时可能是旧构建）')
+    else:
+        import struct as _struct
+        tf_count = _struct.unpack_from('<I', tf_raw, 0)[0]
+        tf_last = _struct.unpack_from('<Q', tf_raw, 8)[0]
+        tf_first = _struct.unpack_from('<Q', tf_raw, 24)[0]
+        print(f'  本会话抛出的 C++ 异常 = {tf_count} 次')
+        if tf_count:
+            print(f'  最近一次抛出点 = {describe_runtime_address(tf_last, base)}')
+            print(f'  第一次抛出点   = {describe_runtime_address(tf_first, base)}')
+            print('  ⇒ 上面反查出的函数就是"谁抛的"；这段设施只记录、不改行为，'
+                  '有值本身不代表出问题。')
+        else:
+            print('  ⇒ 0 次：这一局没抛过 C++ 异常（这段设施只记录，不改变行为）。')
 
     print()
     print_probe_native_mods_menu(values)
@@ -2927,6 +5866,11 @@ def report(values: dict[str, list[int]], base: int, game_base: int, plugin_base:
         load_result = first(values, 'g_FontLoadResult') & 0xFFFFFFFF
         draws = first(values, 'g_FontDrawCalls') & 0xFFFFFFFF
         drawn_bytes = first(values, 'g_FontDrawBytes') & 0xFFFFFFFF
+        # 批次 415：Font 存储（走 Lua 分配器 ⇒ 计入 GC 账）。
+        # 判据：`Live` 应当停在个位数（模组每帧建一个、随即被 GC 收掉；414 那版实测 288 = 没收）；
+        #       `Failures` **必须 0**。
+        # ★ 2026-10-09 更正：415 直接调 lua_Alloc 不代表 GC 记账；旧判据仅作历史保留。
+        print_font_storage(values)
         print(f'  字体：Load 被调用 {load_calls} 次、最后一次结果 = '
               + {0: '失败', 1: '成功'}.get(load_result, '未知'))
         print(f'  画字：四条变体（含缩放）合计调用 {draws} 次、共 {drawn_bytes} 字节')
@@ -2969,6 +5913,8 @@ def report(values: dict[str, list[int]], base: int, game_base: int, plugin_base:
             fired_counts = [f'{code}={counts[code]}' for code in range(32) if counts[code]]
             print(f'  "刚按下"累计报过几次（按动作号）：'
                   + (', '.join(fired_counts) if fired_counts else '（一次都没报过）'))
+            print('    （★ 批次 218 起**这条只统计动作侧**：按键号那条改进了自己的 '
+                  '`g_InputButtonEdgeCounts` —— 以前两者共用同一格 ⇒ 按下标根本分不清是哪一个。）')
             if fired_counts:
                 print('    ⇒ 按**一次**键之后看这里：某个动作 +2 = "一次按键报了两次边沿"'
                       '（那就是"按一次跳两格"的成因）；+1 = 正常。')
@@ -2980,9 +5926,139 @@ def report(values: dict[str, list[int]], base: int, game_base: int, plugin_base:
             fired_peaks = [f'{code}={peaks[code]}帧' for code in range(32) if peaks[code]]
             print(f'  "按住"最长闪断（按动作号）：'
                   + (', '.join(fired_peaks) if fired_peaks else '（没断过）'))
+        if 'touch_poll_frames' in values:
+            # ★ 全部走 `first_u32`：这 10 个都是我们自己的 `uint32` 全局，而读数工具按 8 字节取字
+            #   ⇒ 直接 `first(...)` 会把**隔壁那个全局**一起取进高 32 位（本批差点这么错：
+            #   实测这 10 个的地址是 4 字节一格的 `0x83c0818…0x83c083c`，正好一个字里装两个）。
+            init_state = first_u32(values, 'touch_init_state')
+            scan_attempts = first_u32(values, 'touch_scan_attempts')
+            shmem = (first_u32(values, 'touch_shmem_high') << 32) | first_u32(values, 'touch_shmem_low')
+            segments = first_u32(values, 'touch_segments')
+            rejected = first_u32(values, 'touch_rejected_mappings')
+            buffer_count = first_u32(values, 'touch_lifo_buffer_count')
+            tail = first_u32(values, 'touch_lifo_tail')
+            lifo_count = first_u32(values, 'touch_lifo_count')
+            poll_frames = first_u32(values, 'touch_poll_frames')
+            touch_frames = first_u32(values, 'touch_frames')
+            raw_x = first_u32(values, 'touch_last_raw_x')
+            raw_y = first_u32(values, 'touch_last_raw_y')
+            last_count = first_u32(values, 'touch_last_count')
+            last_sampling = first_u32(values, 'touch_last_sampling')
+            last_entry = first_u32(values, 'touch_last_entry_index')
+            state_name = {0: '还没找过', 1: '找到共享内存', 2: '找过、没找到'}.get(
+                init_state, f'未知({init_state})')
+            #: 引擎口径：面板 1280×720 → 逻辑屏幕 480×270（系数 0.375，证据见 `touch_pointer.hpp`）。
+            #: 这里只是**把模组会拿到的数**顺手印出来，方便与手指位置对照。
+            render_x = raw_x * 0.375
+            render_y = raw_y * 0.375
+            # 批次 213：**边沿间隔**（判"一次按住被拆成几次边沿"到底是不是我们的锅）。
+            if 'input_edge_gap_min' in values:
+                gap_min = {code: first_u32(values, 'input_edge_gap_min', code) for code in range(32)}
+                gap_last = {code: first_u32(values, 'input_edge_gap_last', code) for code in range(32)}
+                sampled = [code for code in range(32) if gap_min[code] or gap_last[code]]
+                print()
+                print('=== 边沿间隔（`IsActionTriggered` 报边沿时距上一次"按住"隔了几帧）===')
+                # ★ 更正（批次 381，2026-10-06）：上一行的**标题文字是旧语义**（原文保留只作历史）。
+                #   新机制下这个量 = **相邻两次边沿之间隔了几帧**，用途 = 判"两次独立按下之间
+                #   隔了多久"；边沿不再依赖调用方节奏 ⇒ "闪断"在本机制下不适用。下面那句提示
+                #   把它印在旧标题之后，免得按旧判据读。
+                print('  ★ 更正（批次 381，2026-10-06）：本量现在 = 相邻两次边沿间隔帧数'
+                      '（判"两次独立按下之间隔了多久"）；"闪断"在本机制下不适用，'
+                      '下面"只有 1~3 帧 ⇒ 闪断"的判据文字只作历史。')
+                if not sampled:
+                    print('  （还没有样本：这次读数之前没有任何动作报过边沿）')
+                for code in sampled:
+                    # ★ 批次 221（2026-09-30）：**去抖窗口已经删掉**（原先是猜一个时长，批次 110 取 6、
+                    #   220 取 20；两侧症状会互相顶掉）。现在判据不再依赖任何常量：
+                    #   间隔只有 2~3 帧 ⇒ 引擎的"按住"在按着的时候断了帧（闪断）；
+                    #   几百帧 ⇒ 用户真松手再按。闪断要**去源头修**，不是把窗口调大。
+                    verdict = ('★ 只有 1~3 帧 ⇒ 是**闪断**（引擎的「按住」在按着的时候断过帧）'
+                               '—— 批次 221 起不再用窗口掩盖它：去查源头（同一帧里重复读设备表 / '
+                               '帧号来源不唯一），别再来调窗口'
+                               if gap_min[code] and gap_min[code] <= 3
+                               else '离得很远 ⇒ 是**真松手再按**（正常，不需要任何窗口）')
+                    print(f'  动作 {code:>2}：最小间隔 = {gap_min[code]:>5} 帧、'
+                          f'最近 = {gap_last[code]:>5} 帧　⇒ {verdict}')
+            # 批次 381（2026-10-06）：**"帧上采样"现场**（5 个标量；用途见 `SYM_ELF_NAMES`）。
+            # 判据：`frame` 贴着当前帧 = 采样在跑；`failures` 在涨 = 设备表读不到 ⇒ 该帧全答 false。
+            if 'input_sample_frame' in values:
+                print()
+                print('=== "帧上采样"现场（批次 381：每帧在引擎帧边界采样一次、判定纯读）===')
+                print(f'  最后采样帧 = {first_u32(values, "input_sample_frame")}（应贴着当前帧）；'
+                      f'那一帧引擎调用 = {first_u32(values, "input_sample_calls")} 次'
+                      f'（真机 1 台手柄时约 32，预算有界）')
+                print(f'  那一帧采了 {first_u32(values, "input_sample_codes")} 个码'
+                      f'（按键 18 + 动作 32）、{first_u32(values, "input_sample_devices")} 台设备'
+                      f'（+1 是"任意设备"聚合槽）')
+                print(f'  采样失败累计 = {first_u32(values, "input_sample_failures")} 次'
+                      f'（设备表读不到等 ⇒ 该帧全答 false）')
+            print('  === 触摸屏 → 指针（批次 192 建、批次 193 修）===')
+            print(f'    共享内存 = {state_name}（值 {init_state}）、扫过映射表 {scan_attempts} 次'
+                  f'、走过 {segments} 段、判据不符而跳过 {rejected} 段')
+            if shmem:
+                print(f'    hid 共享内存基址 = 0x{shmem:x}'
+                      f'（lifo 表头：buffer_count = {buffer_count} ← **必须是 17**、'
+                      f'tail = {tail}、count = {lifo_count}）')
+                if buffer_count != 17:
+                    print('    ⚠ buffer_count 不是 17 ⇒ 认出的**不是**触摸屏 lifo'
+                          '（批次 192 就是这里太宽，把一块零页认成了它）—— 请把这一行报回来。')
+            print(f'    读过触摸屏 {poll_frames} 帧，其中**手指在屏幕上**的有 {touch_frames} 帧')
+            print(f'    最新条目：槽位 {last_entry}、采样号低 32 位 = {last_sampling}'
+                  '（真的 lifo 每采样一次就加一，**与有没有手指无关**）')
+            print(f'    最后一次：点数 = {last_count}、原始触摸坐标 = ({raw_x}, {raw_y})'
+                  f' ⇒ 模组拿到的是渲染坐标 ({render_x:.1f}, {render_y:.1f})〔原始值 × 0.375〕')
+            if init_state == 2:
+                print('    ⇒ 没找到触摸屏 lifo（判据要求在 17 个条目的点数之外，'
+                      '还必须有 buffer_count == 17 的表头）⇒ 说明**游戏没把那块内存映射在我们进程里**。'
+                      '此时两条 API 退回恒值：功能不回归，但触摸不生效 —— '
+                      '下一步改走"调引擎"（`KAGE::Input::g_Manager` @ 模块内 0xb06f60，'
+                      '`ManagerBase::GetTouches` @ 0x4fa568），见改动手记 §193。')
+            elif buffer_count != 17:
+                print('    ⇒ ★ 认到了错的内存 ⇒ 这是**我的 bug**，把上面那行「lifo 表头」贴回来。')
+            elif poll_frames == 0:
+                print('    ⇒ 一帧都没读过：说明模组**根本没调用** `Input.GetMousePosition`／'
+                      '`IsMouseBtnPressed`（那两条才是入口）。不是触摸坏了。')
+            elif last_sampling == 0:
+                print('    ⇒ 表头对了、但**一条带采样号的条目都没有** ⇒ 这块 lifo 没在被写'
+                      '（比"没人在按"更严重：值得把这块内存的原始字节 dump 回来看）。')
+            elif touch_frames == 0:
+                print('    ⇒ 表头对、采样号在动、**但一次都没检测到手指**。'
+                      '最可能是：① 机器在**接电视/底座**状态（掌机模式才有触摸屏）；'
+                      '② 读数时手已经离开屏幕（本计数器是**会话累计**，按过就该 > 0）。')
+            else:
+                print(f'    ⇒ ★ 触摸**真的读到了**：原始 ({raw_x}, {raw_y})'
+                      f' ⇒ 模组拿到 ({render_x:.1f}, {render_y:.1f})。'
+                      '模组里的 `Isaac.WorldToScreen(Input.GetMousePosition(true))` 组合现在是对的'
+                      '（`WorldToScreen` 还是恒等变换，两者套起来正好是渲染坐标）。')
             if fired_peaks:
-                print('    ⇒ 闪断帧数若 ≥ 松手去抖窗口（6 帧）就还会"长按不停翻页"'
-                      '（那时要把窗口调大）。')
+                print('    ⇒ 闪断帧数 > 1 说明**引擎的「按住」在按着的时候断过帧**，而批次 221 起'
+                      '边沿是严格相邻帧差分 ⇒ 会**直接多报边沿**（不再用去抖窗口掩盖）。'
+                      '要修的是源头：同一帧里重复读设备表、或帧号来源不唯一。')
+        if 'minimap_gate_state' in values:
+            gate_state = first_u32(values, 'minimap_gate_state')
+            gate_applied = first_u32(values, 'minimap_gate_applied')
+            gate_mismatch = first_u32(values, 'minimap_gate_guard_mismatch')
+            gate_failure = first_u32(values, 'minimap_gate_failure_code')
+            gate_name = {0: '还没试', 1: '三处都装上', 2: '没装上'}.get(
+                gate_state, f'未知({gate_state})')
+            print('  === 原生小地图的触摸门控（批次 194：只改游戏代码 3 条指令）===')
+            print(f'    状态 = {gate_name}（值 {gate_state}）、改写成功 {gate_applied}/3 处、'
+                  f'守卫不符 {gate_mismatch} 处、失败码 {gate_failure}')
+            if gate_state == 1:
+                print('    ⇒ ★ 已装上：原生右上角小地图**只会在手指停在那块矩形内**时被拖动，'
+                      '别处触摸不再影响它。')
+            elif gate_state == 0:
+                print('    ⇒ 这个构建从没尝试装过（不该出现：安装点在模块初始化里）。')
+            elif gate_mismatch:
+                kind = gate_failure & 0xFF
+                ordinal = gate_failure >> 8
+                print(f'    ⇒ 现场指令与预期不符（第 {ordinal} 处，种类 {kind}）⇒ **一处都没写**、'
+                      '游戏保持原样。多半是游戏版本不同 ⇒ 需要重新核对那三条指令。')
+            else:
+                kind = gate_failure & 0xFF
+                ordinal = gate_failure >> 8
+                print(f'    ⇒ 没装上（第 {ordinal} 处，种类 {kind}：1=地址/映射非法、3=写完读回不一致）'
+                      ' ⇒ 原生小地图照旧响应任意触摸。')
         print(f'  非 0 号 controller 上按到过的动作号：'
               f'{", ".join(fired_other) if fired_other else "（无）"}'
               f'（最后一次问的 controller = '
@@ -2995,6 +6071,647 @@ def report(values: dict[str, list[int]], base: int, game_base: int, plugin_base:
             print('    ⇒ 两个 controller 序号都没有任何动作被判定为按下：说明**查询本身**没通'
                   '（不是键位对不上）—— 下一步要换机制，而不是继续猜动作号。')
 
+    # 批次 209：**按键号**那三条查询（`IsButtonPressed` / `IsButtonTriggered` / `GetButtonValue`）
+    # 的现场。为什么单独一段：批次 195 把这三条从"恒 false 的桩"改成真实现时就加了这两个掩码，
+    # 源码注释原话是"真机上唯一能判'到底读到了没有'的就是这两个计数"——**却从没接进读数**
+    # （典型的"设施做了、判据没接上"）。
+    #
+    # ★★★ 批次 210 更正（2026-09-29 深夜，这是本段第一版给错的结论）：
+    #   209 那段写的是"一位都没问过 ⇒ 模组根本没走到那一步，别再往输入上查"。**错**。
+    #   那两个掩码的置位点（`input_api.cpp`）在 handler 的**最后**，前面还有两道**静默返回**的闸：
+    #   ① 按键号不是 0..17（键盘码一律答 false，不置位）；
+    #   ② **发布槽是 0**（= 引擎入口的逐字节守卫没过）⇒ 立刻 `return false`，**同样不置位**。
+    #   ⇒ "掩码全 0"有两种解释，**必须先看发布槽**：
+    #     槽非 0 ⇒ 真的是"没问过"（模组那一侧的事）；槽 = 0 ⇒ **是我们这条链哑了**。
+    #   真事故：判别式常量写成了字节序反的 `F9 40 19 08`（真值 `08 19 40 F9`）⇒ 槽 = 0 ⇒
+    #   MCM 的"按右摇杆开菜单"永远没反应（批次 210 修；见该批存档 README）。
+    if 'input_button_queried' in values:
+        queried_buttons = first_u32(values, 'input_button_queried')
+        pressed_buttons = first_u32(values, 'input_button_pressed')
+        # ★ 发布槽是**本批新加的格子** ⇒ 回放老 raw 文件时根本不在 `values` 里。
+        #   缺了要**说缺**，不能读成 0 —— 读成 0 会被下面判成"没发布（守卫没过）"，
+        #   那是一条**假的硬结论**（本项目栽过同一类：把"没读到"当成"是 0"）。
+        has_thunk = 'input_button_thunk' in values
+        thunk = (first(values, 'input_button_thunk') & 0xFFFFFFFFFFFFFFFF) if has_thunk else None
+        get_value_thunk = (first(values, 'input_get_button_value_thunk') & 0xFFFFFFFFFFFFFFFF
+                           if 'input_get_button_value_thunk' in values else None)
+        expected_thunk = game_base + KAGE_IS_BUTTON_PRESSED_OFFSET if game_base else 0
+        asked_buttons = [code for code in range(32) if queried_buttons & (1 << code)]
+        held_buttons = [code for code in range(32) if pressed_buttons & (1 << code)]
+        button_names = {0: '十字左', 1: '十字右', 2: '十字上', 3: '十字下', 4: 'A', 5: 'B',
+                        6: 'X', 7: 'Y', 8: 'L', 9: 'ZL', 10: '左摇杆按下', 11: 'R',
+                        12: 'ZR', 13: '右摇杆按下', 14: '减号', 15: '加号'}
+        print()
+        print('=== 按按键号查询的现场（`Input.IsButtonPressed` / `IsButtonTriggered`）===')
+        if thunk is None:
+            print('  发布槽 = **本次读数没读这一格**（多半是在回放批次 210 之前存的 raw 文件）'
+                  ' ⇒ 下面"问没问过"这句**这轮判不了**，先跑一次现场读数。')
+        else:
+            print(f'  发布槽 `IsButtonPressed` = 0x{thunk:x}'
+                  + (' ⇒ **没发布**（守卫没过 ⇒ 那两条 API 恒答 false、且这两位永远不置位）'
+                     if thunk == 0 else
+                     f' ⇒ 已发布（应当 = 游戏基址 + 0x{KAGE_IS_BUTTON_PRESSED_OFFSET:X}'
+                     f' = 0x{expected_thunk:x}）'))
+            print(f'  发布槽 `GetButtonValue` = 0x{get_value_thunk:x}'
+                  + (' ⇒ 没发布' if get_value_thunk == 0 else ' ⇒ 已发布'))
+        print(f'  问过的按键号 = 0x{queried_buttons:08x} ⇒ '
+              + (', '.join(f'{c}({button_names.get(c, "?")})' for c in asked_buttons)
+                 if asked_buttons else '**一个都没问过**'))
+        print(f'  `IsButtonPressed` 曾答过"按住"的按键号 = 0x{pressed_buttons:08x} ⇒ '
+              + (', '.join(f'{c}({button_names.get(c, "?")})' for c in held_buttons)
+                 if held_buttons else '（一个都没有）'))
+        print('    （注意这一位的置位条件：`input_api.cpp:298` —— **只有 `Input.IsButtonPressed` '
+              '的调用方**会置它，而且只在那一帧真的按住时才置。MCM 走的是 `IsButtonTriggered`，'
+              '它**不置**这一位 ⇒ 别拿"这一位没置"当作"引擎没答"。）')
+        if 'input_controller_map_outcome' in values:
+            # 批次 211：手柄号翻译的现场（口径 = runtime/source/pc_ns_input_device_map.hpp）。
+            map_pc = first_u32(values, 'input_controller_map_pc_id')
+            map_ns = first_u32(values, 'input_controller_map_ns_id')
+            map_outcome = first_u32(values, 'input_controller_map_outcome')
+            fallbacks = first_u32(values, 'input_controller_map_fallbacks')
+            outcome_text = {0: '原样透传（NS 原生用法）',
+                            1: '翻到设备表里那台手柄 ⇒ 拿去问引擎',
+                            2: 'PC 上没有这台（键盘档 / 第 k 台手柄不存在）⇒ 直接答 false'}.get(
+                                map_outcome, f'未知({map_outcome})')
+            print(f'  最近一次手柄号翻译：模组给 {map_pc} ⇒ 引擎设备号 {map_ns}（{outcome_text}）'
+                  f'｜因设备表读不到而没能翻译 = {fallbacks} 次')
+            if fallbacks:
+                print('    ⇒ ★ 有兜底：设备表没读到 ⇒ 1..4 被原样透传（与修之前同形）'
+                      ' —— 先查 `ReadNsInputDeviceTable` 链上的偏移/权限。')
+        if 'input_action_map_lua_code' in values:
+            # 批次 230：动作号翻译的现场（口径 = runtime/src/interfaces/lua/input_action_map.hpp）。
+            # ★ Switch 引擎的内部表把 17..20 当"菜单左/右/上/下"（PC 的 `ACTION_MENULEFT` 在引擎里是 17）
+            #   ⇒ 这一段是"推方向被读成别的方向"那类缺陷唯一的现场证据。
+            map_lua = first_u32(values, 'input_action_map_lua_code')
+            map_engine = first_u32(values, 'input_action_map_engine_code')
+            map_absent = first_u32(values, 'input_action_map_absent')
+            if map_lua == 0xFFFFFFFF:
+                print('  最近一次动作号翻译：（本次会话还没有模组问过动作）')
+            else:
+                engine_text = ('**Switch 上没有这个动作** ⇒ 我们直接答 false / 0（不问引擎）'
+                               if map_engine == 0xFFFFFFFF else f'引擎内部动作号 {map_engine}')
+                print(f'  最近一次动作号翻译：模组给 {map_lua}（PC 口径）⇒ {engine_text}'
+                      f'｜因"Switch 上没有"而直接回答 = {map_absent} 次')
+                print('    （对照：PC 的 20/21/22/23 = 菜单左/右/上/下，而 Switch 引擎的内部号是 '
+                      '17/18/19/20；逐行证据见 `input_action_map.hpp`。）')
+        if thunk is None:
+            pass
+        elif thunk == 0:
+            print('  ⇒ **先修发布槽**：槽是 0 = 引擎入口的守卫没过（序言 16 字节或 `entry+0xE0` 的'
+                  '判别式）⇒ 上面那两个掩码**必然全 0**，此时"模组问没问过"这句话判不出来。'
+                  '查法：`python3 tools/verify_runtime_constants_against_nro.py` 会拿本地镜像'
+                  '逐字节比一遍那些常量。')
+        elif 13 in asked_buttons:
+            print('  ⇒ **模组问过右摇杆（13 号）** ⇒ 它的渲染回调确实跑到了开菜单判定那一步，'
+                  '所以"回调没派发"这一类原因可以排除。')
+            print('     那么"按下去毫无反应"只剩两种：① 模组收到这次按下之后**抛了错**'
+                  '（菜单开不出来、屏幕上一个字都不会有）；② 收到了、也往下走了，但被'
+                  '`RoomIsSafe()` 挡在门外（那样会**响一声错误音效**）。'
+                  '判据是上面的 `lua_error_history` 与 `g_ModRegisteredCount`。')
+        else:
+            print('  ⇒ **模组根本没问过右摇杆**（发布槽非 0，所以这条结论这次站得住）：先查它有没有'
+                  '真的登记成功、它的渲染/更新回调有没有在跑（看 `g_ModRegistered` /'
+                  ' `g_ModRegisteredCount` / `lua_error_history`）。')
+
+    # 批次 212：**玩家字段写**的现场（口径 = `isaac_api.cpp` 的 `EntityNewIndex`）。
+    # 为什么必须打印：字段写守卫是"报错"不是"静默忽略" ⇒ 模组写了个我们没实现的字段，
+    # **整条回调当场中断**（MCM 的菜单画不出来就是这么来的）。这里的计数是"不靠眼睛"的那半边判据。
+    if 'entity_field_writes' in values:
+        write_names = {0: 'Velocity', 1: 'Position', 2: 'ControlsEnabled', 3: 'ControlsCooldown',
+                       4: 'HitPoints', 5: 'MaxHitPoints', 6: 'Scale',
+                       7: 'MaxFireDelay', 8: 'ShotSpeed', 9: 'Damage', 10: 'MoveSpeed',
+                       11: 'Luck', 12: 'TearRange', 13: 'Size', 14: 'Friction', 15: 'Visible',
+                       16: 'Variant', 17: 'SubType', 18: 'SpawnerType', 19: 'SpawnerVariant', 20: 'CanFly', 21: 'TearHeight',
+                       22: 'TearFallingSpeed', 23: 'TearFallingAcceleration', 24: 'TearColor'}
+        counts = {}
+        for index, name in write_names.items():
+            raw_bytes = words_to_bytes(values['entity_field_writes'])
+            available = min(len(raw_bytes), ENTITY_FIELD_WRITES_BYTES)
+            counts[name] = first_u32(values, 'entity_field_writes', index) if index * 4 + 4 <= available else None
+        rejected = first_u32(values, 'entity_field_write_rejected')
+        last_hash = first_u32(values, 'last_entity_field_write_name')
+        known_hashes = {0xBA408252: 'Velocity', 0xE27F342A: 'Position',
+                        0xD8182F6C: 'ControlsEnabled', 0xB5D0FA92: 'ControlsCooldown',
+                        0xEEA83A5D: 'HitPoints', 0xFDDF1A19: 'MaxHitPoints',
+                        0x28528E11: 'Scale',
+                        0x0C9F5AF0: 'MaxFireDelay', 0x6B489710: 'ShotSpeed',
+                        0x2DF7D460: 'Damage', 0xD572779F: 'MoveSpeed',
+                        0x773C3F90: 'Luck', 0xC0505A8E: 'TearRange'}
+        for name in write_names.values():
+            hash_value = 2166136261
+            for byte in name.encode('utf-8'):
+                hash_value = ((hash_value ^ byte) * 16777619) & 0xffffffff
+            known_hashes[hash_value] = name
+        last_name = known_hashes.get(last_hash, f'未知字段名（哈希 0x{last_hash:08x}）')
+        summary = '、'.join(f'{name}={count}' for name, count in counts.items() if count)
+        print()
+        print('=== 实体字段写的现场（`Entity.<字段> = …`）===')
+        print(f'  被写过的字段：{summary if summary else "（一个都没写过）"}'
+              f'｜最近一次写的字段名 = {last_name}')
+        unavailable = [name for name, count in counts.items() if count is None]
+        if unavailable:
+            print('  尚未取得字段写计数：' + '、'.join(unavailable))
+        print(f'  被我们拒绝的写 = {rejected} 次'
+              + ('　⇒ ★ 模组写了我们没实现的字段 ⇒ **它的回调会在那一行当场中断**'
+                 '（症状：那一段功能整块消失、不报错到屏幕上）。'
+                 '要放开就得先取证该字段的偏移，别直接放行。' if rejected else '（正常）'))
+
+    # 批次 217：**每个动作"最后一次被问到时"的现场** —— 判"用户按下的那一刻，菜单问没问、我们答了什么"。
+    # 为什么需要这一段：原来那几张掩码是**粘性**的（一旦置位永不清），真机上早饱和成 0x0fffffff
+    # ⇒ 看"问过的动作号"已经什么都得不出来。这一段带**帧号**，所以能只说"刚才那几帧"。
+    if 'input_action_asked_frame' in values:
+        action_names = {0: 'LEFT', 1: 'RIGHT', 2: 'UP', 3: 'DOWN', 4: 'SHOOTLEFT', 5: 'SHOOTRIGHT',
+                        6: 'SHOOTUP', 7: 'SHOOTDOWN', 8: 'BOMB', 9: 'ITEM', 10: 'PILLCARD',
+                        11: 'MAP', 12: 'MENUUP?', 13: 'PAUSE', 22: 'MENUUP', 23: 'MENUDOWN',
+                        24: 'MENULEFT', 25: 'MENURIGHT', 26: 'MENUCONFIRM', 27: 'MENUBACK'}
+        kind_names = {0: 'IsActionTriggered', 1: 'IsActionPressed', 2: 'GetActionValue'}
+        frames = [first_u32(values, 'input_action_asked_frame', index) for index in range(32)]
+        newest = max(frames)
+        print()
+        print('=== 每个动作"最后一次被问"的现场（批次 217：判"按下那一刻菜单问没问、我们答了什么"）===')
+        if newest == 0:
+            print('  一次都还没问过任何动作（帧号全 0）')
+        else:
+            recent = 0
+            for index in range(32):
+                asked = frames[index]
+                if asked == 0 or newest - asked > 180:
+                    continue
+                recent += 1
+                kind = first_u32(values, 'input_action_asked_kind', index)
+                controller = first_u32(values, 'input_action_asked_controller', index)
+                raw = first_u32(values, 'input_action_asked_answer', index)
+                if kind == 2:
+                    import struct as _struct
+                    answer = f'值 {_struct.unpack("<f", _struct.pack("<I", raw))[0]:.4f}'
+                else:
+                    answer = 'true' if raw else 'false'
+                label = action_names.get(index, '?')
+                print(f'  动作 {index:2d}（{label}）: {kind_names.get(kind, kind):18s}'
+                      f' controller={controller}  答 {answer}'
+                      f'  （第 {asked} 帧，比最新一次早 {newest - asked} 帧）')
+            if recent == 0:
+                print(f'  最近 180 帧内一次都没问过（最新一次提问在第 {newest} 帧）')
+        print('  ⇒ 判据：**用户按下的那一刻** ① 问了且我们答 true ⇒ 问题在模组自己的导航逻辑（不是我们）；'
+              '② 问了但我们答 false ⇒ 查我们的查询链（手柄号/设备/引擎判定）；③ 压根没被问 ⇒ 模组没走到那一步。')
+
+        # 批次 218：**按键侧**的同一套现场 + "菜单走了哪个分支"的判据。
+        # 中文版 MCM 每帧先问 `MultipleButtonTriggered({DPAD_LEFT..DPAD_DOWN, BUTTON_A..Y})`，
+        # **任一为真就整块跳过动作导航** ⇒ 那一问的答案决定菜单走哪个分支。
+        if 'input_button_asked_frame' in values:
+            button_names = {0: 'DPAD_LEFT', 1: 'DPAD_RIGHT', 2: 'DPAD_UP', 3: 'DPAD_DOWN',
+                            4: 'BUTTON_A', 5: 'BUTTON_B', 6: 'BUTTON_X', 7: 'BUTTON_Y',
+                            8: 'BUMPER_LEFT', 9: 'TRIGGER_LEFT', 10: 'STICK_LEFT',
+                            11: 'BUMPER_RIGHT', 12: 'TRIGGER_RIGHT', 13: 'STICK_RIGHT',
+                            14: 'BUTTON_BACK', 15: 'BUTTON_START'}
+            kind_names_b = {0: 'IsButtonTriggered', 1: 'IsButtonPressed', 2: 'GetButtonValue'}
+            frames_b = [first_u32(values, 'input_button_asked_frame', index) for index in range(32)]
+            newest_b = max(frames_b)
+            # ★ 2026-10-08（排查 MCM 打不开）：**按键 13 / 10 的专项**（不过滤 180 帧）。
+            #   为什么非要有：下面那张表会把"180 帧内没问过"的行整行丢掉 ⇒ 看不出
+            #   "到底一次都没问过 / 问过但很早"。而 MCM 的开菜单判定是
+            #   `if ControlsEnabled and not isPaused then … for i=0,4 do IsButtonTriggered(13,i) …`
+            #   ⇒ **它只要在跑，就会每帧问 13** ⇒ 这一格的"最后被问帧号"是不是贴着当前帧，
+            #   是判"它跑到那一句没有"的唯一直接证据。
+            for target in (13, 10):
+                tf = frames_b[target] if target < len(frames_b) else 0
+                tk = first_u32(values, 'input_button_asked_kind', target) if \
+                    'input_button_asked_kind' in values else 0
+                tc = first_u32(values, 'input_button_asked_controller', target) if \
+                    'input_button_asked_controller' in values else 0
+                ta = first_u32(values, 'input_button_asked_answer', target) if \
+                    'input_button_asked_answer' in values else 0
+                triggered_f = first_u32(values, 'input_button_triggered_frame', target) if \
+                    'input_button_triggered_frame' in values else 0
+                cnt = first_u32(values, 'input_button_edge_counts', target) if \
+                    'input_button_edge_counts' in values else 0
+                age = (newest_b - tf) if tf else -1
+                print(f'  ★ 按键 {target}（{button_names.get(target, "?")}）专项：'
+                      f'最后被问 = 第 {tf} 帧（最新一次提问在第 {newest_b} 帧 ⇒ 差 {age} 帧）'
+                      f'｜问的是 {kind_names_b.get(tk, tk)}｜controller = {tc}'
+                      f'（4294967295 = 任意设备）｜那次答 {"true" if ta else "false"}')
+                print(f'        ⇒ 累计报过边沿 {cnt} 次｜**最后一次真的报 true 的帧号 = {triggered_f}**'
+                      f'（0 = 从未）；★ 若"最后被问"贴着当前帧而"报 true"的帧号是最近按下的那一下，'
+                      f'说明边沿确实送到了；若"最后被问"是个很旧的帧号 ⇒ 模组根本没问到这一句')
+            print()
+            print('=== 每个按键"最后一次被问"的现场（批次 218：判"菜单走按键分支还是动作分支"）===')
+            if newest_b == 0:
+                print('  一次都还没问过任何按键号（帧号全 0）')
+            else:
+                recent_b = 0
+                for index in range(32):
+                    asked = frames_b[index]
+                    if asked == 0 or newest_b - asked > 180:
+                        continue
+                    recent_b += 1
+                    kind = first_u32(values, 'input_button_asked_kind', index)
+                    controller = first_u32(values, 'input_button_asked_controller', index)
+                    raw = first_u32(values, 'input_button_asked_answer', index)
+                    if kind == 2:
+                        import struct as _struct
+                        answer = f'值 {_struct.unpack("<f", _struct.pack("<I", raw))[0]:.4f}'
+                    else:
+                        answer = 'true' if raw else 'false'
+                    print(f'  按键 {index:2d}（{button_names.get(index, "?"):12s}）: '
+                          f'{kind_names_b.get(kind, kind):18s} controller={controller}  答 {answer}'
+                          f'  （第 {asked} 帧，比最新一次早 {newest_b - asked} 帧）')
+                if recent_b == 0:
+                    print(f'  最近 180 帧内一次都没问过（最新一次提问在第 {newest_b} 帧）')
+            if 'input_button_edge_counts' in values:
+                counts_b = []
+                for word in values['input_button_edge_counts']:
+                    counts_b.append(word & 0xFFFFFFFF)
+                    counts_b.append((word >> 32) & 0xFFFFFFFF)
+                fired_b = [f'{button_names.get(code, code)}={counts_b[code]}'
+                           for code in range(32) if counts_b[code]]
+                print(f'  按键侧"刚按下"累计报过几次：'
+                      + (', '.join(fired_b) if fired_b else '（一次都没报过）'))
+            print('  ⇒ 判据：⑧ D-pad/A/B/X/Y（按键号 0..7）里**只要有一个答 true**，中文版 MCM 就会'
+                  '**整块跳过动作导航**走按键分支（它的源码是 `MultipleButtonTriggered(ignoreActionButtons)`）'
+                  '⇒ 此时"方向上/下能选"与动作侧无关，要查的是按钮那一问。')
+
+        # 批次 379：**上升沿表本体** —— 把"引擎没答按住"与"我们的边沿没成立"分开。
+        # 前面那组只能告诉你"模组问过、我们答 false"；两种病因的修法完全不同：
+        #   * `lastPressedFrame` 有值（引擎答过一次"按住"）而边沿没报 ⇒ **我们的边沿判定**要修
+        #     （相邻帧、帧号来源、同一格被别的设备号串用……）；
+        #   * `lastPressedFrame` 一直是 `0xFFFFFFFF` ⇒ **引擎从来没对这台设备答过这个键的按住**
+        #     ⇒ 查设备号翻译 / 按键号（PC 的号在 Switch 上是不是同一个）。
+        # ★ 更正（批次 381，2026-10-06）：上面两条判据文字是按**旧语义**写的（原文保留只作历史）：
+        #   +8 那个字段已由 `lastPressedFrame` 改名为 `lastEdgeFrame`，且语义从"上一次**读到按住**
+        #   的帧号"变成"**上一次边沿**的帧号"。⇒ 旧判据里的"有值而边沿没报"在新机制下不再成立
+        #   （有边沿才会留下帧号）。新机制下要判"我们的判定没成立"应改看 `input_sample_*` 那 5 个量
+        #   （采样在不在跑、采了几个、有没有失败）。
+        for row_key, row_label in (('input_button_edge_row_gamepad', '设备 33（第 1 台手柄）'),
+                                   ('input_button_edge_row_any', '0xFFFFFFFF（任意设备）')):
+            if row_key not in values:
+                continue
+            raw = words_to_bytes(values[row_key])
+            if len(raw) < BUTTON_EDGE_ROW_BYTES:
+                continue
+            # 名字表与上面那组**分开**抄一份：上面那份定义在它自己的 `if` 里，这里不能借。
+            edge_button_names = {0: 'DPAD_LEFT', 1: 'DPAD_RIGHT', 2: 'DPAD_UP', 3: 'DPAD_DOWN',
+                                 4: 'BUTTON_A', 5: 'BUTTON_B', 6: 'BUTTON_X', 7: 'BUTTON_Y',
+                                 8: 'BUMPER_LEFT', 9: 'TRIGGER_LEFT', 10: 'STICK_LEFT',
+                                 11: 'BUMPER_RIGHT', 12: 'TRIGGER_RIGHT', 13: 'STICK_RIGHT',
+                                 14: 'BUTTON_BACK', 15: 'BUTTON_START'}
+            print()
+            print(f'=== 按键侧上升沿表（批次 379）：行 {1 if "gamepad" in row_key else 31} = {row_label} ===')
+            touched = 0
+            for code in range(32):
+                offset = code * BUTTON_EDGE_ENTRY_BYTES
+                frame = int.from_bytes(raw[offset:offset + 4], 'little')
+                edge = raw[offset + 4]
+                held = raw[offset + 5]
+                last_pressed = int.from_bytes(raw[offset + 8:offset + 12], 'little')
+                release_run = raw[offset + 12]
+                peak_release = raw[offset + 13]
+                if (frame == BUTTON_EDGE_NO_FRAME and not edge and not held
+                        and last_pressed == BUTTON_EDGE_NO_FRAME):
+                    continue
+                touched += 1
+                last_text = ('从未答过"按住"' if last_pressed == BUTTON_EDGE_NO_FRAME
+                             else f'第 {last_pressed} 帧')
+                print(f'  按键 {code:2d}（{edge_button_names.get(code, "?"):12s}）: '
+                      f'最后采样 = 第 {frame} 帧｜按住 = {"是" if held else "否"}｜'
+                      f'本帧报边沿 = {"是" if edge else "否"}｜上次读到按住 = {last_text}｜'
+                      f'连续松开 {release_run} 帧（峰值 {peak_release}）')
+            if touched == 0:
+                print('  这一行一个键都没被问过（没有任何 `IsButtonTriggered` 调用方用这个设备号）')
+            else:
+                print('  ⇒ 判据：某个键 `上次读到按住` 有帧号、而"按键侧刚按下累计报过几次"里是 0'
+                      ' ⇒ 是我们的边沿判定没成立（查相邻帧/帧号来源），**不是**引擎没答；'
+                      '一直是"从未答过" ⇒ 引擎对这个（设备号，按键号）压根没答过"按住"'
+                      '（查设备号翻译与按键号本身）。')
+                # ★ 更正（批次 381，2026-10-06）：上面一行里的字段现在叫 `lastEdgeFrame`，
+                #   语义 = "**上一次边沿**的帧号"（不再是"上次读到按住"）⇒ 印出的那一列应按
+                #   "上次边沿帧"读；旧判据"有边沿帧而计数为 0 ⇒ 我们的判定没成立"仍可用，但
+                #   判"没采样"要看上面那 5 个 `input_sample_*`。
+                print('  ★ 更正（批次 381，2026-10-06）：本列字段已改名 `lastEdgeFrame`，'
+                      '现在记**上一次边沿**的帧号（不再是"上次读到按住"）。')
+
+        # 批次 219：**"最后一次真的被激活"的帧号** —— 这是回答"推下的时候到底激活了哪个动作号"的唯一手段
+        # （217/218 那两族记的是"最后一次被问时答什么"，而 MCM 每帧都问 ⇒ 永远读到"此刻的输入状态"）。
+        if 'input_action_held_frame' in values:
+            held_names = {0: 'LEFT', 1: 'RIGHT', 2: 'UP', 3: 'DOWN', 4: 'SHOOTLEFT', 5: 'SHOOTRIGHT',
+                          6: 'SHOOTUP', 7: 'SHOOTDOWN', 9: 'ITEM', 10: 'PILLCARD', 11: 'MAP',
+                          12: 'PAUSE', 13: 'MAP', 14: 'MENUCONFIRM', 15: 'MENUBACK',
+                          16: 'FULLSCREEN', 17: 'MUTE', 18: 'RESTART', 19: 'JOINMULTIPLAYER',
+                          20: 'MENULEFT', 21: 'MENURIGHT', 22: 'MENUUP', 23: 'MENUDOWN',
+                          24: 'MENULT', 25: 'MENURT', 26: 'MENUTAB', 28: 'CONSOLE'}
+            held_action = [first_u32(values, 'input_action_held_frame', i) for i in range(32)]
+            trig_button = [first_u32(values, 'input_button_triggered_frame', i) for i in range(32)]
+            newest_h = max(max(held_action), max(trig_button))
+            print()
+            print('=== 每个动作/按键"最后一次真的被激活"的帧号（批次 219）===')
+            if newest_h == 0:
+                print('  一次都还没激活过（帧号全 0）')
+            else:
+                for index in range(32):
+                    if held_action[index]:
+                        print(f'  动作 {index:2d}（{held_names.get(index, "?"):14s}）: '
+                              f'第 {held_action[index]} 帧（比最新早 {newest_h - held_action[index]} 帧）')
+                for index in range(32):
+                    if trig_button[index]:
+                        print(f'  按键 {index:2d}（{button_names.get(index, "?"):12s}）: '
+                              f'第 {trig_button[index]} 帧（比最新早 {newest_h - trig_button[index]} 帧）')
+            print('  ⇒ 判据（按**一次**方向之后读它）：那几个帧号就是"这一次按下的动作号 / 按键号"。')
+            print('     ★ 推"下"却只有动作 2（UP）的帧号在动 ⇒ 引擎把下映射成了上（查查询链/绑定）；')
+            print('     ★ 同一帧里**按键与动作都动** ⇒ 菜单当帧会切到按键分支（方向导航整块不生效，模组自己的设计）。')
+
+    # 批次 222：每帧"全动作快照" —— 我们**自己**把全部动作号 / 按键号各问一遍。
+    # 为什么需要它：批次 217/218 的探针**只记"模组问过的"**（MCM 只问 10 个号），
+    # 而真机现象是"推摇杆下时只有 `ACTION_PILLCARD(10)` 为真、`ACTION_DOWN(3)` 恒假"
+    # ⇒ 另外 18 个号必须看得见，才能判"引擎把'下'接到了哪一项"。
+    if 'input_action_snapshot_pressed' in values:
+        import struct as _struct
+        snapshot_frame = first_u32(values, 'input_snapshot_frame')
+        action_mask = first_u32(values, 'input_action_snapshot_pressed')
+        button_mask = first_u32(values, 'input_button_snapshot_pressed')
+        snapshot_button_names = {
+            0: 'DPAD_LEFT', 1: 'DPAD_RIGHT', 2: 'DPAD_UP', 3: 'DPAD_DOWN',
+            4: 'BUTTON_A', 5: 'BUTTON_B', 6: 'BUTTON_X', 7: 'BUTTON_Y',
+            8: 'BUMPER_LEFT', 9: 'TRIGGER_LEFT', 10: 'STICK_LEFT',
+            11: 'BUMPER_RIGHT', 12: 'TRIGGER_RIGHT', 13: 'STICK_RIGHT',
+            14: 'BUTTON_BACK', 15: 'BUTTON_START',
+        }
+        print()
+        print('=== 每帧"全动作快照"（批次 222：**我们自己**把全部动作号 / 按键号各问一遍）===')
+        print(f'  快照帧号 = {snapshot_frame}'
+              '（与上面"最后一次被问"的帧号对照，即可知这份快照是不是这一刻的）')
+        if action_mask == 0 and button_mask == 0:
+            print('  （两个位图都是 0 ⇒ 读数这一刻没有任何动作 / 按键被按住）')
+        if action_mask:
+            got = [f'{a}:{NATIVE_MODS_ACTIONS.get(a, "?")}'
+                   for a in range(32) if (action_mask >> a) & 1]
+            print(f'  答"按住"的动作号 = 0x{action_mask:08x} ⇒ ' + ', '.join(got))
+        if button_mask:
+            got = [f'{b}:{snapshot_button_names.get(b, "?")}'
+                   for b in range(32) if (button_mask >> b) & 1]
+            print(f'  答"按住"的按键号 = 0x{button_mask:08x} ⇒ ' + ', '.join(got))
+        nonzero = []
+        for action in range(32):
+            bits = first_u32(values, 'input_action_snapshot_value', action)
+            value = _struct.unpack('<f', _struct.pack('<I', bits))[0]
+            if value != 0.0 and value == value:      # 排除 NaN
+                nonzero.append((action, value))
+        print('  `GetActionValue` 非 0 的动作号（判"模拟量数组填到了哪一格"）：'
+              + ('（全 0 ⇒ 说明"按住"全部来自按钮绑定，没有模拟量参与）' if not nonzero else ''))
+        for action, value in nonzero:
+            print(f'    动作 {action:2d}（{NATIVE_MODS_ACTIONS.get(action, "?")}）: {value:+.4f}')
+        print('  ⇒ 判据：**推"下"却在某一行看到不相干的动作号 ⇒ 引擎的"动作 ↔ 输入"绑定把它接到那儿了**；')
+        print('     若 `GetActionValue` 里"有值的那一格"也不是 3 ⇒ 那是**索引错位**（两者要的修法不同）。')
+
+    # 批次 223："动作 → 绑定的按钮码"表的现场 —— 查"+17 错位"的**根因**。
+    # 真机上"推左/右/下"时引擎**同时**答 `action` 与 `action+17` 为真（左⇒0&17、右⇒1&18、下⇒3&20）
+    # ⇒ 要看的是"第 i 项与第 i+17 项绑的是不是同一个输入"。
+    if 'input_binding_dump_done' in values:
+        dump_done = first_u32(values, 'input_binding_dump_done')
+        binding_count = first_u32(values, 'input_binding_action_count')
+        print()
+        print('=== "动作 → 绑定的按钮码"表（批次 223：查"+17 错位"的根因；表只采一次）===')
+        if not dump_done:
+            print('  （还没采到：设备表/表指针读不到，或这次会话没走到输入查询 —— 推一下方向再读一次）')
+        else:
+            rows = {}
+            for action in range(32):
+                ptr = first_u32(values, 'input_binding_ptr', action)
+                codes = tuple(first_u32(values, 'input_binding_codes', action * 4 + slot)
+                              for slot in range(4))
+                rows[action] = (ptr, codes)
+            limit = min(binding_count, 32)
+            print(f'  设备里的动作数 = {binding_count}')
+            for action in range(limit):
+                ptr, codes = rows[action]
+                name = NATIVE_MODS_ACTIONS.get(action, '?')
+                shown = ', '.join(f'{code:#x}' for code in codes)
+                print(f'  动作 {action:2d}（{name:22s}）数组指针 = {ptr:#010x}、按钮码 = [{shown}]')
+            print('  ⇒ 判据：**第 i 项与第 i+17 项的按钮码完全相同** ⇒ 坐实"同一个输入被绑到了两个动作"，'
+                  '根源修法就是**改那张表**（清掉多余的一份），不必在外面拦。')
+            for action in range(limit):
+                other = action + 17
+                if other >= limit:
+                    break
+                same_codes = rows[action][1] == rows[other][1]
+                same_ptr = rows[action][0] == rows[other][0]
+                if same_codes and any(rows[action][1]):
+                    print(f'     ★ 动作 {action} 与动作 {other} 的按钮码相同'
+                          f'（{"同一个数组" if same_ptr else "两份独立但内容相同的数组"}）：'
+                          f'{rows[action][1]}')
+
+    # 批次 224：设备**内部**输入状态的原始值（模拟量 / 位图 / 死区）—— **不经过任何 API**。
+    # 为什么要这么"原始"：批次 222/223 已经踩过一次"API 说的和引擎内部读的对不上"，
+    # 而 `IsActionPressed` 的判定是「绑定的按钮按下 **或** `analog[action] > 死区`」
+    # ⇒ 只有把 `+0xd0` 那 24 格看原样，才能回答"多报出来的那个动作号是哪一格有值"。
+    if 'input_device_state_dump_count' in values:
+        import struct as _struct3
+        dumps = first_u32(values, 'input_device_state_dump_count')
+        enabled = first_u32(values, 'input_device_state_enabled')
+        device_action_count = first_u32(values, 'input_device_state_action_count')
+        keys_cur = first_u32(values, 'input_device_state_keys_current')
+        keys_prev = first_u32(values, 'input_device_state_keys_previous')
+        stick_cur = first_u32(values, 'input_device_state_stick_current')
+        stick_prev = first_u32(values, 'input_device_state_stick_previous')
+        deadzone = _struct3.unpack(
+            '<f', _struct3.pack('<I', first_u32(values, 'input_device_state_deadzone')))[0]
+        deadzone_alt = _struct3.unpack(
+            '<f', _struct3.pack('<I', first_u32(values, 'input_device_state_deadzone_alt')))[0]
+        print()
+        print('=== 设备内部输入状态（批次 224：原始格子，**不经过任何 API**）===')
+        if dumps == 0:
+            print('  （还没采到：设备对象没找到或还没建好 —— 推一下方向再读一次）')
+        else:
+            print(f'  设备启用 = {enabled}、动作数 = {device_action_count}、本会话采样 {dumps} 次')
+            print(f'  死区 = {deadzone:.4f}（`+0xe4`，动作判定用）、另一个 = {deadzone_alt:.4f}（`+0xe0`）')
+            print(f'  按键位图：本帧 = {keys_cur:#010x}、上帧 = {keys_prev:#010x}')
+            print(f'  摇杆方向位图：本帧 = {stick_cur:#010x}、上帧 = {stick_prev:#010x}')
+            axes = [_struct3.unpack(
+                '<f', _struct3.pack('<I', first_u32(values, 'input_device_state_axes', i)))[0]
+                for i in range(8)]
+            print('  8 个轴幅值（`+0x50`..`+0x6c`）= ' + ', '.join(f'{v:+.3f}' for v in axes))
+            print('  ★ 每动作模拟量（`+0xd0[action]`）—— **这才是 `IsActionPressed` 真正读的那一份**：')
+            any_value = False
+            for action in range(32):
+                raw = first_u32(values, 'input_device_state_action_value', action)
+                value = _struct3.unpack('<f', _struct3.pack('<I', raw))[0]
+                if value != 0.0 and value == value:
+                    any_value = True
+                    verdict = '　← ★ 超过死区 ⇒ 引擎会把这个动作答成"按住"' if value > deadzone else ''
+                    print(f'    动作 {action:2d}（{NATIVE_MODS_ACTIONS.get(action, "?")}）:'
+                          f' {value:+.4f}{verdict}')
+            if not any_value:
+                print('    （全 0 ⇒ 没有任何"模拟量"参与，"按住"全部来自按钮绑定）')
+            print('  ⇒ 判据：**标了 ★ 的那几行就是引擎认为"被按住"的动作** ——'
+                  ' 多报出来的号若出现在这里，修法就是把这格的值归零/纠正；')
+            print('     若它不在这里（值没超死区却仍被答成按住）⇒ 那是"按钮绑定"那条路，回头查表。')
+
+    # 批次 225：设备对象**整块原始内存**（用户要求"读全"—— 不再逐字段猜，字段解释留给读数之后）。
+    if 'input_device_raw_dump_count' in values:
+        import struct as _struct4
+        raw_count = first_u32(values, 'input_device_raw_dump_count')
+        device_pointer = (first_u32(values, 'input_device_raw_pointer_high') << 32) | \
+            first_u32(values, 'input_device_raw_pointer_low')
+        device_id = first_u32(values, 'input_device_raw_id')
+        print()
+        print('=== 设备对象原始内存（批次 225「读全」版：原始字节端上来，解释放在后面）===')
+        if raw_count == 0:
+            print('  （还没采到：设备对象没找到或还没建好 —— 推着方向再读一次）')
+        else:
+            print(f'  设备对象指针 = {device_pointer:#018x}、设备号 = {device_id}、采样 {raw_count} 次')
+            table_count = first_u32(values, 'input_device_table_count')
+            selected_id = first_u32(values, 'input_device_selected_id')
+            print(f'  设备表里共 {table_count} 台；**当次选中**的设备号 = {selected_id}'
+                  + ('（0 = 一台都没选中）' if selected_id == 0 else ''))
+            print('  （★ 批次 226：这几行与下面的原始内存是**同一帧、同一次解析**采的 ——'
+                  ' 上一版把设备指针缓存了，会出现"表里没有手柄、却还拿旧指针读内容"的自相矛盾）')
+            for index in range(min(table_count, 8)):
+                low = first_u32(values, 'input_device_table_pointer', index)
+                high = first_u32(values, 'input_device_table_pointer_high', index)
+                did = first_u32(values, 'input_device_table_id', index)
+                if low == 0xFFFFFFFF and high == 0xFFFFFFFF:
+                    print(f'    第 {index} 台：**读失败**（哨兵 ⇒ 不是"值真的是 0"）')
+                else:
+                    print(f'    第 {index} 台：指针 = {(high << 32) | low:#018x}、设备号 = {did}')
+            head = [first_u32(values, 'input_device_raw_head', i) for i in range(128)]
+            known_fields = {
+                0x00: 'vtable（低 32 位）', 0x08: '设备号 GetId', 0x0C: '标志字节（有 setter）',
+                0x0D: '设备启用字节', 0x1C: '动作数', 0x20: '动作→按钮数组的指针表',
+                0x30: '本帧按键位图', 0x38: '上帧按键位图',
+                0x40: '本帧摇杆方向位图', 0x48: '上帧摇杆方向位图',
+                0x50: '（Poll 摇杆段起点）', 0xD0: '每动作模拟量 指针（本帧）',
+                0xD8: '每动作模拟量 指针（上帧）', 0xE0: '死区 A', 0xE4: '死区 B（动作判定用）',
+            }
+            print('  ★ 原始 128 个 u32（`+0x00`..`+0x1FF`），每行 4 个：')
+            for row in range(0, 128, 4):
+                cells = '  '.join(f'{head[row + col]:#010x}' for col in range(4))
+                note = ''
+                for known_offset, text in known_fields.items():
+                    if known_offset // 4 == row:
+                        note = f'   ← {text}'
+                        break
+                print(f'    +0x{row * 4:03x}: {cells}{note}')
+            print('  ★ 这一段里**非 0 且不是已知字段**的格子（先看这些）：')
+            for index, word in enumerate(head):
+                offset = index * 4
+                if word != 0 and offset not in known_fields:
+                    as_float = _struct4.unpack('<f', _struct4.pack('<I', word))[0]
+                    print(f'    +0x{offset:03x}: {word:#010x}（当 float 看 ≈ {as_float:+.4f}）')
+            tail = [first_u32(values, 'input_device_raw_tail', i) for i in range(40)]
+            print('  ★ 原始 40 个 u32（`+0x400`..`+0x49F`，`Poll` 的摇杆段里出现过 `+0x478`）：')
+            for row in range(0, 40, 4):
+                cells = '  '.join(f'{tail[row + col]:#010x}' for col in range(4))
+                print(f'    +0x{0x400 + row * 4:03x}: {cells}')
+            for label, key, offset in (('本帧', 'input_device_raw_values', 0xD0),
+                                       ('上帧', 'input_device_raw_values_previous', 0xD8)):
+                floats = [_struct4.unpack(
+                    '<f', _struct4.pack('<I', first_u32(values, key, i)))[0] for i in range(32)]
+                nonzero = [(i, v) for i, v in enumerate(floats) if v != 0.0 and v == v]
+                print(f'  ★ `*(设备+{offset:#x})` 指向的那 32 格（{label}）：'
+                      + ('（全 0）' if not nonzero else ''))
+                for index, value in nonzero:
+                    print(f'    [{index:2d}] = {value:+.4f}'
+                          + ('   ← 超过 0.5 死区 ⇒ 会被答成"按住"' if abs(value) > 0.5 else ''))
+        print('  ⇒ 说明：上面是**原始字节**。把"引擎自己对每个动作的答案"（上一节）与这里的格子对齐，')
+        print('     就能看出"哪个动作号是被哪一格/哪一位撑起来的"—— 这一步在读数之后做，不在设备上做。')
+
+    # 批次 235：启动期"读模组"分段计时（只在 `DIAGNOSTIC_PROBES=1` 的包里存在）。
+    # ★ 判据用**符号在不在**（`SYMS` 是 defaultdict，缺的键取出来是 0 ⇒ 只按"值是不是 0"
+    #   判断会把"正式包"和"这次没走到这条路"混起来）。正式包没有这个符号 ⇒ 整段不打印。
+    if SYMS.get('g_LoadTotalMicros'):
+        print()
+        print('=== 启动期「读模组」分段计时（批次 235；只在 DIAGNOSTIC_PROBES=1 的包里存在）===')
+        total = first_u32(values, 'load_total_micros')
+        if total == 0:
+            print('  总耗时 = 0 ⇒ 这段没跑到（或本次是"跳过读模组"那条路：卡上有 `no-lua.on`）')
+            print('  （也可能这份 ELF 是在宿主上跑的：宿主侧 `cntpct_el0` 读数恒 0 ⇒ 全是 0）')
+        else:
+            phase_names = {
+                0: '整个加载函数',
+                1: '读清单 + 列目录 + 读存档里的模组开关',
+                2: '给每个模组注册内容挂载点',
+                3: '把模组的 content 喂给引擎（LoadCostumes / Music::LoadConfig）',
+                4: '我们自带菜单那个模组',
+                5: '跑所有模组脚本（逐个读 SD 上的入口脚本并执行）',
+            }
+            print(f'  ★ 整个加载函数总耗时 = {total} µs（约 {total / 1000.0:.1f} ms）')
+            used = first_u32(values, 'load_frames_used')
+            if used == 1:
+                print('  ★★ 这条加载**只跨了 1 帧** ⇒ 拆帧**没生效**（整条路还是在一帧里跑完）'
+                      '—— 那是拆帧实现的问题，不是模组的问题')
+            elif used:
+                print(f'  ★ 这条加载跨了 {used} 帧（≈{used / 60.0:.2f} 秒 @60fps）'
+                      f'⇒ 拆帧生效了；若画面仍看起来"卡住"，说明**每一帧仍然很重**')
+            else:
+                print('  （跨帧数 = 0 ⇒ 走的可能是"跳过读模组"那条路）')
+            for index in range(6):
+                micros = u32_at(values, 'load_phase_micros', index)
+                name = phase_names.get(index, f'（下标 {index}）')
+                share = (micros * 100.0 / total) if total else 0.0
+                print(f'    [{index}] {name:<52} {micros:>9} µs  （{share:5.1f}%）')
+            count = first_u32(values, 'mod_load_count')
+            total_mods = first_u32(values, 'mod_load_total')
+            print(f'  逐模组耗时（本次共 {total_mods} 个模组，记下了 {count} 个）：')
+            if count == 0:
+                print('    （一个都没记下 ⇒ `LoadAll` 没进循环，或没走到那个计时点）')
+            for index in range(min(count, 16)):
+                print(f'    #{index}: {u32_at(values, "mod_load_micros", index):>9} µs')
+            print('  ⇒ 判读：哪一段占大头，修法就落在哪 —— 见 `runtime/source/load_phase_probe.hpp` 顶部的分支说明。')
+
+    # 批次 227：一致性验证 —— "我读的表"在变吗？"我选的项"在表里吗？
+    if 'input_device_raw_manager_low' in values:
+        manager_ptr = (first_u32(values, 'input_device_raw_manager_high') << 32) | \
+            first_u32(values, 'input_device_raw_manager_low')
+        begin1 = (first_u32(values, 'input_device_raw_begin_high') << 32) | \
+            first_u32(values, 'input_device_raw_begin_low')
+        end1 = (first_u32(values, 'input_device_raw_end_high') << 32) | \
+            first_u32(values, 'input_device_raw_end_low')
+        begin2 = (first_u32(values, 'input_device_raw_begin_pass2_high') << 32) | \
+            first_u32(values, 'input_device_raw_begin_pass2_low')
+        end2 = (first_u32(values, 'input_device_raw_end_pass2_high') << 32) | \
+            first_u32(values, 'input_device_raw_end_pass2_low')
+        selected_index = first_u32(values, 'input_device_selected_index')
+        print()
+        print('=== 一致性验证（批次 227）：我读的表在变吗？我选的项在表里吗？===')
+        print(f'  `manager` 指针 = {manager_ptr:#018x}')
+        print(f'  第 1 遍：向量 begin = {begin1:#018x}、end = {end1:#018x}'
+              f'（{max(end1 - begin1, 0) // 8} 项）')
+        print(f'  第 2 遍：向量 begin = {begin2:#018x}、end = {end2:#018x}'
+              f'（{max(end2 - begin2, 0) // 8} 项）')
+        if begin1 == begin2 and end1 == end2:
+            print('  ⇒ 两遍的向量范围**相同** ⇒ **表没有变**：'
+                  '那"选中 33 却表里没有 33"就只能是"选"与"打印"用的不是同一处')
+        else:
+            print('  ⇒ ★ 两遍的向量范围**不同** ⇒ **表在两次读之间变了/被重建**'
+                  '（那就把采样固定在进局稳定之后的时刻，别在切换瞬间采）')
+        failures = first_u32(values, 'input_device_table_read_failures')
+        print(f'  读表失败次数（累计）= {failures}'
+              + ('　⇒ 有格子读不到，"读失败"那种行是正常的，**别当成"值是 0"**'
+                 if failures else '（0 = 每次都读到了）'))
+        count2 = first_u32(values, 'input_device_table_pass2_count')
+        print(f'  第 2 遍的表内容（共 {count2} 项）：')
+        for index in range(min(count2, 8)):
+            low = first_u32(values, 'input_device_table_pass2_pointer', index)
+            high = first_u32(values, 'input_device_table_pass2_pointer_high', index)
+            did = first_u32(values, 'input_device_table_pass2_id', index)
+            if low == 0xFFFFFFFF and high == 0xFFFFFFFF:
+                print(f'    第 {index} 台：**读失败**（哨兵 ⇒ 不是"值真的是 0"）')
+            else:
+                print(f'    第 {index} 台：指针 = {(high << 32) | low:#018x}、设备号 = {did}')
+        print('  选中的那台在**第 1 遍**表里的下标 = '
+              + ('**不在表里**（0xFFFFFFFF）⇒ 「选」与「打印」用的**不是同一处**'
+                 if selected_index == 0xFFFFFFFF else str(selected_index)))
+
+    # 批次 214：`Seeds:AddSeedEffect` / `RemoveSeedEffect` 被调用的次数。
+    # 这两条**按设计不生效**（引擎唯一入口吃"名字字符串"，我们拿不到"枚举 → 名字"那条路）
+    # ⇒ 计数 >0 是"模组真的走了那两条、而我们没抛错打断它"的唯一证据；
+    # 计数 =0 且 MCM 明明开过菜单 ⇒ 说明它走的不是这两条（或压根没到那一步），别去查偏移。
+    if 'seeds_effect_write_attempts' in values:
+        attempts = first_u32(values, 'seeds_effect_write_attempts')
+        print()
+        print('=== 种子效果写（`Seeds:AddSeedEffect` / `RemoveSeedEffect`）===')
+        print(f'  被调用 = {attempts} 次'
+              + ('　⇒ 模组真的走了这两条；它们**按设计不生效**（空实现，理由见台账），'
+                 '但**没有抛错**（抛错会打断调用方整条回调）。' if attempts
+                 else '（一次都没被调过）'))
     # 注意：这里**不**用上面那段里的 `catalog_names` —— 它只在"有 API 桶"时才会被赋值
     # （生产构建下桶是空的），照抄会直接 NameError。接口名现算。
     print_degradation_surface()
@@ -3071,6 +6788,14 @@ def print_degradation_surface() -> None:
                 judgement = judgement[:110] + '…'
             print(f'  · 0x{entry.identifier:08X} {name}'
                   f'（kind={entry.kind} / nature={nature or "未归类"}）')
+            # ★ 批次 161：形状两栏（有就打印）。`PC 形状` 不是 nil、我们是 nil 的那些，
+            #   模组照 PC 的用法往下链就会**抛错并把整条回调摘掉**（`GetMainTwin` 那次的事故）
+            #   ⇒ 读数里必须一眼看得见，不能只在台账正文里。
+            if entry.has_pc_shape or entry.has_our_shape:
+                print(f'      形状：PC = {entry.pc_shape or "**缺**"} / '
+                      f'我们 = {entry.our_shape or "**缺**"}'
+                      + ('　← ★ 链式调用会抛错（后果里已写明）'
+                         if entry.needs_chaining_warning else ''))
             print(f'      理由：{reason or "**缺 性质：…——理由：…**（门禁会红）"}')
             print(f'      后果：{consequence or f"**缺 {CONSEQUENCE_MARKER}**（门禁会红）"}')
             print('      ' + (f'判据：{judgement}' if judgement else '**缺判据：……**（门禁会红）'))
@@ -3127,6 +6852,7 @@ def run_two_phase(ip: str, elf: Path, pid: int = 0, base: int = 0, game_base: in
     for label, addr, count in requests:
         cmds.append(f'printf "TAG {label}\\n"')
         cmds.append(f'x/{count}gx 0x{addr:x}')
+    cmds.extend(mod_data_payload_commands(base))
     cmds.append('detach')
     out = run_gdb_batch(cmds)
     values = parse_words(out)
@@ -3158,7 +6884,9 @@ def main() -> int:
                     help='走老流程（四次 attach，费调试桩预算），只在一次挂载失败时用')
     ap.add_argument('--dry-run', action='store_true', help='只测 gdb 管道，不连设备')
     ap.add_argument('--read', default='',
-                    help='额外读任意地址：ADDR:SIZE[,ADDR:SIZE...]（十六进制/十进制都行）。'
+                    help='额外读任意地址：ADDR:WORDS[,ADDR:WORDS...]（地址十六进制/十进制都行；'
+                         '⚠️ **WORDS 是 8 字节字的个数，不是字节数** —— 32 表示 256 字节）。'
+                         '读回来的原始字节会打印成十六进制。'
                          '用途：探针把"像指针"的值记下来之后，直接把那些地址的内容读回来 —— '
                          '不必为了多知道几个字节就再烧一次 attach。')
     ap.add_argument('--from-raw', default='',
@@ -3194,6 +6922,8 @@ def main() -> int:
         game_base = args.game_base or raw_game
         plugin_base = args.plugin_base or raw_plugin
         print(f'离线重放 {args.from_raw}：运行时基址 = 0x{base:x}；游戏模块基址 = 0x{game_base:x}')
+        for key, source in recover_font_storage_from_raw(text, base, values).items():
+            print(f'  恢复 {key} = {values[key][0]}：{source}')
         report(values, base, game_base, plugin_base)
         return 0
 

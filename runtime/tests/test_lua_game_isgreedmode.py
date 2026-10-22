@@ -93,7 +93,8 @@ int main(int argc, char** argv) {
     }
     if (result != LuaRuntime::LuaInitResult::Success) return 2;
     LuaRuntime::DispatchPreGetCollectible(nullptr, 0, 0, 1, 0);
-    if (std::strcmp(scenario, "unreadable") == 0) return LuaRuntime::TakeCallbackError() ? 0 : 3;
+    // 批次 250：`unreadable` 不再"必须报错"—— 读不到时给**回退值 false**（脚本断言的正是
+    // `IsGreedMode() == false`）⇒ 两个场景一律只看"回调有没有**意外**抛错"。
     return LuaRuntime::TakeCallbackError() ? 4 : 0;
 }
 '''.lstrip(), encoding="utf-8")
@@ -146,7 +147,11 @@ int main(int argc, char** argv) {
         self.run_harness("false")
         self.run_harness("true")
 
-    def test_game_isgreedmode_runs_at_top_level_and_rejects_unreadable_native_state(self):
+    def test_game_isgreedmode_runs_at_top_level_and_falls_back_when_state_is_unreadable(self):
+        """批次 250：`unreadable` 的口径从"必须抛错"改成"**回调不抛错**"（读不到 ⇒ 回退 false）。
+
+        理由见 `native_state_fallback.hpp`：抛错会摘掉整条模组回调，代价远大于一个值不对。
+        """
         self.assert_top_level_ran("top_level")
         self.run_harness("unreadable")
 

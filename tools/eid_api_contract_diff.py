@@ -58,6 +58,9 @@ DOMAIN_BYTES = {
     'Global': 0, 'Mod': 1, 'Game': 2, 'Level': 3, 'Room': 4, 'ItemPool': 5,
     'Music': 6, 'Rng': 7, 'Persistence': 8, 'Input': 9, 'Diagnostic': 10,
     'Font': 11, 'Vector': 12, 'Sprite': 13, 'Isaac': 14, 'Seed': 15,
+    # 批次 207（2026-09-29）：`Hud`（域 17，`Game:GetHUD()` 的返回值）、`ModMenu`（16）。
+    # 真值源见 `runtime/src/interfaces/lua/api_descriptor.hpp` 的 `ApiDomain`。
+    'ModMenu': 16, 'Hud': 17,
 }
 
 

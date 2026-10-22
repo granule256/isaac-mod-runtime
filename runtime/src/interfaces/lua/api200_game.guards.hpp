@@ -1,0 +1,78 @@
+#pragma once
+#include "runtime_constants.hpp"
+#include <array>
+#include <cstdint>
+namespace isaac::runtime::api200_game {
+inline constexpr std::uintptr_t kAddEncounteredBossEntry=0x359B98;
+inline constexpr std::array<std::uint8_t,16> kAddEncounteredBossGuard={0xfd,0x7b,0xbb,0xa9,0xfa,0x67,0x01,0xa9,0xfd,0x03,0x00,0x91,0xf8,0x5f,0x02,0xa9};
+inline constexpr std::uintptr_t kButterBeanFartEntry=0x3591DC;
+inline constexpr std::array<std::uint8_t,16> kButterBeanFartGuard={0xff,0x03,0x05,0xd1,0xef,0x3b,0x0a,0x6d,0xed,0x33,0x0b,0x6d,0xeb,0x2b,0x0c,0x6d};
+inline constexpr std::uintptr_t kDonateAngelEntry=0x35AFB4;
+inline constexpr std::array<std::uint8_t,16> kDonateAngelGuard={0x08,0x4f,0x9f,0x52,0xc8,0x04,0xa0,0x72,0x09,0x68,0x68,0xb8,0x29,0x01,0x01,0x0b};
+inline constexpr std::uintptr_t kDonateGreedEntry=0x35AF9C;
+inline constexpr std::array<std::uint8_t,16> kDonateGreedGuard={0x88,0x4e,0x9f,0x52,0xc8,0x04,0xa0,0x72,0x09,0x68,0x68,0xb8,0x29,0x01,0x01,0x0b};
+inline constexpr std::uintptr_t kEndEntry=0x350DE4;
+inline constexpr std::array<std::uint8_t,16> kEndGuard={0xfd,0x7b,0xbc,0xa9,0xf7,0x0b,0x00,0xf9,0xfd,0x03,0x00,0x91,0xf6,0x57,0x02,0xa9};
+inline constexpr std::uintptr_t kFadeinEntry=0x34E490;
+inline constexpr std::array<std::uint8_t,16> kFadeinGuard={0x08,0x0b,0x80,0x52,0xe8,0x05,0xa0,0x72,0x02,0x10,0x2e,0x1e,0x89,0xb5,0x98,0x52};
+inline constexpr std::uintptr_t kFadeoutEntry=0x34E4DC;
+inline constexpr std::array<std::uint8_t,16> kFadeoutGuard={0x88,0x52,0x9f,0x52,0xc8,0x04,0xa0,0x72,0x08,0x00,0x08,0x8b,0x01,0x01,0x40,0xbd};
+inline constexpr std::uintptr_t kFinishChallengeEntry=0x35B360;
+inline constexpr std::array<std::uint8_t,16> kFinishChallengeGuard={0xfd,0x7b,0xbd,0xa9,0xf5,0x0b,0x00,0xf9,0xfd,0x03,0x00,0x91,0xf4,0x4f,0x02,0xa9};
+inline constexpr std::uintptr_t kGetGreedWavesNumEntry=0x359DFC;
+inline constexpr std::array<std::uint8_t,16> kGetGreedWavesNumGuard={0x08,0x05,0x80,0x52,0xe8,0x05,0xa0,0x72,0x08,0x68,0x68,0xb8,0x1f,0x0d,0x00,0x71};
+inline constexpr std::uintptr_t kGetNearestPlayerEntry=0x35A270;
+inline constexpr std::array<std::uint8_t,16> kGetNearestPlayerGuard={0xff,0xc3,0x01,0xd1,0xe8,0x0b,0x00,0xfd,0xfb,0x17,0x00,0xf9,0xfd,0xfb,0x01,0xa9};
+inline constexpr std::uintptr_t kGetRandomPlayerEntry=0x35A0CC;
+inline constexpr std::array<std::uint8_t,16> kGetRandomPlayerGuard={0xff,0xc3,0x01,0xd1,0xe8,0x13,0x00,0xfd,0xf9,0x1f,0x00,0xf9,0xfd,0xfb,0x02,0xa9};
+inline constexpr std::uintptr_t kHasEncounteredBossEntry=0x359D1C;
+inline constexpr std::array<std::uint8_t,16> kHasEncounteredBossGuard={0x08,0x07,0x80,0x52,0xe8,0x05,0xa0,0x72,0x08,0x00,0x08,0x8b,0x08,0x25,0x40,0xa9};
+inline constexpr std::uintptr_t kMakeShockwaveEntry=0x359F90;
+inline constexpr std::array<std::uint8_t,16> kMakeShockwaveGuard={0xff,0x83,0x01,0xd1,0xe9,0x23,0x02,0x6d,0xf5,0x23,0x00,0xf9,0xfd,0x7b,0x03,0xa9};
+inline constexpr std::uintptr_t kNextVictoryLapEntry=0x34FE00;
+inline constexpr std::array<std::uint8_t,16> kNextVictoryLapGuard={0xff,0x83,0x02,0xd1,0xfd,0x7b,0x04,0xa9,0xfd,0x03,0x01,0x91,0xfb,0x2b,0x00,0xf9};
+inline constexpr std::uintptr_t kRerollEnemyEntry=0x35B448;
+inline constexpr std::array<std::uint8_t,16> kRerollEnemyGuard={0xff,0x83,0x03,0xd1,0xea,0x33,0x00,0xfd,0xe9,0x23,0x07,0x6d,0xfd,0x7b,0x08,0xa9};
+inline constexpr std::uintptr_t kRerollLevelCollectiblesEntry=0x35AFCC;
+inline constexpr std::array<std::uint8_t,16> kRerollLevelCollectiblesGuard={0xfd,0x7b,0xba,0xa9,0xfc,0x6f,0x01,0xa9,0xfd,0x03,0x00,0x91,0xfa,0x67,0x02,0xa9};
+inline constexpr std::uintptr_t kRerollLevelPickupsEntry=0x35B0E8;
+inline constexpr std::array<std::uint8_t,16> kRerollLevelPickupsGuard={0xff,0x43,0x02,0xd1,0xfd,0x7b,0x03,0xa9,0xfd,0xc3,0x00,0x91,0xfc,0x6f,0x04,0xa9};
+inline constexpr std::uintptr_t kStartStageTransitionEntry=0x352200;
+inline constexpr std::array<std::uint8_t,16> kStartStageTransitionGuard={0xfd,0x7b,0xbc,0xa9,0xf7,0x0b,0x00,0xf9,0xfd,0x03,0x00,0x91,0xf6,0x57,0x02,0xa9};
+static_assert(kAddEncounteredBossEntry==::kApi200GameAddEncounteredBossOffset);
+static_assert(kAddEncounteredBossGuard==::kApi200GameAddEncounteredBossExpectedBytes);
+static_assert(kButterBeanFartEntry==::kApi200GameButterBeanFartOffset);
+static_assert(kButterBeanFartGuard==::kApi200GameButterBeanFartExpectedBytes);
+static_assert(kDonateAngelEntry==::kApi200GameDonateAngelOffset);
+static_assert(kDonateAngelGuard==::kApi200GameDonateAngelExpectedBytes);
+static_assert(kDonateGreedEntry==::kApi200GameDonateGreedOffset);
+static_assert(kDonateGreedGuard==::kApi200GameDonateGreedExpectedBytes);
+static_assert(kEndEntry==::kApi200GameEndOffset);
+static_assert(kEndGuard==::kApi200GameEndExpectedBytes);
+static_assert(kFadeinEntry==::kApi200GameFadeinOffset);
+static_assert(kFadeinGuard==::kApi200GameFadeinExpectedBytes);
+static_assert(kFadeoutEntry==::kApi200GameFadeoutOffset);
+static_assert(kFadeoutGuard==::kApi200GameFadeoutExpectedBytes);
+static_assert(kFinishChallengeEntry==::kApi200GameFinishChallengeOffset);
+static_assert(kFinishChallengeGuard==::kApi200GameFinishChallengeExpectedBytes);
+static_assert(kGetGreedWavesNumEntry==::kApi200GameGetGreedWavesNumOffset);
+static_assert(kGetGreedWavesNumGuard==::kApi200GameGetGreedWavesNumExpectedBytes);
+static_assert(kGetNearestPlayerEntry==::kApi200GameGetNearestPlayerOffset);
+static_assert(kGetNearestPlayerGuard==::kApi200GameGetNearestPlayerExpectedBytes);
+static_assert(kGetRandomPlayerEntry==::kApi200GameGetRandomPlayerOffset);
+static_assert(kGetRandomPlayerGuard==::kApi200GameGetRandomPlayerExpectedBytes);
+static_assert(kHasEncounteredBossEntry==::kApi200GameHasEncounteredBossOffset);
+static_assert(kHasEncounteredBossGuard==::kApi200GameHasEncounteredBossExpectedBytes);
+static_assert(kMakeShockwaveEntry==::kApi200GameMakeShockwaveOffset);
+static_assert(kMakeShockwaveGuard==::kApi200GameMakeShockwaveExpectedBytes);
+static_assert(kNextVictoryLapEntry==::kApi200GameNextVictoryLapOffset);
+static_assert(kNextVictoryLapGuard==::kApi200GameNextVictoryLapExpectedBytes);
+static_assert(kRerollEnemyEntry==::kApi200GameRerollEnemyOffset);
+static_assert(kRerollEnemyGuard==::kApi200GameRerollEnemyExpectedBytes);
+static_assert(kRerollLevelCollectiblesEntry==::kApi200GameRerollLevelCollectiblesOffset);
+static_assert(kRerollLevelCollectiblesGuard==::kApi200GameRerollLevelCollectiblesExpectedBytes);
+static_assert(kRerollLevelPickupsEntry==::kApi200GameRerollLevelPickupsOffset);
+static_assert(kRerollLevelPickupsGuard==::kApi200GameRerollLevelPickupsExpectedBytes);
+static_assert(kStartStageTransitionEntry==::kApi200GameStartStageTransitionOffset);
+static_assert(kStartStageTransitionGuard==::kApi200GameStartStageTransitionExpectedBytes);
+}

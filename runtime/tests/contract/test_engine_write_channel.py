@@ -28,8 +28,13 @@
 `WriteField`），两个 TU 只剩一行委托。**契约意图一条没变**：写只有一个驱动点、写之前必须先
 确认可写、且不许拿读缓存给写路径放行。
 
-另外钉住"写入口不滥开"：`EntityPlayer` 目前只放行 `ControlsCooldown`，别的字段名必须报错
-（PC 里那些字段是否可写、写了之后引擎会不会崩，我们**没有**证据）。
+另外钉住"写入口不滥开"：`EntityPlayer` 只放行**取证过**的字段
+（`ControlsCooldown` / `ControlsEnabled` / `Velocity` / `Position` / 六个战斗属性），别的字段名必须报错。
+★ 2026-09-30（批次 212）改口径：原来只放行 `ControlsCooldown`，真机证明那样会把模组的
+**整条回调**掐死（MCM 打开菜单时冻住玩家，第 1625 行 `player.Velocity = vecZero` 就抛错
+⇒ 菜单永远画不出来）。放行的每个字段都有引擎自己的读点/写点当锚点。
+★ 2026-10-07（批次 405）：再放开 `Damage`/`MoveSpeed`/`MaxFireDelay`/`ShotSpeed`/`Luck`/`TearRange`
+（Trinity 在 `MC_EVALUATE_CACHE` 里写它们，见 `test_lua_batch405_evaluate_cache_timing.py`）。
 """
 
 import re
@@ -213,11 +218,16 @@ class EngineWriteChannelContractTests(unittest.TestCase):
 
     def test_sprite_write_covers_the_three_pc_properties(self):
         """三个属性的落点与宽度要与 PC 一致（Scale 两个 float、Color 四元组、FlipX 一个字节）。"""
-        body = function_body(self.sprite, "void ApplyCachedSpriteProperties(")
+        body = function_body(self.sprite, "bool ApplyCachedSpriteProperties(")
         self.assertIn("kSpriteScaleOffset", body)
         self.assertIn("kSpriteScaleOffset + sizeof(float)", body)
-        self.assertIn("kColorModTintOffset", body)
-        self.assertIn("kColorModShiftOffset", body)
+        # PC 的 Color 属性整值覆盖，不能只写 tint/offset 留下旧染色。
+        self.assertIn("WriteEngine<EngineColorMod>", body)
+        self.assertIn("EngineColorModFromHandle(color)", body)
+        shared = (LUA_DIR / "engine_color_mod.hpp").read_text(encoding="utf-8")
+        self.assertIn("offsetof(EngineColorMod, tint) == kColorModTintOffset", shared)
+        self.assertIn("offsetof(EngineColorMod, shift) == kColorModShiftOffset", shared)
+        self.assertIn("offsetof(EngineColorMod, colorize) == kColorModColorizeOffset", shared)
         self.assertIn("WriteEngine<std::uint8_t>(base + kSpriteFlipXOffset", body)
         # 只写"Mod 确实赋过值"的属性：没赋过值就不该动引擎原有的值。
         for flag in ("hasScale", "hasColor", "hasFlipX"):
@@ -226,18 +236,58 @@ class EngineWriteChannelContractTests(unittest.TestCase):
                               f"缺少 `{flag}` 门槛：Mod 没写过这个属性也会去改引擎对象")
 
     # ------------------------------------------------------------------ 写入口不滥开
-    def test_player_newindex_only_allows_controls_cooldown(self):
-        """`EntityPlayer` 的写入口只放行 `ControlsCooldown`，别的字段名报错。"""
+    def test_player_newindex_only_allows_the_evidenced_fields(self):
+        """`EntityPlayer` 的写入口**只放行取证过的字段**，别的字段名报错。
+
+        ★ 2026-09-30（批次 212）改口径：原来只放行 `ControlsCooldown`。真机事故证明"只放
+        `ControlsCooldown`"会把模组的**整条回调**掐死 —— MCM 打开菜单时冻住玩家
+        （`modconfig.lua:1625 player.Velocity = vecZero`、`:1630 Position`、`:1632 ControlsEnabled`），
+        第 1625 行就抛错 ⇒ 菜单永远画不出来（读数里那两条 `EntityPlayer fields are read-only …`）。
+        ★ 2026-10-07（批次 405）再放开六个战斗属性（`Damage`/`MoveSpeed`/`MaxFireDelay`/`ShotSpeed`/
+        `Luck`/`TearRange`）：Trinity 在 `MC_EVALUATE_CACHE` 里写它们（`main.lua:85/:116`），
+        拒写同样会把整条回调摘掉。每个字段**都有引擎自己的读点/写点当锚点**
+        （见 `runtime_constants.hpp` 的同名常量注释）。
+        **陌生字段名仍然报错** —— 这条判据的意图（别让拼错的字段名被静默吞掉）没变。
+        """
         body = function_body(self.isaac, "int EntityNewIndex(")
-        self.assertIn('"ControlsCooldown"', body)
-        self.assertIn("kEntityPlayerControlsCooldownOffset", body)
-        self.assertIn("luaL_error(state, \"EntityPlayer fields are read-only except ControlsCooldown\")",
-                      body, "未知字段名必须报错，不能静默吞掉（拼错的字段名会因此查不出来）")
-        # 基类 `Entity` 的元表不许有 `__newindex`：PC 里基类没有可写成员，开了就是纯粹的放松。
+        for field, offset in (
+                ("ControlsCooldown", "kEntityPlayerControlsCooldownOffset"),
+                ("ControlsEnabled", "kEntityPlayerControlsEnabledOffset"),
+                ("Velocity", "kEntityVelocityOffset"),
+                ("Position", "kEntityPositionOffset"),
+                # 批次 405：六个战斗属性（全部 float）。
+                ("MaxFireDelay", "kEntityPlayerMaxFireDelayOffset"),
+                ("ShotSpeed", "kEntityPlayerShotSpeedOffset"),
+                ("Damage", "kEntityPlayerDamageOffset"),
+                ("MoveSpeed", "kEntityPlayerMoveSpeedOffset"),
+                ("Luck", "kEntityPlayerLuckOffset"),
+                ("TearRange", "kEntityPlayerTearRangeOffset"),
+        ):
+            with self.subTest(field=field):
+                self.assertIn(f'"{field}"', body, f"{field} 必须有自己的分支")
+                self.assertIn(offset, body, f"{field} 必须用具名偏移常量（不许裸字面量）")
+        # `ControlsEnabled` 是 **1 字节** bool（引擎自己的 `SetControlsEnabled` 用 `strb` 写），
+        # 按 4 字节写会踩坏相邻字段（`+0x404` 的 ControlsCooldown 就在后面）。
+        self.assertIn("WriteEngine<std::uint8_t>(entity + kEntityPlayerControlsEnabledOffset", body)
+        # `Velocity` / `Position` 是 Vector2 = 两个 float：必须显式写 `+ sizeof(float)` 的第二分量。
+        self.assertIn("entity + offset + sizeof(float)", body,
+                      "Vector2 字段必须按两个 float 写（只写 X 会让 Y 保持旧值）")
+        # 六个战斗属性是 **float**：必须按 float 写（按 int 写会把 4.25 这类值丢掉小数）。
+        self.assertIn("WriteEngine<float>(entity + stat.offset", body,
+                      "战斗属性必须按 float 写")
+        self.assertIn('"EntityPlayer fields are read-only except "', body,
+                      "未知字段名必须报错，不能静默吞掉（拼错的字段名会因此查不出来）")
+        for field in ("Velocity", "Position", "ControlsEnabled", "ControlsCooldown",
+                      "Damage", "MoveSpeed", "MaxFireDelay", "ShotSpeed", "Luck", "TearRange"):
+            self.assertIn(field, body, f"报错文案里要列出放行的字段（{field} 缺了会让读者以为它不可写）")
+        # PC基类非const字段可写，所有实体视图必须接到有守卫的共享入口。
         registration = self.isaac[self.isaac.find("void RegisterViewMetatables("):]
         base_block = registration[:registration.find("kEntityPlayerMetatable")]
-        self.assertNotIn("__newindex", base_block,
-                         "基类 `Entity` 的元表被加上 `__newindex` 了 —— 本批只放行玩家字段")
+        self.assertIn('lua_pushcfunction(state, EntityNewIndex)', base_block)
+        self.assertIn('__newindex', base_block)
+        self.assertIn('CheckEntityHandle(state, 1)', body)
+        self.assertIn('ValidatedEntity(handle)', body)
+        self.assertIn('IsEntityPlayer(entity)', body)
         self.assertIn('lua_setfield(state, -2, "__newindex")', registration)
 
 

@@ -1,0 +1,57 @@
+{
+  "schema": "isaac-layout-table/1",
+  "build_id": "91C73FDD575061318D68886316AFEAC72388B2AB",
+  "struct": "Music",
+  "source_table": "music",
+  "note": [
+    "`Music` 对象（`Manager` 的**内嵌子对象**，`Manager + kManagerMusicOffset`，批次 239 已取证）上的字段。",
+    "本表当前只有一行：`+0x3F0` = **「音乐启用」字节**（1 = 启用、0 = 停用）。",
+    "",
+    "为什么单开一张表：既有的 `music_entry.json` 登记的是 `Music::Entry`（`Music + 0x3D8` 那张 vector 的**元素**），",
+    "  与 `Music` 自己的字段是两件事；而批次 305 的 `MusicManager:Disable/Enable/IsEnabled` 三条 API",
+    "  直接读写 `Music` 上的这一格 ⇒ 按 `entity_npc.json` / `grid_entity_door.json` 的先例另起一张。",
+    "★ 与那两张同一条处置：**本表不生成头文件**（C++ 侧用 `runtime_constants.hpp` 的 `kMusicEnabledOffset`），",
+    "  复核命令是 `python3 tools/build_layout_table.py --table tools/layout_tables/music.json --verify`。",
+    "★ 服务的是台账：`tools/api_definition_of_done.json` 里 `MusicManager:Disable` / `Enable` / `IsEnabled`",
+    "  三条的 `provenance.field` = `Music.Enabled`（`engine_field` 要求这一行 `confirmed`）。",
+    "",
+    "★★ **PC 与 Switch 的偏移不同、不许平移**：PC 是 `Music + 0x328`（三条绑定各一条指令：",
+    "  `0x7FAC20` 写 1 / `0x7FAC30` 写 0 / `0x7FAC40` 读），Switch 是 `Music + 0x3F0`。",
+    "  能互相印证的只有「同一个字节、1 = 启用、0 = 停用、构造默认 1」这套语义。"
+  ],
+  "rows": [
+    {
+      "name": "Enabled",
+      "kind": "bool",
+      "offset": 1008,
+      "width": 1,
+      "confidence": "confirmed",
+      "semantic": "`Music` 的**「是否启用」字节**（PC 的 `Music + 0x328`，`MusicManager:Disable/Enable/IsEnabled` 三条 API 读写的就是它）。★ 取值锚点：`Music::Music()`（构造函数）用 `mov w8, #0x1` + `strb w8, [x19, #0x3f0]` 把它初始化成 **1 = 默认启用**（与 PC「引擎启动即启用」一致）。★ 消费者：`Music::Update()` 读它当闸（`ldrb w8, [x0, #0x3f0]` + `cbnz → 去更新音乐`）⇒ 「非 0 才更新」与 PC 的 `Enable ⇒ 1` 同向。",
+      "evidence": [
+        {
+          "kind": "access",
+          "function": "_ZN15IsaacRepentance5MusicC2Ev",
+          "address": "0x00424018",
+          "offset": 1008,
+          "width": 1,
+          "why": "★ **具名写入方 = 构造函数**：`strb w8, [x19, #0x3f0]`（`x19` = `this`）⇒ 这一格是 `Music` 的成员、在构造时就被写定；紧接着的 `0x424024 strb wzr, [x19, #0x428]` 是**旁边另一格**（别混）"
+        },
+        {
+          "kind": "semantic",
+          "function": "_ZN15IsaacRepentance5MusicC2Ev",
+          "address": "0x0042400c",
+          "immediate": 1,
+          "why": "★ **取值锚点**：上一条 `mov w8, #0x1` ⇒ 构造默认 **1（启用）**；与 PC 的 `IsEnabled()`（`mov al, byte ptr [ecx+0x328]`）在「引擎刚起来时」的读数一致"
+        },
+        {
+          "kind": "access",
+          "function": "_ZN15IsaacRepentance5Music6UpdateEv",
+          "address": "0x00426c7c",
+          "offset": 1008,
+          "width": 1,
+          "why": "★ **具名消费者**：`ldrb w8, [x0, #0x3f0]`（`x0` = `this` = `Music`）→ `0x426c88 cbnz w8, …`（非 0 ⇒ 去更新音乐）⇒ 这一格真的在「音乐要不要走引擎那套更新」的判据上"
+        }
+      ]
+    }
+  ]
+}

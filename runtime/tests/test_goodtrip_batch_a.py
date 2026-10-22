@@ -14,7 +14,8 @@ GoodTrip（[Fixed] 2.2.56）真机一跑就会调用这四条；它们的**失�
   但**形状要与 PC 一致**（PC 返回 void）。后果是 GoodTrip 的 `TAB + R` 快速重开不生效 ——
   这一条必须写在实现注释里，否则下一轮会有人把它当成"模组 bug"。
 
-所以这里钉四件事：**目录行在**、**绑定在**、**降级处必须写明"平台限制"与后果**、
+所以这里钉四件事：**目录行在**、**绑定在**、**降级/改写的处理器必须写明"性质"与后果**
+（平台降级写「平台限制」，已改写成触摸屏的写「触摸屏」）、
 以及 `GetRoomEntities` **必须是真实现**（不许变成 `PushZero` 那种假读数）。
 """
 
@@ -79,13 +80,22 @@ class GoodTripBatchATests(unittest.TestCase):
                               name + " 没有登记进绑定表（登记了才会出现在对象上）")
 
     def test_platform_limits_say_so(self) -> None:
-        """平台降级的处理器必须写明「平台限制」与后果（否则下一个人会当成功能 bug）。"""
+        """降级/改写的处理器必须写明**性质**与后果（否则下一个人会当成功能 bug）。
+
+        ★ 2026-09-28 批次 192：`Input` 那两条已**不是**平台降级（指针源改成触摸屏），
+        所以它们不再要求出现「平台限制」——改成要求写明「触摸屏」。
+        本条的用意（"注释必须交代性质，别让人误判成 bug"）**没有放宽**：两条路径各自都要留话。
+        """
         for path, name, _, _, degraded in EXPECTED:
             if not degraded:
                 continue
             with self.subTest(handler=name):
                 block = block_with_leading_comment(self.sources[path], name)
-                self.assertIn("平台限制", block)
+                if name.startswith("Input"):
+                    # 批次 192：已改写成触摸屏 ⇒ 必须写明这件事（含"为什么改了"）。
+                    self.assertIn("触摸屏", block)
+                else:
+                    self.assertIn("平台限制", block)
 
     def test_execute_command_documents_the_fast_restart_consequence(self) -> None:
         block = block_with_leading_comment(self.sources[ISAAC_API], "IsaacExecuteCommand")
@@ -103,15 +113,31 @@ class GoodTripBatchATests(unittest.TestCase):
         self.assertIn("accepts no arguments", body)
 
     def test_mouse_handlers_never_raise_on_the_hot_path(self) -> None:
-        """`Input.GetMousePosition` 每帧都被调用 ⇒ 只允许「参数个数不对」这一条抛错路径。"""
+        """`Input.GetMousePosition` 每帧都被调用 ⇒ 只允许「参数个数不对」这一条抛错路径。
+
+        ★ 2026-09-28 批次 192 改判据（**行为按用户指令变了，不是"改测试让它过"**）：
+        本条原先钉的是 `PushLuaVector(state, 0.0F, 0.0F)` —— 即"恒 (0,0) 的平台降级"。
+        用户 2026-09-28 指定「把 PC 的鼠标操作映射成 NS 的触屏操作」并选定"先接线不做换算"
+        ⇒ 指针源改成触摸屏，**恒值那一半的断言必须撤掉**（留着它就是把修好的行为再钉死一次，
+        批次 128 在 `GetMainTwin` 上正是这么栽的）。**不抛错那一半照旧钉着**，它才是本条的用意。
+        """
         body = body_of(self.sources[INPUT_API], "InputGetMousePosition")
-        self.assertIn("PushLuaVector(state, 0.0F, 0.0F)", body)
+        self.assertIn("ReadTouchPointer()", body)
+        self.assertNotIn("0.0F, 0.0F", body)
         self.assertEqual(body.count("luaL_error"), 1)
 
-    def test_is_mouse_btn_pressed_returns_false_and_checks_arguments(self) -> None:
+    def test_is_mouse_btn_pressed_reads_the_touch_screen_and_checks_arguments(self) -> None:
+        """★ 2026-09-28 批次 192 改判据（同上：行为按用户指令变了）。
+
+        语义由用户定为「手指在屏幕上 = 左键按下」⇒ 不能再钉"恒 false"；
+        参数形状校验与"不抛错"照旧 —— 它被每帧的鼠标状态跟踪调用。
+        """
         body = body_of(self.sources[INPUT_API], "InputIsMouseBtnPressed")
         self.assertIn("CheckMouseButtonArguments", body)
-        self.assertIn("lua_pushboolean(state, 0)", body)
+        self.assertIn("ReadTouchPointer()", body)
+        self.assertIn("touch.pressed", body)
+        # 不许再有"恒假"那种写死的返回值。
+        self.assertNotIn("lua_pushboolean(state, 0)", body)
 
 
 if __name__ == "__main__":

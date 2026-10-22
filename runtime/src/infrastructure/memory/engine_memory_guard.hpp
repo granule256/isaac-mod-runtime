@@ -210,9 +210,18 @@ inline void EngineGuardSetCacheEnabled(bool enabled) noexcept {
     EngineGuardWritableRegionCache().Clear();
 }
 
+// 批次 436：**派发代际** —— 每进一次派发窗口 +1。
+// 给"窗口内复用"的缓存当失效判据：窗口内引擎在等我们返回，没有任何东西会换房/换表；
+// 出了窗口（epoch 变了）复用自动作废。读侧只有一次本模块原子读（几纳秒）。
+inline std::atomic<std::uint32_t>& EngineGuardDispatchEpoch() noexcept {
+    static std::atomic<std::uint32_t> epoch{0};
+    return epoch;
+}
+
 inline void EngineGuardEnterDispatch() noexcept {
     EngineGuardRegionCache().Clear();
     EngineGuardWritableRegionCache().Clear();
+    EngineGuardDispatchEpoch().fetch_add(1, std::memory_order_acq_rel);   // 批次 436
     EngineGuardDispatchActive().store(1U, std::memory_order_release);
 }
 

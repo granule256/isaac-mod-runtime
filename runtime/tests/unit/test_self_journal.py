@@ -218,7 +218,11 @@ class ProbeBreakTests(unittest.TestCase):
         text = read(BRIDGE)
         body = text.split("IsaacModRuntime_ProbeBreak(std::uint32_t marker) {", 1)[1]
         body = body.split("\n}", 1)[0]
-        self.assertIn('__asm__ volatile("svc 0x7f"', body)
+        # ★ 2026-09-29（批次 197）：全仓探针点统一成 `svc 0x26`（= `svcBreak`）。
+        #   原来是 `0x7f`，那在本仓库 svc 表里是 `svcCallSecureMonitor`，userland 下被判
+        #   "未定义系统调用" ⇒ 报告类型不是 `User Break`（批次 135 真机实测）。
+        #   判据本身不变（"必须发出一个可见的 User Break"），只是编号跟上实现。
+        self.assertIn('__asm__ volatile("svc 0x26"', body)
         for register in ("x0", "x1", "x2", "x3", "x4", "x5", "x6", "x7"):
             self.assertIn(f'__asm__("{register}")', body)
         self.assertIn("g_probeBreakTaken", body)

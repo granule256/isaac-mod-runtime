@@ -92,9 +92,8 @@ int main(int argc, char** argv) {
             "  _probe.first = _probe.first + 1 end) "
             "mod:AddCallback(ModCallbacks.MC_PRE_GET_COLLECTIBLE, function() "
             "  _probe.second = _probe.second + 1 return 733 end)";
-    } else if (std::strcmp(scenario, "multi_first_wins") == 0) {
-        // 两条都返回整数 ⇒ **第一条**生效（文档："返回的值不会更新后续回调看到的
-        // SelectedCollectible"），但第二条仍然要被调用。
+    } else if (std::strcmp(scenario, "multi_first_stops") == 0) {
+        // 完整PC bootstrap：首个非nil生效，第二条不得再调用。
         script =
             "local mod = RegisterMod('Probe', 1) "
             "_probe = { first = 0, second = 0 } "
@@ -135,25 +134,25 @@ int main(int argc, char** argv) {
         if (multi != 0x3000002DDULL) return 9;
         return LuaRuntime::TakeCallbackError() ? 10 : 0;
     }
-    if (std::strcmp(scenario, "multi_first_wins") == 0) {
+    if (std::strcmp(scenario, "multi_first_stops") == 0) {
         const auto multi = LuaRuntime::DispatchPreGetCollectible(nullptr, 1, 2, 0, 0);
         double first = 0, second = 0;
         // ⚠️ `ReadLuaTableNumber` **成功返回 0**（1/2/3 = 三种读不到的原因），
         // 别写成 `!ReadLuaTableNumber(...)` —— 那是"成功就报错"（本用例第一版正是这么写的）。
         if (LuaRuntime::ReadLuaTableNumber("_probe", "first", &first) != 0 || first != 1) return 7;
-        if (LuaRuntime::ReadLuaTableNumber("_probe", "second", &second) != 0 || second != 1) return 8;
-        // ★ 第一条胜出：733（0x2DD）而不是第二条的 999（0x3E7）。
+        if (LuaRuntime::ReadLuaTableNumber("_probe", "second", &second) != 0 || second != 0) return 8;
+        // 完整PC bootstrap首733生效，第二条999未执行。
         if (multi != 0x3000002DDULL) return 9;
         return LuaRuntime::TakeCallbackError() ? 10 : 0;
     }
-    // `bad_return`（返回 `true`）与 `out_of_range`（返回 0x100000000）都**没有可用的替换值**
-    // ⇒ 只有 bit 33（非 nil）而没有 bit 32；两者也都必须记一次回调错误
-    // （"返回了没法当道具用的值"是模组自己的 bug，不能静默吞掉）。
+    // 完整PC消费者只取整数低32位：0x100000000变成零哨兵，保留原生成且不报错。
+    // 类型转换错误没有正常返回值；下一次派发仍保留登记。
     const auto result = LuaRuntime::DispatchPreGetCollectible(nullptr, 1, 2, 1, 0);
-    if (result != 0x200000000ULL || !LuaRuntime::TakeCallbackError()) return 4;
+    const bool conversionError = std::strcmp(scenario, "bad_return") == 0;
+    if (result != 0 || LuaRuntime::TakeCallbackError() != conversionError) return 4;
     if (std::strcmp(scenario, "bad_return") == 0) {
         const auto second = LuaRuntime::DispatchPreGetCollectible(nullptr, 1, 2, 1, 0);
-        if (second != 0x200000000ULL || !LuaRuntime::TakeCallbackError()) return 6;
+        if (second != 0 || !LuaRuntime::TakeCallbackError()) return 6;
     }
     LuaRuntime::DispatchPostUpdate();
     return std::strcmp(scenario, "bad_return") != 0 ||
@@ -206,17 +205,17 @@ int main(int argc, char** argv) {
     def test_integer_result_is_an_explicit_collectible_override(self):
         self.run_harness("override")
 
-    def test_every_registration_on_the_same_id_is_called_and_the_first_integer_wins(self):
+    def test_nil_continues_and_first_integer_stops_remaining_registrations(self):
         """批次 103：这一条以前是**手工取第 0 条登记**（`g_CallbackRegistry.At(id, 0)`），
-        同一 id 上第二条及以后的登记永远收不到事件 —— 与 PC"同一 id 可登记多条、按登记顺序
-        全部调用"不符。现在走通用派发器，两个场景分别钉住"都会跑"与"第一条整数胜出"。"""
+        第一条nil时第二条必须执行；第一条非nil时第二条必须停止。
+        完整PC原main.lua已证明两种情况，不能把“支持多条登记”写成“无条件全部执行”。"""
         self.run_harness("multi_later_returns")
-        self.run_harness("multi_first_wins")
+        self.run_harness("multi_first_stops")
 
     def test_invalid_non_nil_result_is_recorded_without_unregistering_the_callback(self):
         self.run_harness("bad_return")
 
-    def test_out_of_range_integer_is_rejected_without_an_override(self):
+    def test_integer_with_zero_low_word_preserves_original_without_an_error(self):
         self.run_harness("out_of_range")
 
     def test_runtime_pre_get_reentry_guard_is_not_thread_local(self):

@@ -84,6 +84,42 @@ class ApiMaturityLedgerTests(unittest.TestCase):
                                                                   errors="replace"),
                                   f"{name} 的引文在 {evidence['file']} 里找不到")
 
+    def test_evidence_files_are_tracked_by_git(self):
+        """★★ 被引用的依据文件必须**进了 git**（2026-09-29 批次 197 新增）。
+
+        为什么：`test_game_file_reader_stage10` 会把工作区按 `git ls-files` 复制成"卫生副本"、
+        再在副本里跑整套 `--fast`。**未被 git 跟踪**的证据文件在副本里不存在 ⇒ 上面那条
+        `test_evidence_quotes_are_real` 在副本里判红，而真实工作区却是绿的 ——
+        于是"全量唯一一条红"以"嵌套用例失败"的形状出现，很难归因
+        （批次 195 的 `analysis/api-restore-transforms/spec.json` 就是这么漏的：
+        `analysis/` 被 `.gitignore` 收着，证据文件要靠 `git add -f` 显式加入）。
+
+        ⇒ 把判据提到**真实工作区**：引用的文件必须在 `git ls-files` 里。
+        新加依据文件时用 `git add -f <path>`（`analysis/` 下的历史证据文件都是这么进去的）。
+
+        ★ 隔离副本（`test_game_file_reader_stage10` 造的那种）**不是 git 仓库** ⇒
+        这条判据在那里**跳过**：副本里的文件本来就全部来自 `git ls-files`，
+        所以"是否被跟踪"在那里恒真、没有可判的对象。判据只在真实工作区生效。
+        """
+        import subprocess
+        probe = subprocess.run(["git", "rev-parse", "--show-toplevel"], cwd=ROOT,
+                               capture_output=True)
+        if probe.returncode != 0:
+            self.skipTest("不在 git 仓库里（隔离副本）：副本文件全部来自 git ls-files，本判据无对象可判")
+        tracked = set(subprocess.run(["git", "ls-files", "-z"], cwd=ROOT,
+                                     capture_output=True, check=True)
+                      .stdout.decode("utf-8").split("\0"))
+        self.assertTrue(tracked, "读不到 git 索引（不是在 git 仓库里跑？）")
+        missing: list[str] = []
+        for name, row in ledger_rows().items():
+            for evidence in row.get("evidence", []):
+                if evidence["file"] not in tracked:
+                    missing.append(f"{name} → {evidence['file']}")
+        self.assertEqual(
+            missing, [],
+            "这些依据文件没进 git ⇒ 隔离副本里会缺它、门禁只在副本里判红（难归因）："
+            + "；".join(missing) + "。修法：`git add -f <path>`。")
+
     def test_ledger_matches_the_catalog(self):
         """台账与 catalog 必须同口径：两边不一致时，说明有人只改了一边。"""
         catalog = catalog_maturity()

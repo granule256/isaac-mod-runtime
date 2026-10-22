@@ -1,0 +1,86 @@
+{
+  "schema": "isaac-api-accessor-regions/1",
+  "build_id": "91C73FDD575061318D68886316AFEAC72388B2AB",
+  "struct": "Seeds",
+  "note": "访问器名作为已证明区域的索引；与传统逐条指令layout-table分开schema，完整PC/NS指令/写者与宽度在evidence_files，不用PC偏移平移。置信度来自实际同算法/序列化/写者交叉核定，不来自函数名启发式。",
+  "rows": [
+    {
+      "name": "CountSeedEffects",
+      "kind": "accessor_region",
+      "offset": 104,
+      "confidence": "confirmed",
+      "semantic": "原API Seeds:CountSeedEffects 所访问的实际引擎区域；以访问器名称索引，具体多字段/位/向量/树操作和读取宽度以原件契约及测试为准，不声称这是C++源成员名字。 PC完整内联，NSSeeds::SetStartSeed与Reset/C1完整锚4/50与seed effects tree count68。GetPlayerInitSeed未初始化时原PC仅记录warning后仍读，合法游戏initialized路径保原值。 完整原件和中间失败保存在dist/apis300-20261014，虚调用槽按重定位核，不能按PC位宽翻倍。",
+      "evidence_files": [
+        "dist/apis300-20261014/world35-contracts-draft.json"
+      ],
+      "judgement": "runtime/tests/test_api300_world.py"
+    },
+    {
+      "name": "ClearSeedEffects",
+      "kind": "accessor_region",
+      "offset": 88,
+      "confidence": "confirmed",
+      "semantic": "原API Seeds:ClearSeedEffects 所访问的实际引擎区域；以访问器名称索引，具体多字段/位/向量/树操作和读取宽度以原件契约及测试为准，不声称这是C++源成员名字。 PC65DD00清set；NSSeeds::Reset只取清tree部分：this+58/treeRoot+60,count68,begin=end sentinel(this+60)，调用完整原生__tree<eSeedEffect>::destroy(tree*,node*)，不改startSeed/custom flag/RNG。 完整原件和中间失败保存在dist/apis300-20261014，虚调用槽按重定位核，不能按PC位宽翻倍。",
+      "evidence_files": [
+        "dist/apis300-20261014/world35-contracts-draft.json"
+      ],
+      "judgement": "runtime/tests/test_api300_world.py"
+    },
+    {
+      "name": "ClearStartSeed",
+      "kind": "accessor_region",
+      "offset": 4,
+      "confidence": "confirmed",
+      "semantic": "原API Seeds:ClearStartSeed 所访问的实际引擎区域；以访问器名称索引，具体多字段/位/向量/树操作和读取宽度以原件契约及测试为准，不声称这是C++源成员名字。 PC完整内联，NSSeeds::SetStartSeed与Reset/C1完整锚4/50与seed effects tree count68。GetPlayerInitSeed未初始化时原PC仅记录warning后仍读，合法游戏initialized路径保原值。 完整原件和中间失败保存在dist/apis300-20261014，虚调用槽按重定位核，不能按PC位宽翻倍。",
+      "evidence_files": [
+        "dist/apis300-20261014/world35-contracts-draft.json"
+      ],
+      "judgement": "runtime/tests/test_api300_world.py"
+    },
+    {
+      "name": "GetPlayerInitSeed",
+      "kind": "accessor_region",
+      "offset": 80,
+      "confidence": "confirmed",
+      "semantic": "原API Seeds:GetPlayerInitSeed 所访问的实际引擎区域；以访问器名称索引，具体多字段/位/向量/树操作和读取宽度以原件契约及测试为准，不声称这是C++源成员名字。 PC完整内联，NSSeeds::SetStartSeed与Reset/C1完整锚4/50与seed effects tree count68。GetPlayerInitSeed未初始化时原PC仅记录warning后仍读，合法游戏initialized路径保原值。 完整原件和中间失败保存在dist/apis300-20261014，虚调用槽按重定位核，不能按PC位宽翻倍。",
+      "evidence_files": [
+        "dist/apis300-20261014/world35-contracts-draft.json"
+      ],
+      "judgement": "runtime/tests/test_api300_world.py"
+    },
+    {
+      "name": "GetStartSeedString",
+      "kind": "accessor_region",
+      "offset": 4,
+      "confidence": "confirmed",
+      "semantic": "原API Seeds:GetStartSeedString 所访问的实际引擎区域；以访问器名称索引，具体多字段/位/向量/树操作和读取宽度以原件契约及测试为准，不声称这是C++源成员名字。 PC65DC60将当前startSeed交真实Seed2String；NSSetStartSeed根4、完整Seed2String返回libc++ string24B x8，复用已有保护GC/原allocator释放，不自行编码或用假字符串。 完整原件和中间失败保存在dist/apis300-20261014，虚调用槽按重定位核，不能按PC位宽翻倍。 ★ 主审更正：本行Seeds相对访问区域是startSeed+4，原行4A102C是原生编码函数入口，原错误完整保存在metadata-before-review；函数来源另按DoD engine_call登记，不称4A102C为字段。",
+      "evidence_files": [
+        "dist/apis300-20261014/world35-contracts-draft.json"
+      ],
+      "judgement": "runtime/tests/test_api300_world.py",
+      "historical_function_entry": 4853804
+    },
+    {
+      "name": "IsInitialized",
+      "kind": "accessor_region",
+      "offset": 4,
+      "confidence": "confirmed",
+      "semantic": "原API Seeds:IsInitialized 所访问的实际引擎区域；以访问器名称索引，具体多字段/位/向量/树操作和读取宽度以原件契约及测试为准，不声称这是C++源成员名字。 PC完整内联，NSSeeds::SetStartSeed与Reset/C1完整锚4/50与seed effects tree count68。GetPlayerInitSeed未初始化时原PC仅记录warning后仍读，合法游戏initialized路径保原值。 完整原件和中间失败保存在dist/apis300-20261014，虚调用槽按重定位核，不能按PC位宽翻倍。",
+      "evidence_files": [
+        "dist/apis300-20261014/world35-contracts-draft.json"
+      ],
+      "judgement": "runtime/tests/test_api300_world.py"
+    },
+    {
+      "name": "IsSeedComboBanned",
+      "kind": "accessor_region",
+      "offset": 11261992,
+      "confidence": "confirmed",
+      "semantic": "原API Seeds:IsSeedComboBanned 所访问的实际引擎区域；以访问器名称索引，具体多字段/位/向量/树操作和读取宽度以原件契约及测试为准，不声称这是C++源成员名字。 PC7FA8E0成员包装851280读取位置2/3整数，内部查全局set数组；NSban_seed_pair/InitSeedInfo证实s_BannedSeedCombos vector24B、每set24B、root+8/size+16、node键int32+1C/左0右8；按真实树查O(logN)，不复制或扫描整表。非法first index明确Lua错误，不模拟PC越界崩溃。 完整原件和中间失败保存在dist/apis300-20261014，虚调用槽按重定位核，不能按PC位宽翻倍。",
+      "evidence_files": [
+        "dist/apis300-20261014/world35-contracts-draft.json"
+      ],
+      "judgement": "runtime/tests/test_api300_world.py"
+    }
+  ]
+}

@@ -25,6 +25,8 @@ public:
 
     [[nodiscard]] Status Read(std::string_view name, char* out, std::size_t capacity,
                               std::size_t* size) noexcept override;
+    [[nodiscard]] Status GetSize(std::string_view name, std::size_t* size) noexcept override;
+    [[nodiscard]] Status GetSaveSlot(unsigned* slot) noexcept override;
     [[nodiscard]] Status Write(std::string_view name, std::string_view data) noexcept override;
     [[nodiscard]] Status Remove(std::string_view name) noexcept override;
     [[nodiscard]] Status Exists(const char* absolutePath, bool* exists) noexcept override;
@@ -40,12 +42,7 @@ public:
     void AllowFromGameThread() noexcept { allowed_ = true; }
     [[nodiscard]] bool Allowed() const noexcept { return allowed_; }
 
-    // 单次读写的上限：缓冲区是**一个页对齐的静态缓冲**，因为 `nn::fs::ReadFile` 对
-    // 缓冲区对齐有要求（真机第三轮探针就是靠这一点把"读回 0 字节"排除掉的）。
-    //
-    // 2026-09-17：0x1000 → **0x4000**。理由：模组数据容器（`ModPersistence`）的单文件上限是
-    // 16 KiB，而它现在改走这个适配器 ⇒ 缓冲必须能装下整个容器，否则每次都会 `CapacityExceeded`。
-    // 门禁 `test_save_file_channel` 钉住"缓冲 ≥ 容器上限"这条关系。
+    // 只限制单次搬运的工作缓冲，不限制整个文件；大存档分块读写。
     static constexpr std::size_t kMaximumFileBytes = 0x4000;
 
 private:
@@ -63,6 +60,7 @@ private:
     bool mountValid_{false};
     // 见 `AllowFromGameThread()`：默认 closed，只有游戏线程上的代码能打开。
     bool allowed_{false};
+    std::uintptr_t saveSlotManager_{0};
     // 页对齐：`nn::fs::ReadFile` 对缓冲区对齐有要求；放在静态存储里（不进游戏线程栈）。
     alignas(0x1000) static char buffer_[kMaximumFileBytes];
 };

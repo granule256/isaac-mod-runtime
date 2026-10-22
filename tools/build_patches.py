@@ -463,6 +463,9 @@ GAME_START_SAVED_RELAY_CODE_OFFSET = 0x0068CC20
 GAME_START_NEW_RELAY_CODE_OFFSET = 0x0068CC70
 GAME_START_RELAY_SLOT_OFFSET = 0x0068CCC0
 GAME_START_RELAY_LENGTH = 0x50
+# 分配检查器必须读取完整实际长度，不能按后来中继的起点截短。
+GAME_START_SAVED_RELAY_LENGTH = 0x50
+GAME_START_NEW_RELAY_LENGTH = 0x50
 GAME_START_RELAY_CAVE_ORIGINAL = bytes(0x100)
 
 
@@ -1002,6 +1005,23 @@ def build_render_present_relay_patch(nro: bytes) -> bytes:
 
 
 
+# 2026-10-10生产加载前回调中继；代码24B＋slot8B，和旧诊断设施显式互斥。
+POST_CURSE_RELAY_CODE_OFFSET = 0x68CDC0
+POST_CURSE_RELAY_SLOT_OFFSET = 0x68CDD8
+POST_CURSE_RELAY_LENGTH = 24
+POST_PICKUP_SELECTION_RELAY_CODE_OFFSET = 0x68CDE0
+POST_PICKUP_SELECTION_RELAY_SLOT_OFFSET = 0x68CDF8
+POST_PICKUP_SELECTION_RELAY_LENGTH = 24
+POST_PICKUP_SPECIAL_RELAY_CODE_OFFSET = 0x68CD00
+POST_PICKUP_SPECIAL_RELAY_SLOT_OFFSET = 0x68CD18
+POST_PICKUP_SPECIAL_RELAY_LENGTH = 24
+POST_CONSOLE_UNKNOWN_LENGTH_RELAY_CODE_OFFSET = 0x68CD40
+POST_CONSOLE_UNKNOWN_LENGTH_RELAY_SLOT_OFFSET = 0x68CD60
+POST_CONSOLE_UNKNOWN_LENGTH_RELAY_LENGTH = 32
+POST_CONSOLE_UNKNOWN_COMPARE_RELAY_CODE_OFFSET = 0x68CD80
+POST_CONSOLE_UNKNOWN_COMPARE_RELAY_SLOT_OFFSET = 0x68CDA0
+POST_CONSOLE_UNKNOWN_COMPARE_RELAY_LENGTH = 32
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="生成以撒忏悔版捐款机 IPS 补丁")
     parser.add_argument(
@@ -1023,6 +1043,7 @@ def main() -> None:
             "restart-relay",
             "rebuild-mount-points-relay",
             "render-present-relay",
+            "cold-static-callbacks",
         ],
         required=True,
     )
@@ -1031,7 +1052,11 @@ def main() -> None:
     args = parser.parse_args()
 
     nro = args.nro.read_bytes()
-    if args.kind == "greed":
+    if args.kind == "cold-static-callbacks":
+        from cold_static_callbacks import build_static_callback_patch
+        patch = build_static_callback_patch(nro)
+        label = "加载前诅咒与拾取选择中继"
+    elif args.kind == "greed":
         patch = build_greed_patch(nro)
         label = "未知"
         label = "贪婪捐款机"

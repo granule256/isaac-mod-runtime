@@ -1,6 +1,7 @@
 #pragma once
 
 #include "domain/callback/callback_descriptor.hpp"
+#include "domain/callback/callback_priority.hpp"
 #include "domain/runtime/status.hpp"
 
 #include <array>
@@ -42,13 +43,15 @@ public:
     // 登记被派发；**同优先级之间保持登记顺序**（稳定排序）。
     [[nodiscard]] Status Register(const CallbackDescriptor& descriptor,
                                   std::int64_t filter = kNoCallbackFilter,
-                                  std::int32_t priority = kDefaultCallbackPriority) noexcept;
+                                  CallbackPriorityValue priority = kDefaultCallbackPriority) noexcept;
 
     //: 第 `index` 条登记（**全表下标**，与 `AtIndex` 同一个坐标系）的过滤器。
     //: 越界返回 `kNoCallbackFilter`。
     [[nodiscard]] std::int64_t FilterAt(std::size_t index) const noexcept;
     //: 第 `index` 条登记（**全表下标**）的优先级。越界返回 `kDefaultCallbackPriority`。
-    [[nodiscard]] std::int32_t PriorityAt(std::size_t index) const noexcept;
+    [[nodiscard]] CallbackPriorityValue PriorityAt(std::size_t index) const noexcept;
+    // 持久保存同一id的PC插入顺序；返回值仍是AtIndex的原登记下标。
+    [[nodiscard]] std::size_t DispatchIndexAt(std::size_t position) const noexcept;
 
     [[nodiscard]] const CallbackDescriptor* Find(CallbackId id, ModHandle owner) const noexcept;
 
@@ -92,7 +95,8 @@ private:
     //: 与 `entries_` **逐下标平行**的优先级表。与过滤器同一套办法（放进 `CallbackDescriptor`
     //: 会改"20 字节/项"的布局，读数工具与离线解码都得跟着改）。
     //: 派发时按它**升序稳定排序**：同优先级保持登记顺序。
-    std::array<std::int32_t, kCapacity> priorities_{};
+    std::array<CallbackPriorityValue, kCapacity> priorities_{};
+    std::array<std::uint8_t, kCapacity> order_{};
     std::size_t count_{0};
 };
 

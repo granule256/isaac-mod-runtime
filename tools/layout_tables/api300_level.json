@@ -1,0 +1,107 @@
+{
+  "schema": "isaac-api-accessor-regions/1",
+  "build_id": "91C73FDD575061318D68886316AFEAC72388B2AB",
+  "struct": "Level",
+  "note": "访问器名作为已证明区域的索引；与传统逐条指令layout-table分开schema，完整PC/NS指令/写者与宽度在evidence_files，不用PC偏移平移。置信度来自实际同算法/序列化/写者交叉核定，不来自函数名启发式。",
+  "rows": [
+    {
+      "name": "AddAngelRoomChance",
+      "kind": "accessor_region",
+      "offset": 136504,
+      "confidence": "confirmed",
+      "semantic": "原API Level:AddAngelRoomChance 所访问的实际引擎区域；以访问器名称索引，具体多字段/位/向量/树操作和读取宽度以原件契约及测试为准，不声称这是C++源成员名字。 PC已核完整内联；NSLevel::StoreGameState/RestoreGameState同GameState1AC/1B4/1B8/1B9/1BA序列化和Room::GetAngelRoomChance，RoomCount沿已有Level描述符列表count21510。PC记录StoreGameState-fields-window实际是从存档恢复到Level，不把窗口误称完整函数。 完整原件和中间失败保存在dist/apis300-20261014，虚调用槽按重定位核，不能按PC位宽翻倍。",
+      "evidence_files": [
+        "dist/apis300-20261014/world35-contracts-draft.json"
+      ],
+      "judgement": "runtime/tests/test_api300_world.py"
+    },
+    {
+      "name": "DisableDevilRoom",
+      "kind": "accessor_region",
+      "offset": 9,
+      "confidence": "confirmed",
+      "semantic": "原API Level:DisableDevilRoom 所访问的实际引擎区域；以访问器名称索引，具体多字段/位/向量/树操作和读取宽度以原件契约及测试为准，不声称这是C++源成员名字。 PC已核完整内联；NSLevel::StoreGameState/RestoreGameState同GameState1AC/1B4/1B8/1B9/1BA序列化和Room::GetAngelRoomChance，RoomCount沿已有Level描述符列表count21510。PC记录StoreGameState-fields-window实际是从存档恢复到Level，不把窗口误称完整函数。 完整原件和中间失败保存在dist/apis300-20261014，虚调用槽按重定位核，不能按PC位宽翻倍。",
+      "evidence_files": [
+        "dist/apis300-20261014/world35-contracts-draft.json"
+      ],
+      "judgement": "runtime/tests/test_api300_world.py"
+    },
+    {
+      "name": "GetAngelRoomChance",
+      "kind": "accessor_region",
+      "offset": 136504,
+      "confidence": "confirmed",
+      "semantic": "原API Level:GetAngelRoomChance 所访问的实际引擎区域；以访问器名称索引，具体多字段/位/向量/树操作和读取宽度以原件契约及测试为准，不声称这是C++源成员名字。 PC已核完整内联；NSLevel::StoreGameState/RestoreGameState同GameState1AC/1B4/1B8/1B9/1BA序列化和Room::GetAngelRoomChance，RoomCount沿已有Level描述符列表count21510。PC记录StoreGameState-fields-window实际是从存档恢复到Level，不把窗口误称完整函数。 完整原件和中间失败保存在dist/apis300-20261014，虚调用槽按重定位核，不能按PC位宽翻倍。",
+      "evidence_files": [
+        "dist/apis300-20261014/world35-contracts-draft.json"
+      ],
+      "judgement": "runtime/tests/test_api300_world.py"
+    },
+    {
+      "name": "GetDungeonPlacementSeed",
+      "kind": "accessor_region",
+      "offset": 136576,
+      "confidence": "confirmed",
+      "semantic": "原API Level:GetDungeonPlacementSeed 所访问的实际引擎区域；以访问器名称索引，具体多字段/位/向量/树操作和读取宽度以原件契约及测试为准，不声称这是C++源成员名字。 PC已核完整内联；NSLevel::StoreGameState/RestoreGameState同GameState1AC/1B4/1B8/1B9/1BA序列化和Room::GetAngelRoomChance，RoomCount沿已有Level描述符列表count21510。PC记录StoreGameState-fields-window实际是从存档恢复到Level，不把窗口误称完整函数。 完整原件和中间失败保存在dist/apis300-20261014，虚调用槽按重定位核，不能按PC位宽翻倍。",
+      "evidence_files": [
+        "dist/apis300-20261014/world35-contracts-draft.json"
+      ],
+      "judgement": "runtime/tests/test_api300_world.py"
+    },
+    {
+      "name": "GetHeartPicked",
+      "kind": "accessor_region",
+      "offset": 16,
+      "confidence": "confirmed",
+      "semantic": "原API Level:GetHeartPicked 所访问的实际引擎区域；以访问器名称索引，具体多字段/位/向量/树操作和读取宽度以原件契约及测试为准，不声称这是C++源成员名字。 PC已核完整内联；NSLevel::StoreGameState/RestoreGameState同GameState1AC/1B4/1B8/1B9/1BA序列化和Room::GetAngelRoomChance，RoomCount沿已有Level描述符列表count21510。PC记录StoreGameState-fields-window实际是从存档恢复到Level，不把窗口误称完整函数。 完整原件和中间失败保存在dist/apis300-20261014，虚调用槽按重定位核，不能按PC位宽翻倍。",
+      "evidence_files": [
+        "dist/apis300-20261014/world35-contracts-draft.json"
+      ],
+      "judgement": "runtime/tests/test_api300_world.py"
+    },
+    {
+      "name": "GetRoomCount",
+      "kind": "accessor_region",
+      "offset": 136464,
+      "confidence": "confirmed",
+      "semantic": "原API Level:GetRoomCount 所访问的实际引擎区域；以访问器名称索引，具体多字段/位/向量/树操作和读取宽度以原件契约及测试为准，不声称这是C++源成员名字。 PC已核完整内联；NSLevel::StoreGameState/RestoreGameState同GameState1AC/1B4/1B8/1B9/1BA序列化和Room::GetAngelRoomChance，RoomCount沿已有Level描述符列表count21510。PC记录StoreGameState-fields-window实际是从存档恢复到Level，不把窗口误称完整函数。 完整原件和中间失败保存在dist/apis300-20261014，虚调用槽按重定位核，不能按PC位宽翻倍。",
+      "evidence_files": [
+        "dist/apis300-20261014/world35-contracts-draft.json"
+      ],
+      "judgement": "runtime/tests/test_api300_world.py"
+    },
+    {
+      "name": "IsDevilRoomDisabled",
+      "kind": "accessor_region",
+      "offset": 9,
+      "confidence": "confirmed",
+      "semantic": "原API Level:IsDevilRoomDisabled 所访问的实际引擎区域；以访问器名称索引，具体多字段/位/向量/树操作和读取宽度以原件契约及测试为准，不声称这是C++源成员名字。 PC已核完整内联；NSLevel::StoreGameState/RestoreGameState同GameState1AC/1B4/1B8/1B9/1BA序列化和Room::GetAngelRoomChance，RoomCount沿已有Level描述符列表count21510。PC记录StoreGameState-fields-window实际是从存档恢复到Level，不把窗口误称完整函数。 完整原件和中间失败保存在dist/apis300-20261014，虚调用槽按重定位核，不能按PC位宽翻倍。",
+      "evidence_files": [
+        "dist/apis300-20261014/world35-contracts-draft.json"
+      ],
+      "judgement": "runtime/tests/test_api300_world.py"
+    },
+    {
+      "name": "SetCanSeeEverything",
+      "kind": "accessor_region",
+      "offset": 17,
+      "confidence": "confirmed",
+      "semantic": "原API Level:SetCanSeeEverything 所访问的实际引擎区域；以访问器名称索引，具体多字段/位/向量/树操作和读取宽度以原件契约及测试为准，不声称这是C++源成员名字。 PC已核完整内联；NSLevel::StoreGameState/RestoreGameState同GameState1AC/1B4/1B8/1B9/1BA序列化和Room::GetAngelRoomChance，RoomCount沿已有Level描述符列表count21510。PC记录StoreGameState-fields-window实际是从存档恢复到Level，不把窗口误称完整函数。 完整原件和中间失败保存在dist/apis300-20261014，虚调用槽按重定位核，不能按PC位宽翻倍。",
+      "evidence_files": [
+        "dist/apis300-20261014/world35-contracts-draft.json"
+      ],
+      "judgement": "runtime/tests/test_api300_world.py"
+    },
+    {
+      "name": "SetHeartPicked",
+      "kind": "accessor_region",
+      "offset": 16,
+      "confidence": "confirmed",
+      "semantic": "原API Level:SetHeartPicked 所访问的实际引擎区域；以访问器名称索引，具体多字段/位/向量/树操作和读取宽度以原件契约及测试为准，不声称这是C++源成员名字。 PC已核完整内联；NSLevel::StoreGameState/RestoreGameState同GameState1AC/1B4/1B8/1B9/1BA序列化和Room::GetAngelRoomChance，RoomCount沿已有Level描述符列表count21510。PC记录StoreGameState-fields-window实际是从存档恢复到Level，不把窗口误称完整函数。 完整原件和中间失败保存在dist/apis300-20261014，虚调用槽按重定位核，不能按PC位宽翻倍。",
+      "evidence_files": [
+        "dist/apis300-20261014/world35-contracts-draft.json"
+      ],
+      "judgement": "runtime/tests/test_api300_world.py"
+    }
+  ]
+}

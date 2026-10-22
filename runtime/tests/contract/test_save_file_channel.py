@@ -120,8 +120,8 @@ class SaveFileChannelContractTests(unittest.TestCase):
         persistence = (ROOT / "runtime" / "source" / "mod_persistence.hpp").read_text(
             encoding="utf-8")
         container = int(
-            re.search(r"kMaximumFileSize = (\d+) \* (\d+)", persistence).group(1)) * int(
-            re.search(r"kMaximumFileSize = (\d+) \* (\d+)", persistence).group(2))
+            re.search(r"kInitialFileSize = (\d+) \* (\d+)", persistence).group(1)) * int(
+            re.search(r"kInitialFileSize = (\d+) \* (\d+)", persistence).group(2))
         self.assertGreaterEqual(buffer, container,
                                 "适配器缓冲必须 ≥ 持久化容器上限（否则容器永远写不进去）")
 
@@ -138,7 +138,7 @@ class SaveFileChannelContractTests(unittest.TestCase):
     def test_filter_runs_before_mounts_and_scripts(self):
         """顺序纪律：先读状态并过滤，再注册挂载点、再加载脚本。"""
         load_index = self.hook_manager.index("g_ModToggleService.Load()")
-        mount_index = self.hook_manager.index("g_ContentMountService.RegisterMod(")
+        mount_index = self.hook_manager.index("bridge::PublishModResourceRedirectList(roots, rootCount)")
         self.assertLess(load_index, mount_index,
                         "读开关状态必须在注册模组挂载点之前")
         self.assertIn("ApplyToBatch(&batch)", self.hook_manager)
@@ -148,3 +148,5 @@ class SaveFileChannelContractTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+# 2026-10-09：378之后Mounts阶段发布资源重定向表，已不再RegisterMod；过滤仍须在发布前。

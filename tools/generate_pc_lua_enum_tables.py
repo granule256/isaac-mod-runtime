@@ -12,6 +12,16 @@ from pathlib import Path
 
 # Generation order is also the order the runtime registers the globals in;
 # ModCallbacks stays last because game mods read it after the value tables.
+#
+# ★★ 2026-10-07（批次 398）：**从 20 张补到 62 张**。
+# 起因是真机实测挖出来的缺口（卡上装了 `Trinity` / `minimapi` 之后报错）：
+#   * `ActiveSlot` 缺 ⇒ `ActiveSlot.SLOT_PRIMARY` 是 nil global ⇒ 模组抛错 ⇒ **整条回调登记被摘**；
+#   * `Music` 缺 ⇒ `MusicModCallback` 在**加载期**就炸，一个回调都不注册。
+# 做法：把 PC 本机 `resources/scripts/enums.lua`（SHA-256 `dce1892f…`，与生成物里记的那份同一个）
+# 里**全部 78 张顶层表**对本一遍，减去走文档生成器的那 17 张（`tools/pc_enum_docs/*.md`）
+# ⇒ **缺 42 张，一次补齐**（`TearFlags`/`TearVariant`/`FamiliarVariant`/`NullItemID`/`Keyboard`/
+# `Mouse`/`NpcState`/`WeaponType`/`BombVariant`/`SoundEffect` 之外的都在这批里）。
+# ⚠️ `ModCallbacks` **必须仍在最后**（模组会先读值表再读它），所以新表插在它前面。
 TABLES = (
     "CollectibleType",
     "ItemPoolType",
@@ -32,6 +42,51 @@ TABLES = (
     "EffectVariant",
     "EntityPartition",
     "Card",
+    # ---- 2026-10-07 批次 398 补齐的 42 张（enums.lua 有、我们原来没登记）----
+    "ActionTriggers",
+    "ActiveSlot",
+    "BabySubType",
+    "BatterySubType",
+    "BedSubType",
+    "BombSubType",
+    "BombVariant",
+    "ChampionColor",
+    "ChestSubType",
+    "CoinSubType",
+    "Difficulty",
+    "DoorSlot",
+    "DoorState",
+    "EntityCollisionClass",
+    "EntityGridCollisionClass",
+    "FamiliarVariant",
+    "GridCollisionClass",
+    "GridRooms",
+    "HeartSubType",
+    "InputHook",
+    "KeySubType",
+    "Keyboard",
+    "LaserOffset",
+    "LaserSubType",
+    "LaserVariant",
+    "LocustSubtypes",
+    "Mouse",
+    "Music",
+    "NpcState",
+    "NullItemID",
+    "PickupPrice",
+    "PlayerSpriteLayer",
+    "PoopPickupSubType",
+    "PoopSpellType",
+    "ProjectileVariant",
+    "RoomTransitionAnim",
+    "SackSubType",
+    "SkinColor",
+    "SortingLayer",
+    # ⚠️ `TearFlags`（110 条）**故意不在本表**：它的值全是 `BitSet128(lo,hi)`，而本生成器把值
+    # 装进 **int32** ⇒ 装不下（会报 `unsupported token at 'BitSet128(0,0)'`）。
+    # 要补它得先给运行时加一种"128 位位集"值类型（含 `&`/`|`/`~` 元表），另开一批做。
+    "TearVariant",
+    "WeaponType",
     "ModCallbacks",
 )
 # One `KEY = <expression>[,]` line of a table body. The expression is captured

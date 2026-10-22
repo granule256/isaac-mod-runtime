@@ -1,0 +1,19 @@
+{
+  "schema": "isaac-layout-table/1",
+  "build_id": "91C73FDD575061318D68886316AFEAC72388B2AB",
+  "struct": "EngineGlobals",
+  "rows": [
+    {
+      "name": "POINTSCALE",
+      "offset": 10699632,
+      "size": 4,
+      "type": "float",
+      "confidence": "confirmed",
+      "semantic": "PC80D380读取实际POINTSCALE；NS既有AAC7B0 GOT槽解析动态float，不缓存数值或伪造常量。",
+      "evidence_files": [
+        "dist/apis700-20261016/pc-main/80d380.txt"
+      ],
+      "judgement": "runtime/tests/test_api700_world.py"
+    }
+  ]
+}

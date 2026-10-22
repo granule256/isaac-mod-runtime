@@ -1,0 +1,19 @@
+{
+  "schema": "isaac-layout-table/1",
+  "build_id": "91C73FDD575061318D68886316AFEAC72388B2AB",
+  "struct": "Room",
+  "rows": [
+    {
+      "name": "ActiveEntityArray",
+      "offset": 6592,
+      "size": 24,
+      "type": "ArrayProxy<Entity*>",
+      "confidence": "confirmed",
+      "semantic": "原生完整EntityList在1950，公共活动ArrayProxy位于19C0；每次读取当前指针/count。",
+      "evidence_files": [
+        "dist/apis700-20261016/containers/实施报告.md"
+      ],
+      "judgement": "runtime/tests/test_api700_world.py"
+    }
+  ]
+}

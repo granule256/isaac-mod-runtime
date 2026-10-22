@@ -115,7 +115,13 @@ class PngOverridePriorityTests(unittest.TestCase):
         probe = body.index('std::memcpy(pngPath + pathLen - 4, ".png", 4)')
         self.assertLess(mod_gate, probe,
                         "模组自带的 .pcx 必须先原样交回，不能被 PNG 抢")
-        self.assertIn("char* pngMounted = original(self, pngPath);", body)
+        # 探测 `.png` 必须走**原函数** `original(self, pngPath)`。
+        # ★ 2026-09-29（批次 196）：L3 资源层把返回值改成由 `EngineArrayOwner` 持有
+        #   （`EngineArrayOwner pngOwner(..., original(self, pngPath))`）⇒ 判据改成
+        #   "以 `original(self, pngPath)` 为实参构造持有者"，**判断本身不变**（仍必须走原函数），
+        #   而不是放宽成"文件里出现过 original 字样"。
+        self.assertIn("original(self, pngPath)", body)
+        self.assertIn("pngOwner", body)
         # `pngOverrideWins` 只在"原结果非空（= 本体那份让位了）"时加一。
         self.assertIn("++g_imagePcxDiag.pngOverrideWins;", body)
 
@@ -126,6 +132,40 @@ class PngOverridePriorityTests(unittest.TestCase):
         self.assertNotIn("std::uint32_t reserved;", text)
         reader = (ROOT / "tools" / "read_device_state_via_gdb.py").read_text(encoding="utf-8")
         self.assertIn("模组 PNG 顶掉本体 .pcx", reader)
+
+    def test_the_reroute_asks_the_redirect_before_the_original(self):
+        """★ 批次 382（2026-10-06）：**改道那条路解析模组文件时，必须先问"资源层重定向"**。
+
+        ## 为什么单独立这条（真机读数换来的）
+
+        批次 378 把"模组目录挂载"（给每个模组目录调引擎 `AddMountPoint`）整条撤掉，改成
+        我们那条中继里的 `TryRedirectModResource`。而 `RouteModPngThroughPcx`（改道）当时用的是
+        **原函数** `Original<HookId::ContentGetMountedFilePath>` —— 原函数**只认 `rom:/`
+        那一个应用根** ⇒ 解析 `mcm_cn_font/…png` 这类模组资源名**必然失败**。
+
+        真机读数（`dist/gdb-read-20261006-1317-loadtime.txt`）：
+        `ImageManager::LoadImage 收到 .png 实参 80 次｜★ 改道成功 0 次｜不是模组文件 80`
+        （277 修好那一版是 **60/60**）⇒ 进局从 4.5 秒回到 **8.9 秒**
+        （`MC_POST_PLAYER_INIT` 单次 920 ms → 8859 ms）。
+        逐条证据见 `docs/分析-进局慢回归-批次378漏改贴图改道路径-20261006.md`。
+
+        ## 断言口径
+
+        1. 函数体里**必须出现** `TryRedirectModResource(path,`（问重定向）；
+        2. 且它必须**早于** `getMountedFilePath(b.contentManager, path)`（先重定向、未命中才落原函数）；
+        3. 形状必须是 `redirected != nullptr ? redirected : …`（命中就用重定向的答案）——
+           与同文件 `.pcx` 那条分支（批次 378 已经改过的地方）**逐字同形**。
+        """
+        text = BRIDGE.read_text(encoding="utf-8")
+        start = text.index("const char* RouteModPngThroughPcx(const char* path) noexcept {")
+        body = text[start:text.index("\n}\n", start)]
+        self.assertIn("TryRedirectModResource(path,", body,
+                      "改道必须先问资源层重定向（378 之后原函数解析不到模组文件）")
+        self.assertIn("redirected != nullptr ? redirected : ", body,
+                      "命中重定向就用它的答案、未命中才落原函数")
+        self.assertLess(body.index("TryRedirectModResource(path,"),
+                        body.index("getMountedFilePath(b.contentManager, path)"),
+                        "顺序必须是：先重定向，再落原函数")
 
 
 if __name__ == "__main__":

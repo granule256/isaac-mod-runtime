@@ -1,0 +1,124 @@
+{
+  "schema": "isaac-layout-table/1",
+  "build_id": "91C73FDD575061318D68886316AFEAC72388B2AB",
+  "struct": "GridEntity",
+  "source_table": "grid_entity",
+  "note": [
+    "`GridEntity` 的**描述符三格**：`+0x08` = `Type`、`+0x10` = `Variant`、`+0x1C` = `VarData`。",
+    "它们就是 `GridEntity:Desc` 属性与 `GridEntity:GetSaveState()` 交回的那张表里的三个字段",
+    "（PC 契约 `tools/pc_contract_docs/GridEntity.md:49` 逐字说明两者返回**同一个** `GridEntityDesc` 对象）。",
+    "",
+    "为什么单开一张表：`runtime_constants.hpp` 里这三个常量早就有（批次 012 / 078），但那时没有",
+    "  对应的布局表行；批次 342 把 `GetSaveState` 接上之后，完成定义台账的 `provenance.field`",
+    "  需要一个 `<Struct>.<字段>` 形式的 **`confirmed`** 行 ⇒ 按 `entity_npc.json` / `entity_laser.json`",
+    "  的先例另起一张（`GridEntityDoor` 那张只管门自己的两格）。",
+    "★ 同样**不生成头文件**（C++ 侧用 `runtime_constants.hpp` 的常量）；复核命令是",
+    "  `python3 tools/build_layout_table.py --table tools/layout_tables/grid_entity.json --verify`。",
+    "",
+    "★ 三格的关系是**结构证据**：`GridEntity::Init(const Desc&) @ 0x37E4BC` 把描述符的前 0x20 字节",
+    "  整段拷到对象 `+0x08` 起（`ldp x8,x9,[x1]` → `stp x8,x9,[x0,#0x8]`；`ldp x10,x11,[x1,#0x10]` →",
+    "  `stp x10,x11,[x0,#0x18]`）⇒ 对象 `+0x08` = `Desc+0x00`、`+0x10` = `Desc+0x08`、",
+    "  `+0x1C` = `Desc+0x14`。这是「三格同属一张描述符」的唯一依据，也是本表存在的理由。",
+    "★ 2026-10-16更正：上方旧原文保留。当前Variant=c、State=10；superseded_rows保完整旧行，根因与新原件见dist/apis500-20261016/grid-variant-correction.md。"
+  ],
+  "rows": [
+    {
+      "name": "Type",
+      "kind": "u32",
+      "offset": 8,
+      "width": 4,
+      "confidence": "confirmed",
+      "semantic": "**网格实体类型**（`eGridEntityType`）。★ 两条独立证据：① 创建路径 `CreateGridEntity(eGridEntityType, unsigned) @ 0x37FC50` 把**类型实参**直接落在 `+0x08`（`0x380084 str w20, [x21, #0x8]`，`w20` 就是那个实参）；② 具名判定函数 `GridEntity::IsRock() @ 0x37FBEC` 读 `+0x08` 后 `sub w8,w8,#2; cmp #0x19` 查位集 `0x03D0001F`，解出来正好 `{2,3,4,5,6,22,24,25,26,27}`，与 PC `GridEntityType.md` 的岩石族逐项吻合 ⇒ 语义由「谁写它 + 谁按枚举用它」两头钉住。★ PC 的对应格在 `GridEntityDesc` 里（PC 上 `GetSaveState()` 返回 `&this->desc`），数值不许平移。",
+      "evidence": [
+        {
+          "kind": "access",
+          "function": "_ZN15IsaacRepentance16CreateGridEntityENS_15eGridEntityTypeEj",
+          "address": "0x00380084",
+          "offset": 8,
+          "width": 4,
+          "why": "**创建路径的写入点（语义锚点）**：`str w20, [x21, #0x8]` —— `w20` 是函数的**第一个实参**（类型）⇒ 类型落在对象 `+0x08`"
+        },
+        {
+          "kind": "access",
+          "function": "_ZN15IsaacRepentance10GridEntity4InitERKNS0_4DescE",
+          "address": "0x0037e4d8",
+          "offset": 8,
+          "width": 4,
+          "why": "**结构证据**：`stp x8, x9, [x0, #0x8]` —— 它把 `ldp x8,x9,[x1]`（描述符前 16 字节）整对存到对象 `+0x08` 起 ⇒ 对象 `+0x08` = `Desc+0x00` = `Type`"
+        }
+      ]
+    },
+    {
+      "name": "Variant",
+      "kind": "u32",
+      "offset": 12,
+      "width": 4,
+      "confidence": "confirmed",
+      "semantic": "网格变体。PC GetVariant430d00读取对象+8；NS Door::InitSubclass385fb8将对象+c复制到PreviousVariant314，同函数385fb0把State10复制到PreviousState310。NS Rock::GetBigRockFrame39349c读取对象+c并减1000得到大岩石的variant帧；PC同名getter6ea770执行相同算法。原16字节偏移推断已证伪并逐字保留superseded_rows。",
+      "evidence": [
+        {
+          "kind": "access",
+          "function": "_ZNK15IsaacRepentance15GridEntity_Rock15GetBigRockFrameEv",
+          "address": "0x0039349c",
+          "offset": 12,
+          "width": 4,
+          "why": "具名variant帧访问器读取对象+c；随后减1000，与PC同算法对应。"
+        },
+        {
+          "kind": "access",
+          "function": "_ZN15IsaacRepentance15GridEntity_Door12InitSubclassEv",
+          "address": "0x00385fb4",
+          "offset": 12,
+          "width": 4,
+          "why": "对象+c读取后385fb8保存至PreviousVariant314；其前状态10另存PreviousState310。"
+        }
+      ]
+    },
+    {
+      "name": "VarData",
+      "kind": "u32",
+      "offset": 28,
+      "width": 4,
+      "confidence": "confirmed",
+      "semantic": "**网格实体的附加数据**（`VarData`）。★ 证据：`Room::SpawnGridEntity(int, eGridEntityType, unsigned, unsigned, int) @ 0x452528` 把**第 5 个实参**写进本格（`0x452634 str w20, [x24, #0x1c]`）；而「活板门 `VarData = 1` ⇒ 虚空传送门」这条 PC 语义在引擎里对得上（`GridEntity_TrapDoor::InitSubclass @ 0x395F1C` 读本格判 1 后换 `VoidTrapdoor.anm2`），门的诅咒房标记也走它（`GridEntity_Door::Update` 在 `CURSE_OF_THE_CURSED` 分支读它）。★ 结构证据同 `Variant` 那条：`GridEntity::Init(const Desc&)` 的第二个 `stp x10,x11,[x0,#0x18]` 覆盖 `+0x18`/`+0x20`，而 `+0x1C` 落在 `Desc+0x14`。★ 语料用法：`MinimapAPI/.../nicejourney.lua:91` 用 `doorent:GetSaveState().VarData == 1` 判虚空传送门。",
+      "evidence": [
+        {
+          "kind": "access",
+          "function": "_ZN15IsaacRepentance4Room15SpawnGridEntityEiNS_15eGridEntityTypeEjji",
+          "address": "0x00452634",
+          "offset": 28,
+          "width": 4,
+          "why": "**具名写入方**：`str w20, [x24, #0x1c]` —— `w20` 是函数的**第 5 个实参**（`int VarData` 一类），紧邻的 `str w21, [x24, #0xc]` 写的是种子那一格 ⇒ 本格 = 生成时传进来的附加数据"
+        }
+      ]
+    }
+  ],
+  "superseded_rows": [
+    {
+      "name": "Variant",
+      "kind": "u32",
+      "offset": 16,
+      "width": 4,
+      "confidence": "confirmed",
+      "semantic": "**网格实体变体**（variant）。★ 取证（行为锚点）：`GridEntity_Poop::InitSubclass` / `GridEntity_Poop::Update` 反复读本格并与 **1000（`0x3E8`）** 比较 —— Isaac 里便便的 variant 正是 1000 起（1000=普通便便、1001=玉米…），共 4 处独立比较；★ 结构证据：`GridEntity::Init(const Desc&) @ 0x37E4BC` 的 `ldp x8,x9,[x1]` → `stp x8,x9,[x0,#0x8]` 是**成对**存储（前半写 `+0x08`、后半写 `+0x10`），源是描述符的前 16 字节 ⇒ 对象 `+0x10` = `Desc+0x08` = `Variant`。★ 与 `Type` 的关系是描述符里的**相邻**两格（对象上相差 8）。",
+      "evidence": [
+        {
+          "kind": "semantic",
+          "function": "_ZN15IsaacRepentance10GridEntity4InitERKNS0_4DescE",
+          "address": "0x0037e4d8",
+          "immediate": 8,
+          "why": "**结构证据（成对存储）**：`stp x8, x9, [x0, #0x8]` —— `stp` 一次写**两格**（`+0x08` 与 `+0x10`），源是上一条 `ldp x8, x9, [x1]`（描述符前 16 字节）。本行记的立即数 `8` 是这一对的**起始**偏移；后半那格（`+0x10`）就是 `Variant`。★ 这正是「描述符三格同属一张表」的依据。"
+        },
+        {
+          "kind": "semantic",
+          "function": "_ZN15IsaacRepentance15GridEntity_Poop12InitSubclassEv",
+          "address": "0x0038a3e8",
+          "immediate": 28,
+          "why": "**取值锚点（同一张描述符的邻格）**：`str wzr, [x0, #0x1c]` —— 便便初始化时把 `VarData` 清 0（下一行的 `strh wzr,[x0,#0x1c0]` 是另一个字段）。它证明便便这条路用的是同一张描述符布局（`+0x08`/`+0x10`/`+0x1C` 三格），从而支持 `+0x10` 是 variant 一格。"
+        }
+      ],
+      "retired_on": "2026-10-16",
+      "retired_reason": "将1000误当便便variant；该字段实际为State，PC/NS独立语义复核推翻。"
+    }
+  ]
+}

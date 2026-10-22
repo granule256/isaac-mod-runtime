@@ -1,0 +1,56 @@
+{
+  "schema": "isaac-layout-table/1",
+  "build_id": "91C73FDD575061318D68886316AFEAC72388B2AB",
+  "struct": "Entity_NPC",
+  "source_table": "entity_npc",
+  "note": [
+    "`Entity_NPC` 的**两个颜色索引**：`+0xD10` = 冠军色号（`ChampionColorIdx`）、`+0xD24` = Boss 色号（`BossColorIdx`）。",
+    "两者都是 i32，`-1` = 没有配色（引擎自己的 `Entity_NPC::Init` 就把「无」写成 `-1`）。",
+    "",
+    "为什么单开一张表：`runtime_constants.hpp` 里这两个常量是批次 296 新加的，`Entity` 那张表只登记",
+    "  `Entity` 基类的字段（`Entity_NPC` 是子类），所以按 `grid_entity_door.json` 的先例另起一张，",
+    "  服务的是台账（`api_definition_of_done.json` 里 `provenance.field` = `Entity_NPC.<字段>`）与复核。",
+    "★ 与 `grid_entity_door.json` 同一条处置：**本表不生成头文件**（C++ 侧用 `runtime_constants.hpp` 的常量），",
+    "  复核命令是 `python3 tools/build_layout_table.py --table tools/layout_tables/entity_npc.json --verify`。",
+    "",
+    "★ 两格的证据都是**具名函数**（不是「某处有个整数」）：写入方 `Init` / `MakeChampion` / `Morph` /",
+    "  `SetBossColorIdx`，读者 `fix_champion_color` / `translate_gfx_path` / `reset_color` / `load_graphics`。",
+    "★ 两条**语义锚点**各自落在「该字段被拿来跟枚举常量比」的那条指令上（`cmp w8,#0x6` / `mov w8,#0x11`",
+    "  与 `tbnz w8,#0x1f`）—— 后者同时说明这一格按**有符号**看待、负值走「没有配色」分支。",
+    "★ PC 侧这两个索引相距 `0x14`（`0xBB4`→`0xBC8`），Switch 侧**也正好相距 `0x14`**（`0xD10`→`0xD24`）——",
+    "  顺序与间距一致是免费印证，但偏移数值完全不同，**不许平移**。"
+  ],
+  "rows": [
+    {
+      "name": "ChampionColorIdx",
+      "kind": "u32",
+      "offset": 3344,
+      "width": 4,
+      "confidence": "confirmed",
+      "semantic": "**冠军色号**（`ChampionColorIdx`，契约 `tools/pc_contract_docs/EntityNPC.md:77` 返回 `ChampionColor`）。`-1` = 没有冠军色。★ 三个具名写入方：`Entity_NPC::Init` 写默认值 `-1`（`mov w25,#-0x1` → `str x25,[x0,#0xd10]`，紧接 `strb wzr,[x0,#0xd0f]` 清**冠军标志字节**）；`Entity_NPC::MakeChampion(unsigned,int,bool)` 把**第二个实参**写进来并同时置 `+0xD0F`；`Entity_NPC::Morph` 把**第四个实参**写进来（另一支在实体配置说「不冠军」时写回 `-1` 并清标志）—— 与契约 `EntityNPC.md:119` 的散文「`ChampionColorIdx`… 用 -1 表示不加冠军色」逐字对上。★ 具名读者：`Entity_NPC::fix_champion_color()` 读它与 `0x6`/`0xC` 比较后写入 `0x11`；`load_graphics` / `translate_gfx_path` / 多个 `ai_*` 也读。★ PC 的对应格在 `0xBB4`（绑定本体 `0x680DE0` 只有 `mov eax,[ecx+0xbb4]` + `ret`）。",
+      "evidence": [
+        {"kind": "access", "function": "_ZN15IsaacRepentance10Entity_NPC4InitENS_11eEntityTypeEjjj", "address": "0x00105f14", "offset": 3344, "width": 4, "why": "**写入方（默认值）**：`00105f10 mov w25, #-0x1` 紧接着 `00105f14 str x25, [x0, #0xd10]` —— 构造期把这一格写成 `-1`（表示没有冠军色），下一句 `00105f34 strb wzr, [x0, #0xd0f]` 把冠军标志字节清零（两个量同批初始化）"},
+        {"kind": "access", "function": "_ZN15IsaacRepentance10Entity_NPC12MakeChampionEjib", "address": "0x00108fe0", "offset": 3344, "width": 4, "why": "**写入方**：`str w21, [x19, #0xd10]`，`w21` 就是函数的**第二个实参**（契约 `…MakeChampion ( int Seed, ChampionColorIdx = -1, boolean Init = false )`）⇒ 该实参写给谁由位置定死；前一句 `00108fdc strb w8(1), [x19, #0xd0f]` 置冠军标志"},
+        {"kind": "access", "function": "_ZN15IsaacRepentance10Entity_NPC5MorphENS_11eEntityTypeEjji", "address": "0x0010fb58", "offset": 3344, "width": 4, "why": "**第二处写入方**：`str w4, [x19, #0xd10]`（第四个实参 = 契约 `Morph(type, Variant, SubType, ChampionColorIdx)` 的那个），同支 `0010fb5c strb w8(1), [x19, #0xd0f]`；另一支 `0010fb8c str w8(=-1), [x19, #0xd10]` + `0010fb90 strb wzr, [x19, #0xd0f]` 说明「不冠军 ⇒ 写回 -1 且清标志」"},
+        {"kind": "access", "function": "_ZN15IsaacRepentance10Entity_NPC18fix_champion_colorEv", "address": "0x00107090", "offset": 3344, "width": 4, "why": "**具名读者**：`ldr w8, [x0, #0xd10]` —— `Entity_NPC::fix_champion_color()` 第一句就读它（随后与 `0x6`/`0xC` 比较、命中则写 `0x11`）"},
+        {"kind": "semantic", "function": "_ZN15IsaacRepentance10Entity_NPC18fix_champion_colorEv", "address": "0x001070d0", "immediate": 17, "why": "★ **取值锚点**：`mov w8, #0x11`（17）—— 同一函数在读完这一格后把某个**冠军色枚举值**写回去 ⇒ 这一格装的是冠军色号而不是别的整数"}
+      ]
+    },
+    {
+      "name": "BossColorIdx",
+      "kind": "u32",
+      "offset": 3364,
+      "width": 4,
+      "confidence": "confirmed",
+      "semantic": "**Boss 色号**（`BossColorIdx`，契约 `tools/pc_contract_docs/EntityNPC.md:69` 返回 `int`）。`-1` = 没有 Boss 色。★ 写入方：`Entity_NPC::Init`（同一条 `mov w25,#-0x1` → `str w25,[x0,#0xd24]`，默认 `-1`）、`Entity_NPC::SetBossColorIdx(int,bool)`（把**第一个实参**写进来，写前先读它做「值没变就不做事」的守卫，值变时才走 `load_graphics` + `ANM2::SetFrame`）、`Entity_NPC::load_entity_config`。★ 具名读者：`Entity_NPC::translate_gfx_path`（读它 → 判负 → 按 `0x80` 步长到 `EntityConfig::BossColor` 容器取第 idx 项）、`Entity_NPC::reset_color`（同一形态）、多个 `ai_*` 与 `Room::TriggerBossDeath`。★ 语义锚点是 `tbnz w8,#0x1f`：该字段按**有符号**看待、负值走「没有配色」分支（与 `Init` 写的 `-1` 一致）。★ PC 的对应格在 `0xBC8`（绑定本体 `0x7A7FD0` 只有 `mov eax,[ecx+0xbc8]` + `ret`）。",
+      "evidence": [
+        {"kind": "access", "function": "_ZN15IsaacRepentance10Entity_NPC4InitENS_11eEntityTypeEjjj", "address": "0x00105f40", "offset": 3364, "width": 4, "why": "**写入方（默认值）**：与冠军色号共用同一句 `mov w25, #-0x1`，`str w25, [x0, #0xd24]` ⇒ 构造期默认 `-1`（表示没有 Boss 色）"},
+        {"kind": "access", "function": "_ZN15IsaacRepentance10Entity_NPC15SetBossColorIdxEib", "address": "0x0011fdb0", "offset": 3364, "width": 4, "why": "**写入方**：`str w1, [x19, #0xd24]` —— `w1` 是函数的第一个实参（`SetBossColorIdx(int,bool)`）⇒ 该格就是 Boss 色号；`0x11FDD4` 之后是 `load_graphics` + `ANM2::SetFrame`，说明变它会换 Boss 的图形"},
+        {"kind": "access", "function": "_ZN15IsaacRepentance10Entity_NPC15SetBossColorIdxEib", "address": "0x0011fda0", "offset": 3364, "width": 4, "why": "**写入方自己的守卫读**：`ldr w8, [x0, #0xd24]` + `cmp w8, w1` + `b.eq → 直接返回` ⇒ 值没变时**跳过**整段换图动作，反证这一格就是当前的 Boss 色号"},
+        {"kind": "access", "function": "_ZN15IsaacRepentance10Entity_NPC18translate_gfx_pathERKNSt3__112basic_stringIcNS1_11char_traitsIcEENS1_9allocatorIcEEEE", "address": "0x00107aa8", "offset": 3364, "width": 4, "why": "**具名读者**：`ldr w8, [x0, #0xd24]` —— `translate_gfx_path` 换 gfx 路径前先查它；紧随其后的 `add x8, x10, x8, lsl #7`（步长 `0x80`）说明它被当作 `EntityConfig::BossColor` 容器的**下标**"},
+        {"kind": "access", "function": "_ZN15IsaacRepentance10Entity_NPC11reset_colorEv", "address": "0x0010fe00", "offset": 3364, "width": 4, "why": "**第二处独立读者**：`Entity_NPC::reset_color()` 里 `ldr w8, [x19, #0xd24]` + 同一套「判负 → 查 BossColor 容器」序列"},
+        {"kind": "semantic", "function": "_ZN15IsaacRepentance10Entity_NPC18translate_gfx_pathERKNSt3__112basic_stringIcNS1_11char_traitsIcEENS1_9allocatorIcEEEE", "address": "0x00107ab0", "immediate": 31, "why": "★ **语义锚点**：`tbnz w8, #0x1f, →跳过`（测符号位）—— 这一格按**有符号**处理、负值直接走「没有配色」分支，与 `Init` 写的 `-1` 一致"}
+      ]
+    }
+  ]
+}

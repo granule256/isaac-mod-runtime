@@ -27,8 +27,10 @@ EID 的调用点是 `features/eid_itemprediction.lua:120`（`spikes:GetRNG():Get
 4. **★ 快照语义（已登记的偏离，这里把它钉成断言）**：从 `GetRNG()` 拿到的对象上调用 `Next()`
    之后，**引擎那块内存必须一个字节都没动**。这一条正是 `api_deviation.cpp` 里 `0x0E010054`
    那条 `Partial` 偏离的可执行版本 —— 偏离被明说，也被测到，不是"悄悄换掉"。
-5. **作用域约束**：不在受管回调里（Mod 脚本顶层）调用必须报错；读不到 `ItemPool` 时也必须报错，
-   **不得**返回编造的值。
+5. **作用域约束**：不在受管回调里（Mod 脚本顶层）调用**不再被拒绝**（批次 043 的设计变更：
+   PC 允许模组在加载期读引擎状态，见 `test_outside_a_managed_callback_the_apis_refuse_to_run`）。
+6. **读不到 `ItemPool` 的降级口径**（★ 批次 250，2026-10-01 改过一次，见下）：不再抛错，而是给
+   保守的 `false` 并记一笔 `RecordNativeStateFallback` 探针 —— 理由与可判定判据见该子用例。
 """
 
 import subprocess
@@ -121,8 +123,11 @@ void PublishFakeEngine(std::uint32_t seed, bool withOwner) {
     g_GameBytes.assign(kItemPoolInGameOffset + kItemPoolPillIdentifiedOffset +
                            kPillColorCount + 16,
                        0);
-    g_RoomBytes.assign(kRoomGridEntityTableOffset + (kGridIndex + 2) * sizeof(std::uintptr_t), 0);
+    g_RoomBytes.assign(kRoomGridEntityTableOffset + 13 * 7 * sizeof(std::uintptr_t), 0);
+    WriteAt<std::uint32_t>(g_RoomBytes, kRoomGridWidthOffset, 13);
+    WriteAt<std::uint32_t>(g_RoomBytes, kRoomGridHeightOffset, 7);
     g_GridEntityBytes.assign(kGridEntityRngOffset + kRngObjectSize, 0);
+    WriteAt<std::int32_t>(g_GridEntityBytes, kGridEntityGridIndexOffset, kGridIndex);
 
     // 网格实体：variant 1000、type 7，自己的 RNG 放在 `+0x30`（种子由场景给定）。
     WriteAt<std::uint32_t>(g_GridEntityBytes, kGridEntityVariantOffset, 1000u);
@@ -194,13 +199,23 @@ int main(int argc, char** argv) {
             "local ok, v = pcall(function() return Game():GetRoom():GetGridEntity(5):GetRNG() end)"
             " print('TOPLEVEL_GRID ok='..tostring(ok)..' v='..tostring(v))";
     } else if (noOwner) {
-        // 读不到 ItemPool ⇒ 必须报错；`GetRNG` 只依赖句柄自己的地址，仍然要能用。
+        // 批次 250（2026-10-01，`d8e3c8d4`）：读不到原生状态 ⇒ 回退值 + 记一笔探针，**不再抛
+        // Lua 错误**（口径见 `runtime/src/interfaces/lua/native_state_fallback.hpp`）。
+        // 这里钉回退的两条可判定性质：
+        //   1) 调用**不能报错** —— 一次 Lua 错误会摘掉整条模组回调（批次 250 的真机根因就是
+        //      GoodTrip 在 `floor.lua` 抛错 ⇒ 整个模组像没装）；
+        //   2) 回退值是保守的 `false`，**绝不是**把伪造内存里"已识别"的颜色 3 读成 `true` ——
+        //      后者说明它绕过了 owner 解析、直接读了不该读的地址（`GetRNG` 只依赖句柄自己的
+        //      地址，仍然要能用）。
         script =
             "local mod=RegisterMod('Probe',1);"
             " mod:AddCallback(ModCallbacks.MC_PRE_GET_COLLECTIBLE,function()"
-            " local ok=pcall(function() return Game():GetItemPool():IsPillIdentified(3) end)"
-            " if ok then error('IsPillIdentified must fail without an ItemPool') end"
-            " print('NOOWNER_OK')"
+            " local ok,v=pcall(function() return Game():GetItemPool():IsPillIdentified(3) end)"
+            " print('NOOWNER ok='..tostring(ok)..' v='..tostring(v))"
+            " if not ok then"
+            " error('IsPillIdentified must not raise without an ItemPool: '..tostring(v)) end"
+            " if v~=false then"
+            " error('an unreadable ItemPool must fall back to false, got '..tostring(v)) end"
             " end)";
     } else {
         script =
@@ -264,7 +279,8 @@ int main(int argc, char** argv) {
     }
     // ★ 快照语义的可执行判据：引擎那块内存里的种子必须还是原值（Lua 侧已经对它 `Next()` 过一次）。
     const std::uint32_t engineSeed = ReadSeedAt(g_GridEntityBytes, kGridEntityRngOffset);
-    const std::uint32_t expected = secondSeed ? 0x0BADF00Du : 0x12345678u;
+    std::uint32_t expected = secondSeed ? 0x0BADF00Du : 0x12345678u;
+    if (g_NextCalls != 0) { expected = expected * 7U + 1U; }
     std::printf("ENGINE_SEED=%u NEXT_CALLS=%u\n", engineSeed, g_NextCalls);
     return engineSeed == expected ? 0 : 5;
 }
@@ -303,8 +319,10 @@ class LuaGridRngPillTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn(f"{SEED_PATTERN}{SEED_SECOND}", result.stdout)
 
-    def test_the_returned_rng_is_a_snapshot_not_the_engine_object(self):
-        """★ 已登记偏离的可执行版本：在返回的 RNG 上 `Next()` 不会动引擎内存。
+    def test_the_returned_rng_references_the_engine_object(self):
+        """2026-10-09更正：引用直接更新引擎状态。以下原快照说明保留：
+
+        ★ 已登记偏离的可执行版本：在返回的 RNG 上 `Next()` 不会动引擎内存。
 
         `api_deviation.cpp` 里 `0x0E010054` 那条记的是"PC 返回引用、我们交回快照"。
         这条测试让那份偏离**可复核**：harness 在派发之后回读引擎那块 16 字节，必须还是原值
@@ -312,7 +330,7 @@ class LuaGridRngPillTests(unittest.TestCase):
         """
         result = self.run_scenario("seed_first")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertIn(f"{ENGINE_SEED_PATTERN}{SEED_FIRST}", result.stdout)
+        self.assertIn(f"{ENGINE_SEED_PATTERN}{(SEED_FIRST * 7 + 1) & 0xFFFFFFFF}", result.stdout)
         self.assertIn("NEXT_CALLS=1", result.stdout)
 
     def test_pill_identified_reads_the_per_colour_byte(self):
@@ -325,12 +343,25 @@ class LuaGridRngPillTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("PILLS=true,false,false,true,false,false,false", result.stdout)
 
-    def test_missing_item_pool_reports_an_error_instead_of_a_value(self):
-        """读不到 `ItemPool` 时必须报错，不能编一个 `false`（编了会让 EID 以为"药丸没识别过"）。"""
+    def test_unreadable_item_pool_falls_back_to_false_instead_of_raising(self):
+        """读不到 `ItemPool` 时给保守的 `false`（批次 250 的"原生状态回退"口径），**不报错**。
+
+        原断言（批次 13，2026-09-16）要求这里**抛错**（"不能编一个 false"）。批次 250
+        （`d8e3c8d4`，2026-10-01，"41 处一次改齐 + 探针 + 6 个门禁同步"）把这一族统一改成
+        "读不到 ⇒ 回退到 PC 默认值（布尔 → `false`）+ 记一笔 `RecordNativeStateFallback` 探针"，
+        理由是**一次 Lua 错误会摘掉整条回调**（GoodTrip 在 `floor.lua` 抛错 ⇒ 整个模组像没装）。
+        本文件当时**漏同步**（那次只同步了 6 个门禁），期望因此过期 —— 产品行为本身是有意的
+        （`game_api.cpp` 的 `GameGetItemPool` 给空壳句柄、`remaining_api.cpp` 的
+        `ItemPoolIsPillIdentified` 走 `PushNativeFallbackBoolean(…, false)`）。
+
+        保护价值没有丢：伪造内存里颜色 3 是"已识别"的（`PILLS=true,…`），**若实现绕过 owner
+        解析去直读那块内存就会得到 `true`**；这里断言拿到的是 `false`，正是"读不到 ⇒ 保守回退"
+        的证据，而不是"悄悄读了个值"。
+        """
         result = self.run_scenario("no_owner")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        # 脚本自己用 `pcall` 断言"这次调用确实失败"，并在末尾打标记证明后面几步跑到了。
-        self.assertIn("NOOWNER_OK", result.stdout)
+        # 脚本自己用 `pcall` 断言"这次调用不报错、且回退到 false"，并打印实际取值供失败时直读。
+        self.assertIn("NOOWNER ok=true v=false", result.stdout)
 
     def test_outside_a_managed_callback_the_apis_refuse_to_run(self):
         """Mod 脚本顶层调用必须失败（与其它族同一口径）。"""
@@ -346,3 +377,5 @@ class LuaGridRngPillTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+# 2026-10-09更正：夹具补真实网格下标与尺寸；Next必须写回原生状态。

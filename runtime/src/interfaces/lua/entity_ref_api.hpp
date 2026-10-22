@@ -9,6 +9,14 @@ extern "C" {
 
 namespace isaac::runtime {
 
+// ★ 2026-10-16原件更正（下面旧记录完整保留，不能再按旧偏移实施）：
+// 当前NS Game::BombDamage355380..3553BC构造并把sp+20作为TakeDamage的EntityRef参数。
+// Type+0、Variant+4、SpawnerType+8、SpawnerVariant+C；Position+10、偏移Vector+18、
+// 标志+20、源指针+28。PC80403B..804057的字段登记独立确认四个整数格，
+// SpawnerType按signed32、SpawnerVariant按unsigned32。Lua两字段已补，旧Type/Variant排布纠正；
+// Native输入转发前0x30字节，不再只复制三处。完整原件见dist/apis600-20261016。
+// 构造前缀已静态验证，不等同于完整原生EntityRef引用树/销毁后地址复用已真机验收。
+//
 // ============================================================================
 // `EntityRef`：PC 的"实体引用"值类型（批次 065，2026-09-19）
 // ============================================================================
@@ -49,4 +57,22 @@ namespace isaac::runtime {
 //: 第 `index` 个实参不是 `EntityRef` 句柄 ⇒ 返回 `nullptr`（调用方决定降级方式）。
 [[nodiscard]] void* EntityRefBufferAt(lua_State* state, int index) noexcept;
 
+// 批次 396（2026-10-07）：把**引擎传给我们**的 `Entity::EntityRef const&`（一个指针）变成
+// Lua 侧的 `EntityRef` 句柄，用来当回调实参压栈（`MC_ENTITY_TAKE_DMG` 的第 4 个实参 `Source`）。
+//
+// 与 `CreateEntityRefHandle` 的差别：那个是从**实体指针**现造（只填 Entity/Type/Variant，
+// 其余留空）；这个是从**引擎已经填好的引用**里搬 —— 只搬三个有证据的格子
+// （`Variant@0x00` / `Type@0x08` / `Entity@0x28`，证据见上），其余仍清零（不猜）。
+// `engineRef == 0` ⇒ 压一个空引用（全零），与 `EntityRef(nil)` 同义。
+void PushEntityRefArgument(lua_State* state, std::uintptr_t engineRef) noexcept;
+
 } // namespace isaac::runtime
+
+// 第七批：拥有值的PC可写Position/IsFriendly/IsCharmed；const借用仍只读。
+namespace isaac::runtime { [[nodiscard]] int EntityRefNewIndex(lua_State*); }
+
+// 第七批原件追加：PC804057登记Position+10，getter856530返回Vector值副本、
+// setter8565D0接受Vector整体赋值；PC80405E/65登记IsCharmed/IsFriendly，
+// getter4A9690/48EFE0读+20位0/1，setter7FA4A0/7FA480只改相应位。
+// 拥有值和回调快照可写三字段；GetLastDamageSource为独立const活视图，禁止写入。
+// 原生EntityRefBufferAt优先核活视图，再沿用既有裸storage格式，不把视图解释为storage。
