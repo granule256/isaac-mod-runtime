@@ -488,14 +488,21 @@ using ButtonFloatFn = float (*)(void* /* 同上 */, std::uint32_t button, std::u
 LuaRuntime::InputFrameEdges g_ButtonEdge{};
 
 // 参数校验：**2 或 3 个整数**（第三个是 PC 未文档化的可选参数，EID 在用；我们不解释它的语义）。
-void CheckInputButtonArguments(lua_State* state, const char* apiName) {
+struct InputButtonArguments {
+    lua_Integer code{};
+    lua_Integer controller{};
+};
+InputButtonArguments CheckInputButtonArguments(lua_State* state, const char* apiName) {
+    InputButtonArguments arguments{};
     const int top = lua_gettop(state);
-    if ((top != 2 && top != 3) || !isaac::runtime::IsIntegerArgument(state, 1) ||
-        !isaac::runtime::IsIntegerArgument(state, 2) ||
+    if ((top != 2 && top != 3) ||
+        !isaac::runtime::IntegerArgumentAt(state, 1, &arguments.code) ||
+        !isaac::runtime::IntegerArgumentAt(state, 2, &arguments.controller) ||
         (top == 3 && !isaac::runtime::IsIntegerArgument(state, 3))) {
         luaL_error(state, "%s accepts an input button, a controller id[, and one more integer]",
                    apiName);
     }
+    return arguments;
 }
 
 //: 这个按键号是不是"手柄按键"？只有 0..17 有真值来源（见 `kKageControllerButtonMaximum`）。
@@ -648,10 +655,9 @@ bool ResolveButtonQuery(std::uintptr_t* manager, std::uintptr_t* method,
 }
 
 int InputIsButtonTriggered(lua_State* state) {
-    RefreshInputSnapshot();     // 批次 222：每帧一次的"全动作快照"（只在帧变化时真做）
-    CheckInputButtonArguments(state, "Input.IsButtonTriggered");
+    const auto arguments = CheckInputButtonArguments(state, "Input.IsButtonTriggered");
     if (console::ConsoleCapturesInput()) { lua_pushboolean(state, 0); return 1; }
-    const lua_Integer code = lua_tointeger(state, 1);
+    const lua_Integer code = arguments.code;
     // 键盘码 / 越界：**没有真值来源**（见上面那段），答 false 且不查引擎。
     if (!IsControllerButtonCode(code)) {
         lua_pushboolean(state, 0);
@@ -660,7 +666,9 @@ int InputIsButtonTriggered(lua_State* state) {
     // 批次 211：模组给的是 **PC 的手柄号**（0 = 键盘、1..4 = 第 1..4 台手柄），引擎要的是
     // **Switch 的设备号**（0 = 触摸屏、33 = 手柄）⇒ 先按 `pc_ns_input_device_map.hpp` 翻译。
     // "没有这台"（键盘档 / 第 k 台手柄不存在）⇒ **引擎一次都不问**，直接答 false（PC 上也是 false）。
-    const ResolvedInputDevice target = ResolveInputDevice(lua_tointeger(state, 2));
+    // 无真值来源的键码在上方保留原答案；只有实际输入查询需要快照。
+    RefreshInputSnapshot();
+    const ResolvedInputDevice target = ResolveInputDevice(arguments.controller);
     if (!target.query) {
         lua_pushboolean(state, 0);
         return 1;
@@ -704,16 +712,17 @@ int InputIsButtonTriggered(lua_State* state) {
 }
 
 int InputIsButtonPressed(lua_State* state) {
-    RefreshInputSnapshot();     // 批次 222
-    CheckInputButtonArguments(state, "Input.IsButtonPressed");
+    const auto arguments = CheckInputButtonArguments(state, "Input.IsButtonPressed");
     if (console::ConsoleCapturesInput()) { lua_pushboolean(state, 0); return 1; }
-    const lua_Integer code = lua_tointeger(state, 1);
+    const lua_Integer code = arguments.code;
     if (!IsControllerButtonCode(code)) {
         lua_pushboolean(state, 0);
         return 1;
     }
     // 手柄号翻译同 `IsButtonTriggered`（批次 211）。
-    const ResolvedInputDevice target = ResolveInputDevice(lua_tointeger(state, 2));
+    // 无真值来源的键码在上方保留原答案；只有实际输入查询需要快照。
+    RefreshInputSnapshot();
+    const ResolvedInputDevice target = ResolveInputDevice(arguments.controller);
     if (!target.query) {
         lua_pushboolean(state, 0);
         return 1;
@@ -755,15 +764,15 @@ int InputIsButtonPressed(lua_State* state) {
 }
 
 int InputGetButtonValue(lua_State* state) {
-    CheckInputButtonArguments(state, "Input.GetButtonValue");
+    const auto arguments = CheckInputButtonArguments(state, "Input.GetButtonValue");
     if (console::ConsoleCapturesInput()) { lua_pushnumber(state, 0); return 1; }
-    const lua_Integer code = lua_tointeger(state, 1);
+    const lua_Integer code = arguments.code;
     if (!IsControllerButtonCode(code)) {
         lua_pushnumber(state, 0.0);
         return 1;
     }
     // 手柄号翻译同 `IsButtonTriggered`（批次 211）。
-    const ResolvedInputDevice target = ResolveInputDevice(lua_tointeger(state, 2));
+    const ResolvedInputDevice target = ResolveInputDevice(arguments.controller);
     if (!target.query) {
         lua_pushnumber(state, 0.0);
         return 1;

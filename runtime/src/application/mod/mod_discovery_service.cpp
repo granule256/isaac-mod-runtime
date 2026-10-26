@@ -1,6 +1,8 @@
 #include "application/mod/mod_discovery_service.hpp"
 
 #include <cstring>
+#include <memory>
+#include <new>
 
 namespace isaac::runtime {
 namespace {
@@ -45,62 +47,9 @@ bool IsUsableDirectoryName(const char* name) noexcept {
     return true;
 }
 
-// 模组配置菜单**必须最先加载**（2026-10-01）。
-//
-// 为什么：GoodTrip / TheSpecialist 这类模组是在**加载那一刻**用全局 `ModConfigMenu` 判断
-// "要不要注册自己的设置页"的（它们的 main.lua 里就是 `if ModConfigMenu then include(...) end`）。
-// 菜单排在它们后面 ⇒ 那一刻全局还不存在 ⇒ **设置页永不注册**
-// （真机现象：模组页里能看到这个模组、可它的设置页在菜单里怎么也找不到）。
-//
-// 清单时代这个顺序由清单写死（第一条就是菜单模组）；改用"扫目录"之后是**名字升序**，
-// `mod_config_menu_cn` 会落到第 4 位（前面还有 `external item descriptions…` / `goodtripfixed` /
-// `infinite-coins`）⇒ 必须在这里把它提回最前。
-//
-// 识别口径 = "去掉分隔符、转小写之后含 `configmenu`"（见下面的 `IsModConfigMenuDirectory`）：
-// 中英文两份的目录名 `mod_config_menu_cn` 与 `isaac-mod-config-menu` 都命中；
-// 不写死整名，免得换个语言/后缀就失效。
-// 只看"去掉分隔符、转小写之后的名字里有没有 configmenu"。
-// 这样 `mod_config_menu_cn`（中文版）与 `isaac-mod-config-menu`（英文版）都命中，
-// 不必为每种写法的分隔符（下划线 / 连字符 / 驼峰）各列一条
-// —— 第一版只写了下划线，被判据当场抓出英文版漏判（见 `test_multi_mod_manifest`）。
-bool IsModConfigMenuDirectory(const char* name) noexcept {
-    constexpr char kNeedle[] = "configmenu";
-    std::size_t matched = 0;
-    for (const char* cursor = name; *cursor != '\0'; ++cursor) {
-        char lower = *cursor;
-        if (lower >= 'A' && lower <= 'Z') {
-            lower = static_cast<char>(lower - 'A' + 'a');
-        }
-        if (lower == '_' || lower == '-' || lower == ' ') {
-            continue;   // 分隔符不参与比较
-        }
-        if (lower == kNeedle[matched]) {
-            ++matched;
-            if (kNeedle[matched] == '\0') {
-                return true;
-            }
-        } else {
-            matched = (lower == kNeedle[0]) ? 1U : 0U;
-        }
-    }
-    return false;
-}
-
-std::size_t ModPriorityRank(const char* name) noexcept {
-    if (name == nullptr) {
-        return 1;
-    }
-    return IsModConfigMenuDirectory(name) ? 0 : 1;
-}
-
-// 排序键：**先比优先级，再比名字**（升序）。顺序必须确定：两个模组的回调派发顺序会影响游戏行为，
-// 而"引擎给的顺序"没有保证。
+// 这里只给发现结果一个确定目录顺序；显示名读取后由 pc_mod_order.hpp
+// 统一按 PC 规则重排，不能凭目录识别 MCM 或另设加载优先级。
 bool RanksBefore(const ModDirectoryEntry& left, const ModDirectoryEntry& right) noexcept {
-    const std::size_t leftRank = ModPriorityRank(left.name.data());
-    const std::size_t rightRank = ModPriorityRank(right.name.data());
-    if (leftRank != rightRank) {
-        return leftRank < rightRank;
-    }
     return std::strcmp(left.name.data(), right.name.data()) < 0;
 }
 
@@ -184,11 +133,13 @@ Status ModDiscoveryService::Discover(ResolvedManifestModBatch* batch) const noex
     if (batch == nullptr) {
         return Status{StatusCode::InvalidArgument};
     }
-    *batch = ResolvedManifestModBatch{};
+    // count是发布边界；无需生成约674KiB的全零临时值来清理未发布槽。
+    batch->count = batch->disabledCount = batch->manifestBytes = 0;
 
-    ModDirectoryEntry names[kMaximumDiscoveredMods]{};
+    std::unique_ptr<ModDirectoryEntry[]> names(new (std::nothrow) ModDirectoryEntry[kMaximumDiscoveredMods]{});
+    if (!names) return Status{StatusCode::IoFailure};
     std::size_t count = 0;
-    const Status listed = directories_.ListSubdirectories(kModsRootRelative, names,
+    const Status listed = directories_.ListSubdirectories(kModsRootRelative, names.get(),
                                                          kMaximumDiscoveredMods, &count);
     if (!listed.ok()) {
         return listed;
@@ -199,16 +150,16 @@ Status ModDiscoveryService::Discover(ResolvedManifestModBatch* batch) const noex
     if (count > kMaximumDiscoveredMods) {
         return Status{StatusCode::CapacityExceeded};
     }
-    SortNames(names, count);
+    SortNames(names.get(), count);
 
     for (std::size_t index = 0; index < count; ++index) {
         if (!IsUsableDirectoryName(names[index].name.data())) {
             // 一个可疑名字就整批拒绝：宁可让用户看到"没加载"，也不要拿可疑路径去调引擎。
-            *batch = ResolvedManifestModBatch{};
+            batch->count = batch->disabledCount = batch->manifestBytes = 0;
             return Status{StatusCode::Corrupted};
         }
         if (!FillOneMod(batch, index, names[index].name.data())) {
-            *batch = ResolvedManifestModBatch{};
+            batch->count = batch->disabledCount = batch->manifestBytes = 0;
             return Status{StatusCode::CapacityExceeded};
         }
     }
@@ -229,17 +180,19 @@ Status ModDiscoveryService::AppendUnlisted(ResolvedManifestModBatch* batch) cons
     if (batch == nullptr) {
         return Status{StatusCode::InvalidArgument};
     }
-    ModDirectoryEntry names[ResolvedManifestModBatch::kCapacity]{};
+    std::unique_ptr<ModDirectoryEntry[]> names(new (std::nothrow) ModDirectoryEntry[ResolvedManifestModBatch::kCapacity]{});
+    if (!names) return Status{StatusCode::IoFailure};
     std::size_t count = 0;
-    const Status listed = directories_.ListSubdirectories(kModsRootRelative, names,
+    const Status listed = directories_.ListSubdirectories(kModsRootRelative, names.get(),
                                                          ResolvedManifestModBatch::kCapacity, &count);
     if (!listed.ok()) {
         return listed;
     }
+    if (count > ResolvedManifestModBatch::kCapacity) return Status{StatusCode::CapacityExceeded};
     if (count == 0) {
         return Status{StatusCode::Ok};   // 没有可追加的，正常
     }
-    SortNames(names, count);
+    SortNames(names.get(), count);
 
     for (std::size_t index = 0; index < count; ++index) {
         const char* name = names[index].name.data();

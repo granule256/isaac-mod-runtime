@@ -10,6 +10,7 @@
 #include "interfaces/lua/entity_lifetime.hpp"
 #include "interfaces/lua/api700_string.hpp"
 #include "interfaces/lua/vector_api.hpp"
+#include "interfaces/lua/object_identity_registry.hpp"
 extern "C" {
 #include <lauxlib.h>
 }
@@ -58,7 +59,17 @@ namespace {
 constexpr char kConstRef[]="IsaacRuntime.ConstEntityRef";
 constexpr char kPocket[]="IsaacRuntime.ConstPlayerPocketItem";
 struct View{LuaRuntime::EntityLifetimeToken*lifetime;std::uintptr_t entity,base;unsigned offset;};
-std::uintptr_t ViewAddress(lua_State*L,View*v){if(!EntityLifetimeAlive(v->lifetime)||v->base!=LuaRuntime::EngineModuleBase()||!IsLiveEntityPointer(v->entity)){luaL_error(L,"player view reference owner is no longer available");}return v->entity+v->offset;}
+std::uintptr_t TryViewAddress(const View*v)noexcept {
+ if(!v||!EntityLifetimeAlive(v->lifetime)||v->base!=LuaRuntime::EngineModuleBase()||
+    v->entity>UINTPTR_MAX-v->offset||!IsLiveEntityPointer(v->entity)||
+    ClassifyCallbackEntity(v->entity)!=CallbackEntityClass::Player)return 0;
+ const auto p=v->entity+v->offset;
+ return engine_memory::EngineMemoryReadable(p,v->offset==0x1a70?0x30:8)?p:0;
+}
+std::uintptr_t ViewIdentity(lua_State*L,int index)noexcept {
+ return lua_rawlen(L,index)==sizeof(View)?TryViewAddress(static_cast<const View*>(lua_touserdata(L,index))):0;
+}
+std::uintptr_t ViewAddress(lua_State*L,View*v){const auto p=TryViewAddress(v);if(!p)luaL_error(L,"player view reference owner is no longer available");return p;}
 template<class T>T ViewRead(lua_State*L,std::uintptr_t p,unsigned offset){T value{};if(!engine_memory::ReadField(p,offset,&value,engine_memory::EngineMemoryReadable)){luaL_error(L,"player view memory is not readable");}return value;}
 int ConstIndex(lua_State*L){const auto p=ViewAddress(L,static_cast<View*>(luaL_checkudata(L,1,kConstRef)));const auto*n=lua_tostring(L,2);if(!n){lua_pushnil(L);return 1;}
  if(!std::strcmp(n,"Position")){const auto v=ViewRead<LuaRuntime::VectorHandle>(L,p,0x10);PushLuaVector(L,v.x,v.y);}
@@ -77,6 +88,7 @@ void PushView(lua_State*L,std::uintptr_t p,unsigned offset,const char*mt){auto*t
 void RegisterApi700PlayerTypes(lua_State*L){
  if(luaL_newmetatable(L,kConstRef)){lua_pushcfunction(L,ConstIndex);lua_setfield(L,-2,"__index");lua_pushcfunction(L,ConstNewIndex);lua_setfield(L,-2,"__newindex");lua_pushliteral(L,"EntityRef");lua_setfield(L,-2,"__type");luaL_getmetatable(L,LuaRuntime::kEntityRefMetatable);lua_getfield(L,-1,"__class");lua_setfield(L,-3,"__class");lua_pop(L,1);}lua_pop(L,1);
  if(luaL_newmetatable(L,kPocket)){lua_pushcfunction(L,PocketIndex);lua_setfield(L,-2,"__index");lua_pushcfunction(L,ConstNewIndex);lua_setfield(L,-2,"__newindex");lua_pushliteral(L,"PlayerPocketItem");lua_setfield(L,-2,"__type");lua_pushvalue(L,-1);lua_setfield(L,-2,"__class");}lua_pop(L,1);
+ for(const auto*mt:{kConstRef,kPocket}){luaL_getmetatable(L,mt);if(!RegisterNativeObjectIdentity(L,-1,ViewIdentity))luaL_error(L,"player view identity resolver conflicts");lua_pop(L,1);}
 }
 void* Api700ConstEntityRefBufferAt(lua_State*L,int index)noexcept{auto*v=static_cast<View*>(luaL_testudata(L,index,kConstRef));if(!v)return nullptr;const auto p=ViewAddress(L,v);if(!engine_memory::EngineMemoryReadable(p,0x30)){luaL_error(L,"EntityRef memory is not readable");}return engine_memory::AsObject(p);}
 int Api700EntityPlayerGetLastDamageSource(lua_State*L){auto*p=Player(L);static api100_native::Cache cache{};static_cast<void>(api100_native::Resolve(L,api700_player::kLastDamageEntry,cache));PushView(L,engine_memory::AddressOf(p),0x1a70,kConstRef);return 1;}

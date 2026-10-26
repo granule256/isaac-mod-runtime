@@ -1,6 +1,9 @@
+#include "pc_mod_order.hpp"
+#include "interfaces/lua/runtime_perf.hpp"
 #include "application/shader/mod_shader_loader.hpp"
 #include "application/shader/shader_pipeline.hpp"
 #include "interfaces/lua/rplus_content_names.hpp"
+#include "interfaces/lua/rplus_options.hpp"
 // 生产版：「模组」那一行 + 模组页（换字体那段接线已按真机结论撤掉）。设计与纪律见同名 `.hpp`。
 //
 // **行为真值源**：`runtime/source/probe/native_mods_menu_probe.cpp`（3021 行，真机验收过一轮）。
@@ -31,6 +34,10 @@
 //     （`GameFileReader::ReadTextFile` 的实参）—— 它既不碰引擎内存、也不产生"能调的地址"。
 
 #include "mod_menu_native.hpp"
+#include "mod_reload_native.hpp"
+#include "native_game_resource_reload.hpp"
+#include "mod_resource_redirect.hpp"
+#include "hook_manager.hpp"
 #include "mod_room_guards.hpp"
 #include "lua_runtime_state.hpp"
 
@@ -86,6 +93,8 @@ namespace engine_call = isaac::runtime::engine_call;
 //   埋点若留在 `modmenu` 里就会"未声明"（这次构建就因此判红）。`extern "C"` 保证是裸名符号，
 //   读数工具按名字直读 —— 与 `g_ModMenuState` 同一个口径。
 extern "C" {
+// 重载边界读数：回收次数、队列前/后、空闲前/后、卸载字体数、等待ticks、预检状态。
+std::uint64_t g_ModReloadGraphicsState[8]{};
 std::uint32_t g_OptionsProbeExists{0};      //: `save:/options.ini` 在不在（1 = 在）
 std::uint32_t g_OptionsProbeStatus{0};      //: Exists 的 Status 码（0 = Ok）
 std::uint32_t g_OptionsProbeReadStatus{0};  //: Read 的 Status 码（0 = Ok）
@@ -891,7 +900,7 @@ constexpr std::uint32_t kSettleFrames = 20;
 //
 // 容量与"一次最多加载几个模组"**同一个数**：能加载却放不下那种情况没有人会想到去查，
 // 也不该出现（`mod_page_runtime_sources.hpp` 里的 `kModPageMaximumMods` 就是它）。
-constexpr std::uint32_t kEntryCapacity = isaac::runtime::kModPageMaximumMods;
+constexpr std::uint32_t kEntryCapacity = isaac::runtime::kModPageMaximumMods + 1U;
 //: 留给"启动扫描发现到的模组"的格数 = 总容量让出 **1 格**（批次 126）。
 //:
 //: 为什么必须显式让：`CollectRuntimeModPageSources` 的 `capacity` 参数就是"装不下"的判定口
@@ -901,8 +910,8 @@ constexpr std::uint32_t kModSourceCapacity = kEntryCapacity - 1U;
 //: 名字缓冲要**两份**：来源侧一份（`CollectModPageSources` 往里写显示名），条目侧一份
 //: （`BuildModPageEntries` 把名字抄进去，条目里的 `std::string` 从此指向它）。
 //: 放不下时两条路都是**整体放弃**（绝不写出半截结构）。
-constexpr std::size_t kEntryNameBytes = 8192;
-constexpr std::size_t kSourceNameBytes = 8192;
+constexpr std::size_t kEntryNameBytes = kEntryCapacity * isaac::runtime::kModPageMetadataCapacity;
+constexpr std::size_t kSourceNameBytes = kModSourceCapacity * isaac::runtime::kModPageMetadataCapacity;
 //: 一帧最多试几次"等发现结果"（≈15 秒 @60fps）。
 //:
 //: **为什么要等**：发现结果（`ModMenuPublishDiscovered`）是**启动的模组加载**填进去的，
@@ -943,7 +952,7 @@ enum : std::uint32_t {
 //: （状态表里那 17 格是"位置/滚动"槽，不是页面对象）。探针用一块**静态零初始化**的内存当壳、
 //: 在上面调 `ctor` + `Init` + `Render`，真机跑通了 ⇒ 生产版照用同一形状。
 //: 静态已确认的布局：`+0x00` 选中项、`+0x04` 按住计时、`+0x08` Vector2、`+0x10` ANM2、
-//: `+0x124` "改过没有"、`+0x170` ModManager ⇒ 0x800 足够，且都落在零初始化内存里。
+//: `+0x168` 单字节"改过没有"、`+0x170` ModManager ⇒ 0x800 足够，且都落在零初始化内存里。
 alignas(16) std::uint8_t g_ModsObject[0x800]{};
 float g_ModsPosition[2] = {0.0F, 0.0F};  // `KAGE::Math::Vector2` = 两个 float
 
@@ -953,7 +962,9 @@ std::uintptr_t g_EntryPointers[kEntryCapacity]{};
 alignas(8) std::uintptr_t g_EntryVector[3]{};
 isaac::runtime::ModPageEntrySource g_Sources[kEntryCapacity]{};
 char g_EntryNameArena[kEntryNameBytes]{};    // 条目里的字符串指向它
-char g_SourceNameArena[kSourceNameBytes]{};  // 来源的 displayName 指向它
+isaac::runtime::ModPageEntrySource g_SortedNames[kModSourceCapacity]{};
+char g_SourceNameArena[2][kSourceNameBytes]{};
+std::uint32_t g_SourceNameArenaIndex{};  // 来源的 displayName 指向它
 char g_MetadataScratch[isaac::runtime::kModPageMetadataCapacity]{};
 char g_MetadataPath[isaac::runtime::kModPageMetadataPathCapacity]{};
 
@@ -1047,6 +1058,7 @@ struct Context {
     std::uint32_t prepareAttempts{0};
     std::uint32_t vectorWritten{0};
     std::uint32_t writtenDirectories{0};
+    std::uint32_t writtenGeneration{0};
     //: ★ 批次 169：页面位置那套小状态机（positionSet / 落位校正 / 每帧重写）**整套删掉了** ——
     //: 位置现在只在 `Init` 时算一次（见 `ComputeModsPagePosition`），之后一个字节都不写。
     //: 上一帧是否在模组页里 —— 用来识别"**刚刚离开**"这一刻（在那时落盘一次）。
@@ -1208,29 +1220,6 @@ std::uint32_t ReadMenuState(std::uintptr_t menuManager) {
 //: 目录来源：直接读 `mod_menu_api` 收下的那份"开机扫描发现到的模组"。
 //: 为什么不自已再列一次目录：那会变成两处各维护一份，用户在原生日志页上看到的名字与
 //: 自己的 Lua 模组菜单里看到的对不上时，没有人能判断哪一份是对的。
-std::uint32_t ProvideDirectories(void* /*context*/, const char** out, std::uint32_t capacity) {
-    const std::size_t count = isaac::runtime::ModMenuDiscoveredCount();
-    if (count == 0) {
-        return 0;
-    }
-    if (count > capacity) {
-        return static_cast<std::uint32_t>(count);  // 装不下：如实报数，由调用方整体放弃
-    }
-    for (std::size_t index = 0; index < count; ++index) {
-        const char* name = isaac::runtime::ModMenuDiscoveredDirectory(index);
-        if (name == nullptr || name[0] == '\0') {
-            return 0;
-        }
-        out[index] = name;
-    }
-    return static_cast<std::uint32_t>(count);
-}
-
-//: 开关来源：就是那张纸右边"开着/关着"的依据（同一份数据源，见 `RuntimeMods.List()`）。
-bool ProvideEnabled(void* /*context*/, const char* directory) {
-    return isaac::runtime::ModMenuDiscoveredEnabled(directory);
-}
-
 //: "把这个路径解析成引擎自己能打开的绝对路径" —— **绝不盲开**的最后一步。
 //:
 //: ★ 反汇编依据：`GetMountedFilePath` 内部是 `get_mount_point(path)` + `FileMap::Get` +
@@ -1382,10 +1371,17 @@ bool TryPrepareModsVector() {
     }
     isaac::runtime::ModPageRuntimeStats stats{};
     // ★ 批次 126：容量传 `kModSourceCapacity`（总容量 −1）—— 空出来的那一格给下标 0 的控制台开关行。
-    const std::uint32_t found = isaac::runtime::CollectRuntimeModPageSources(
-        &g_Sources[0], kModSourceCapacity, &ProvideDirectories, nullptr, &ProvideEnabled, nullptr,
-        &CollectMetadataText, &g_Menu, g_SourceNameArena, sizeof(g_SourceNameArena),
-        g_MetadataPath, g_MetadataScratch, &stats);
+    const auto count = isaac::runtime::ModMenuDiscoveredCount();
+    const auto found = count <= kModSourceCapacity ? static_cast<std::uint32_t>(count) : 0u;
+    stats.directories = count;
+    stats.overflowed = count > kModSourceCapacity;
+    for (std::uint32_t i = 0; i < found; ++i) {
+        const auto* directory = isaac::runtime::ModMenuDiscoveredDirectory(i);
+        const bool enabled = isaac::runtime::ModMenuDiscoveredEnabled(directory);
+        g_Sources[i] = {isaac::runtime::ModMenuDiscoveredDisplayName(i), enabled, false};
+        stats.enabled += enabled ? 1u : 0u;
+    }
+    stats.entries = found;
     std::size_t nameBytes = 0;
     std::uint32_t built = 0;
     // 表的总行数 = 发现的模组数 + 1（我们自己那一行，见 `kConsoleRowEntryIndex`）。
@@ -1460,6 +1456,7 @@ bool TryPrepareModsVector() {
     }
     g_Menu.vectorWritten = 1;
     g_Menu.writtenDirectories = stats.directories;
+    g_Menu.writtenGeneration = isaac::runtime::ModMenuDiscoveryGeneration();
     // 如实报**表里实际有几行**（含下标 0 的自己那一行）—— 读数工具按"页面上该有几行"解释这一格。
     g_ModMenuState.entryCount = (built == total) ? total : 0;
     return true;
@@ -1958,7 +1955,7 @@ Fn ResolveEngineEntry(const TargetModule& module, std::uintptr_t offset, const s
 //: `ModEntry::GetContentPath` 拼出来的**相对应用根**形式；而 `GetMountedFilePath` 返回的是带
 //: `rom:/` 的完整路径。148d 真机实测"两个加载器各被调 1 次、两个容器一条没涨"⇒ 口径可疑。
 //: 不认识的串原样返回（绝不猜）。
-const char* RelativeToApplicationRoot(const char* mounted) {
+[[maybe_unused]] const char* RelativeToApplicationRoot(const char* mounted) {
     constexpr char kPrefix[] = "rom:/";
     if (mounted != nullptr && mounted[0] == 'r' && mounted[1] == 'o' && mounted[2] == 'm' &&
         mounted[3] == ':' && mounted[4] == '/') {
@@ -2076,13 +2073,13 @@ static_assert(sizeof(SubstituteModEntry) <= kModEntrySubstituteBytes,
 //: 替身本体。**静态存储（bss）+ 全 POD 成员 ⇒ 常量初始化**，不会有 `__cxa_guard_*`
 //: （本模块 `-nostartfiles`：函数里带动态初始化的 `static` 会在守卫上自旋 ⇒ 黑屏有声不崩，
 //: 见门禁 `test_no_static_guard_init.py`）。只初始化一次（`LoadEngineModContent` 本身只跑一次）。
-SubstituteModEntry g_SubstituteModEntry;
+[[maybe_unused]] SubstituteModEntry g_SubstituteModEntry;
 
 //: 把一个 map 头部摆成"合法空树" —— 就是 libc++ `__tree` 默认构造出来的样子
 //: （`__begin_node_ = &__end_node_`、`__end_node_.__left_ = 0`、`size_ = 0`）。
 //: ★ `__begin_node_` 指向 `endNodeLeft` **而不是 0** 是必须的：`0x3B9F74-0x3B9F78` 连读两级指针，
 //: 全 0 时第二次就是解引用空指针（真机表现会是 `Data Abort`）。
-void MakeEmptyCostumeTree(SubstituteModEntryTree& tree) noexcept {
+[[maybe_unused]] void MakeEmptyCostumeTree(SubstituteModEntryTree& tree) noexcept {
     tree.beginNode = &tree.endNodeLeft;
     tree.endNodeLeft = nullptr;
     tree.size = 0;
@@ -2128,7 +2125,7 @@ alignas(16) unsigned char g_RealModEntryArena[kMaximumRealModEntries * kRealModE
 //: 哪些下标已经构造过（每一位一个下标；**按下标惰性构造一次、之后复用**）。
 //: 为什么必须只构造一次：构造器会建 13 个 `ANM2`（`+0x140` 起，步长 `0x158`）——重复构造
 //: 等于在同一块内存上重来一遍，没有意义、还可能漏掉前一次的资源。
-std::uint32_t g_RealModEntryBuiltMask{0};
+isaac::runtime::ModBits g_RealModEntryBuiltMask{};
 
 //: ★★ 批次 378：哪些下标已经喂过"**没有可观测信号**"的那一批
 //: （`ModEntry::LoadCustomResources` + 12 个 content 文件）。
@@ -2147,8 +2144,8 @@ std::uint32_t g_RealModEntryBuiltMask{0};
 //: 为什么"第一次就喂"是安全的：那 12 项与服装/音乐走的是**同一种路径口径**（相对应用根直接喂），
 //: 批次 155 已经证明"最早那一刻直接喂就能进容器"；真正在最早那一刻失败的是
 //: `ResolveMountedPath`（它依赖 `ContentManager` 就绪），而我们这一批**不依赖它**。
-//: 下标超过 31（配置上限 32 之外）时不置位 ⇒ 那种边界情形退回"每轮都喂"。
-std::uint32_t g_ModContentUnobservableFedMask{0};
+//: 256位覆盖全部模组，越界拒绝，不让高索引退回每轮重喂。
+isaac::runtime::ModBits g_ModContentUnobservableFedMask{};
 
 //: 解析 16 项入口 + `ModEntry::ctor`（**只做一次**），并把结果写进状态面 `[68]/[69]`。
 //:
@@ -2221,8 +2218,7 @@ void* RealModEntryForIndex(std::uint32_t index, const char* contentPath) noexcep
         return nullptr;
     }
     unsigned char* const bytes = g_RealModEntryArena + static_cast<std::size_t>(index) * kRealModEntryStride;
-    const std::uint32_t bit = (1U << index);
-    if ((g_RealModEntryBuiltMask & bit) == 0) {
+    if (!g_RealModEntryBuiltMask.Test(index)) {
         using ModEntryCtorFn = void (*)(void*);
         // `x0` = 条目自身（引擎入口 `0x420D18` 就是 `this` 在 x0）；`AsFunction` 只收已核对过的地址。
         void* const entry = engine_memory::AsObject(engine_memory::AddressOf(bytes));
@@ -2236,7 +2232,7 @@ void* RealModEntryForIndex(std::uint32_t index, const char* contentPath) noexcep
             assign(engine_memory::AsObject(entryAddress + kModEntryContentPathOffset), contentPath);
             assign(engine_memory::AsObject(entryAddress + kModEntryContentDirectoryOffset), contentPath);
         }
-        g_RealModEntryBuiltMask |= bit;
+        g_RealModEntryBuiltMask.Set(index);
         g_ModMenuState.modEngineRealEntryBuilds += 1;
     }
     return engine_memory::AsObject(engine_memory::AddressOf(bytes));
@@ -2254,10 +2250,10 @@ bool PrepareModRoomSources() noexcept {
     if(g_ModRoomSources.ready)return true;
     const auto selected=isaac::runtime::ModMenuDiscoveredForReading();
     if(!isaac::runtime::ModMenuDiscoveryDone() ||
-       (selected.activeMask & ~g_RealModEntryBuiltMask)!=0)return false;
+       !g_RealModEntryBuiltMask.Contains(selected.activeBits))return false;
     std::size_t count=0;
     for(std::size_t index=0;index<selected.count && index<kMaximumRealModEntries;++index) {
-        if((selected.activeMask&(std::uint32_t{1}<<index))==0)continue;
+        if(!selected.activeBits.Test(index))continue;
         auto* bytes=g_RealModEntryArena+index*kRealModEntryStride;
         const auto address=engine_memory::AddressOf(bytes);
         // 这是运行时拥有的真实ModEntry，不改引擎菜单的另一份列表。
@@ -2577,7 +2573,7 @@ void FeedModContentNames(const char* directory, char* path, std::size_t baseLeng
 //: 直接进了局、没开模组页"⇒ 模组的 `content/music.xml` 始终没进引擎 ⇒ 它拿到 `-1` 去
 //: `Music::Play` ⇒ 崩。所以**不能依赖任何单一时机**：每帧那条路会按下面这个间隔重试到成功为止。
 //: ★ 上限存在的理由：每次尝试都真的读文件 + 调引擎，不许无上限地试。
-constexpr std::uint32_t kMaximumContentLoadAttempts = 16;
+[[maybe_unused]] constexpr std::uint32_t kMaximumContentLoadAttempts = 16;
 //: 相邻两次重试至少隔这么多帧（`ModMenuNativeUpdate` 的每帧计数；≈0.5 秒 @60fps）。
 //: 目的是给"引擎还没就绪"留出时间，同时避免每帧都去读文件。
 //: （16 次 × 0.5 秒 ≈ 8 秒的覆盖，再加上"模组脚本之前"那一次 —— 真机上出问题的那个窗口
@@ -2594,272 +2590,268 @@ bool EngineModContentLoaded() noexcept {
            g_MusicEntryCountAfter > g_MusicEntryCountBefore;
 }
 
-bool LoadEngineModContent(const TargetModule& module, std::uint32_t trigger) {
-    // 闸：**最多 8 次**，且"涨过就不再试"。多个触发点共用这一个闸（见上面两个常量的注释）。
-    // ★ 本仓源码不许用 bool 版原子量（门禁按文本判定），所以还是 `uint32_t`。
-    static std::atomic<std::uint32_t> attempts{0};
-    const std::uint32_t slot = attempts.fetch_add(1U, std::memory_order_acq_rel);
-    if (slot >= kMaximumContentLoadAttempts) {
-        return g_ModEngineScanStage == 2;
+// 每轮内容和脚本共同推进，所有加载器只调用一次，不再凭容器大小增长重复追加。
+bool g_ModContentCycleComplete{};
+bool g_ModMenuReloadFailed{};
+bool g_ModContentCycleExplicit{};
+bool LoadEngineModContent(const TargetModule& module, std::uint32_t trigger,
+                          std::size_t selected = SIZE_MAX, bool finalize = true) {
+    if (g_ModContentCycleComplete) return true;
+    if (!g_ModContentCycleExplicit || !isaac::runtime::ModMenuDiscoveryDone()) return false;
+    PrepareSourceContext(module);
+    EnsureModContentFeedResolved(module);
+    if (g_ModMenuState.modEngineLoaderFailures != 0) {
+        g_ModEngineScanStage = 3;
+        return false;
     }
-    if (slot != 0 && EngineModContentLoaded()) {
-        return true;  // 上一次已经喂进去了 ⇒ 不重复喂
-    }
+    std::uintptr_t manager = g_Menu.manager;
+    if (!manager && !ReadSingleton(module,kManagerSlotOffset,&manager)) return false;
+    if (!manager) return false;
+    g_Menu.manager = manager;
     g_ModMenuState.modEngineTrigger = trigger;
     g_LastContentLoadFrame = g_ModMenuState.drivenFrames;
-    g_ModEngineScanAttempts += 1;
-    std::uintptr_t manager = g_Menu.manager;
-    if (manager == 0) {
-        // ★ 批次 153：走"模组脚本之前"那条路时，每帧更新可能还没跑过 ⇒ `g_Menu.manager` 是 0。
-        // 这里按**引擎自己的 `g_Manager` 槽**现取一次（与 `ModMenuNativeUpdate` 里那句同一个
-        // 来源）。
-        (void)ReadSingleton(module, kManagerSlotOffset, &manager);
+    ++g_ModEngineScanAttempts;
+    if (g_ModContentUnobservableFedMask.Empty()) {
+        g_MusicEntryCountBefore = CountMusicEntries(manager);
+        g_CostumeCountBefore = CountNullCostumeEntries(manager);
     }
-    if (manager == 0 || manager > UINTPTR_MAX - kManagerItemConfigOffset ||
-        manager > UINTPTR_MAX - kManagerMusicOffset ||
-        // ★★ 批次 378：本批新用到的三个子对象偏移也要防回绕（同一条纪律：先算清楚再碰内存）。
-        manager > UINTPTR_MAX - kManagerEntityConfigOffset ||
-        manager > UINTPTR_MAX - kManagerSoundEffectsOffset ||
-        manager > UINTPTR_MAX - kManagerNightmareSceneOffset) {
-        g_ModEngineScanStage = 3;
-        return false;
-    }
-
-    // 两个加载器：`LoadCostumes` 是成员函数（x0 = ItemConfig*），第二个参数是 `ModEntry*`。
-    // ★★ 批次 152：这个参数**不能传 `nullptr`**（149b 的 `132 → 132` 就是它）——
-    //    引擎入口处那个 `csel` 只是"不崩"，空指针会让 `type="none"` 的条目**一条都不加**
-    //    （它落到"按 XML 的 `id` 去找**已有**那条"的路，那是本体资源那条路）。
-    //    见本文件上面 `SubstituteModEntry` 那一段与 `runtime_constants.hpp` 的批次 152。
-    // `Music::LoadConfig` 第二个参数按引擎对模组传的值传 `true`。
-    MakeEmptyCostumeTree(g_SubstituteModEntry.costumeMap);
-    MakeEmptyCostumeTree(g_SubstituteModEntry.trinketMap);
-    void* const modEntry = &g_SubstituteModEntry;
-    using LoadCostumesFn = void (*)(void* config, const char* file, void* modEntry);
-    using LoadMusicFn = void (*)(void* music, const char* file, bool append);
-    const LoadCostumesFn loadCostumes = ResolveEngineEntry<LoadCostumesFn>(
-        module, kItemConfigLoadCostumesFileOffset, kItemConfigLoadCostumesExpectedBytes.data(),
-        kItemConfigLoadCostumesExpectedBytes.size());
-    if (loadCostumes == nullptr) {
-        g_ModEngineResolveFailures |= 1u;
-        g_ModEngineScanStage = 3;
-        return false;
-    }
-    const LoadMusicFn loadMusic = ResolveEngineEntry<LoadMusicFn>(
-        module, kMusicLoadConfigFileOffset, kMusicLoadConfigExpectedBytes.data(),
-        kMusicLoadConfigExpectedBytes.size());
-    if (loadMusic == nullptr) {
-        g_ModEngineResolveFailures |= 2u;
-        g_ModEngineScanStage = 3;
-        return false;
-    }
-    g_ModEngineScanStage = 1;
-
-    // 加载前的基线（验收判据就是这两对数字的前后差）。
-    g_MusicEntryCountBefore = CountMusicEntries(manager);
-    g_CostumeCountBefore = CountNullCostumeEntries(manager);
-
-    void* const config = engine_memory::AsObject(manager + kManagerItemConfigOffset);
-    void* const music = engine_memory::AsObject(manager + kManagerMusicOffset);
-    // ★★ 批次 155（2026-09-27）：**先直接喂"相对应用根"的路径，把 `GetMountedFilePath` 降级成兜底。**
-    //
-    // 为什么改（真机读数把这条钉死了）：`GetMountedFilePath` 返回的是
-    // `rom:/isaac_mods/mods/<目录>/content/<文件>`，去掉 `rom:/` 之后与**我们自己拼的那条
-    // 一模一样**（读数里两行逐字对上）⇒ 它其实是**恒等变换**，只多了一个"这条路径在挂载表里吗"
-    // 的校验，而**那个校验依赖 `ContentManager` 就绪**。
-    // 而 154 的真机读数显示：在"模组脚本之前"那一刻，`ResolveMountedPath` **全部解析不到**
-    // （`[61]` 显示"跑完了"但两个容器一条没涨 —— 见下面 stage 4 的说明），于是我们**整条都跳过了**；
-    // 内容直到后面某次每帧重试（`[60] = 3`）才真正进去，**那时模组的服装编号早就查成 `-1` 了**。
-    // ⇒ 所以：**不依赖解析**。引擎自己那条模组路（`ModManager::LoadConfigs`）就是拿
-    // `ModEntry::GetContentPath` 拼出的"相对应用根"串**直接**交给 `FileManager::OpenRead` 的
-    // （`0x41E388` 那段反汇编），我们照它做。
-    // 解析仍然保留作**兜底**：先用解析结果（去掉 `rom:/`）再试一次，判据始终是"容器涨没涨"。
-    // `FileManager::OpenRead` 打开失败是**普通分支**（返回空即返回，不 abort）⇒ 直接喂没有风险。
-    PrepareSourceContext(module);
-    // ★★ 批次 378：把引擎那 16 项的入口一次性解析好（16 字节序言 + 每行自己的 4 字节判别式）。
-    //    放在循环**之前**：解析结果与模组无关（只依赖模块基址），而且失败要能写进读数
-    //    （`[68]/[69]`）—— 即使一个模组都没有，读数里也该看得出"入口解析全没全"。
-    //    失败**不整批放弃**：记位、跳过那一项、其余照喂（理由见 `EnsureModContentFeedResolved`）。
-    EnsureModContentFeedResolved(module);
-    char path[256] = {};
-    char resolved[512] = {};
+    char path[512]{};
     const std::size_t modCount = isaac::runtime::ModMenuDiscoveredCount();
-    // 与脚本、挂载使用同一份开机过滤结果（含disable.it和仅资源模组）。
-    // 菜单开关是下次启动的意图，不能把本次未加载的内容重新喂入引擎。
     const auto contentMods = isaac::runtime::ModMenuDiscoveredForReading();
     for (std::size_t index = 0; index < modCount; ++index) {
         const char* directory = isaac::runtime::ModMenuDiscoveredDirectory(index);
         if (directory == nullptr || directory[0] == '\0' ||
-            (contentMods.activeMask & (std::uint32_t{1} << index)) == 0) {
+            !contentMods.activeBits.Test(index)) {
             continue;
         }
+        if (selected != SIZE_MAX && selected != index) continue;
+        if (g_ModContentUnobservableFedMask.Test(index)) continue;
         const std::size_t directoryLength = std::strlen(directory);
-        const std::size_t prefixLength = std::strlen(kModdingDataPathValue) + directoryLength;
-        if (prefixLength > sizeof(path) - 32) {
-            continue;  // 装不下就跳过这一条（绝不截断成半个路径）
-        }
-        std::memcpy(path, kModdingDataPathValue, std::strlen(kModdingDataPathValue));
-        std::memcpy(path + std::strlen(kModdingDataPathValue), directory, directoryLength + 1);
-        const std::size_t baseLength = std::strlen(path);
-        // ★★ 批次 378：先把 `<模组根>/content/` 拼出来（**带结尾 `/`**），它有两个用途：
-        //    ① 写进真条目的 `+0x48`/`+0x60`（`GetContentPath` 靠它找模组自己的资源，见下）；
-        //    ② 后面 12 项各自的 `content/<文件名>` 就是在它后面接着拼（这里不截断它，
-        //       `FeedModContentFile` 每次都是"从 baseLength 重新写"）。
-        if (baseLength + sizeof(kModContentDirectoryPrefix) > sizeof(path)) {
-            continue;  // 与上面那道长度闸同一条纪律（按本表最长的名字算不可能命中，见函数注释）
-        }
-        std::memcpy(path + baseLength, kModContentDirectoryPrefix, sizeof(kModContentDirectoryPrefix));
-        // ★★ 批次 378：这一批"没有可观测信号"的东西（真条目 + `LoadCustomResources` +
-        //    下面那 12 个 content 文件）**每个模组只喂一次**（理由见 `g_ModContentUnobservableFedMask`）。
-        const bool unobservableFed =
-            index < 32 && (g_ModContentUnobservableFedMask & (static_cast<std::uint32_t>(1) << index)) != 0;
-        void* realEntry = nullptr;
-        if (!unobservableFed) {
-            // ★★ 批次 378：这个模组的**真 `ModEntry`**（引擎自己的构造器造；按下标惰性、只造一次）。
-            //
-            // 为什么必须有它：引擎那 16 项里有 8 项要把 `ModEntry*` 当第三个参数（`+0x108`/`+0x120`
-            // 那两张 map = 这个模组的服装上下文），而**绝对不能传空指针**（批次 149b 的 `132 → 132`
-            // 就是它：空指针会让 `type="none"` 的条目一条都不加）。本批之前用的那个 `0x140` 字节替身
-            // 之所以不能用在这里：`LoadCustomResources` 会往 `+0x140` 起的 13 个 `ANM2` 写（到 `+0x1008`）
-            // ⇒ 那是**越界写**。造不出来（没解析到 / 超出竞技场）时返回 `nullptr`，
-            // 需要它的项会被跳过、其余项照喂（见 `FeedModContentFile`）。
-            realEntry = RealModEntryForIndex(static_cast<std::uint32_t>(index), path);
-            // ★★ 批次 378：引擎每个模组的**第一个**动作就是它（`0x41E414`，在 `entities2.xml` 之前）。
-            FeedModCustomResources(realEntry);
-        }
-        // ★★ 批次 378：14 项按**引擎的调用次序**喂（表序 = 引擎表序）。
-        //    第 4 / 第 13 项（`costumes2.xml` / `music.xml`）走下面那条批次 148~156 真机定案的
-        //    专用路：它要"两种路径口径 + 容器涨没涨"的取证，而且门禁钉着那两处调用形状
-        //    （`loadCostumes` 恰好两次、第三个参数必须是那个非空替身）。**它们同样只喂一遍**，
-        //    只是喂的动作在专用路里；`g_ModMenuState.modEngineContentCalls` 两边都算。
-        for (std::size_t row = 0; row < kModFeedContentRows; ++row) {
-            if (row == kModFeedRowCostumes) {
-                // ① 皮肤；② 音乐（两条路径只差文件名，拼一次前缀用两次）。
-                //    ★★ 批次 155：**先直接喂 `path`**（= 相对应用根，引擎自己那条路的形式）；
-                //       涨了就不再试别的（避免把同一条内容加两遍）。
-                //       没涨才去解析一次作兜底 —— 判据始终是**容器涨没涨**（客观信号）。
-                //       形状记录：`g_ModEngineCostumeForm` 1 = 直接喂成功 / 2 = 解析后的串才成功。
-                if (baseLength + sizeof(kModContentCostumesFile) <= sizeof(path)) {
-                    std::memcpy(path + baseLength, kModContentCostumesFile,
-                                sizeof(kModContentCostumesFile));
-                    CopyPathForEvidence(g_ModEngineResolvedCostumes, sizeof(g_ModEngineResolvedCostumes),
-                                        path);
-                    const std::uint32_t before = CountNullCostumeEntries(manager);
-                    loadCostumes(config, path, modEntry);
-                    g_ModEngineCostumeCalls += 1;
-                    g_ModMenuState.modEngineContentCalls += 1;  // 批次 378：与 14 项同一个计数器
-                    g_ModEngineCostumeLoads += 1;
-                    if (CountNullCostumeEntries(manager) > before) {
-                        g_ModEngineCostumeForm = 1;
-                    } else if (ResolveMountedPath(&g_Menu, path, resolved, sizeof(resolved))) {
-                        loadCostumes(config, RelativeToApplicationRoot(resolved), modEntry);
-                        g_ModEngineCostumeCalls += 1;
-                        g_ModMenuState.modEngineContentCalls += 1;  // 批次 378：同上（第二种口径）
-                        if (CountNullCostumeEntries(manager) > before) {
-                            g_ModEngineCostumeForm = 2;
-                        }
-                    } else {
-                        g_ModEnginePathResolveMisses += 1;
-                    }
-                }
-            } else if (row == kModFeedRowMusic) {
-                if (baseLength + sizeof(kModContentMusicFile) <= sizeof(path)) {
-                    std::memcpy(path + baseLength, kModContentMusicFile,
-                                sizeof(kModContentMusicFile));
-                    CopyPathForEvidence(g_ModEngineResolvedMusic, sizeof(g_ModEngineResolvedMusic),
-                                        path);
-                    const std::uint32_t before = CountMusicEntries(manager);
-                    loadMusic(music, path, true);   // ★ 批次 155：先直接喂（与服装侧同一条理由）
-                    g_ModEngineMusicCalls += 1;
-                    g_ModMenuState.modEngineContentCalls += 1;  // 批次 378：同服装侧
-                    g_ModEngineMusicLoads += 1;
-                    if (CountMusicEntries(manager) > before) {
-                        g_ModEngineMusicForm = 1;
-                    } else if (ResolveMountedPath(&g_Menu, path, resolved, sizeof(resolved))) {
-                        loadMusic(music, RelativeToApplicationRoot(resolved), true);
-                        g_ModEngineMusicCalls += 1;
-                        g_ModMenuState.modEngineContentCalls += 1;  // 批次 378：同上
-                        if (CountMusicEntries(manager) > before) {
-                            g_ModEngineMusicForm = 2;
-                        }
-                    } else {
-                        g_ModEnginePathResolveMisses += 1;
-                    }
-                }
-            } else if (!unobservableFed) {
-                // 其余 12 项：拼 `<模组根>/content/<文件名>` 直接喂（与引擎同形）。
-                // ★★ 批次 378：**只喂一次**（`unobservableFed` 为真 ⇒ 这一轮是重试，
-                //    跳过 —— 否则"追加语义"的那几个加载器会加出重复条目，见那个掩码的注释）。
-                FeedModContentFile(row, manager, realEntry, path, baseLength, sizeof(path));
+        const std::size_t rootLength = std::strlen(kModdingDataPathValue);
+        const std::size_t baseLength = rootLength + directoryLength;
+        if (baseLength + 32 >= sizeof(path)) return false;
+        std::memcpy(path,kModdingDataPathValue,rootLength);
+        std::memcpy(path+rootLength,directory,directoryLength);
+        std::memcpy(path+baseLength,kModContentDirectoryPrefix,sizeof(kModContentDirectoryPrefix));
+        void* const realEntry = RealModEntryForIndex(static_cast<std::uint32_t>(index),path);
+        if (!realEntry) return false;
+        // costumes与items等共享本模组真实的map，并由同一析构函数清理，不能反复重置替身树头。
+        FeedModCustomResources(realEntry);
+        for (std::size_t row=0; row<kModFeedContentRows; ++row) {
+            FeedModContentFile(row,manager,realEntry,path,baseLength,sizeof(path));
+            if (row==kModFeedRowCostumes) {
+                ++g_ModEngineCostumeCalls;++g_ModEngineCostumeLoads;
+                CopyPathForEvidence(g_ModEngineResolvedCostumes,sizeof(g_ModEngineResolvedCostumes),path);
+            }
+            if (row==kModFeedRowMusic) {
+                ++g_ModEngineMusicCalls;++g_ModEngineMusicLoads;
+                CopyPathForEvidence(g_ModEngineResolvedMusic,sizeof(g_ModEngineResolvedMusic),path);
             }
         }
-        // ★★ 批次 401：把本模组 `content/players.xml` 声明的角色名并进"角色名 → id"追加层。
-        //    ★ 位置与顺序**就是**喂入顺序（同一个循环、同一个下标）——见 `FeedModPlayerTypeNames`。
-        //    ★ 只在 `!unobservableFed` 时做：与 `players.xml` 交给引擎的**同一次**喂入对齐
-        //      （那道一次性掩码保证"每个模组的这批内容只喂一次"）；追加层自己还有 modKey 幂等兜底。
-        //    ★ `realEntry == nullptr` ⇒ `players.xml`（需要 `ModEntry*`）根本没交给引擎
-        //      （见 `FeedModContentFile`）⇒ 名字也不该追加（否则与引擎的 id 分配错开）。
-        if (!unobservableFed && realEntry != nullptr) {
-            std::array<char,sizeof(path)> shaderRoot{};
-            std::memcpy(shaderRoot.data(),path,baseLength);shaderRoot[baseLength]='\0';
-            // 解析服务未就绪是加载失败，不能误当成该模组没声明shader。
-            const auto shaderResolver =
-                g_Menu.getMounted && g_Menu.contentManager && g_Menu.freePath
-                    ? &ResolveMountedPath : nullptr;
-            if(!isaac::runtime::LoadModShaderFile(g_Menu.fileBindings,shaderRoot.data(),
-                                                 shaderResolver,&g_Menu)){
-                std::array<char,320> message{};
-                const auto status=isaac::runtime::ShaderPipelineStatsSnapshot();
-                const int count=std::snprintf(message.data(),message.size(),"shader load failed (%u): %s/content/shaders.xml",static_cast<unsigned>(status.error),shaderRoot.data());
-                if(count>0)LuaRuntime::RecordLuaErrorText(message.data(),std::min(static_cast<std::size_t>(count),message.size()-1));
-            }
-            FeedModPlayerTypeNames(directory, path, baseLength, sizeof(path));
-            // ★★ 批次 404：同一位置、同一模组下标，把 items.xml（收藏品+饰品）与
-            //    pocketitems.xml（卡牌）并进各自的追加层（见 `FeedModContentNames`）。
-            //    条件与 `players.xml` 逐字相同：`!unobservableFed`（与引擎的这一次喂入对齐）
-            //    且 `realEntry != nullptr`（这两个文件都需要 `ModEntry*`，拿不到就不喂）。
-            FeedModContentNames(directory, path, baseLength, sizeof(path));
-        }
-        // ★★ 批次 378：置位表示"这一批已经喂过"，后面几轮重试不再喂（服装/音乐两行不受影响）。
-        if (!unobservableFed && index < 32) {
-            g_ModContentUnobservableFedMask |= (static_cast<std::uint32_t>(1) << index);
-        }
-        g_ModEngineModEntries += 1;
+        FeedModPlayerTypeNames(directory,path,baseLength,sizeof(path));
+        FeedModContentNames(directory,path,baseLength,sizeof(path));
+        g_ModContentUnobservableFedMask.Set(index);
+        ++g_ModEngineModEntries;
     }
-    // ★★ 批次 409（2026-10-08）：**"涨没涨"必须先量出来，再收尾。**
-    //
-    // 为什么（真机读数钉死的 bug）：`RunPostLoadModsOnceIfDue` 那道闸读的就是
-    // `EngineModContentLoaded()`，而它比的是 `g_MusicEntryCountAfter/g_CostumeCountAfter`
-    // 与各自的 `Before` —— 这两对全局原来是在**这一行之后**才赋值的 ⇒ 闸看到的是**上一轮**
-    // 的读数。于是"这一轮才真正把内容喂进去"的那一次，闸拿到的仍是上一轮的
-    // "`After == Before`"（上一轮确实一条没涨）⇒ `PostLoadMods` **永远不执行**。
-    // 真机实测（2026-10-08，带模组角色进局、设备侧 `mem` 读状态面）：
-    //   `[70] 14 项加载器调用 = 154`、`[72] LoadCustomResources = 11`、`[73] 真 ModEntry = 11`、
-    //   `stage = 2`（两个容器确实涨了：music 119→205、costume 132→160）—— 唯独
-    //   `[71] PostLoadMods = 0`、`[74] mod_defaults ANM2 载入 = 0`。
-    // ⇒ 把这两行**提到收尾之前**（判据本身一个字没改，只改"量的时机"）。
     g_MusicEntryCountAfter = CountMusicEntries(manager);
     g_CostumeCountAfter = CountNullCostumeEntries(manager);
-
-    // ★★ 批次 378：`EntityConfig::PostLoadMods()` —— 引擎在**所有模组都喂完之后**调一次
-    //    （循环外 `0x41ED24`：`x0 = Manager + 0x36758`）。判据（"这一轮真喂进去了"/"最后一次尝试"）
-    //    与"进程内只调一次"的理由写在 `RunPostLoadModsOnceIfDue` 上面。
-    //    ★★ 批次 409：紧跟其后的 `LoadModManagerDefaultAnm2Once`（引擎 `0x41ED7C` 那一步）在
-    //    **同一个一次性闩锁里** ⇒ 收尾不执行时它也不执行（真机就是这么漏掉的）。
-    RunPostLoadModsOnceIfDue(manager, slot + 1 >= kMaximumContentLoadAttempts);
-    // 真实配置写入和避让完成后显式刷新；同根/同size重新装载也重建名字索引。
-    static_cast<void>(isaac::runtime::RefreshRuntimeContentNames());
-
-    // ★★ 批次 155：把"**跑完了**"与"**真喂进去了**"分成两个阶段字 —— 154 那次就是被这一格误导的。
-    //
-    // 154 的写法是"走到函数末尾就记 2"，于是 `[61] 早期那次 = 2` 看起来像"喂进去了"，
-    // 而实际上那次**一条都没加载**（`ResolveMountedPath` 在那个时刻全部解析不到 ⇒ 整条跳过）。
-    // 我据此以为"早期时机已经通了"，而真机事实是：内容直到后面某次每帧重试才进去，
-    // 那时模组的服装编号早就查成 `-1` 了 ⇒ **舞照旧不出来**。
-    // ⇒ 现在：**涨了才是 2**；跑完但两个容器都没涨 = **4**（文件没打开 / 路径不对 / 挂载没就绪）。
-    g_ModEngineScanStage = EngineModContentLoaded() ? 2 : 4;
-    // 批次 149c：把曲目表最后一条的编号与名字原始字节留证（条目布局的自证）。
-    ReadMusicEntryEvidence(manager);
+    // 模组入口的首次名字查询才重建索引；纯Lua模组不做无效的全配置扫描。
+    isaac::runtime::InvalidateRuntimeContentNames();
+    if (finalize) {
+        RunPostLoadModsOnceIfDue(manager,true);
+        if (!isaac::runtime::RefreshRuntimeContentNames()) return false;
+        g_ModContentCycleComplete = true;
+        g_ModEngineScanStage = 2;
+        ReadMusicEntryEvidence(manager);
+    }
     return true;
+}
+
+std::uintptr_t g_ModReloadNativeAddresses[isaac::runtime::ModReloadNativeFunctionCount]{};
+std::uintptr_t g_ModReloadAnmCache{};
+std::uintptr_t g_ModReloadGraphicsManager{},g_ModReloadMemoryManager{};
+bool g_ModReloadPageReleased{};
+
+template<class Function> Function ReloadNative(isaac::runtime::ModReloadNativeFunction which) {
+    return engine_call::AsFunction<Function>(g_ModReloadNativeAddresses[which]);
+}
+bool WaitModReloadGpu() noexcept {
+    if (!g_ModReloadGraphicsManager || !g_ModReloadMemoryManager) return false;
+    const auto tick=isaac::runtime::RuntimePerfTick();
+    auto* queue=engine_memory::AsObject(g_ModReloadGraphicsManager+0x3a38);
+    ReloadNative<void(*)(void*)>(isaac::runtime::ReloadQueueFlush)(queue);
+    ReloadNative<void(*)(void*)>(isaac::runtime::ReloadQueueSync)(queue);
+    g_ModReloadGraphicsState[6]+=isaac::runtime::RuntimePerfTick()-tick;
+    return true;
+}
+struct ReloadGraphicsOperations {
+    bool WaitForGpu() noexcept { return WaitModReloadGpu(); }
+    void ReleaseLanguageFonts() noexcept {
+        // 与原生load_language_fonts相同的5个所有者；正式重建仍走原生PostLanguageSwitch。
+        ReloadNative<void(*)(void*)>(isaac::runtime::ManagerPreLanguage)(engine_memory::AsObject(g_Menu.manager));
+        const auto unload=ReloadNative<void(*)(void*)>(isaac::runtime::UnloadReloadFont);
+        for (auto offset:isaac::runtime::kReloadLanguageFontOffsets) unload(engine_memory::AsObject(g_Menu.manager+offset));
+        g_ModReloadGraphicsState[5]=isaac::runtime::kReloadLanguageFontOffsets.size();
+    }
+    bool ReclaimDeferred() noexcept {
+        using Words=std::array<std::uintptr_t,3>;
+        Words before{},after{};
+        if (!engine_memory::ReadField(g_ModReloadMemoryManager,0x428,&before,engine_memory::EngineMemoryReadable) ||
+            before[1]<before[0] || before[1]>before[2] || ((before[1]-before[0])%8)!=0) return false;
+        const auto freeAmount=ReloadNative<std::uint64_t(*)(void*,int)>(isaac::runtime::GraphicsFreeAmount);
+        auto* memory=engine_memory::AsObject(g_ModReloadMemoryManager);
+        g_ModReloadGraphicsState[1]=(before[1]-before[0])/8;
+        g_ModReloadGraphicsState[3]=freeAmount(memory,2);
+        ReloadNative<void(*)(void*)>(isaac::runtime::ReclaimGraphicsMemory)(memory);
+        g_ModReloadGraphicsState[4]=freeAmount(memory,2);
+        if (!engine_memory::ReadField(g_ModReloadMemoryManager,0x428,&after,engine_memory::EngineMemoryReadable)) return false;
+        g_ModReloadGraphicsState[2]=(after[1]>=after[0])?(after[1]-after[0])/8:UINT64_MAX;
+        ++g_ModReloadGraphicsState[0];
+        return after[0]==after[1];
+    }
+};
+bool ReadModImageWord(std::uintptr_t address,std::uintptr_t* value) noexcept {
+    return engine_memory::ReadAt(address,value,engine_memory::EngineMemoryReadable);
+}
+bool CheckModEntryImages(std::uintptr_t entry) noexcept {
+    bool readable=true;
+    const auto inspect=[&](std::uintptr_t image) noexcept {
+        readable = engine_memory::EngineMemoryReadable(image,sizeof(std::uintptr_t)) && readable;
+    };
+    // 只读一遍链，inspect只检查SmartPointer，不释放。
+    return isaac::runtime::VisitModEntryImages(entry,ReadModImageWord,inspect,true) && readable;
+}
+
+bool CheckModReloadNative(const TargetModule& module) noexcept {
+    if (module.buildId!=kTargetBuildId || !g_Menu.manager || !g_Menu.menuManager ||
+        g_Menu.menuState!=isaac::runtime::kModsPageState) return false;
+    for (std::size_t i=0;i<isaac::runtime::kModReloadNativeEntries.size();++i) {
+        const auto& spec=isaac::runtime::kModReloadNativeEntries[i];
+        if (spec.offset>UINTPTR_MAX-module.base || !module.Contains(module.base+spec.offset,spec.bytes.size())) return false;
+        const auto address=ResolveVerifiedEntryAddress(module,spec.offset,spec.bytes.data(),spec.bytes.size(),0,nullptr);
+        if (!address) return false;
+        g_ModReloadNativeAddresses[i]=address;
+    }
+    const auto fontGuard=isaac::runtime::kReloadLanguageFontGuardOffset;
+    if (!module.Contains(module.base+fontGuard,isaac::runtime::kReloadLanguageFontGuard.size()) ||
+        !engine_call::VerifyEntryBytes(module.base+fontGuard,isaac::runtime::kReloadLanguageFontGuard.data(),
+            isaac::runtime::kReloadLanguageFontGuard.size(),engine_memory::EngineMemoryReadable) ||
+        !ReadSlot(module,0xaac6e8,&g_ModReloadGraphicsManager) || !g_ModReloadGraphicsManager ||
+        !ReadSlot(module,0xaad460,&g_ModReloadMemoryManager) || !g_ModReloadMemoryManager ||
+        !engine_memory::EngineMemoryReadable(g_ModReloadGraphicsManager+0x3a38,0x100) ||
+        !engine_memory::EngineMemoryReadable(g_ModReloadMemoryManager+0x428,24)) return false;
+    for (auto offset:isaac::runtime::kReloadLanguageFontOffsets)
+        if (!engine_memory::EngineMemoryWritable(g_Menu.manager+offset,0x20050)) return false;
+    g_ModReloadGraphicsState[7]=1;
+    PrepareSourceContext(module);
+    EnsureModContentFeedResolved(module);
+    if (g_ModMenuState.modEngineLoaderFailures!=0 || !g_Menu.modsPreLanguageSwitch ||
+        !g_Menu.modsPostLanguageSwitch || !g_Menu.freeUnreferencedEntries ||
+        !g_Menu.freeUnreferencedImages || !ReadSlot(module,kAnmCacheSlotOffset,&g_ModReloadAnmCache) ||
+        !g_ModReloadAnmCache ||
+        !engine_memory::EngineMemoryWritable(g_Menu.manager+kManagerModsVectorOffset,24)) return false;
+    for (std::size_t i=0;i<kMaximumRealModEntries;++i) {
+        if (g_RealModEntryBuiltMask.Test(i) &&
+            !CheckModEntryImages(engine_memory::AddressOf(g_RealModEntryArena+i*kRealModEntryStride))) return false;
+    }
+    return isaac::runtime::PrepareNativeGameResourceReload(module);
+}
+
+bool ReleaseModReloadNative() noexcept {
+    // 旧Lua已关闭且GPU已完成：按原生所有权放开Game仍持有的素材，绝不手减缓存引用。
+    if (!isaac::runtime::ReleaseNativeGameResources()) return false;
+    // 原生UnloadMods先放开默认动画再释放Mod图片；后面的空vector清理只再复位空对象。
+    ReloadNative<void(*)(void*)>(isaac::runtime::ResetDefaultAnm2)(
+        engine_memory::AsObject(g_Menu.manager+kManagerToModManagerOffset+kModManagerDefaultAnm2Offset));
+    const auto freeImage=ReloadNative<void(*)(void*,void*)>(isaac::runtime::FreeModImage);
+    for (std::size_t i=0;i<kMaximumRealModEntries;++i) {
+        if (!g_RealModEntryBuiltMask.Test(i)) continue;
+        const auto entry=engine_memory::AddressOf(g_RealModEntryArena+i*kRealModEntryStride);
+        if (!isaac::runtime::VisitModEntryImages(entry,ReadModImageWord,[&](std::uintptr_t image) noexcept {
+            freeImage(engine_memory::AsObject(g_Menu.manager),engine_memory::AsObject(image));
+        },true)) return false;
+    }
+    // 73可能刚修改运行时选项；保留脏值，不因新VM读设置丢失它。
+    const auto options=isaac::runtime::FlushRuntimeOptions();
+    if (!options.ok() && options.code()!=isaac::runtime::StatusCode::Unsupported) return false;
+    isaac::runtime::UnloadShaderPrograms();
+    isaac::runtime::ClearRuntimeContentNames();
+    // UnloadMods可复用默认动画/shader清理，但不能delete静态菜单/竞技场。
+    using Vector=std::array<std::uintptr_t,3>;
+    const auto read=[](Vector* out) noexcept {
+        return engine_memory::ReadField(g_Menu.manager,kManagerModsVectorOffset,out,engine_memory::EngineMemoryReadable);
+    };
+    const auto write=[](const Vector& value) noexcept {
+        return engine_memory::WriteField(g_Menu.manager,kManagerModsVectorOffset,value,engine_memory::EngineMemoryWritable);
+    };
+    if (!isaac::runtime::WithEmptyModVector(read,write,[]() noexcept {
+        ReloadNative<void(*)(void*)>(isaac::runtime::UnloadNativeMods)(
+            engine_memory::AsObject(g_Menu.manager+kManagerToModManagerOffset));
+    })) return false;
+    const auto destruct=ReloadNative<void(*)(void*)>(isaac::runtime::DestructModEntry);
+    for (std::size_t i=0;i<kMaximumRealModEntries;++i) {
+        if (!g_RealModEntryBuiltMask.Test(i)) continue;
+        destruct(g_RealModEntryArena+i*kRealModEntryStride);
+        g_RealModEntryBuiltMask.Set(i, false);
+    }
+    g_ModRoomSources={};
+    isaac::runtime::ClearModPlayerNames();
+    isaac::runtime::ClearModContentNames();
+    isaac::runtime::bridge::ClearModResourceRedirectList();
+    isaac::runtime::bridge::ClearImagePcxConversionCache();
+    // 放开自建模组页的贴图；后续仍在原生菜单安全点重新加载，不重跑构造器。
+    if (g_Menu.pageInitState==kInitOk) {
+        g_Menu.modsPreLanguageSwitch(g_ModsObject);
+        g_ModReloadPageReleased=true;
+    }
+    g_ModContentUnobservableFedMask={};
+    g_PostLoadModsDone.store(0,std::memory_order_release);
+    g_ModContentCycleComplete=false;
+    g_ModContentCycleExplicit=true;
+    g_ModEngineScanStage=0;
+    g_ModEngineCostumeForm=0;g_ModEngineMusicForm=0;
+    // 必须早于新模组脚本加载；否则新Sprite会再次引用旧的同名动画。
+    g_Menu.freeUnreferencedImages(engine_memory::AsObject(g_ModReloadAnmCache));
+    g_Menu.freeUnreferencedEntries(engine_memory::AsObject(g_ModReloadAnmCache));
+    ReloadGraphicsOperations graphics;
+    return isaac::runtime::ReclaimModReloadGraphics(graphics);
+}
+
+bool LoadCycleShaders(const TargetModule& module) noexcept {
+    PrepareSourceContext(module);
+    const auto selected=isaac::runtime::ModMenuDiscoveredForReading();
+    if (!g_Menu.getMounted || !g_Menu.contentManager || !g_Menu.freePath) return false;
+    for (std::size_t i=0;i<selected.count;++i) {
+        if (!selected.activeBits.Test(i)) continue;
+        std::array<char,512> root{};
+        const auto* directory=isaac::runtime::ModMenuDiscoveredDirectory(i);
+        const int n=std::snprintf(root.data(),root.size(),"%s%s",kModdingDataPathValue,directory);
+        if (n<0 || static_cast<std::size_t>(n)>=root.size() ||
+            !isaac::runtime::LoadModShaderFile(g_Menu.fileBindings,root.data(),ResolveMountedPath,&g_Menu)) return false;
+    }
+    return true;
+}
+
+bool FinishModReloadNative() noexcept {
+    using Method=void(*)(void*);
+    g_Menu.freeUnreferencedImages(engine_memory::AsObject(g_ModReloadAnmCache));
+    g_Menu.freeUnreferencedEntries(engine_memory::AsObject(g_ModReloadAnmCache));
+    const bool gameResourcesRestored=isaac::runtime::RestoreNativeGameResources();
+    ReloadNative<Method>(isaac::runtime::ManagerPostLanguage)(engine_memory::AsObject(g_Menu.manager));
+    ReloadNative<Method>(isaac::runtime::MenuPostInitMods)(engine_memory::AsObject(g_Menu.menuManager));
+    if (g_ModReloadPageReleased) {
+        g_Menu.modsPostLanguageSwitch(g_ModsObject);
+        g_ModReloadPageReleased=false;
+    }
+    const auto base=LuaRuntime::EngineModuleBase();
+    std::uintptr_t owner{},game{};
+    if (!engine_memory::ReadAt(base+kGameOwnerGlobalSlotOffset,&owner,engine_memory::EngineMemoryReadable) || !owner ||
+        !engine_memory::ReadAt(owner,&game,engine_memory::EngineMemoryReadable)) return false;
+    if (game) for (int stage=0;stage<=36;++stage) {
+        ReloadNative<void(*)(void*,int)>(isaac::runtime::UnloadRoomStage)(
+            engine_memory::AsObject(game+isaac::runtime::mod_rooms::kGameRoomConfigOffset),stage);
+    }
+    return gameResourcesRestored;
 }
 
 //: 进模组页：补上 Switch 版删掉的那一下（`Menu_Mods::Reset`），再走引擎自己的 `SetState(16)`。
@@ -2900,7 +2892,7 @@ void EnterModsPage(const TargetModule& module, const ActionQueryFn query) {
                                     &engine_memory::EngineMemoryWritable, 0);
     (void)engine_memory::WriteField(modsObject, isaac::runtime::kModsHoldTimerOffset, zero,
                                     &engine_memory::EngineMemoryWritable, 0);
-    (void)engine_memory::WriteField(modsObject, isaac::runtime::kModsEditedOffset, zero,
+    (void)engine_memory::WriteField(modsObject, isaac::runtime::kModsEditedOffset, std::uint8_t{0},
                                     &engine_memory::EngineMemoryWritable, 0);
     if (g_Menu.modsReset != nullptr) {
         g_Menu.modsReset(g_ModsObject);
@@ -2962,15 +2954,14 @@ void ModsPageUpdate(const TargetModule& module, const ActionQueryFn query) {
     //（用户 2026-09-22 裁定："退出时写一次"）。写的是**游戏存档分区**，不是卡上的覆盖层。
     if (g_Menu.pageWasActive != 0 && !active) {
         g_Menu.pageWasActive = 0;
-        std::uint32_t edited = 0;
+        std::uint8_t edited = 0;
         // 读不到就当作"没改过"（= 不落盘）：宁可少写一次盘，也不要凭一个猜出来的值去写存档。
         const bool editedRead =
             engine_memory::ReadField(engine_memory::AddressOf(g_ModsObject),
                                      isaac::runtime::kModsEditedOffset, &edited,
                                      &engine_memory::EngineMemoryReadable, 0);
-        if (isaac::runtime::ModPageShouldPersist(editedRead && edited != 0)) {
-            g_ModMenuState.toggleSaveState = isaac::runtime::ModMenuSaveToggles() ? 1U : 2U;
-        }
+        // 返回键路径已在离页前应用；保留对其它离页路径的错误记录，不重复写存档。
+        if (editedRead && edited != 0) g_ModMenuState.toggleSaveState=2U;
         ++g_ModMenuState.pageBackCalls;
         // ★★ 2026-09-23 修：**边沿状态只在"真的离开这一页"那一刻清零**，不在这里之外的
         //    任何 `!active` 帧清（下面那个早退分支以前就是这么干的，是个真 bug）。
@@ -3111,7 +3102,7 @@ void ModsPageUpdate(const TargetModule& module, const ActionQueryFn query) {
                     isaac::runtime::ModPageToggleEnabled(enabled));
                 (void)engine_memory::WriteField(entry, isaac::runtime::kModPageEntryEnabledOffset,
                                                 next, &engine_memory::EngineMemoryWritable, 0);
-                const std::uint32_t edited = 1;
+                const std::uint8_t edited = 1;
                 (void)engine_memory::WriteField(engine_memory::AddressOf(g_ModsObject),
                                                 isaac::runtime::kModsEditedOffset, edited,
                                                 &engine_memory::EngineMemoryWritable, 0);
@@ -3126,6 +3117,17 @@ void ModsPageUpdate(const TargetModule& module, const ActionQueryFn query) {
     // 这一步一执行，`MenuManager::Update` 本帧的分派就把 `Menu_Game::Update` 接回来了 ——
     // 也就是说"回到选择界面"完全走引擎的路径，我们不多写一行。
     if (Edge(&g_PageLastBack, back)) {
+        std::uint8_t edited{};
+        if (!engine_memory::ReadField(engine_memory::AddressOf(g_ModsObject),
+                isaac::runtime::kModsEditedOffset,&edited,engine_memory::EngineMemoryReadable)) return;
+        if (!isaac::runtime::ReloadModsFromMenu(edited!=0)) {
+            g_ModMenuReloadFailed=true;
+            return;
+        }
+        g_ModMenuReloadFailed=false;
+        const std::uint8_t clean{};
+        (void)engine_memory::WriteField(engine_memory::AddressOf(g_ModsObject),
+            isaac::runtime::kModsEditedOffset,clean,engine_memory::EngineMemoryWritable);
         ApplyState(module, kGameMenuState);
         return;
     }
@@ -3385,6 +3387,10 @@ extern "C" void EntryRelayMenuTitleRenderCallback(void* self) {
     // ★ 批次 169：**不再有"第一帧不画"** —— 位置在 `Init` 时就定死了（引擎那套模型：
     //   位置是 `Init` 的入参、之后谁都不改），所以第一帧就可以按正确位置画。
     g_Menu.modsRender(g_ModsObject);
+    if (g_ModMenuReloadFailed && g_Menu.drawText && g_Menu.manager && g_Menu.screenHeight>0) {
+        g_Menu.drawText(EngineFontObject(),"MOD RELOAD FAILED - CHANGE MODS AND RETRY",12.0F,
+            g_Menu.screenHeight-20.0F,0.7F,0.7F,kModRowTextColor,0,false);
+    }
     // ★★ 批次 170：**照引擎原样补一次滚动调用**。
     //   引擎 `Menu_Mods::Render` 收尾那次 `SetModsOffset(选中项)` 是**有条件**跳过的
     //   （`0x410BCC` 的 `b.ne 0x410C24` 直接跳到函数收尾，`0x410BEC` 那次调用根本没执行）——
@@ -3443,6 +3449,22 @@ extern "C" void EntryRelayMenuManagerSetStateCallback(void* self, std::int32_t s
 }
 
 namespace isaac::runtime::modmenu {
+
+bool SortAndPublishDiscoveredMods(const TargetModule& module,
+                                 ResolvedManifestModBatch& batch) noexcept {
+    PrepareSourceContext(module);
+    if (!g_Menu.fileBindingsOk || g_Menu.getMounted == nullptr ||
+        g_Menu.contentManager == nullptr || g_Menu.freePath == nullptr) return false;
+    const auto nextArena = g_SourceNameArenaIndex ^ 1u;
+    if (!CollectAndSortPcModNames(batch, &CollectMetadataText, &g_Menu, g_SortedNames,
+                                 g_SourceNameArena[nextArena], kSourceNameBytes,
+                                 g_MetadataPath, g_MetadataScratch)) return false;
+    const char* names[ResolvedManifestModBatch::kCapacity]{};
+    for (std::size_t i = 0; i < batch.count; ++i) names[i] = g_SortedNames[i].displayName;
+    ModMenuPublishDiscovered(batch, names);
+    g_SourceNameArenaIndex = nextArena;
+    return true;
+}
 
 void ModMenuNativeInstall(const TargetModule& module) noexcept {
     g_ModMenuState.armed = 1;
@@ -3910,6 +3932,45 @@ void UpdateAchievementDisallow(const TargetModule& module) {
 //: 批次 153：**在模组脚本执行之前**喂一次（由 `hook_manager.cpp` 在 `InitializeDefaultManifestMod`
 //: 前一行调）。判据与理由见 `.hpp` 里那条声明 —— 一句话：模组是在自己 Lua 文件的**文件作用域**
 //: 就把服装编号查成表的（PC 惯例），所以我们必须比它早。
+void NoteModToggleSaveResult(bool saved) noexcept { g_ModMenuState.toggleSaveState=saved?1U:2U; }
+
+bool PreflightEngineModReload() noexcept {
+    const auto module=FindTargetModule();
+    return module.has_value() && CheckModReloadNative(*module);
+}
+bool WaitEngineGraphicsForModReload() noexcept { return WaitModReloadGpu(); }
+bool ReleaseEngineModsForReload() noexcept { return ReleaseModReloadNative(); }
+bool BeginEngineModContentCycle(bool reload) noexcept {
+    const auto module=FindTargetModule();
+    if (!module.has_value()) return false;
+    if (!g_Menu.manager && !ReadSingleton(*module,kManagerSlotOffset,&g_Menu.manager)) return false;
+    if (!g_Menu.manager) return false;
+    g_ModContentCycleExplicit=true;
+    g_ModContentCycleComplete=false;
+    if (!LoadCycleShaders(*module)) return false;
+    if (reload) {
+        ReloadNative<void(*)(void*)>(isaac::runtime::ReloadBaseConfigs)(engine_memory::AsObject(g_Menu.manager));
+    }
+    isaac::runtime::InvalidateRuntimeContentNames();
+    return true;
+}
+bool LoadEngineModContentForMod(const char* root) noexcept {
+    if (!root) return false;
+    const char* leaf=std::strrchr(root,'/');leaf=leaf?leaf+1:root;
+    const auto module=FindTargetModule();
+    if (!module.has_value()) return false;
+    for (std::size_t i=0;i<isaac::runtime::ModMenuDiscoveredCount();++i) {
+        const auto* directory=isaac::runtime::ModMenuDiscoveredDirectory(i);
+        if (directory && std::strcmp(directory,leaf)==0) return LoadEngineModContent(*module,1,i,false);
+    }
+    return false;
+}
+bool FinishEngineModContentCycle() noexcept {
+    const auto module=FindTargetModule();
+    return module.has_value() && LoadEngineModContent(*module,1,SIZE_MAX,true);
+}
+bool FinishEngineModReload() noexcept { return FinishModReloadNative(); }
+
 void LoadEngineModRoomsAfterStage(void* config,int stage,int mode) noexcept {
     const auto base=LuaRuntime::EngineModuleBase();
     if(base==0 || !PrepareModRoomSources()) {++g_ModRoomLoadState[4];return;}
@@ -3968,7 +4029,7 @@ void LoadEngineModContentBeforeModScripts() noexcept {
 //: 安全性：调用点与"进模组页"那条**完全同类** —— 游戏线程、`Manager::Update` 帧里、走同一个
 //: 入口（`LoadEngineModContent` 里有"涨过就不喂"的闸，所以不会重复加载同一条内容）。
 void MaybeRetryEngineModContent(const TargetModule& module) noexcept {
-    if (EngineModContentLoaded()) {
+    if (g_ModContentCycleComplete || g_ModContentCycleExplicit) {
         return;
     }
     if (g_LastContentLoadFrame != 0 &&
@@ -4065,7 +4126,7 @@ void ModMenuNativeUpdate() noexcept {
     //   再加载一份。`Menu_Mods::Render` 每帧都从 `g_Manager+0x36800` 现读 begin/end ⇒
     //   换表立刻生效，不需要重建页面。
     if (g_Menu.vectorWritten != 0 &&
-        g_Menu.writtenDirectories != isaac::runtime::ModMenuDiscoveredCount()) {
+        g_Menu.writtenGeneration != isaac::runtime::ModMenuDiscoveryGeneration()) {
         g_Menu.vectorWritten = 0;
         g_Menu.prepareAttempts = 0;
         TryPrepareModsVector();

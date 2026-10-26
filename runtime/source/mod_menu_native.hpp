@@ -513,6 +513,16 @@ void ModMenuNativeUpdate() noexcept;
 //: （真机 `[61] = 4`、加载器一次都没被调用），而它照样被记成"跑完了"。
 //: 只要这条链上还有"进模组页"与"每帧重试"两条兜底，放错位置不会崩，但**舞会一直出不来**。
 void LoadEngineModContentBeforeModScripts() noexcept;
+// PC式重载：预检不破坏旧环境；静态条目由运行时析构，菜单表不交给引擎delete。
+void NoteModToggleSaveResult(bool saved) noexcept;
+[[nodiscard]] bool PreflightEngineModReload() noexcept;
+[[nodiscard]] bool WaitEngineGraphicsForModReload() noexcept;
+[[nodiscard]] bool ReleaseEngineModsForReload() noexcept;
+[[nodiscard]] bool BeginEngineModContentCycle(bool reload) noexcept;
+[[nodiscard]] bool LoadEngineModContentForMod(const char* root) noexcept;
+[[nodiscard]] bool FinishEngineModContentCycle() noexcept;
+[[nodiscard]] bool FinishEngineModReload() noexcept;
+
 
 //: 判定「按 PC 规则，本局是不是不该给成就」—— 给入口中继 `PersistentGameDataSetReadOnly` 用。
 //: 规则 = 带符号的 `AfterbirthPlus.nro` 里 `ModManager::AchievementsLocked()` **一比一**：
@@ -587,3 +597,10 @@ void NoteRunLatchArmed(bool armed) noexcept;
 [[nodiscard]] bool RunLatchArmed() noexcept;
 
 } // namespace isaac::runtime::modmenu
+
+// 2026-10-23：游戏线程扫描时统一排序并发布；菜单随后只用缓存。
+namespace isaac::runtime { struct ResolvedManifestModBatch; }
+namespace isaac::runtime::modmenu {
+[[nodiscard]] bool SortAndPublishDiscoveredMods(const TargetModule& module,
+                                               ResolvedManifestModBatch& batch) noexcept;
+}

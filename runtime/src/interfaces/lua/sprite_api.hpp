@@ -152,7 +152,11 @@ void SetSpritePropertyApplyHostImplementation(
 namespace isaac::runtime {
 // 借用视图每次重验拥有实体的寿命；指针不拥有，不允许调用者释放。
 void* ResolveSpriteArgument(lua_State*,int index);
+// 只读身份查询复用同一来源/寿命检查，失效返回空，不触发Lua长跳。
+void* TryResolveSpriteArgument(lua_State*,int index) noexcept;
 }
 
 // 2026-10-15订正：GetDefaultAnimationName/GetDefaultAnimation共读ANM2+0x18真实声明；
 // 上方旧“动画表第一条”说明仅为历史，现已取消该近似，证据见本次Bossbar报告。
+
+// 2026-10-23更正：GetFilename读取Lua Sprite所用ANM2首部+0的字符串，旧+8注释为历史错误。

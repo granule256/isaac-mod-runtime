@@ -71,18 +71,32 @@ private:
 
 // 固定64KiB分段：避免几何扩容与整幅raw，最终仅一次精确连续拼接。
 class EncodedBlocks {
-    struct Block { Block* next; size_t used; uint8_t bytes[65536]; };
+    struct Block { Block* next; size_t used; uint8_t bytes[kPcxStreamBlockBytes]; };
+    static_assert(sizeof(Block) - kPcxStreamBlockBytes == kPcxStreamBlockOverhead);
     Block* first_ = nullptr;
     Block* last_ = nullptr;
     size_t size_ = 0;
+    size_t count_ = 0;
+    std::uint64_t workspace_;
+    bool budgetExceeded_ = false;
 public:
+    explicit EncodedBlocks(std::uint64_t workspace) noexcept : workspace_(workspace) {}
     ~EncodedBlocks() { while(first_) { auto* next=first_->next; delete first_; first_=next; } }
     size_t size() const noexcept { return size_; }
+    bool budgetExceeded() const noexcept { return budgetExceeded_; }
     bool Append(const uint8_t* data, size_t n) noexcept {
         while(n) {
             if(!last_ || last_->used==sizeof(last_->bytes)) {
+                // 分配前保留最终连续PCX的副本空间；失败时所有块由析构释放。
+                constexpr auto perBlock = 2 * kPcxStreamBlockBytes + kPcxStreamBlockOverhead;
+                if (workspace_ > kPngToPcxPeakBudgetBytes ||
+                    count_ + 1 > (kPngToPcxPeakBudgetBytes - workspace_) / perBlock) {
+                    budgetExceeded_ = true;
+                    return false;
+                }
                 auto* block=new (std::nothrow) Block;
                 if(!block) return false;
+                ++count_;
                 block->next=nullptr; block->used=0;
                 if(last_) last_->next=block; else first_=block;
                 last_=block;
@@ -137,6 +151,24 @@ void ExpandChannels(const uint8_t* line, int width, int channels, int color_type
             g = line[at + 1];
             b = line[at + 2];
             a = line[at + 3];
+        }
+        // ★ 2026-10-26（BUG-018）：**预乘 alpha**。
+        //
+        // 引擎的 PCX 读取路径是按**预乘**解释通道的 —— 本体自己的资源就是预乘的：随机抽查
+        // `resources/gfx/spotlight.pcx` 的 34498 个半透明像素，`max(R,G,B) > a` 的有 **0** 个，
+        // 且 `max(R,G,B) == a`（"白色 × alpha"）的有 34498 个；`crackthesky.pcx` 6892 个同样。
+        // 而模组作者的 PNG 是**非预乘**（straight alpha）：Auri 的 `crownoflight.png` 有 735 个
+        // 半透明像素、RGB 全是 `(0,255,255)`，`hud_glowinghourglass.png` 有 4736 个 `(43,230,255)`。
+        // 原样写进 PCX ⇒ 引擎把"255 的青色"当"已经乘过 alpha 的值"再加一遍 ⇒ 真机就是
+        // 头顶那圈、右侧方块和沙漏 HUD 上那些**实心青块**（截图 `visual-before-launch.jpg`）。
+        //
+        // 纯不透明（`a == 255`）与全透明（`a == 0`，作者给的就是 RGB=0）的像素**不受影响**：
+        // 乘 255/255 与乘 0/255 都不改值。舍入用 `+127`（四舍五入）：`(255*a+127)/255 == a`，
+        // 正好与本体的"白 × alpha"逐字节一致。
+        if (a != 255) {
+            r = (r * a + 127) / 255;
+            g = (g * a + 127) / 255;
+            b = (b * a + 127) / 255;
         }
         const int base = x * 4;
         rgba[base] = static_cast<uint8_t>(r);
@@ -261,8 +293,10 @@ static bool Convert(const uint8_t* png, size_t png_size, InflateFn inflate_one, 
     //   现在按"整条路最坏要同时活着多少"算：`2·n + raw + 2·行字节 + 4·W + 128 + 8·W·H`。
     const std::uint64_t raw_size =
         static_cast<std::uint64_t>(row_bytes + 1) * static_cast<std::uint64_t>(height);
-    const std::uint64_t peak =
-        PngToPcxPeakUpperBound(static_cast<std::uint64_t>(png_size),
+    const auto streamingWorkspace = PngToPcxStreamingPeakUpperBound(png_size, width, channels, 0);
+    const std::uint64_t peak = inflate_rows
+        ? PngToPcxStreamingPeakUpperBound(png_size, width, channels, 1)
+        : PngToPcxPeakUpperBound(static_cast<std::uint64_t>(png_size),
                                static_cast<std::uint64_t>(width),
                                static_cast<std::uint64_t>(height),
                                static_cast<std::uint64_t>(channels));
@@ -381,14 +415,17 @@ static bool Convert(const uint8_t* png, size_t png_size, InflateFn inflate_one, 
     header[68] = 1; header[69] = 0;
 
     if (inflate_rows) {
-        EncodedBlocks blocks;
+        EncodedBlocks blocks(streamingWorkspace);
         NothrowBytes encodedRow;
         *failure=PngToPcxFailure::Allocation;
         if (!encodedRow.Resize(static_cast<size_t>(width)*8)) return false;
         const auto consume = [&](const uint8_t* row) -> bool {
             if(!decode_bytes(row)) return false;
             const auto count=WritePlaneRowRuns(row_rgba.data(),width,encodedRow.data());
-            if(!blocks.Append(encodedRow.data(),count)) { *failure=PngToPcxFailure::Allocation; return false; }
+            if(!blocks.Append(encodedRow.data(),count)) {
+                *failure=blocks.budgetExceeded()?PngToPcxFailure::Budget:PngToPcxFailure::Allocation;
+                return false;
+            }
             return true;
         };
         struct Context { const decltype(consume)* consumer; } context{&consume};

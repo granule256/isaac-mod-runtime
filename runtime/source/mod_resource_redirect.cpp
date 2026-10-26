@@ -107,6 +107,7 @@ bool MatchesCandidate(const char* resolved, const char* candidate) noexcept {
 }  // namespace
 
 bool PublishModResourceRedirectList(const char* const* modRoots, std::size_t count) noexcept {
+    if (count > kModResourceRedirectCapacity) return false; // 保留上一份完整名单，不静默截断。
     g_ModRootCount = 0;
     if (modRoots != nullptr) {
         for (std::size_t index = 0; index < count && index < kModResourceRedirectCapacity;

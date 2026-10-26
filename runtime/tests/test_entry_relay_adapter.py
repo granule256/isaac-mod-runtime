@@ -343,18 +343,18 @@ extern "C" void EntryRelayAnm2LoadCallback(void* anm2, const void* name,
 // 等于这个函数的地址），不跑真机逻辑。
 extern "C" bool EntryRelayManagerIsActionPressedCallback(void* manager, std::uint32_t action,
                                                          std::uint32_t controller,
-                                                         std::uint32_t* out) {
-    (void)manager; (void)action; (void)controller; (void)out; return false;
+                                                         void* entity) {
+    (void)manager; (void)action; (void)controller; (void)entity; return false;
 }
 extern "C" bool EntryRelayManagerIsActionTriggeredCallback(void* manager, std::uint32_t action,
                                                            std::uint32_t controller,
-                                                           std::uint32_t* out) {
-    (void)manager; (void)action; (void)controller; (void)out; return false;
+                                                           void* entity) {
+    (void)manager; (void)action; (void)controller; (void)entity; return false;
 }
 extern "C" float EntryRelayManagerGetActionValueCallback(void* manager, std::uint32_t action,
                                                          std::uint32_t controller,
-                                                         std::uint32_t* out) {
-    (void)manager; (void)action; (void)controller; (void)out; return 0.0F;
+                                                         void* entity) {
+    (void)manager; (void)action; (void)controller; (void)entity; return 0.0F;
 }
 
 // 批次 396（2026-10-07，`MC_ENTITY_TAKE_DMG` 的四条 + `MC_EVALUATE_CACHE`）：同样只满足链接。
@@ -391,12 +391,16 @@ extern "C" void EntryRelayEvaluateItemsCallback(void* player) { (void)player; }
 
 // 批次 397（2026-10-07，补全回调第 2 批）：同样只满足链接（夹具只验证 `g_hookCallbacks` 那一格
 // 等于这个函数的地址）。真机逻辑要读引擎实体（`ReadEntityIdentity`）与游戏结束状态，宿主机上没有。
+extern "C" void EntryRelayEntityPlayerInitCallback(void*,std::uint32_t,std::uint32_t,std::uint32_t,std::uint32_t) {}
+extern "C" void EntryRelayGameStartStageTransitionCallback(void*,bool,int,void*) {}
 extern "C" void EntryRelayEntityKillCallback(void* entity) { (void)entity; }
 #include "room_spawn_internal_hook.hpp"
 namespace isaac::runtime {
 std::uint32_t RoomFixSpawnCtorInternalCallback(relay::InternalHookContext&,const void*) noexcept {return 0;}
 static std::uintptr_t g_managerOriginal=0;
 bool PublishManagerUpdateEntryRelayOriginal(std::uintptr_t original)noexcept{g_managerOriginal=original;return true;}
+// 本夹具不执行UseActiveItem；实际五处安装及失败由专用测试覆盖。
+bool TryInstallUseItemNativeBoundaries(const HookTarget&)noexcept{return false;}
 }
 extern "C" std::uint64_t EntryRelayFamiliarCollisionCallback(void*, void*, std::uint32_t) { return 0; }
 extern "C" std::uint64_t EntryRelayNpcCollisionCallback(void*, void*, std::uint32_t) { return 0; }
@@ -554,6 +558,24 @@ int main() {
           "地址回绕必须拒绝");
 
     isaac::runtime::RegisterEntryRelayCallbacks();
+    const HookId inputIds[]={HookId::ManagerIsActionPressed,HookId::ManagerIsActionTriggered,HookId::ManagerGetActionValue};
+    const std::uintptr_t inputOffsets[]={kManagerIsActionPressedOffset,kManagerIsActionTriggeredOffset,kManagerGetActionValueOffset};
+    const void* inputGuards[]={kManagerIsActionPressedExpectedBytes.data(),kManagerIsActionTriggeredExpectedBytes.data(),kManagerGetActionValueExpectedBytes.data()};
+    for(unsigned i=0;i<3;++i){
+        static_cast<void>(adapter.Install(inputIds[i],target));
+        Check(isaac::runtime::relay::g_stubTarget==target.base+inputOffsets[i] &&
+              isaac::runtime::relay::g_stubExpected==inputGuards[i],
+              "输入必须拦Manager高层并保留Entity实参，而不是底层unsigned*出参");
+    }
+    isaac::runtime::relay::g_stubResult=true;
+    Check(adapter.Install(HookId::GameStartStageTransition,target).ok() &&
+          adapter.IsInstalled(HookId::GameStartStageTransition),
+          "首层沙漏过渡必须实际安装到新入口中继");
+    Check(isaac::runtime::relay::g_stubTarget==target.base+kApi200GameStartStageTransitionOffset &&
+          isaac::runtime::relay::g_stubExpected==kApi200GameStartStageTransitionExpectedBytes.data() &&
+          isaac::runtime::relay::g_stubCallback==reinterpret_cast<std::uintptr_t>(&EntryRelayGameStartStageTransitionCallback) &&
+          EntryRelayFallbackEntry(HookId::GameStartStageTransition)==0x7100A00020u,
+          "新入口偏移、16字节、回调ABI与回退槽必须全部接线");
     isaac::runtime::relay::g_afterPublication=+[]{
         Check(EntryRelayFallbackEntry(HookId::ManagerUpdate)==0x7100A00020u &&
               isaac::runtime::g_managerOriginal==0x7100A00020u,

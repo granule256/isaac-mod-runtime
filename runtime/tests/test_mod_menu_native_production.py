@@ -839,36 +839,17 @@ class ModMenuNativeProductionTests(unittest.TestCase):
         `__end_node_.__left_ = 0`、`size_ = 0`；**零填充不行** ——
         `0x3B9F74 ldr x8,[x9]` → `0x3B9F78 ldr x8,[x8]` 会解引用 `__begin_node_`（全 0 即空指针）。
         """
-        calls = [line for line in self.cpp.splitlines() if "loadCostumes(" in line]
-        self.assertEqual(len(calls), 2,
-                         f"应当恰好两处调用 `loadCostumes(...)`（两种路径口径各一次），实际 {len(calls)}")
-        for line in calls:
-            self.assertNotIn("nullptr", line,
-                             "第三个实参不许是 `nullptr` —— 那会让 `type=\"none\"` 的服装"
-                             "**一条都不加**（149b 真机 132 → 132 就是这个；机制见本方法的文档串）")
-            self.assertIn("modEntry", line, "第三个实参必须是我们那个替身")
-        # 替身本身：结构、布局常量、以及"空树"那三步必须都在。
-        self.assertIn("struct SubstituteModEntryTree", self.cpp, "替身要有一个具名的 map 头部结构")
-        self.assertIn("struct SubstituteModEntry", self.cpp, "替身本体要有具名结构（不许用裸缓冲）")
-        self.assertIn("kModEntryCostumeContextOffset", self.cpp,
-                      "`ctx` 的偏移要用具名常量（引擎入口那条 `add x8,x2,#0x108`）")
-        self.assertIn("void* const modEntry = &g_SubstituteModEntry;", self.cpp,
-                      "两个调用点共用同一个替身指针")
-        self.assertIn("tree.beginNode = &tree.endNodeLeft;", self.cpp,
-                      "空 map 的 `__begin_node_` 必须指向 `__end_node_` 自身（**不能是 0**："
-                      "`0x3B9F78 ldr x8,[x8]` 会解引用它）")
-        self.assertIn("tree.endNodeLeft = nullptr;", self.cpp, "空树的根那一格必须是 0")
-        self.assertIn("tree.size = 0;", self.cpp, "空树的 `size_` 必须是 0")
-        for field in ("costumeMap", "trinketMap"):
-            self.assertIn(f"MakeEmptyCostumeTree(g_SubstituteModEntry.{field});", self.cpp,
-                          f"{field} 也要摆成空树（引擎那几条分支各读一个）")
-        # 常量在 `runtime_constants.hpp`（偏移值对得上入口那条 `add` 的立即数）。
-        constants = (SOURCE / "runtime_constants.hpp").read_text(encoding="utf-8")
-        self.assertIn("kModEntryCostumeContextOffset = 0x108;", constants,
-                      "`ctx` 相对 `ModEntry*` 的偏移就是入口 `add x8,x2,#0x108` 那个立即数")
-        self.assertIn("kModEntryCostumeContextBytes = 0x30;", constants,
-                      "两个 map 头部各 0x18 字节（`__begin_node_`/`__end_node_.__left_`/`size_`）")
-        self.assertIn("kModEntrySubstituteBytes", constants, "替身的长度要有个具名常量")
+        outfit = function_body(self.cpp, "bool LoadEngineModContent(")
+        feed = function_body(self.cpp, "void FeedModContentFile(")
+        self.assertIn("void* const realEntry = RealModEntryForIndex", outfit)
+        self.assertIn("if (!realEntry) return false;", outfit)
+        self.assertIn("spec.argument == ModContentFeedArgument::ModEntry && realEntry == nullptr", feed)
+        self.assertIn("(receiver, path, realEntry)", feed)
+        self.assertNotIn("MakeEmptyCostumeTree(", outfit, "每轮必须复用本模组真实map并正常析构，不能抹掉树头漏内存")
+        constants = (SOURCE / "runtime_constants.hpp").read_text()
+        self.assertIn("kModEntryCostumeContextOffset = 0x108;", constants)
+        self.assertIn("kModEntryCostumeContextBytes = 0x30;", constants)
+
 
     # ---- 12d) 喂引擎必须**在模组脚本之前**（2026-09-27 批次 153）--------------
 
@@ -903,56 +884,21 @@ class ModMenuNativeProductionTests(unittest.TestCase):
         3. "进模组页"那条路**必须留着**当兜底（早期那一次可能因为别的原因没成）；
            但要有闸挡住重复喂（否则同一条内容会被加两遍）。
         """
-        hook = HOOK_MANAGER.read_text(encoding="utf-8")
-        self.assertIn("isaac::runtime::modmenu::LoadEngineModContentBeforeModScripts();", hook,
-                      "`hook_manager.cpp` 必须调用那个「模组脚本之前」的入口")
-        call_at = hook.index("isaac::runtime::modmenu::LoadEngineModContentBeforeModScripts();")
-        # ★★ 批次 156：**位置**在 `LoadDefaultManifestModThroughService()` 里、
-        #    注册完各模组的资源挂载点之后、跑模组脚本之前。
-        #
-        #    为什么不是"在 `InitializeDefaultManifestMod(...)` 之前"（153~155 的位置）：
-        #    那个位置**太早了** —— 模组列表（`ModMenuPublishDiscovered`）还没发布、
-        #    模组的内容目录也还没 `RegisterMod` ⇒ 那一次**什么都没做**
-        #    （真机 `[61] = 4`、加载器一次都没被调用），而它照样被记成"跑完了"。
-        service = function_body(hook, "bool LoadDefaultManifestModThroughService(u32* failureDetail) {")
-        # ★ 判据只看**代码**（去掉行注释）：上面那段说明里逐字写了 `service.LoadAll(...)`
-        #   与 `ModMenuPublishDiscovered(batch)` 这两个名字，直接在原文里 `index` 会匹配到
-        #   **注释**、把顺序判反（2026-09-27 实测踩过一次）。这也是本仓"判据只看代码"那条纪律。
-        code = re.sub(r"//[^\n]*", "", service)
-        call_in_service = code.index(
-            "isaac::runtime::modmenu::LoadEngineModContentBeforeModScripts();")
-        # ★★★ 批次 378（2026-10-05）：这个锚点以前是 `g_ContentMountService.RegisterMod(`
-        #   —— 它代表"模组的资源已经对引擎可见"。模组目录挂载被 **PC 的资源层重定向**取代之后，
-        #   同一件事的锚点变成"**发布重定向清单**"（判定意图不变：内容必须在"资源可见"之后、
-        #   在"跑模组脚本"之前）。取证见 `docs/分析-模组挂载机制与371没音乐定案-20261005.md`。
-        resources_visible_at = code.index("PublishModResourceRedirectList(")
-        load_all_at = code.index("service.LoadAll(")
-        self.assertLess(resources_visible_at, call_in_service,
-                        "★ 调用必须排在「发布重定向清单（模组资源对引擎可见）」**之后** —— "
-                        "引擎的文件层要能打开 `<目录>/content/*.xml`，靠的就是那条重定向")
-        self.assertLess(call_in_service, load_all_at,
-                        "★ 调用必须排在 `service.LoadAll(...)`（**跑模组脚本**）**之前** —— "
-                        "服装编号是模组在文件作用域查死并固定的，晚一步就永远补不回来")
-        self.assertIn("ModMenuPublishDiscovered(", code[:call_in_service],
-                      "模组列表（`ModMenuPublishDiscovered`）要在调用之前就发布好，否则循环体进不去")
-        # 并且**不许**再放回"清单安装之前"那个位置。
-        callback_zone = hook[:hook.index("InitializeDefaultManifestMod(&failureDetail)")]
-        self.assertNotIn("LoadEngineModContentBeforeModScripts();", callback_zone[-2000:],
-                         "★ 不许再放回 `InitializeDefaultManifestMod(...)` 之前 —— 那个位置"
-                         "模组列表还是空的、内容目录也没注册（真机 `[61] = 4` 就是那次）")
-        # `.hpp` 要有声明（它是跨 TU 的入口）。
-        self.assertIn("void LoadEngineModContentBeforeModScripts() noexcept;", self.hpp,
-                      "`.hpp` 里要有声明（它是 `hook_manager.cpp` 调的跨 TU 入口）")
-        # 闸：有次数上限、且"涨过就不再喂"（防止把同一条内容加两遍）。
-        self.assertIn("kMaximumContentLoadAttempts", self.cpp,
-                      "闸要有具名的次数上限（不许无上限地试：每次都在读文件 + 调引擎）")
-        self.assertIn("g_CostumeCountAfter > g_CostumeCountBefore", self.cpp,
-                      "要判「上一次到底涨没涨」")
-        self.assertIn("g_MusicEntryCountAfter > g_MusicEntryCountBefore", self.cpp,
-                      "音乐侧同理")
-        # 早期那条路要能自己把 `Manager` 取出来（那时每帧更新还没跑过 ⇒ `g_Menu.manager` 是 0）。
-        self.assertIn("ReadSingleton(module, kManagerSlotOffset, &manager)", self.cpp,
-                      "早期时机要按引擎自己的 `g_Manager` 槽现取一次 Manager")
+        hook = HOOK_MANAGER.read_text()
+        body = function_body(hook, "bool LoadDefaultManifestModThroughService(u32* failureDetail) {")
+        discover=body.index("SortAndPublishDiscoveredMods(*module, batch)")
+        roots=body.index("PublishModResourceRedirectList(roots, rootCount)")
+        content=body.index("modmenu::LoadEngineModContentForMod(")
+        script=body.index("service.LoadAll(")
+        finish=body.index("modmenu::FinishEngineModContentCycle()")
+        self.assertLess(discover, roots)
+        self.assertLess(roots, content)
+        self.assertLess(content, script)
+        self.assertLess(script, finish)
+        self.assertIn("load.batch.mods[load.index].modRoot", body)
+        self.assertIn("g_CardSwitchProbeAllowed.store(1,", body)
+        self.assertIn("g_ModContentCycleComplete", self.cpp)
+
 
     # ---- 12e) 喂数据**不许依赖任何单一时机**（2026-09-27 批次 154）------------
 
@@ -978,29 +924,16 @@ class ModMenuNativeProductionTests(unittest.TestCase):
         3. "早期那一次"的阶段要单独留一格（`[61]`）—— `g_ModEngineScanStage` 会被重试覆盖，
            而"早期没喂成"与"喂成了又被抹掉"的修法完全不同。
         """
+        # 2026-10-23更正：PC同步逐模组加载，不能在脚本执行以后重试追加原生配置。
         update = function_body(self.cpp, "void ModMenuNativeUpdate() noexcept")
-        self.assertIn("MaybeRetryEngineModContent(*module);", update,
-                      "每帧更新里要调重试入口（它同时覆盖「模组页」与「局内」两种场景）")
-        retry_at = update.index("MaybeRetryEngineModContent(*module);")
-        early = update.index("ReadSingleton(*module, kMenuManagerSlotOffset")
-        self.assertLess(retry_at, early,
-                        "★ 必须排在「菜单管理器读不到就 return」那道早退**之前** —— "
-                        "在一局游戏里菜单管理器不存在，而那时内容还没喂好正是本次崩溃的形状")
-        retry = function_body(self.cpp, "void MaybeRetryEngineModContent(const TargetModule& module) noexcept {")
-        self.assertIn("EngineModContentLoaded()", retry,
-                      "成功之后必须立刻变空转（否则会把同一条内容加两遍）")
-        self.assertIn("kContentLoadRetryIntervalFrames", retry, "要有具名的帧间隔")
-        for token in ("kMaximumContentLoadAttempts", "EngineModContentLoaded()",
-                      "kContentLoadRetryIntervalFrames"):
-            self.assertIn(token, self.cpp, f"缺 {token}")
-        # 「早期那一次」的阶段单独留格。
-        self.assertIn("g_ModMenuState.modEngineEarlyStage = g_ModEngineScanStage;", self.cpp,
-                      "「模组脚本之前」那次走到的阶段要单独留一格（它会被后面的重试覆盖）")
-        self.assertIn("modEngineEarlyStage", self.hpp, "状态面 .hpp 要有 [61] 那一格")
-        # 触发时机现在有三档。
-        self.assertIn("(void)LoadEngineModContent(*module, 1);", self.cpp, "1 = 模组脚本之前")
-        self.assertIn("(void)LoadEngineModContent(module, 2);", self.cpp, "2 = 进模组页")
-        self.assertIn("(void)LoadEngineModContent(module, 3);", self.cpp, "3 = 每帧重试")
+        retry = function_body(self.cpp, "void MaybeRetryEngineModContent(")
+        self.assertIn("MaybeRetryEngineModContent(*module);", update)
+        self.assertIn("g_ModContentCycleComplete || g_ModContentCycleExplicit", retry)
+        loader = function_body(self.cpp, "bool LoadEngineModContent(")
+        self.assertLess(loader.index("!g_ModContentCycleExplicit"), loader.index("PrepareSourceContext(module)"))
+        self.assertIn("g_ModContentCycleComplete = true;", loader)
+        self.assertIn("modEngineEarlyStage", self.hpp)
+
 
     # ---- 12g) 喂 content **不许依赖挂载解析**（2026-09-27 批次 155）-------------
 
@@ -1028,24 +961,16 @@ class ModMenuNativeProductionTests(unittest.TestCase):
         2. `ResolveMountedPath` 只能出现在那之后（兜底），且**不许**再是"喂之前的前置条件"；
         3. 阶段字要有 **4 = 跑完了但一条没涨**（否则"跑完"会被读成"喂进去了"——154 就栽在这里）。
         """
-        for call in ("loadCostumes(config, path, modEntry);", "loadMusic(music, path, true);"):
-            self.assertIn(call, self.cpp, f"必须先直接喂相对应用根的路径：{call}")
-        outfit = function_body(self.cpp, "bool LoadEngineModContent(const TargetModule& module, std::uint32_t trigger) {")
-        direct = outfit.index("loadCostumes(config, path, modEntry);")
-        resolve = outfit.index("ResolveMountedPath(&g_Menu, path, resolved, sizeof(resolved))")
-        self.assertLess(direct, resolve,
-                        "★ 直接喂必须排在 `ResolveMountedPath` **之前** —— 解析依赖 `ContentManager` 就绪，"
-                        "而真机上「模组脚本之前」那一刻它还没就绪（154 的整条跳过就是这么来的）")
-        # 解析仍然要留着（兜底），不能删。
-        self.assertEqual(outfit.count("ResolveMountedPath(&g_Menu, path, resolved, sizeof(resolved))"), 2,
-                         "解析要留着作兜底（服装 + 音乐各一次）")
-        # 阶段字：跑完 ≠ 喂进去了。
-        self.assertIn("g_ModEngineScanStage = EngineModContentLoaded() ? 2 : 4;", self.cpp,
-                      "★ 阶段 2 必须是「跑完**且容器涨了**」；跑完但一条没涨要记 4 —— "
-                      "154 把「跑完」记成 2，害得我读成「早期时机已经通了」")
-        reader = READER.read_text(encoding="utf-8")
-        self.assertIn("4: '跑完了但**两个容器一条没涨**", reader,
-                      "读数工具要能解释阶段 4（否则看到 4 不知道是什么）")
+        loader = function_body(self.cpp, "bool LoadEngineModContent(")
+        feed = function_body(self.cpp, "void FeedModContentFile(")
+        self.assertNotIn("ResolveMountedPath", loader)
+        self.assertNotIn("ResolveMountedPath", feed)
+        self.assertIn("std::memcpy(path,kModdingDataPathValue,rootLength);", loader)
+        self.assertIn("(receiver, path, realEntry)", feed)
+        self.assertIn("(receiver, path, true)", feed)
+        self.assertIn("g_MusicEntryCountAfter = CountMusicEntries(manager);", loader)
+        self.assertIn("g_CostumeCountAfter = CountNullCostumeEntries(manager);", loader)
+
 
     def test_unobservable_mod_content_is_fed_once_per_mod(self):
         """★★ 批次 378：**没有可观测信号**的那一批（`LoadCustomResources` + 12 个 content 文件）
@@ -1067,25 +992,20 @@ class ModMenuNativeProductionTests(unittest.TestCase):
         4. 服装 / 音乐两行**不许**被这个闩锁挡住 —— 它们有客观信号（容器涨没涨），
            "没涨就再试一次"是批次 153 定下、真机摔出来过的机制，不能因为这条新闩锁被拿掉。
         """
-        outfit = function_body(
-            self.cpp, "bool LoadEngineModContent(const TargetModule& module, std::uint32_t trigger) {")
-        self.assertIn("g_ModContentUnobservableFedMask", self.cpp, "闩锁必须存在（见该掩码的注释）")
-        pre_guard = outfit.index("if (!unobservableFed) {")
-        self.assertLess(pre_guard, outfit.index("realEntry = RealModEntryForIndex("),
-                        "★ 真条目只该在「这一批还没喂过」时构造")
-        self.assertLess(pre_guard, outfit.index("FeedModCustomResources(realEntry);"),
-                        "★ `LoadCustomResources` 也要被同一个闩锁挡（它内部会 `ANM2::Load`）")
-        feed = outfit.index("FeedModContentFile(row, manager, realEntry, path, baseLength, sizeof(path));")
-        guard = outfit.index("} else if (!unobservableFed) {")
-        self.assertLess(guard, feed,
-                        "★ 12 个 content 文件必须挂在 `else if (!unobservableFed)` 上 —— "
-                        "无条件喂就等于每轮重试都追加一遍")
-        self.assertLess(feed, outfit.index("g_ModContentUnobservableFedMask |= "),
-                        "置位必须在喂之后（否则这一轮就不喂了）")
-        self.assertIn("if (row == kModFeedRowCostumes) {", outfit)
-        self.assertIn("} else if (row == kModFeedRowMusic) {", outfit)
-        self.assertEqual(outfit.count("FeedModContentFile("), 1,
-                         "★ 12 行只能有**一处**喂法；多出来的那一处会绕过闩锁")
+        outfit = function_body(self.cpp, "bool LoadEngineModContent(")
+        guard=outfit.index("if (g_ModContentUnobservableFedMask.Test(index)) continue;")
+        ctor=outfit.index("RealModEntryForIndex(")
+        custom=outfit.index("FeedModCustomResources(realEntry)")
+        feed=outfit.index("FeedModContentFile(row,manager,realEntry,path,baseLength,sizeof(path))")
+        mark=outfit.index("g_ModContentUnobservableFedMask.Set(index);")
+        self.assertLess(guard,ctor)
+        self.assertLess(ctor,custom)
+        self.assertLess(custom,feed)
+        self.assertLess(feed,mark)
+        release=function_body(self.cpp,"bool ReleaseModReloadNative() noexcept")
+        self.assertLess(release.index("destruct(g_RealModEntryArena"),release.index("g_ModContentUnobservableFedMask={}"))
+        self.assertIn("g_PostLoadModsDone.store(0,",release)
+
 
     # ---- 12f) `Music:Play` 的编号保险（2026-09-27 批次 154）--------------------
 
@@ -1135,14 +1055,16 @@ class ModMenuNativeProductionTests(unittest.TestCase):
     # ---- 13) 只改内存，唯一例外是离开页面时那一次落盘 ------------------------
 
     def test_only_memory_is_written_and_toggles_are_saved_once_on_exit(self):
-        self.assertEqual(self.cpp.count("ModMenuSaveToggles()"), 1,
-                         "落盘只允许一次（离开模组页时那一次）")
-        page = function_body(self.cpp, "void ModsPageUpdate")
-        self.assertIn("ModMenuSaveToggles()", page, "那一次落盘就在模组页的每帧驱动里")
-        self.assertIn("ModPageShouldPersist", page, "「只有真改过才写」由纯判定说了算")
-        leave = page.split("g_Menu.pageWasActive != 0 && !active", 1)[1].split("if (!active)", 1)[0]
-        self.assertIn("ModMenuSaveToggles()", leave,
-                      "落盘必须发生在「刚刚离开页面」那一刻（不是每帧）")
+        hook=HOOK_MANAGER.read_text()
+        reload=function_body(hook,"bool ReloadModsFromMenu(bool edited) noexcept")
+        self.assertEqual(reload.count("ModMenuSaveToggles()"),1)
+        page=function_body(self.cpp,"void ModsPageUpdate")
+        self.assertNotIn("ModMenuSaveToggles()",page)
+        back=page[page.index("if (Edge(&g_PageLastBack, back))"):]
+        self.assertLess(back.index("ReloadModsFromMenu(edited!=0)"),back.index("ApplyState(module, kGameMenuState)"))
+        self.assertIn("std::uint8_t edited",back)
+        self.assertIn("if (!isaac::runtime::ReloadModsFromMenu",back)
+
 
 
 if __name__ == "__main__":

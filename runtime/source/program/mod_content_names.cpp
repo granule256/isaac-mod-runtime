@@ -216,9 +216,23 @@ bool NextTag(const char* xml, std::size_t length, std::size_t* cursor, std::size
             return false;
         }
         const std::size_t tag = *cursor;
+        // 注释是原始文本；其中的撇号、引号和假标签都不能按属性语法解释。
+        if (length - tag >= 4 && std::memcmp(xml + tag, "<!--", 4) == 0) {
+            std::size_t end = tag + 4;
+            while (length - end >= 3 && std::memcmp(xml + end, "-->", 3) != 0) {
+                ++end;
+            }
+            if (length - end < 3) {
+                *truncated = true;
+                *cursor = length;
+                return false;
+            }
+            *cursor = end + 3;
+            continue;
+        }
         if (tag + 1 < length &&
             (xml[tag + 1] == '!' || xml[tag + 1] == '?' || xml[tag + 1] == '/')) {
-            // 注释 / 声明 / 闭合标签：整段跳过。
+            // 其它声明 / 闭合标签：整段跳过。
             std::size_t end = 0;
             if (!FindTagEnd(xml, tag, length, &end)) {
                 *truncated = true;
@@ -520,7 +534,7 @@ void NoteModContentNameReadFailure() noexcept {
     ++g_Stats.readFailures;
 }
 
-void ResetModContentNamesForTests() noexcept {
+void ClearModContentNames() noexcept {
     std::memset(g_NamePool, 0, sizeof(g_NamePool));
     g_NameUsed = 0;
     std::memset(g_Entries, 0, sizeof(g_Entries));
@@ -533,5 +547,7 @@ void ResetModContentNamesForTests() noexcept {
     }
     g_Stats = {};
 }
+
+void ResetModContentNamesForTests() noexcept { ClearModContentNames(); }
 
 } // namespace isaac::runtime

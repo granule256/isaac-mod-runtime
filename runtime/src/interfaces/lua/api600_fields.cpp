@@ -21,7 +21,7 @@ constexpr Field kFields[]={
 {"SpriteRotation",0x134,Kind::Float,true,4},
 {"FlipX",0x1c1,Kind::Bool,true,4},
 {"SizeMulti",0x348,Kind::Vector,true,1},
-{"TargetPosition",0x320,Kind::ConstVector,true,0},
+{"TargetPosition",0x308,Kind::ConstVector,true,0},
 };
 api100_native::Cache g_Layouts[5]{};
 constexpr std::uint32_t Hash(const char*p){std::uint32_t h=2166136261U;while(*p)h=(h^static_cast<unsigned char>(*p++))*16777619U;return h;}

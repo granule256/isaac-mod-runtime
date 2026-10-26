@@ -10,7 +10,7 @@ class ImagePcxPathIdentityTests(unittest.TestCase):
     def test_full_path_identity_case_separators_and_latest_binding(self):
         cpp = (ROOT / 'runtime/source/image_pcx_bridge_hook.cpp').read_text()
         storage = cpp[cpp.index('constexpr std::size_t kImagePcxSyntheticPathBytes'):cpp.index('// 转码结果缓存')]
-        funcs = cpp[cpp.index('const char* ImagePcxBasename('):cpp.index('// 查缓存：')]
+        funcs = cpp[cpp.index('bool ImagePcxPathEquals('):cpp.index('// 查缓存：')]
         driver = r'''
 #include <atomic>
 #include <cstdint>
@@ -18,16 +18,12 @@ class ImagePcxPathIdentityTests(unittest.TestCase):
 #include <cassert>
 #include <string>
 #include "infrastructure/resources/small_caches.hpp"
+#include "infrastructure/paths/pc_path_semantics.hpp"
 STORAGE
 FUNCTIONS
 static void put(const char* request, const char* png) {
-    auto slot = g_ImagePcxSyntheticRing.AppendAt(g_ImagePcxSyntheticRingCount++, ImagePcxSyntheticRecord{});
-    auto& record = g_ImagePcxSyntheticRing.at(slot);
-    std::strcpy(record.name, ImagePcxBasename(request));
-    std::strcpy(record.pngPath, png);
-#ifdef FULL_PATH_RECORD
-    std::strcpy(record.requestPath, request);
-#endif
+    std::string pcx(png);pcx.replace(pcx.size()-3,3,"pcx");
+    ImagePcxRememberPath(pcx.c_str(),png,request);
 }
 int main() {
     put("gfx/a/skin.pcx", "rom:/mods/a/gfx/skin.png");

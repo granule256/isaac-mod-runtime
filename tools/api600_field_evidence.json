@@ -849,7 +849,7 @@
       "key": "Entity:TargetPosition",
       "owner": "Entity",
       "name": "TargetPosition",
-      "offset": 800,
+      "offset": 776,
       "value_kind": "refvector",
       "writable": true,
       "kind": "field",
@@ -863,7 +863,7 @@
         "quote": "#### [Vector](Vector.md) TargetPosition  {: .copyable aria-label='Variables' }"
       },
       "judgement": "runtime/tests/test_api600_entities.py",
-      "evidence": "dist/apis600-20261016/field-proof-matrix.json",
+      "evidence": "dist/apis600-20261016/field-proof-matrix.json；2026-10-23更正：PC getter497690(+28C)、Position412130(+294)，NRO Init59880独立308与位置310/绘制320；双哨兵红绿及dist/api-followup2-20261023原始证据。",
       "previous_status": "implemented_pending_final_verification"
     },
     {
@@ -1450,6 +1450,53 @@
     {
       "note": "54个独立新增字段；46方法在Catalog/DoD，构造器不计100。全部Experimental。",
       "correction": "两条异常PC Vector Get不计100，替换为EntityRef生成者两字段；最终44方法56字段。"
+    },
+    {
+      "date": "2026-10-23",
+      "key": "Entity:TargetPosition",
+      "before": {
+        "key": "Entity:TargetPosition",
+        "owner": "Entity",
+        "name": "TargetPosition",
+        "offset": 800,
+        "value_kind": "refvector",
+        "writable": true,
+        "kind": "field",
+        "evidence_group": "entity-selected.json",
+        "status": "statically_restored",
+        "maturity": "Experimental",
+        "hardware_verified": false,
+        "contract": {
+          "page": "tools/pc_contract_docs/Entity.md",
+          "line": 891,
+          "quote": "#### [Vector](Vector.md) TargetPosition  {: .copyable aria-label='Variables' }"
+        },
+        "judgement": "runtime/tests/test_api600_entities.py",
+        "evidence": "dist/apis600-20261016/field-proof-matrix.json",
+        "previous_status": "implemented_pending_final_verification"
+      },
+      "after": {
+        "key": "Entity:TargetPosition",
+        "owner": "Entity",
+        "name": "TargetPosition",
+        "offset": 776,
+        "value_kind": "refvector",
+        "writable": true,
+        "kind": "field",
+        "evidence_group": "entity-selected.json",
+        "status": "statically_restored",
+        "maturity": "Experimental",
+        "hardware_verified": false,
+        "contract": {
+          "page": "tools/pc_contract_docs/Entity.md",
+          "line": 891,
+          "quote": "#### [Vector](Vector.md) TargetPosition  {: .copyable aria-label='Variables' }"
+        },
+        "judgement": "runtime/tests/test_api600_entities.py",
+        "evidence": "dist/apis600-20261016/field-proof-matrix.json；2026-10-23更正：PC getter497690(+28C)、Position412130(+294)，NRO Init59880独立308与位置310/绘制320；双哨兵红绿及dist/api-followup2-20261023原始证据。",
+        "previous_status": "implemented_pending_final_verification"
+      },
+      "reason": "真实写入触发相邻PositionOffset改变，修正目标字段308；不改ApiMaturity/status/hardware_verified，真机状态只维护在API三态。"
     }
   ]
 }

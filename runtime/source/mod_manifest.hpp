@@ -22,7 +22,7 @@ struct SelectedMod {
 // 症状是"某个 Mod 没生效"却无从归因；显式失败至少会出现在诊断里。
 // 体积：`SelectedMods` 每个条目 1280 字节，32 个 ≈ 40 KiB（"被关掉的"只留目录名，另 8 KiB）。
 // 因此 **`hook_manager.cpp` 里把解析器与服务都挂成 `static`**，这个值对象不进游戏线程的栈。
-inline constexpr std::size_t kMaximumSelectedMods = 32;
+inline constexpr std::size_t kMaximumSelectedMods = 256;
 
 // 一次性收下**所有**启用的 Mod（PC 语义：清单里 `enabled = true` 的全部加载，
 // 执行顺序 = 清单里的书写顺序）。`SelectFirstEnabled` 是它的历史子集，两者共用同一个解析器。
@@ -44,6 +44,7 @@ enum class ParseResult : std::uint32_t {
     NoEnabledMod,
     // 启用的 Mod 个数超过 `kMaximumSelectedMods`：**不截断**，直接判非法。
     TooManyMods,
+    OutOfMemory,
 };
 
 ParseResult SelectFirstEnabled(const char* json, std::size_t length, SelectedMod* output);

@@ -214,6 +214,8 @@ struct PathFinderHandle {
 // 会自然失效，而不会解引用过期内存（与 `RoomDescriptorListHandle` 存 `level` 同一条理由）。
 struct TemporaryEffectsHandle {
     void* player;
+    EntityLifetimeToken* lifetime{};
+    std::uintptr_t module{};
 };
 
 struct ColorHandle {
@@ -289,17 +291,29 @@ struct EntityRefHandle {
 // 描述符数组**内联在 Level 对象里**：基址 `Level + 0x18`、步长 `0x100`、
 // 元素个数在 `Level + 0x21510`（真机实测：11 个已分配槽位的 ListIndex 恰好是 0..10）。
 //
-// 句柄只存**描述符地址**（引擎拥有的内存，按 `SpriteHandle` 的先例用 `void*`），
+// 句柄保存**描述符地址**及来源Level/模块（引擎拥有的内存，按 `SpriteHandle` 的先例用 `void*`），
 // 不存字段快照 —— 这样 `Clear` 之类的状态变化
 // 能被后续读取看到，而不是拿到一份过期拷贝。
 struct RoomDescriptorHandle {
     void* descriptor;
+    // 只保留来源，不缓存字段；同址重建仍按PC指针身份比较，不伪造世代。
+    void* level;
+    std::uintptr_t moduleBase;
 };
 
 // `Level:GetRooms()` 的返回值。句柄存 **Level(=Game) 地址**：`Size` 每次现读
 // （房间会随探索增加），`:Get(i)` 再去数组里定位 —— 避免缓存出一个会过期的列表。
+// 固定PC的LuaArrayProxy按值保存count/begin；Size不会随着原生数组动态改变。
+struct ArrayProxyValue {
+    std::uint32_t count;
+    std::uint32_t padding;
+    std::uintptr_t begin;
+};
+static_assert(sizeof(ArrayProxyValue)==16);
 struct RoomDescriptorListHandle {
+    ArrayProxyValue value;
     void* level;
+    std::uintptr_t moduleBase;
 };
 
 //: 批次 347（2026-10-04）：`RoomConfig::Spawn` 与 `RoomConfig::Entry` 两个视图。
@@ -371,19 +385,13 @@ struct EntityHandle {
 // 的地址（`IC = Manager + kManagerItemConfigOffset`，加法，见 `runtime_constants.hpp`），
 // 引擎里不存在指向它的指针。
 //
-// `items`/`count` 是**缓存**，只为让"每个句柄对应哪一份向量"可核对；**每一次**访问都会从
-// 引擎基址重新解引用整条链路并重新读 begin/end，缓存的这两个值只用来判断"句柄是否已经过期"
-// （换局、Manager 重建、ItemConfig 重新 `Init` 都会让它们与现场不一致）。
+// items/count/可读性是创建时快照，仅供诊断。父单例身份由当前Manager配置根验证，
+// 内部vector重排/数量变化后仍按PC读取当前内容；具体条目继续校验自己的向量归属。
 struct ItemConfigHandle {
     void* config;
     void* items;
     std::uint64_t count;
-    // 句柄创建时"收藏品向量是否已经建立"（2026-09-12）。两种情况必须分开处理：
-    //   * 创建时**向量还没建立**（`begin == 0`，真机报告 `01789226184`：EID 在加载期就取
-    //     `Isaac.GetItemConfig()`）⇒ `items`/`count` 记为 0，访问时**允许现读**，
-    //     否则这个句柄一开局就作废、EID 的 `EID.itemConfig` 直接变成死的；
-    //   * 创建时向量**已经建立** ⇒ 沿用"begin/count 必须与现场一致"的过期判据
-    //     （换局后 `ItemConfig::Init` 会重排向量，旧句柄必须自证过期）。
+    // 以下快照只供诊断，不作为父单例是否存活的依据；不改变32B布局。
     std::uint32_t itemsWereReadable;
     std::uint32_t reserved;
 };

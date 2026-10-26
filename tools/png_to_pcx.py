@@ -108,6 +108,13 @@ def _decode(data: bytes) -> tuple[int, int, bytes]:
                 a = line[at + 1]
             else:
                 r, g, b, a = line[at], line[at + 1], line[at + 2], line[at + 3]
+            # 2026-10-26（BUG-018）：**预乘 alpha**，与 C++ 桥的 `ExpandChannels` 同一口径。
+            # 引擎的 PCX 读取路径按预乘解释（本体资源就是预乘：`spotlight.pcx` 的 34498 个
+            # 半透明像素里 `max(R,G,B) > a` 的一个都没有）；而作者 PNG 是非预乘的。
+            if a != 255:
+                r = (r * a + 127) // 255
+                g = (g * a + 127) // 255
+                b = (b * a + 127) // 255
             rgba[base + x * 4 : base + x * 4 + 4] = bytes((r, g, b, a))
         previous = line
     return width, height, bytes(rgba)

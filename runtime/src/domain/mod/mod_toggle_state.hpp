@@ -24,7 +24,7 @@ namespace isaac::runtime {
 //   ★ 8 这个数是老功能（提交 `c4642f21`，2026-09-16）随手定的；卡上模组已有 17~18 个，
 //     上限比模组总数还小 ⇒ **必须抬到 ≥ 模组容量**。这里取 32，与
 //     `kModManifestCapacity` 对齐（那是同一条链上的容量）。
-inline constexpr std::size_t kMaximumDisabledMods = 32;
+inline constexpr std::size_t kMaximumDisabledMods = kModManifestCapacity;
 
 // 一个模组目录名（与自动发现用的容量一致：它来自同一批字符串）。
 inline constexpr std::size_t kModToggleNameCapacity = kModDirectoryCapacity;

@@ -55,7 +55,7 @@ struct ModManifest {
 //     与静态解析器（`hook_manager.cpp`），抬到 32 只多占约 80 KiB 静态存储；
 //   * 挂载位（`ContentMountService::kMaxMods`）同步抬到 64：每个 Mod 最多占 4 个挂载点
 //     （`resources`、`resources/gfx`、`content`、`content/gfx`）。
-inline constexpr std::size_t kModManifestCapacity = 32;
+inline constexpr std::size_t kModManifestCapacity = 256;
 
 struct ModManifestSet {
     std::array<ModManifestEntry, kModManifestCapacity> entries{};

@@ -1165,6 +1165,7 @@ _syms_synced = False
 IMAGE_PCX_DIAG_BYTES = 0
 # 418: Cache从内嵌数组变为动态指针；由ELF大小辨别历史与当前布局。
 MOD_DATA_CACHE_BYTES = 0
+MOD_OWNER_NAMES_BYTES = 0
 
 HOOK_NAMES = ['ManagerUpdate', 'ManagerRender', 'PreGetCollectible',
               'ManagerPresent', 'RebuildMountPoints', 'GameStart',
@@ -1201,7 +1202,7 @@ HOOK_NAMES = ['ManagerUpdate', 'ManagerRender', 'PreGetCollectible',
     'FamiliarCollision', 'NpcCollision', 'PlayerCollision', 'TearCollision',
     'ProjectileCollision', 'KnifeCollision', 'BombCollision', 'NpcRender', 'ItemPoolGetPill', 'ItemPoolGetPillEffect', 'GameDevolveEnemy', 'NpcUpdateAi', 'GameSpawnEx',
     'ItemPoolTrinketFirstRandom', 'ItemPoolTrinketSelected', 'RoomClearAward',
-    'EntityRemovePointers', 'EntityDestructorRemove', 'LevelCurseFirstRandom', 'LevelCurseEvaluation', 'PickupSelection', 'PickupSelectionSpecial', 'ItemPoolGetCard', 'ModManagerUnload', 'ConsoleUnknownLength', 'ConsoleUnknownCompare', 'HudRender', 'RoomConfigLoadStageBinary', 'LevelLoadRoom', 'ConsoleLifecycle', 'PressurePlateAnimationWriter', 'PressurePlateDestructor', 'PressurePlateDeletingDestructor',]
+    'EntityRemovePointers', 'EntityDestructorRemove', 'LevelCurseFirstRandom', 'LevelCurseEvaluation', 'PickupSelection', 'PickupSelectionSpecial', 'ItemPoolGetCard', 'ModManagerUnload', 'ConsoleUnknownLength', 'ConsoleUnknownCompare', 'HudRender', 'RoomConfigLoadStageBinary', 'LevelLoadRoom', 'ConsoleLifecycle', 'PressurePlateAnimationWriter', 'PressurePlateDestructor', 'PressurePlateDeletingDestructor', 'ProjectileUpdate', 'ProjectileInit', 'EntityPlayerInit', 'GameStartStageTransition',]
 # 这些地址相对固定游戏NRO；内部挂点不使用g_hookCallbacks的旧入口槽。
 INTERNAL_HOOK_SITES = {
     'RoomEntitySpawn': (0x452984, 0x68CFD0, 16),
@@ -1723,7 +1724,7 @@ def sync_syms_from_elf(elf: Path, *, verbose: bool = False) -> dict[str, str]:
     解析不到的符号**直接从表里删掉**——沿用过期的偏移比读不到更糟：它会把别人的变量
     当成我们要的那个，读数"看起来有值"却是错的。
     """
-    global _syms_synced, IMAGE_PCX_DIAG_BYTES, MOD_DATA_CACHE_BYTES, CALLBACK_REGISTRY_COUNT_OFFSET, CALLBACK_REGISTRY_LAYOUT_KNOWN, ENTITY_FIELD_WRITES_BYTES
+    global _syms_synced, IMAGE_PCX_DIAG_BYTES, MOD_DATA_CACHE_BYTES, MOD_OWNER_NAMES_BYTES, CALLBACK_REGISTRY_COUNT_OFFSET, CALLBACK_REGISTRY_LAYOUT_KNOWN, ENTITY_FIELD_WRITES_BYTES
     tools_dir = str(Path(__file__).resolve().parent)
     if tools_dir not in sys.path:
         sys.path.insert(0, tools_dir)
@@ -1768,6 +1769,8 @@ def sync_syms_from_elf(elf: Path, *, verbose: bool = False) -> dict[str, str]:
                  **SYM_ELF_NAMES_PROBE_BUILD_ONLY}.get('image_pcx_diag')
     diag_symbol = symbols.get(diag_name) if diag_name else None
     IMAGE_PCX_DIAG_BYTES = int(diag_symbol[1]) if diag_symbol else 0
+    owner_symbol = symbols.get('g_ModOwnerNames')
+    MOD_OWNER_NAMES_BYTES = int(owner_symbol[1]) if owner_symbol else 0
     cache_symbol = symbols.get(SYM_ELF_NAMES['g_ModDataCache'])
     MOD_DATA_CACHE_BYTES = int(cache_symbol[1]) if cache_symbol else 0
     write_symbol = symbols.get(SYM_ELF_NAMES['g_EntityFieldWrites'])
@@ -2283,7 +2286,12 @@ def build_requests(base: int, game_base: int, plugin_base: int):
         ('present_callsite', game_base + SYMS['present_callsite_offset'], 1),
         ('present_body', game_base + SYMS['present_target'], 1),
     ]
-    req = [r for r in req if r[0] not in ('mod_data_head', 'mod_data_tail')]
+    req = [r for r in req if r[0] not in ('mod_data_head', 'mod_data_tail', 'g_ModOwnerNames')]
+    owner_offset = SYMS.get('g_ModOwnerNames')
+    if owner_offset and MOD_OWNER_NAMES_BYTES and MOD_OWNER_NAMES_BYTES % 64 == 0:
+        req.append(('mod_owner_names', base + owner_offset, MOD_OWNER_NAMES_BYTES // 8))
+    else:
+        skipped.append('mod_owner_names_layout')
     cache_offset = SYMS.get('g_ModDataCache')
     if cache_offset and MOD_DATA_CACHE_BYTES == 40:
         req.append(('mod_data_descriptor', base + cache_offset, 5))
@@ -2616,7 +2624,7 @@ def owner_name_table(values: dict[str, list[int]]) -> list[tuple[int, str]]:
     if len(raw) < 32 * 64:
         return []
     rows: list[tuple[int, str]] = []
-    for index in range(32):
+    for index in range(len(raw) // 64):
         slot = index * 64
         name = raw[slot:slot + 64].split(b'\0')[0].decode('utf-8', 'replace')
         if name:
@@ -2636,7 +2644,7 @@ def owner_display_name(values: dict[str, list[int]], owner_index: int) -> str:
     ★ 读不到就返回**空串**（老读数件、或没编进这一格的构建）⇒ 调用方什么都不加。
       **缺就说缺**，绝不用清单下标凑一个名字出来（那正是这套东西要根治的错）。
     """
-    if owner_index < 0 or owner_index >= 32:
+    if owner_index < 0:
         return ''
     for index, name in owner_name_table(values):
         if index == owner_index:

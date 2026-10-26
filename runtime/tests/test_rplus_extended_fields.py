@@ -13,7 +13,9 @@ MAIN=r'''
 #include <cmath>
 using namespace isaac::runtime;
 template<class T>T ReadAt(const std::vector<unsigned char>&v,std::size_t o){T t{};std::memcpy(&t,v.data()+o,sizeof(t));return t;}
-static unsigned targets{},children{},heights{};
+static unsigned targets{},children{},heights{},parents{};
+[[maybe_unused]] static void Parent(void*p,void*t){++parents;std::memcpy(static_cast<unsigned char*>(p)+0x390,&t,8);}
+template<class T>void BindParent(T&b){if constexpr(requires{b.setParent;})b.setParent=Parent;}
 static void Target(void*p,void*t){++targets;std::memcpy(static_cast<unsigned char*>(p)+0x3a0,&t,8);}
 static void Child(void*p,void*t){++children;std::memcpy(static_cast<unsigned char*>(p)+0x398,&t,8);}
 static void Height(void*p,float f){++heights;std::memcpy(static_cast<unsigned char*>(p)+0x400,&f,4);float render=f/2;std::memcpy(static_cast<unsigned char*>(p)+0x324,&render,4);}
@@ -34,7 +36,8 @@ int main(int argc,char**argv){
  namespace guards=isaac::runtime::extended_fields;auto guard=[&](auto o,const auto&b){std::memcpy(g_ModuleBytes.data()+o,b.data(),b.size());};
  /*GUARDS*/
  if(scene=="badguard")g_ModuleBytes[guards::kFamiliar1Entry]^=1;
- SetExtendedFieldsNativeTestBindings({Target,Child,Height});
+ if(scene=="badparentguard")g_ModuleBytes[guards::kSetParent0Entry]^=1;
+ ExtendedFieldsNativeTestBindings bindings{Target,Child,Height};BindParent(bindings);SetExtendedFieldsNativeTestBindings(bindings);
  WriteAt<std::int32_t>(g_Entities[kFamiliar],0xd60,18);WriteAt<std::int32_t>(g_Entities[kFamiliar],0xd9c,3);WriteAt<std::int32_t>(g_Entities[kFamiliar],0xd90,15);WriteAt<std::int32_t>(g_Entities[kFamiliar],0xd94,13);
  WriteAt<float>(g_Entities[kTearNear],0x400,-5);WriteAt<float>(g_Entities[kPlayer],0x124,1);WriteAt<float>(g_Entities[kPlayer],0x128,2);
  for(unsigned i=0;i<7;++i)WriteAt<std::int32_t>(item,0x58+i*4,static_cast<std::int32_t>(i+1));item[0xb4]=1;
@@ -47,6 +50,7 @@ int main(int argc,char**argv){
  f.SpriteOffset=f.SpriteOffset+Vector(0,-.4);f.SpriteScale=Vector(.6,.7)
  p.Target=f;assert(p.Target.Index==f.Index);p.Target=nil;assert(p.Target==nil)
  p.Child=t;assert(p.Child.Index==t.Index);p.Child=nil
+ p.Parent=f;assert(p.Parent.Index==f.Index);p.Parent=t;assert(p.Parent.Index==t.Index);p.Parent=nil;assert(p.Parent==nil)
  p.DepthOffset=-100;p.EntityCollisionClass=0;p.GridCollisionClass=5
  local c=Color(.2,.3,.4,.5,1,2,3);c:SetColorize(.6,.7,.8,.9);f.SplatColor=c
  assert(math.abs(f.SplatColor.R-.2)<1e-5 and f.SplatColor.RO==1)
@@ -60,10 +64,12 @@ int main(int argc,char**argv){
  _extended={done=1}
  )lua";
  if(scene=="badguard")body="assert(not pcall(function()return f.Hearts end));_extended={done=1}";
+ if(scene=="badparentguard")body="assert(not pcall(function()p.Parent=f end));assert(p.Parent==nil);_extended={done=1}";
  if(scene=="types")body=R"lua(
   assert(not pcall(function()f.FireCooldown=1.5 end))
   f.State=4294967297;assert(f.State==1);f.FireCooldown="19";assert(f.FireCooldown==19)
   f.IsFollower=0;assert(f.IsFollower);f.IsFollower=nil;assert(not f.IsFollower)
+  assert(not pcall(function()p.Parent=false end));assert(not pcall(function()p.Parent={} end));assert(p.Parent==nil)
   assert(not pcall(function()p.Target=false end));assert(not pcall(function()p.SpriteScale={} end))
   assert(not pcall(function()f.SplatColor={} end));p.DepthOffset="2.5";assert(p.DepthOffset==2.5)
   _extended={done=1}
@@ -74,8 +80,8 @@ int main(int argc,char**argv){
  auto*L=LuaRuntime::StateForTesting(); /*STATE*/
  LuaRuntime::DispatchPostUpdate();if(LuaRuntime::TakeCallbackError()){LuaRuntime::LuaErrorHistoryEntryView errs[8]{};const auto n=LuaRuntime::CopyLuaErrorHistory(errs,8);for(unsigned x=0;x<n;++x)fprintf(stderr,"%s\n",errs[x].text);return 2;}
  double done{};if(LuaRuntime::ReadLuaTableNumber("_extended","done",&done)||done!=1)return 3;
- if(scene=="badguard"||scene=="types")return 0;
- if(targets!=2||children!=2||heights!=1)return 4;
+ if(scene=="badguard"||scene=="types"||scene=="badparentguard")return 0;
+ if(targets!=2||children!=2||heights!=1||parents!=3||ReadAt<std::uintptr_t>(g_Entities[kPlayer],0x390)!=0)return 4;
  if(ReadAt<std::int32_t>(g_Entities[kFamiliar],0xd60)!=17||ReadAt<float>(g_Entities[kTearNear],0x324)!=-5.5F||ReadAt<std::int32_t>(g_Entities[kPickup],0x574)!=20)return 5;
  if(ReadAt<float>(g_Entities[kTearNear],0x460)!=.8F||ReadAt<float>(bomb,0x408)!=35||ReadAt<float>(g_Entities[kEffect],0x46c)!=90)return 6;
  const auto cm=ReadAt<EngineColorMod>(g_Entities[kFamiliar],0x24c);
@@ -98,6 +104,6 @@ class ExtendedFieldConsumers(unittest.TestCase):
  @classmethod
  def tearDownClass(cls):cls.tmp.cleanup()
  def test_consumers_and_guard_rejection(self):
-  for scene in ('normal','badguard','types'):
+  for scene in ('normal','badguard','types','badparentguard'):
    with self.subTest(scene=scene):
     r=subprocess.run([str(self.binary),scene],text=True,capture_output=True);self.assertEqual(r.returncode,0,r.stdout+r.stderr)

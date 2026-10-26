@@ -20,6 +20,7 @@
 
 #include "lua_object_handles.hpp"
 #include "lua_runtime_state.hpp"
+#include "lua_runtime.hpp"
 #include "runtime_constants.hpp"
 
 #include <array>
@@ -1346,6 +1347,10 @@ int PushEngineGridEntitySpriteHandle(lua_State* state, void* gridEntity) {
 }
 
 int CreateSpriteHandle(lua_State* state) {
+    // Lua5.3关闭时不再终结__gc新建的对象，必须在申请原生所有者之前拒绝。
+    if (LuaRuntime::ClosingForModReload()) {
+        return luaL_error(state, "Sprite cannot allocate native resources during mod reload shutdown");
+    }
     if (lua_gettop(state) != 0) {
         return luaL_error(state, "Sprite accepts no arguments");
     }
@@ -1423,6 +1428,8 @@ int SpriteGetAnimation(lua_State* state) {
 //   `customgrids.lua:547` 正是拿 `sprite:GetFilename() == ""` 判"这个 Sprite 还没加载"、
 //   `callbacks.lua:292` 拿它当**字典键**（`t[nil]` 会直接报错 ⇒ 整条回调被摘掉）。
 //   这与 `Sprite:GetAnimation()` 的降级口径**逐条相同**。
+// ★ 2026-10-23更正：前述+8来自不同Sprite类；Lua Sprite是ANM2，文件名在+0。
+// 复用同一SSO读取，无新缓存；依据ANM2::Load0xC9C4以及短/长串真机原生布局。
 int SpriteGetFilename(lua_State* state) {
     void* sprite = nullptr;
     if (const int error = ResolveSprite(state, "Sprite:GetFilename", &sprite); error != 0) {
@@ -1500,7 +1507,7 @@ int SpriteStop(lua_State* state) {
 // ★ 这三条 PC 的**文档里没有**（`mod_api_gap_report` 报 `PC 状态=unknown`）——
 //   它们是 **REPENTOGON** 一侧的 API。语义按引擎自己的实现取证（见各条注释）。
 
-// `Sprite:Reset()` = 引擎的 `ANM2::Reset()`（`0x4A4724`，守卫 16 字节）。
+// `Sprite:Reset()` = 原版ANM2::Reset @0x65B8；旧0x4A4724属于不同的Sprite类。
 int SpriteReset(lua_State* state) {
     void* sprite = nullptr;
     if (const int error = ResolveSprite(state, "Sprite:Reset", &sprite); error != 0) {
@@ -1511,9 +1518,8 @@ int SpriteReset(lua_State* state) {
     }
     const LuaRuntime::SpriteResetFn reset = LuaRuntime::SpriteResetThunk();
     if (reset == nullptr) {
-        // 绑定没发布（守卫不符 / 没有引擎映像）⇒ **不抛错、也不调**：
-        // 抛错会把调用方整条回调打断（这正是要避免的事），而"没重置"是可接受的降级。
-        return 0;
+        // 缺少真实入口不能冒充已重置；与其它Sprite方法一致返回明确Lua错误。
+        return luaL_error(state,"Sprite:Reset native binding is unavailable");
     }
     reset(sprite);
     return 0;
@@ -1569,6 +1575,13 @@ void PushSpriteDefaultAnimationName(lua_State* state, void* sprite) {
 // 439 更正：属性读取原生对象；下方保留的PushCached命名是历史名称。
 // `__index`：先读取三个属性，再落到元表 `__methods` 里的方法（与 `Vector` 同一形态：
 // `__index` 必须是函数才能同时服务字段与方法）。
+void* TryResolveSpriteArgument(lua_State* state,int index) noexcept {
+    auto* handle=static_cast<SpriteHandle*>(luaL_testudata(state,index,kSpriteMetatable));
+    if (!handle || lua_rawlen(state,index)<sizeof(SpriteHandle)) return nullptr;
+    void* sprite=ResolveSpriteObject(handle);
+    return sprite && IsEngineMemoryReadable(engine_memory::AddressOf(sprite),kSpriteObjectSize)?sprite:nullptr;
+}
+
 void* ResolveSpriteArgument(lua_State* state,int index) {
     auto* handle=static_cast<SpriteHandle*>(luaL_checkudata(state,index,kSpriteMetatable));
     void* sprite=ResolveSpriteObject(handle);

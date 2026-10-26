@@ -3,6 +3,7 @@
 #include "interfaces/lua/api100_native.hpp"
 #include "interfaces/lua/isaac_api.hpp"
 #include "interfaces/lua/owner_binding.hpp"
+#include "interfaces/lua/opaque_scalar_value.hpp"
 #include "infrastructure/memory/engine_field_access.hpp"
 #include "infrastructure/call/engine_call_access.hpp"
 #include "lua_object_handles.hpp"
@@ -15,7 +16,7 @@ namespace isaac::runtime {
 namespace {
 constexpr LuaHandlerBinding kApi500CardBindings[]={{0x0E011600,&Api500ItemConfigCardIsCard}};
 enum class Family:unsigned char{Item,Card,Pill,Costume};
-enum class Kind:unsigned char{Int,UInt,Short,Bool,String,Costume,Method};
+enum class Kind:unsigned char{Int,UInt,Short,Bool,String,Costume,Method,SkinColor,SignedByteValue};
 struct Field{const char*name;unsigned offset;Kind kind;Family family;unsigned guard;};
 constexpr Field kFields[]={
 {"CacheFlags",0x54,Kind::UInt,Family::Item,0},
@@ -39,12 +40,17 @@ constexpr Field kFields[]={
 {"AnnouncerVoice",0x3c,Kind::Int,Family::Pill,15},
 {"AnnouncerVoiceSuper",0x40,Kind::Int,Family::Pill,15},
 {"AnnouncerDelay",0x44,Kind::Int,Family::Pill,16},
+// 固定PC 814D70→857680/857710：两字段共用signed char拥有值，非Lua整数。
+{"EffectClass",0x4c,Kind::SignedByteValue,Family::Pill,20},
+{"EffectSubClass",0x4d,Kind::SignedByteValue,Family::Pill,20},
 {"ID",0x0,Kind::Int,Family::Costume,9},
 {"Anm2Path",0x8,Kind::String,Family::Costume,9},
 {"Priority",0x20,Kind::Int,Family::Costume,17},
 {"HasOverlay",0x24,Kind::Bool,Family::Costume,17},
 {"IsFlying",0x25,Kind::Bool,Family::Costume,17},
 {"HasSkinAlt",0x26,Kind::Bool,Family::Costume,17},
+// 固定PC 858010/8580A0按eSkinColor拥有值复制；NS LoadCostumes与AddCostume独立闭合。
+{"SkinColor",0x28,Kind::SkinColor,Family::Costume,17},
 {"OverwriteColor",0x2c,Kind::Bool,Family::Costume,17},
 {"ID",0x0,Kind::Int,Family::Card,18},
 {"AchievementID",0x4,Kind::Int,Family::Card,18},
@@ -56,6 +62,8 @@ api100_native::Cache g_Cache[sizeof(api500_config::kGuards)/sizeof(api500_config
 Api500ConfigStringAssignment g_StringAssignment{};
 #endif
 constexpr char kCostumeMetatable[]="IsaacRuntime.ItemConfig_Costume";
+constexpr char kSkinColorMetatable[]="IsaacRuntime.eSkinColor";
+constexpr char kSignedByteMetatable[]="IsaacRuntime.SignedCharValue";
 struct CostumeHandle{std::uintptr_t item;std::uintptr_t base;};
 constexpr std::uint32_t Hash(const char*s){std::uint32_t h=2166136261U;while(*s)h=(h^static_cast<unsigned char>(*s++))*16777619U;return h;}
 bool Candidate(const char*name){if(!name||!name[0]||!name[1])return false;
@@ -68,6 +76,7 @@ case 0x4361:
 case 0x436c:
 case 0x436f:
 case 0x4465:
+case 0x4566:
 case 0x4772:
 case 0x4861:
 case 0x4875:
@@ -81,6 +90,7 @@ case 0x5065:
 case 0x5069:
 case 0x5072:
 case 0x5368:
+case 0x536b:
  break;default:return false;}
  switch(Hash(name)){
 case Hash("AchievementID"):return !std::strcmp(name,"AchievementID");
@@ -94,6 +104,8 @@ case Hash("CardType"):return !std::strcmp(name,"CardType");
 case Hash("ClearEffectsOnRemove"):return !std::strcmp(name,"ClearEffectsOnRemove");
 case Hash("Costume"):return !std::strcmp(name,"Costume");
 case Hash("DevilPrice"):return !std::strcmp(name,"DevilPrice");
+case Hash("EffectClass"):return !std::strcmp(name,"EffectClass");
+case Hash("EffectSubClass"):return !std::strcmp(name,"EffectSubClass");
 case Hash("GreedModeAllowed"):return !std::strcmp(name,"GreedModeAllowed");
 case Hash("HasOverlay"):return !std::strcmp(name,"HasOverlay");
 case Hash("HasSkinAlt"):return !std::strcmp(name,"HasSkinAlt");
@@ -109,6 +121,7 @@ case Hash("PersistentEffect"):return !std::strcmp(name,"PersistentEffect");
 case Hash("PickupSubtype"):return !std::strcmp(name,"PickupSubtype");
 case Hash("Priority"):return !std::strcmp(name,"Priority");
 case Hash("ShopPrice"):return !std::strcmp(name,"ShopPrice");
+case Hash("SkinColor"):return !std::strcmp(name,"SkinColor");
 default:return false;}}
 Family Type(std::uint32_t begin){return begin==0x48?Family::Card:begin==0x60?Family::Pill:Family::Item;}
 const Field*Find(const char*name,Family family){if(!Candidate(name))return nullptr;for(const auto&f:kFields)if(f.family==family&&!std::strcmp(name,f.name))return &f;return nullptr;}
@@ -135,12 +148,18 @@ void AssignString(lua_State*L,std::uintptr_t address){
 #endif
  engine_call::AsFunction<void*(*)(void*,const void*)>(target)(engine_memory::AsObject(address),&source);
 }
+std::uintptr_t CostumeAddress(lua_State*L,int index) noexcept {
+ if(lua_rawlen(L,index)!=sizeof(CostumeHandle))return 0;
+ auto*h=static_cast<const CostumeHandle*>(luaL_testudata(L,index,kCostumeMetatable));
+ if(!h||h->base!=LuaRuntime::EngineModuleBase())return 0;
+ lua_getuservalue(L,index);const auto item=ItemConfigPointerArgument(L,-1);lua_pop(L,1);
+ return item&&item==h->item&&item<=UINTPTR_MAX-0x80?item+0x80:0;
+}
 std::uintptr_t Costume(lua_State*L){
- auto*h=static_cast<CostumeHandle*>(luaL_checkudata(L,1,kCostumeMetatable));
- if(h->base!=LuaRuntime::EngineModuleBase())luaL_error(L,"Costume reference belongs to an old module");
- lua_getuservalue(L,1);const auto item=ItemConfigPointerArgument(L,-1);lua_pop(L,1);
- if(!item||item!=h->item)luaL_error(L,"Costume reference is no longer available");
- return item+0x80;
+ static_cast<void>(luaL_checkudata(L,1,kCostumeMetatable));
+ const auto address=CostumeAddress(L,1);
+ if(!address)luaL_error(L,"Costume reference is no longer available");
+ return address;
 }
 int Push(lua_State*L,std::uintptr_t p,const Field&f){Check(L,f);switch(f.kind){
  case Kind::Int:lua_pushinteger(L,Read<std::int32_t>(L,p,f.offset));break;
@@ -148,11 +167,15 @@ int Push(lua_State*L,std::uintptr_t p,const Field&f){Check(L,f);switch(f.kind){
  case Kind::Short:lua_pushinteger(L,Read<std::int16_t>(L,p,f.offset));break;
  case Kind::Bool:lua_pushboolean(L,Read<std::uint8_t>(L,p,f.offset)!=0);break;
  case Kind::String:return Api500PushConfigString(L,p+f.offset);
+ case Kind::SkinColor:PushOpaqueScalarValue<std::uint32_t>(L,kSkinColorMetatable,"eSkinColor",Read<std::uint32_t>(L,p,f.offset));break;
+ case Kind::SignedByteValue:PushOpaqueScalarValue<std::int8_t>(L,kSignedByteMetatable,"signed char",Read<std::int8_t>(L,p,f.offset));break;
  default:lua_pushnil(L);break;}return 1;}
 bool Write(lua_State*L,std::uintptr_t p,const Field&f){Check(L,f);
  if(f.kind==Kind::Costume||f.kind==Kind::Method){luaL_error(L,"ItemConfig field is read-only");return true;}
  if(f.kind==Kind::String){AssignString(L,p+f.offset);return true;}
  if(f.kind==Kind::Bool){Store<std::uint8_t>(L,p,f.offset,lua_toboolean(L,3)?1:0);return true;}
+ if(f.kind==Kind::SkinColor){Store<std::uint32_t>(L,p,f.offset,RequireOpaqueScalarValue<std::uint32_t>(L,3,kSkinColorMetatable));return true;}
+ if(f.kind==Kind::SignedByteValue){Store<std::int8_t>(L,p,f.offset,RequireOpaqueScalarValue<std::int8_t>(L,3,kSignedByteMetatable));return true;}
  const auto low=static_cast<std::uint32_t>(luaL_checkinteger(L,3));std::int32_t value{};std::memcpy(&value,&low,4);
  if(f.kind==Kind::Short){const auto bits=static_cast<std::uint16_t>(low);std::int16_t narrow{};std::memcpy(&narrow,&bits,2);Store(L,p,f.offset,narrow);}
  else if(f.kind==Kind::UInt)Store(L,p,f.offset,low);else Store(L,p,f.offset,value);
@@ -164,6 +187,7 @@ int PushCostume(lua_State*L,std::uintptr_t p,const Field&f){
  Check(L,f);auto*h=static_cast<CostumeHandle*>(lua_newuserdata(L,sizeof(CostumeHandle)));*h={p,LuaRuntime::EngineModuleBase()};
  lua_pushvalue(L,1);lua_setuservalue(L,-2);
  if(luaL_newmetatable(L,kCostumeMetatable)){
+  if(!RegisterNativeObjectIdentity(L,-1,CostumeAddress))luaL_error(L,"Costume identity resolver conflicts");
   lua_pushcfunction(L,CostumeIndex);lua_setfield(L,-2,"__index");lua_pushcfunction(L,CostumeNewIndex);lua_setfield(L,-2,"__newindex");
   lua_pushliteral(L,"ItemConfigCostume");lua_setfield(L,-2,"__name");lua_pushliteral(L,"ItemConfigCostume");lua_setfield(L,-2,"__type");lua_pushvalue(L,-1);lua_setfield(L,-2,"__class");
  }

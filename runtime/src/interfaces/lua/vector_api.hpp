@@ -74,6 +74,6 @@ void RegisterVectorReferenceMetatable(lua_State*);
 
 namespace isaac::runtime {
 // 容器持有owner userdata；每次Vector访问先由resolver核数组身份，再读取当前位置。
-using ExternalVectorResolver=void(*)(lua_State*,int,std::uintptr_t,LuaRuntime::VectorHandle*);
+using ExternalVectorResolver=bool(*)(lua_State*,int,std::uintptr_t,LuaRuntime::VectorHandle*) noexcept;
 void PushExternalVectorReference(lua_State*,int,std::uintptr_t,ExternalVectorResolver);
 }

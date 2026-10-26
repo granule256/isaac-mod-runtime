@@ -88,6 +88,8 @@ int Api400EntityEffectFollowParent(lua_State*L){const auto p=FieldSelf(L,Callbac
 int Api400EntityEffectSetDamageSource(lua_State*L){return SetInt(L,CallbackEntityClass::Effect,NativeId::EffectLayout,NativeId::EffectUpdate,0x468);}
 int Api400EntityEffectSetRadii(lua_State*L){const auto p=FieldSelf(L,CallbackEntityClass::Effect,NativeId::EffectLayout,NativeId::EffectUpdate);const auto minimum=Number(L,2),maximum=Number(L,3);Write(L,p,0x44c,Vec{minimum,maximum});return 0;}
 int Api400EntityEffectSetTimeout(lua_State*L){const auto p=FieldSelf(L,CallbackEntityClass::Effect,NativeId::EffectLayout,NativeId::EffectUpdate);const auto timeout=Int(L,2);Write(L,p,0x454,timeout);Write(L,p,0x458,timeout);return 0;}
+// PC Knife5EF380读+3B4，NS Shoot/Init/Update共同使用+454，不能继承Entity悬浮判定。
+int Api400EntityKnifeIsFlying(lua_State*L){const auto p=FieldSelf(L,CallbackEntityClass::Knife,NativeId::KnifeLayout,NativeId::KnifeUpdate);lua_pushboolean(L,Read<std::uint8_t>(L,p,0x454)!=0);return 1;}
 int Api400EntityKnifeGetKnifeDistance(lua_State*L){const auto p=FieldSelf(L,CallbackEntityClass::Knife,NativeId::KnifeLayout,NativeId::KnifeUpdate);lua_pushnumber(L,Read<float>(L,p,0x434));return 1;}
 int Api400EntityKnifeGetKnifeVelocity(lua_State*L){const auto p=FieldSelf(L,CallbackEntityClass::Knife,NativeId::KnifeLayout,NativeId::KnifeUpdate);lua_pushnumber(L,Read<float>(L,p,0x438));return 1;}
 int Api400EntityKnifeSetPathFollowSpeed(lua_State*L){return SetFloat(L,CallbackEntityClass::Knife,NativeId::KnifeLayout,NativeId::KnifeUpdate,0x4ec);}

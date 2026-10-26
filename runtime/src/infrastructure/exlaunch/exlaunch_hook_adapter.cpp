@@ -132,6 +132,10 @@ Status ExlaunchHookAdapter::Install(HookId id, const HookTarget& target) noexcep
         case HookId::PressurePlateAnimationWriter:
         case HookId::PressurePlateDestructor:
         case HookId::PressurePlateDeletingDestructor:
+        case HookId::ProjectileInit:
+        case HookId::EntityPlayerInit:
+        case HookId::GameStartStageTransition:
+        case HookId::ProjectileUpdate:
         case HookId::Count:
             return Status{StatusCode::InvalidArgument};
     }

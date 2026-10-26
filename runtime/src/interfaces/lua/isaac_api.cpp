@@ -34,6 +34,8 @@
 #include "interfaces/lua/api_call_stats.hpp"
 #include "interfaces/lua/runtime_perf.hpp"
 #include "interfaces/lua/owner_binding.hpp"
+#include "interfaces/lua/object_pointer_identity.hpp"
+#include "interfaces/lua/object_identity_registry.hpp"
 #include "interfaces/lua/api_sequence_probe.hpp"
 #include "interfaces/lua/engine_call_trampoline.hpp"
 #include "interfaces/lua/entity_ref_api.hpp"
@@ -98,6 +100,8 @@
 #include "domain/callback/callback_descriptor.hpp"
 
 #include "lua_object_handles.hpp"
+#include "lua_runtime.hpp"
+#include "infrastructure/call/managed_update_snapshot.hpp"
 #include "lua_runtime_state.hpp"
 #include "room_descriptor_layout.hpp"
 #include "entity_layout.hpp"
@@ -645,6 +649,7 @@ int IsaacAddPriorityCallback(lua_State* state) {return CallCallbackTableApi(stat
 int IsaacRemoveCallback(lua_State* state) {return CallCallbackTableApi(state,"RemoveCallback");}
 
 constexpr LuaHandlerBinding kIsaacHandlers[] = {
+    {0x0E011529, &isaac::runtime::IsaacGetRandomPosition},
     {0x0E01010E, &GetBuiltInCallbackState},
     {0x0E01010F, &SetBuiltInCallbackState},
     {0x0E010110, &IsaacAddCallback},
@@ -2485,14 +2490,8 @@ bool PushEntityField(lua_State* state, std::uintptr_t entity, const char* field,
     // `PositionOffset`（2026-09-16）：`Vector2`（两个 float）。EID 用它修正实体在屏幕上的位置
     // （`main.lua:924`）。读不到就返回 false ⇒ 上层给 nil（不编一个 0 向量）。
     if (NamePrefix2Matches(field, "PositionOffset") && std::strcmp(field, "PositionOffset") == 0) {
-        float x = 0.0F;
-        float y = 0.0F;
-        if (!ReadEngine(entity + kEntityPositionOffsetOffset, &x) ||
-            !ReadEngine(entity + kEntityPositionOffsetOffset + sizeof(float), &y)) {
-            return false;
-        }
-        // `Vector` userdata（PC 侧这个字段就是 `Vector`，不是一张表）。
-        isaac::runtime::PushLuaVector(state, x, y);
+        // PC4121B0返回只读活引用，412190允许整体赋值；复用已有寿命/token视图。
+        isaac::runtime::PushEntityVectorReference(state,entity,kEntityPositionOffsetOffset);
         return true;
     }
     if (playerView) {
@@ -2974,7 +2973,13 @@ int IndexEntity(lua_State* state, EntityView view) {
     // `Entity`/`EntityPickup` 用 `Entity` 家族的 vtable 区间。
     const std::uintptr_t entity =
         view == EntityView::Player ? ValidatedEntityPlayer(handle) : ValidatedEntity(handle);
-    if (entity != 0) {
+    // 这些键只属于方法表；仍实时查本类/基类，不能缓存第三方可覆写的方法。
+    const bool methodOnly =
+        (field[0] == 'G' && (std::strcmp(field, "GetData") == 0 ||
+                              std::strcmp(field, "GetEffects") == 0)) ||
+        (field[0] == 'T' && std::strcmp(field, "ToPlayer") == 0) ||
+        (field[0] == 'H' && std::strcmp(field, "HasCollectible") == 0);
+    if (entity != 0 && !methodOnly) {
         if(const int pushed=TryPushApi400EffectMethod(state,entity,field))return pushed;
         if(const int pushed=TryPushApi400EntityField(state,entity,field))return pushed;
         if(const int pushed=TryPushRPlusEntityField(state,entity,field))return pushed;
@@ -3312,9 +3317,11 @@ int EntityNewIndex(lua_State* state) {
     }
     // `Velocity` / `Position`：`KAGE::Math::Vector2` = 两个 float（与 Lua 的 `Vector` **同布局**
     // ——`vector_api.cpp` 的文件头有取证：8 字节、无 vtable）。所以按两个 `float` 写下去。
-    if (std::strcmp(field, "Velocity") == 0 || std::strcmp(field, "Position") == 0) {
+    if (std::strcmp(field, "Velocity") == 0 || std::strcmp(field, "Position") == 0 ||
+        std::strcmp(field,"PositionOffset") == 0) {
         const bool velocity = field[0] == 'V';
-        const std::uintptr_t offset = velocity ? kEntityVelocityOffset : kEntityPositionOffset;
+        const bool renderOffset = std::strcmp(field,"PositionOffset")==0;
+        const std::uintptr_t offset = velocity ? kEntityVelocityOffset : (renderOffset ? kEntityPositionOffsetOffset : kEntityPositionOffset);
         const std::size_t index = velocity ? 0u : 1u;
         auto* vector = RequireVectorArgument(state,3);
         const float* components = &vector->x;
@@ -3322,7 +3329,7 @@ int EntityNewIndex(lua_State* state) {
             !WriteEngine<float>(entity + offset + sizeof(float), components[1])) {
             return luaL_error(state, "EntityPlayer velocity/position is not writable on this object");
         }
-        count_write(index);
+        if (!renderOffset) count_write(index);
         return 0;
     }
     // PC Entity.md的非const字段；只用已有真实消费链确认的偏移。
@@ -3470,6 +3477,9 @@ int EntityToProjectile(lua_State* state) {
 //   无符号读会给出一个大正数，而 PC 的 Lua 侧拿到的是负整数 —— MCM 那句
 //   `& ProjectileFlags.CANT_HIT_PLAYER` 在 Lua 的 64 位整数里对正负都成立，
 //   但为了与 PC 的数值逐位一致（模组可能把整个值存下来比较），这里按 `int32` 读。
+// 2026-10-25更正：上面32位/符号扩展说明是旧误判。固定PC getter
+// 0x4126C0以edx:eax返回64位；NS写入/原生Update也消费完整64位。
+// 保留旧说明作历史，实际按64位读取，避免高位延时标志被截断。
 bool PushEntityProjectileField(lua_State* state, std::uintptr_t entity, const char* field) {
     if (std::strcmp(field, "ProjectileFlags") != 0) {
         return false;
@@ -3484,7 +3494,7 @@ bool PushEntityProjectileField(lua_State* state, std::uintptr_t entity, const ch
         type != kEntityTypeProjectile || vtable != base + kEntityProjectileVtableOffset) {
         return false;
     }
-    std::int32_t flags = 0;
+    std::uint64_t flags = 0;
     if (!ReadEngine(entity + kEntityProjectileFlagsOffset, &flags)) {
         return false;
     }
@@ -3533,9 +3543,12 @@ int EntityPickupCanReroll(lua_State* state) {
     if (lua_gettop(state) != 1) {
         return luaL_error(state, "EntityPickup:CanReroll accepts no arguments");
     }
-    const std::uintptr_t entity = ValidatedEntity(handle);
-    if (entity == 0) {
-        return luaL_error(state, "EntityPickup:CanReroll requires a live entity");
+    // PC 837D70 uses the Pickup class registry, rejecting sibling Player/NPC self.
+    // Check the lifetime before native memory; avoid a generic check plus a second vptr read.
+    const std::uintptr_t entity = handle && isaac::runtime::EntityLifetimeAlive(handle->lifetime)
+        ? engine_memory::AddressOf(handle->entity) : 0;
+    if (!IsTypedEntity(entity,kEntityPickupVtableOffset,kEntityTypePickup)) {
+        return luaL_error(state, "EntityPickup:CanReroll requires a live EntityPickup");
     }
     const std::uintptr_t base = EngineModuleBase();
     if (base == 0 || base > UINTPTR_MAX - kEntityPickupCanRerollOffset ||
@@ -5080,14 +5093,21 @@ int EntityPlayerGetSmeltedTrinkets(lua_State* state) {
 //: 解出 `TemporaryEffects*`（= `player + 0x18D8`）。句柄类型不对 / 玩家 vptr 失效 ⇒ 0
 //: （调用方据此**静默降级**：void 方法什么都不做、返回标量的压安全值 —— **绝不报错**，
 //: 报错会把整条模组回调摘掉，比"这一次没生效"严重得多）。
+bool TemporaryEffectOwnerAlive(std::uintptr_t player,
+        const LuaRuntime::EntityLifetimeToken* token,std::uintptr_t module) noexcept {
+    return token && token->entity==player && EntityLifetimeAlive(token) && module==LuaRuntime::EngineModuleBase() &&
+        player && player<=UINTPTR_MAX-kEntityPlayerTemporaryEffectsOffset-kTemporaryEffectsPlayerBackrefOffset &&
+        IsEntityPlayer(player);
+}
 std::uintptr_t ResolveTemporaryEffectsReceiver(lua_State* state, int index) noexcept {
+    if(lua_rawlen(state,index)!=sizeof(TemporaryEffectsHandle))return 0;
     auto* handle = static_cast<TemporaryEffectsHandle*>(
         luaL_testudata(state, index, kTemporaryEffectsMetatable));
     if (handle == nullptr || handle->player == nullptr) {
         return 0;
     }
     const std::uintptr_t player = engine_memory::AddressOf(handle->player);
-    if (player == 0 || player > UINTPTR_MAX - kEntityPlayerTemporaryEffectsOffset || !IsEntityPlayer(player)) {
+    if (!TemporaryEffectOwnerAlive(player,handle->lifetime,handle->module)) {
         return 0;
     }
     return player + kEntityPlayerTemporaryEffectsOffset;
@@ -5100,11 +5120,15 @@ void PushTemporaryEffectsHandle(lua_State* state, std::uintptr_t player) {
         lua_pushnil(state);
         return;
     }
+    auto* token=PushEntityLifetimeToken(state,player);const int tokenIndex=lua_gettop(state);
     auto* handle = static_cast<TemporaryEffectsHandle*>(
         lua_newuserdata(state, sizeof(TemporaryEffectsHandle)));
     handle->player = engine_memory::AsObject(player);
+    handle->lifetime=token;handle->module=LuaRuntime::EngineModuleBase();
+    lua_pushvalue(state,tokenIndex);lua_setuservalue(state,-2);
     luaL_getmetatable(state, kTemporaryEffectsMetatable);
     lua_setmetatable(state, -2);
+    lua_remove(state,tokenIndex);
 }
 
 //: `TemporaryEffects` 的 `__index`：它**只有方法、没有字段** ⇒ 直接去 `__methods` 里取。
@@ -5273,8 +5297,15 @@ struct TemporaryEffectHandle {
     std::uintptr_t begin;
     std::uintptr_t item;
     std::size_t index;
+    LuaRuntime::EntityLifetimeToken* lifetime;
+    std::uintptr_t module;
 };
-struct EffectListHandle { std::uintptr_t player; };
+struct EffectListHandle {
+    std::uintptr_t player;
+    LuaRuntime::EntityLifetimeToken* lifetime;
+    std::uintptr_t module;
+};
+static_assert(sizeof(TemporaryEffectsHandle)==24 && sizeof(TemporaryEffectHandle)==48 && sizeof(EffectListHandle)==24);
 
 bool ReadTemporaryEffectVector(std::uintptr_t player, ItemVectorView* view) noexcept {
     if (view == nullptr || !IsEntityPlayer(player) ||
@@ -5302,21 +5333,41 @@ void PushTemporaryEffect(lua_State* state, std::uintptr_t player,
         lua_pushnil(state);
         return;
     }
+    auto* token=PushEntityLifetimeToken(state,player);const int tokenIndex=lua_gettop(state);
     auto* handle = static_cast<TemporaryEffectHandle*>(lua_newuserdata(state, sizeof(TemporaryEffectHandle)));
-    *handle = {player, view.begin, item, index};
+    *handle = {player, view.begin, item, index,token,LuaRuntime::EngineModuleBase()};
+    lua_pushvalue(state,tokenIndex);lua_setuservalue(state,-2);
     luaL_getmetatable(state, kTemporaryEffectMetatable);
     lua_setmetatable(state, -2);
+    lua_remove(state,tokenIndex);
 }
 
 std::uintptr_t ResolveTemporaryEffect(const TemporaryEffectHandle* handle) noexcept {
     ItemVectorView view{};
-    if (handle == nullptr || !ReadTemporaryEffectVector(handle->player, &view) ||
+    if (handle == nullptr || !TemporaryEffectOwnerAlive(handle->player,handle->lifetime,handle->module) ||
+        !ReadTemporaryEffectVector(handle->player, &view) ||
         view.begin != handle->begin || handle->index >= view.count) {
         return 0;
     }
     const std::uintptr_t entry = view.begin + handle->index * kTemporaryEffectsElementStride;
     std::uintptr_t item = 0;
     return ReadEngine(entry, &item) && item == handle->item ? entry : 0;
+}
+
+std::uintptr_t TemporaryEffectIdentity(lua_State* state,int index) noexcept {
+    if(lua_rawlen(state,index)!=sizeof(TemporaryEffectHandle))return 0;
+    auto*handle=static_cast<const TemporaryEffectHandle*>(luaL_testudata(state,index,kTemporaryEffectMetatable));
+    return ResolveTemporaryEffect(handle);
+}
+std::uintptr_t EffectListAddress(const EffectListHandle* handle,ItemVectorView* view) noexcept {
+    return handle && TemporaryEffectOwnerAlive(handle->player,handle->lifetime,handle->module) &&
+        ReadTemporaryEffectVector(handle->player,view)
+        ?handle->player+kEntityPlayerTemporaryEffectsOffset+kTemporaryEffectsEffectListBeginOffset:0;
+}
+std::uintptr_t EffectListIdentity(lua_State* state,int index) noexcept {
+    if(lua_rawlen(state,index)!=sizeof(EffectListHandle))return 0;
+    auto*handle=static_cast<const EffectListHandle*>(luaL_testudata(state,index,kEffectListMetatable));
+    ItemVectorView view{};return EffectListAddress(handle,&view);
 }
 
 int ReadOnlyEffectWrite(lua_State* state) {
@@ -5351,7 +5402,7 @@ int EffectListGet(lua_State* state) {
         return luaL_error(state, "EffectList:Get expects an integer index");
     }
     ItemVectorView view{};
-    if (!ReadTemporaryEffectVector(handle->player, &view)) {
+    if (!EffectListAddress(handle, &view)) {
         return luaL_error(state, "EffectList is no longer available");
     }
     if (index < 0 || static_cast<std::uint64_t>(index) >= view.count) {
@@ -5364,7 +5415,7 @@ int EffectListGet(lua_State* state) {
 int EffectListLength(lua_State* state) {
     auto* handle = static_cast<EffectListHandle*>(luaL_checkudata(state, 1, kEffectListMetatable));
     ItemVectorView view{};
-    if (!ReadTemporaryEffectVector(handle->player, &view)) {
+    if (!EffectListAddress(handle, &view)) {
         return luaL_error(state, "EffectList is no longer available");
     }
     lua_pushinteger(state, static_cast<lua_Integer>(view.count));
@@ -5440,10 +5491,14 @@ int TemporaryEffectsGetTrinketEffect(lua_State* state) {
 int TemporaryEffectsGetEffectsList(lua_State* state) {
     if (!CheckTemporaryEffectsCall(state, "TemporaryEffects:GetEffectsList", 0)) { return 0; }
     const std::uintptr_t self = ResolveTemporaryEffectsReceiver(state, 1);
+    const auto player=self-kEntityPlayerTemporaryEffectsOffset;
+    auto*token=PushEntityLifetimeToken(state,player);const int tokenIndex=lua_gettop(state);
     auto* handle = static_cast<EffectListHandle*>(lua_newuserdata(state, sizeof(EffectListHandle)));
-    handle->player = self - kEntityPlayerTemporaryEffectsOffset;
+    *handle={player,token,LuaRuntime::EngineModuleBase()};
+    lua_pushvalue(state,tokenIndex);lua_setuservalue(state,-2);
     luaL_getmetatable(state, kEffectListMetatable);
     lua_setmetatable(state, -2);
+    lua_remove(state,tokenIndex);
     return 1;
 }
 
@@ -5652,36 +5707,12 @@ void PushItemConfigItemHandle(lua_State* state, std::uintptr_t item, std::uintpt
     lua_setmetatable(state, -2);
 }
 
-// 句柄 → 通过校验的 `IC`（0 = 失效）。缓存的 `items`/`count` 必须与现场逐值一致：换局/重开后
-// `ItemConfig::Init` 会重新分配向量，旧句柄必须自证过期而不是继续读已经不属于它的内存。
+// PC GetItemConfig返回Manager内嵌单例。内部vector扩容/追加/重建不改变父对象身份；
+// getter必须读取当前vector。具体Item/列表句柄仍按自己的元素/归属验证，不能混为一谈。
 std::uintptr_t ValidatedItemConfig(const ItemConfigHandle* handle) noexcept {
-    if (handle == nullptr) {
-        return 0;
-    }
+    if (handle == nullptr) return 0;
     const std::uintptr_t config = ResolveItemConfig();
-    if (config == 0 || config != engine_memory::AddressOf(handle->config)) {
-        return 0;
-    }
-    // ★ 两种情况分开（2026-09-12，真机报告 `01789226184`）：
-    //   * 句柄创建时**向量还没建立**（`itemsWereReadable == 0`）：允许现在才建立 ——
-    //     EID 在加载期就取 `Isaac.GetItemConfig()`，那时向量是空的；若沿用旧判据，
-    //     这个仍然有效的句柄一开局就被判过期、`EID.itemConfig` 直接变死。
-    //   * 句柄创建时**向量已建立**：沿用"begin/count 必须与现场一致"的过期判据
-    //     （换局后 `ItemConfig::Init` 会重排向量，旧句柄必须自证过期，见
-    //     `test_stale_handles_degrade_and_new_handles_re_read_the_engine`）。
-    if (handle->itemsWereReadable == 0) {
-        return config;
-    }
-    ItemVectorView view{};
-    if (!ReadItemVector(config, kItemConfigCollectibleBeginOffset, kItemConfigCollectibleEndOffset,
-                        &view)) {
-        return 0;
-    }
-    if (view.begin != engine_memory::AddressOf(handle->items) ||
-        handle->count != static_cast<std::uint64_t>(view.count)) {
-        return 0;
-    }
-    return config;
+    return config != 0 && config == engine_memory::AddressOf(handle->config) ? config : 0;
 }
 
 // 条目句柄 → 通过校验的 `ItemConfig::Item*`（0 = 失效）。校验是"它仍然是这条向量的那个元素"，
@@ -6328,6 +6359,18 @@ bool ReadItemConfigList(const ItemConfigListHandle* handle, ItemVectorView* view
     if (count > kItemConfigMaximumItems) { return false; }
     *view = {begin, end, count};
     return true;
+}
+
+std::uintptr_t ConfigRootIdentity(lua_State* state,int index) noexcept {
+    if(lua_rawlen(state,index)!=sizeof(ItemConfigHandle))return 0;
+    return ValidatedItemConfig(static_cast<const ItemConfigHandle*>(lua_touserdata(state,index)));
+}
+std::uintptr_t ConfigListIdentity(lua_State* state,int index) noexcept {
+    if(lua_rawlen(state,index)!=sizeof(ItemConfigListHandle))return 0;
+    const auto*handle=static_cast<const ItemConfigListHandle*>(lua_touserdata(state,index));
+    ItemVectorView view{};
+    return ReadItemConfigList(handle,&view)&&handle->config<=UINTPTR_MAX-handle->beginOffset
+        ?handle->config+handle->beginOffset:0;
 }
 
 int ItemConfigListGet(lua_State* state) {
@@ -7301,6 +7344,14 @@ int IsaacScreenToWorld(lua_State* state) {
 // Unlocked参数由luaL_checkinteger转int，查询仍由引擎执行，包括挑战/特殊局规则。
 constexpr const char* kPersistentGameDataMetatable = "IsaacRuntime.PersistentGameData";
 struct PersistentGameDataHandle { std::uintptr_t manager; };
+std::uintptr_t PgdIdentity(lua_State*state,int index) noexcept {
+    if(lua_rawlen(state,index)!=sizeof(PersistentGameDataHandle))return 0;
+    const auto*handle=static_cast<const PersistentGameDataHandle*>(lua_touserdata(state,index));
+    const auto manager=ResolveManagerAddress();
+    if(!manager||handle->manager!=manager||manager>UINTPTR_MAX-kManagerPersistentGameDataObjectOffset)return 0;
+    const auto address=manager+kManagerPersistentGameDataObjectOffset;
+    return IsEngineMemoryReadable(address,sizeof(std::uintptr_t))?address:0;
+}
 
 int IsaacGetPersistentGameData(lua_State* state) {
     const auto manager = ResolveManagerAddress();
@@ -7719,9 +7770,12 @@ int IsaacRenderText(lua_State* state) {
 // 而抛错会把整条渲染回调摘掉（语料里 4 处调用全在回调内）。
 int IsaacGetTextWidth(lua_State* state) {
     std::size_t length = 0;
-    const char* text = luaL_checklstring(state, 1, &length);
+    const char* raw = luaL_checklstring(state, 1, &length);
+    // helper与Font构造要求空栈；先保有字符串，避免清栈后首次加载/GC使raw失效。
+    const std::string text{raw, length};
+    lua_settop(state, 0);
     int width = -1;
-    if (!isaac::runtime::MeasureTextWithDefaultFont(state, text, length, &width)) {
+    if (!isaac::runtime::MeasureTextWithDefaultFont(state, text.data(), text.size(), &width)) {
         isaac::runtime::RecordNativeStateFallback(isaac::runtime::kFbIsaacGetTextWidth);
         width = -1;
     }
@@ -7744,18 +7798,17 @@ int GlobalRandom(lua_State* state) {
 // `GetPtrHash(object)`：PC 的"把对象指针变成稳定整数"（`GlobalFunctions.md:143`），
 // EID 用它做实体身份比较（`main.lua:492`/`527`/`1473`、`features/eid_api.lua:2387`）。
 //
-// 我们只对**持有原生指针**的三种句柄（`Entity`/`EntityPlayer`/`EntityPickup`）返回实体地址；
-// `Game`/`Level`/`Room`/`Sprite`/`RNG` 等句柄要么是占位符、要么是 Runtime 自己的对象，PC 里
-// 它们的 hash 也不是"引擎对象地址"，所以这里返回 0（= "这个对象没有可比较的指针"），
-// **不报错**：EID 的用法是 `GetPtrHash(a) == GetPtrHash(b)`，0 只会让比较为真/假，不会打断。
+// 实体保持原退役校验和快路径；非实体由各族真实对象解析处理，未知类型不伪造身份。
 int GlobalGetPtrHash(lua_State* state) {
     RecordFilterChain(5U);
-    if (lua_gettop(state) != 1) {
-        return luaL_error(state, "GetPtrHash accepts one object");
+    // 固定PC 7FCA10只检查参数1是否userdata，忽略后续参数。
+    if (!lua_isuserdata(state, 1)) {
+        return luaL_error(state, "The parameter is not an user data!");
     }
     // 所有实体子类共享同一识别/lifetime入口，不能只识别三张旧元表。
-    const auto entity=EntityPointerArgument(state,1);
-    lua_pushinteger(state,entity==0?0:static_cast<lua_Integer>(entity));
+    const auto* entity=TryGetEntityHandle(state,1);
+    const auto pointer = entity ? ValidatedEntity(entity) : isaac::runtime::ResolveNonEntityPointerIdentity(state,1);
+    lua_pushinteger(state, static_cast<lua_Integer>(pointer));
     return 1;
 }
 
@@ -7964,16 +8017,7 @@ std::uintptr_t ResolveFieldReceipt(lua_State* state, FieldReceipt receipt, int i
             //   `Entity_Player*` 当 `this` 交进去 = 把玩家对象内部的那几个偏移当向量来读/写，
             //   是**野读写**（比"读到别人的值"严重得多）。⇒ 用 `luaL_testudata(…,
             //   kTemporaryEffectsMetatable)` 严格校验句柄类型（同 `PathFinder`/`EntityFamiliar`）。
-            auto* handle = static_cast<TemporaryEffectsHandle*>(
-                luaL_testudata(state, index, kTemporaryEffectsMetatable));
-            if (handle == nullptr || handle->player == nullptr) {
-                return 0;
-            }
-            const std::uintptr_t player = engine_memory::AddressOf(handle->player);
-            if (player == 0 || !IsEntityPlayer(player)) {
-                return 0;
-            }
-            return player + kEntityPlayerTemporaryEffectsOffset;
+            return ResolveTemporaryEffectsReceiver(state,index);
         }
         case FieldReceipt::Music: {
             // 批次 239（2026-09-30）：`MusicManager:*` 的接收者 —— **不从 Lua 栈上取**，
@@ -8578,15 +8622,15 @@ constexpr EngineCallShapeRow kEngineCallShapes[] = {
     {2, {EngineArgKind::Int, EngineArgKind::Float, EngineArgKind::Int, EngineArgKind::Int,
          EngineArgKind::Int, EngineArgKind::Int, EngineArgKind::Int, EngineArgKind::Int},
      EngineReturnKind::Void, FieldReceipt::Entity, IntArgumentGuard::None, 1, {0, 0, 0}},
-    // 22 VoidIntIntIntIntInt：`void(this, i32×5)` —— `Room:SpawnGridEntity`
+    // 22 BoolIntIntIntIntInt：`bool(this, i32×5)` —— `Room:SpawnGridEntity`
     {5, {EngineArgKind::Int, EngineArgKind::Int, EngineArgKind::Int, EngineArgKind::Int,
          EngineArgKind::Int, EngineArgKind::Int, EngineArgKind::Int, EngineArgKind::Int},
-     EngineReturnKind::Void, FieldReceipt::Entity, IntArgumentGuard::None, 0, {0, 0, 0}},
+     EngineReturnKind::Bool, FieldReceipt::Entity, IntArgumentGuard::None, 0, {0, 0, 0}},
     // 23 VoidIntBoolIntBoolOpt3：`void(this, i32, bool, i32, bool)`，尾部 3 个可省 ——
-    // `EntityPlayer:RemoveCollectible`（语料只传 1 个参数）
-    {4, {EngineArgKind::Int, EngineArgKind::Bool, EngineArgKind::Int, EngineArgKind::Bool,
+    // 固定PC main.lua:844..850：activeSlot or 0 / removeFromPlayerForm ~= false，额外Lua参数忽略。
+    {4, {EngineArgKind::Int, EngineArgKind::Bool, EngineArgKind::IntOrZero, EngineArgKind::BoolDefaultTrue,
          EngineArgKind::Int, EngineArgKind::Int, EngineArgKind::Int, EngineArgKind::Int},
-     EngineReturnKind::Void, FieldReceipt::Entity, IntArgumentGuard::None, 3, {0, 0, 0}},
+     EngineReturnKind::Void, FieldReceipt::Entity, IntArgumentGuard::None, 3, {0, 1, 0}},
     // ---- 批次 253（2026-10-01）：2 种"带 `Vector2 const&` 参数"的形状。
     // ★ 这两条**不改跳板**：引用 ⇒ 指针 ⇒ 走 `x` 寄存器，本来就在跳板能力里
     //   （做法是把 Lua 的 Vector 拷进我们栈上的槽，再把槽地址当参数）。
@@ -8936,12 +8980,12 @@ int EngineMethodHandler(lua_State* state) {
     const int top = lua_gettop(state);
     const int maximumArguments = static_cast<int>(shape.argumentCount);
     if (!shape.staticCall() && row->receipt == FieldReceipt::Room &&
-        top == receiverArguments + maximumArguments + 1) {
+        luaL_testudata(state, 1, LuaRuntime::kRoomMetatable) != nullptr) {
         // ★ 批次 069 修正（宿主场景第一次真的按 PC 写法调用时暴露）：PC 模组一律写
         // `Game():GetRoom():PlayMusic()` —— 冒号调用会把 `self` 也压进栈，而这里原先只接受
         // `Room.PlayMusic()` 那种点号写法（栈上**没有** self）⇒ 真机上这条 API 一被调用就报
         // "Room:PlayMusic expects 0 argument(s)"，整条模组回调被打断（比"没生效"更糟）。
-        // `Room` 的接收者本来就由"当前房间"解析、不读栈上那个 self，所以这里只是**容下**它。
+        // 2026-10-25：按真正的Room句柄识别self，省略可选尾参时也必须跳过它。
         receiverArguments = 1;
     }
     // 批次 207（2026-09-29）：**尾部 `optionalArgumentCount` 个参数可以不写**。
@@ -8949,7 +8993,8 @@ int EngineMethodHandler(lua_State* state) {
     // `Entity:IsActiveEnemy(bool includeDead)` 就是这一条（缺省 `false`）。
     const int minimumArguments = maximumArguments - static_cast<int>(shape.optionalArgumentCount);
     int providedArguments = top - receiverArguments;
-    if (providedArguments > maximumArguments && row->id == 0x0E01006FU) {
+    if (providedArguments > maximumArguments &&
+        (shape.ignoresExtraArguments() || row->id == 0x0E01006FU)) {
         // PC AddHearts原绑定只读Hearts及可选Lua真值，其余尾参不参与调用。
         providedArguments = maximumArguments;
     }
@@ -8999,6 +9044,13 @@ int EngineMethodHandler(lua_State* state) {
                 }
                 break;
             }
+            case EngineArgKind::IntOrZero:
+                if (lua_isnoneornil(state,stackIndex) ||
+                    (lua_isboolean(state,stackIndex) && !lua_toboolean(state,stackIndex))) {
+                    if(integerCount>=8){argumentsValid=false;break;}
+                    integers[integerCount++]=0;break;
+                }
+                [[fallthrough]];
             case EngineArgKind::Int: {
                 if (!isaac::runtime::IsIntegerArgument(state, stackIndex) || integerCount >= 8) {
                     argumentsValid = false;
@@ -9021,6 +9073,10 @@ int EngineMethodHandler(lua_State* state) {
                 floats[floatCount++] = EngineFloatArgument(value);
                 break;
             }
+            case EngineArgKind::BoolDefaultTrue:
+                if(integerCount>=8){argumentsValid=false;break;}
+                integers[integerCount++]=!lua_isboolean(state,stackIndex)||lua_toboolean(state,stackIndex)?1U:0U;
+                break;
             case EngineArgKind::Bool: {
                 if (integerCount >= 8) {
                     argumentsValid = false;
@@ -9070,6 +9126,9 @@ int EngineMethodHandler(lua_State* state) {
     //   后面几格的寄存器位置会串（例如"两个浮点、省掉第一个"）。
     for (int index = providedArguments; index < maximumArguments && argumentsValid; ++index) {
         switch (shape.argumentKinds[index]) {
+            case EngineArgKind::BoolDefaultTrue:
+                if(integerCount>=8){argumentsValid=false;break;}
+                integers[integerCount++]=1;break;
             case EngineArgKind::FloatDefaultOne:
                 if (floatCount >= 8) {
                     argumentsValid = false;
@@ -9086,6 +9145,7 @@ int EngineMethodHandler(lua_State* state) {
                 break;
             case EngineArgKind::Vector2Ref:
             case EngineArgKind::Handle:
+            case EngineArgKind::IntOrZero:
             case EngineArgKind::Bool:
             case EngineArgKind::Int:
             default:
@@ -11794,7 +11854,7 @@ int EntityPlayerAddFriendlyDip(lua_State* state) {
         PushNil(state);
         return 1;
     }
-    PushEntityHandle(state, created, kEntityMetatable);
+    PushEntityHandle(state, created, kEntityFamiliarMetatable);
     return 1;
 }
 
@@ -12246,7 +12306,7 @@ constexpr EngineMethodRow kEntityPlayerEngineRows[] = {
     // PC 契约 `tools/pc_contract_docs/EntityPlayer.md:1588`。
     // ★ 引擎符号 4 格（`…eCollectibleTypeEbib`）而**语料只传 1 个**
     //   （`IsaacOnTwitchReloaded/scripts/activeItems.lua` 的 8 处 `p:RemoveCollectible(id)`）
-    //   ⇒ 形状 `VoidIntBoolIntBoolOpt3`（尾部 3 个可省；省略时保持 0，
+    //   ⇒ 形状 `VoidIntBoolIntBoolOpt3`（尾部 3 个可省；PC脚本缺省语义见形状表，
     //   而第 3 格的缺省 `ActiveSlot.SLOT_PRIMARY` 恰好是 0）。
     // ★★ 清单把它记成 `ItemPool:RemoveCollectible`（同名、另一个 owner）—— 语料里的接收者
     //   是 **EntityPlayer**，按 owner 认才不会做错（见批次 250 的"按 owner 区分"纪律）。
@@ -12796,11 +12856,31 @@ void PublishItemConfigConstants(lua_State* state) {
     }
     lua_setglobal(state, "ItemConfig");
     PublishApi300Statics(state,"ItemConfig");
-    lua_getglobal(state,"ItemConfig");lua_pushcfunction(state,Api600ItemConfigShouldAddCostumeOnPickup);lua_setfield(state,-2,"ShouldAddCostumeOnPickup");lua_pop(state,1);
+    lua_getglobal(state,"ItemConfig");
+    const int itemConfig = lua_gettop(state);
+    lua_pushcfunction(state,Api600ItemConfigShouldAddCostumeOnPickup);
+    lua_setfield(state,itemConfig,"ShouldAddCostumeOnPickup");
+    // PC 1.7.9b @804BE6/804BFD在ItemConfig命名空间中登记Config类，
+    // 804C6A/804C92把两项静态函数放在该类；类关联实例的真实元表。
+    // 仅初始化时创建类表，不增加每帧查表、分配或文件读取。
+    lua_newtable(state);
+    constexpr const char* methods[] = {"IsValidCollectible", "ShouldAddCostumeOnPickup"};
+    for (const char* method : methods) {
+        lua_getfield(state,itemConfig,method);
+        lua_setfield(state,-2,method);
+    }
+    lua_newtable(state);
+    luaL_getmetatable(state,kItemConfigMetatable);
+    lua_setfield(state,-2,"__class");
+    lua_setmetatable(state,-2);
+    lua_setfield(state,itemConfig,"Config");
+    lua_pop(state,1);
 }
 
 void RegisterViewMetatables(lua_State* state) {
     luaL_newmetatable(state, kPersistentGameDataMetatable);
+    if(!RegisterNativeObjectIdentity(state,-1,PgdIdentity))
+        luaL_error(state,"PersistentGameData identity resolver conflicts");
     lua_newtable(state);
     static_cast<void>(AttachOwnerMethods(state, "PersistentGameData", kPersistentGameDataHandlers,
                                         RowCount(kPersistentGameDataHandlers)));
@@ -12973,6 +13053,8 @@ void RegisterViewMetatables(lua_State* state) {
     lua_pop(state, 1);
 
     luaL_newmetatable(state, kTemporaryEffectMetatable);
+    if(!RegisterNativeObjectIdentity(state,-1,TemporaryEffectIdentity))
+        luaL_error(state,"TemporaryEffect identity resolver conflicts");
     lua_pushcfunction(state, TemporaryEffectIndex);
     lua_setfield(state, -2, "__index");
     lua_pushcfunction(state, ReadOnlyEffectWrite);
@@ -12984,6 +13066,8 @@ void RegisterViewMetatables(lua_State* state) {
     lua_pop(state, 1);
 
     luaL_newmetatable(state, kEffectListMetatable);
+    if(!RegisterNativeObjectIdentity(state,-1,EffectListIdentity))
+        luaL_error(state,"EffectList identity resolver conflicts");
     lua_pushcfunction(state, EffectListIndex);
     lua_setfield(state, -2, "__index");
     lua_pushcfunction(state, EffectListLength);
@@ -13027,6 +13111,8 @@ void RegisterViewMetatables(lua_State* state) {
     PublishApi400SeedsStatics(state);
 
     luaL_newmetatable(state, kItemConfigListMetatable);
+    if(!RegisterNativeObjectIdentity(state,-1,ConfigListIdentity))
+        luaL_error(state,"ItemConfig list identity resolver conflicts");
     lua_pushcfunction(state, ItemConfigListIndex);
     lua_setfield(state, -2, "__index");
     lua_pushcfunction(state, ItemConfigListLength);
@@ -13050,6 +13136,8 @@ void RegisterViewMetatables(lua_State* state) {
     lua_setglobal(state, "CppContainer");
 
     luaL_newmetatable(state, kItemConfigMetatable);
+    if(!RegisterNativeObjectIdentity(state,-1,ConfigRootIdentity))
+        luaL_error(state,"ItemConfig identity resolver conflicts");
     lua_newtable(state);
     static_cast<void>(AttachItemConfigMethods(state));
     lua_setfield(state, -2, "__methods");
@@ -13149,6 +13237,7 @@ std::size_t RegisterIsaacApi(lua_State* state) noexcept {
     lua_newtable(state);
     const std::size_t attached = AttachIsaacMethods(state);
     lua_setglobal(state, "Isaac");
+    RegisterCoreObjectPointerIdentities(state);
     return attached;
 }
 
@@ -13237,6 +13326,10 @@ std::uintptr_t CurrentHudOffsetAddress() noexcept {
 
 int OptionsNewIndex(lua_State* state) {
     const char* key = lua_tostring(state, 2);
+    if (key != nullptr && std::strcmp(key, "DebugConsoleEnabled") == 0) {
+        LuaRuntime::SetDebugConsoleEnabled(lua_toboolean(state, 3) != 0);
+        return 0;
+    }
     if(TryWriteApi700Option(state,key)){return 0;}
     if(TryWriteRuntimeOption(state,key)){return 0;}
     if (key != nullptr && std::strcmp(key, "FoundHUD") == 0) {
@@ -13264,6 +13357,10 @@ int OptionsNewIndex(lua_State* state) {
 
 int OptionsIndex(lua_State* state) noexcept {
     const char* key = lua_tostring(state, 2);
+    if (key != nullptr && std::strcmp(key, "DebugConsoleEnabled") == 0) {
+        lua_pushboolean(state, LuaRuntime::DebugConsoleEnabled());
+        return 1;
+    }
     if(TryPushApi700Option(state,key)){return 1;}
     if(TryPushRuntimeOption(state,key)){return 1;}
     if (key != nullptr && std::strcmp(key, "FoundHUD") == 0) {
@@ -13317,6 +13414,30 @@ std::size_t RegisterOptionsTable(lua_State* state) noexcept {
     lua_setmetatable(state, -2);
     lua_setglobal(state, "Options");
     return 4;
+}
+
+#if !defined(__SWITCH__)
+namespace { ManagedUpdateSnapshotReader g_ManagedUpdateSnapshotReader{}; }
+void SetManagedUpdateSnapshotReaderForTest(ManagedUpdateSnapshotReader reader) noexcept {
+    g_ManagedUpdateSnapshotReader = reader;
+}
+#endif
+
+bool ShouldDispatchManagedUpdates(ManagedUpdateSnapshot* snapshot) noexcept {
+    if (!snapshot) return false;
+    *snapshot = {};
+#if defined(__SWITCH__)
+    if (!LuaRuntime::IsOnGameThread()) return false;
+    return ReadNativeManagedUpdateSnapshot(ResolveGameAddress(), LuaRuntime::GameIsPausedThunk(),
+        kGameFrameCountOffset, snapshot, &engine_memory::EngineMemoryReadable);
+#else
+    const auto paused = ObserveGameIsPaused(LuaRuntime::GameOwnerSlot(), LuaRuntime::GameIsPausedThunk());
+    if (paused != GameIsPausedObservation::PausedFalse &&
+        paused != GameIsPausedObservation::ThunkUnavailable) return false;
+    // 宿主默认没有原生simulation；仅明确安装快照reader的场景参与同帧去重。
+    if (!g_ManagedUpdateSnapshotReader) return true;
+    return LuaRuntime::IsOnGameThread() && g_ManagedUpdateSnapshotReader(snapshot) && snapshot->game != 0;
+#endif
 }
 
 bool ShouldDispatchManagedCallbacks() noexcept {
@@ -13466,6 +13587,19 @@ void ApplyUseItemCallbackAnimation(lua_State* state,std::uintptr_t player,std::i
     lua_call(state,4,0);
 }
 
+void ApplyUseItemNativeRemoval(lua_State* state,std::uintptr_t player,std::int32_t item){
+    static constexpr const EngineMethodRow* row=[]() constexpr {
+        for(const auto& entry:kEntityPlayerEngineRows)if(entry.id==0x0E010084U)return &entry;
+        return static_cast<const EngineMethodRow*>(nullptr);
+    }();
+    static_assert(row->id==0x0E010084U,"RemoveCollectible绑定必须存在");
+    lua_pushlightuserdata(state,const_cast<EngineMethodRow*>(row));
+    lua_pushcclosure(state,EngineMethodHandler,1);
+    PushEntityHandle(state,player,kEntityPlayerMetatable);
+    lua_pushinteger(state,item);lua_pushboolean(state,false);lua_pushinteger(state,-1);lua_pushboolean(state,true);
+    lua_call(state,5,0);
+}
+
 
 int Api600ItemConfigGetCards(lua_State*L){return PushItemConfigList(L,kItemConfigCardBeginOffset,kItemConfigCardEndOffset);}
 int Api600ItemConfigGetPillEffects(lua_State*L){return PushItemConfigList(L,kItemConfigPillEffectBeginOffset,kItemConfigPillEffectEndOffset);}
@@ -13494,7 +13628,7 @@ int Api600ConfigListIndex(lua_State*L){
 }
 void RegisterApi600ConfigLists(lua_State*L){
  for(const auto&row:{std::pair<const char*,const char*>{"CardConfigList",kApi600CardListMetatable},{"PillConfigList",kApi600PillListMetatable}}){
-  luaL_newmetatable(L,row.second);lua_pushcfunction(L,Api600ConfigListIndex);lua_setfield(L,-2,"__index");lua_pushcfunction(L,ItemConfigListNewIndex);lua_setfield(L,-2,"__newindex");
+  luaL_newmetatable(L,row.second);if(!RegisterNativeObjectIdentity(L,-1,ConfigListIdentity))luaL_error(L,"config list identity resolver conflicts");lua_pushcfunction(L,Api600ConfigListIndex);lua_setfield(L,-2,"__index");lua_pushcfunction(L,ItemConfigListNewIndex);lua_setfield(L,-2,"__newindex");
   lua_newtable(L);static_cast<void>(AttachApi600Methods(L,row.first));lua_getfield(L,-1,"__len");lua_setfield(L,-3,"__len");lua_setfield(L,-2,"__methods");lua_pushstring(L,row.first);lua_setfield(L,-2,"__type");lua_pushvalue(L,-1);lua_setfield(L,-2,"__class");lua_pop(L,1);
   lua_getglobal(L,"CppContainer");if(!lua_istable(L,-1)){lua_pop(L,1);lua_newtable(L);}lua_getfield(L,-1,"Vector");if(!lua_istable(L,-1)){lua_pop(L,1);lua_newtable(L);}
   lua_newtable(L);lua_newtable(L);luaL_getmetatable(L,row.second);lua_setfield(L,-2,"__class");lua_setmetatable(L,-2);lua_setfield(L,-2,row.first);lua_setfield(L,-2,"Vector");lua_setglobal(L,"CppContainer");

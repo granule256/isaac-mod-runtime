@@ -21,7 +21,12 @@ extern "C" {
 #include <lauxlib.h>
 #include <lualib.h>
 }
-using namespace isaac::runtime;using Vec=LuaRuntime::VectorHandle;
+using namespace isaac::runtime;
+extern "C" {
+extern std::uint64_t g_HostEngineCallTrampolineIntegerResult;
+extern std::uint64_t g_HostEngineCallTrampolineLastIntegers[8];
+extern std::uintptr_t g_HostEngineCallTrampolineLastTarget;
+}using Vec=LuaRuntime::VectorHandle;
 static unsigned calls[48]{},effects[48]{};static bool expectedBoolean=true;static bool defaultsMode=false;static bool consumerMode=false;static unsigned rewards{},collisions{};static Vec observedSize{};
 static std::vector<unsigned char> knifeBytes,pitBytes,poopBytes,plateBytes,doorBytes,rockBytes,managerBytes,managerSlotBytes,nullItemBytes,nullItemSlots;
 static void* roomPointer{};static void* want[48]{};
@@ -73,7 +78,8 @@ static void F43(){++calls[43];++effects[43];return;}
 static void F44(void*self,std::int32_t a0){Touch(44,self);assert(a0==17);return;}
 static void F45(void*self){Touch(45,self);return;}
 static void F46(void*self,std::int32_t a0){Touch(46,self);assert(a0==17);return;}
-static bool F47(void*self,const char* a0,bool a1){Touch(47,self);assert(!std::strcmp(a0,"overlay-name"));assert(a1==expectedBoolean);return false;}
+static bool overlayNativeResult{};
+static bool F47(void*self,const char* a0,bool a1){Touch(47,self);assert(!std::strcmp(a0,"overlay-name"));assert(a1==expectedBoolean);return overlayNativeResult;}
 static void Meta(lua_State*L,const char*name,lua_CFunction index,const char*owner){luaL_newmetatable(L,name);lua_newtable(L);if(!std::strcmp(owner,"Game"))static_cast<void>(AttachGameMethods(L));else if(!std::strcmp(owner,"HUD"))static_cast<void>(AttachHudMethods(L));else if(!std::strcmp(owner,"Seeds"))static_cast<void>(AttachSeedsMethods(L));else if(!std::strcmp(owner,"Sprite"))static_cast<void>(AttachSpriteMethods(L));else static_cast<void>(AttachApi200Methods(L,owner));lua_setfield(L,-2,"__methods");lua_pushcfunction(L,index);lua_setfield(L,-2,"__index");lua_pop(L,1);}
 static int GameCtor(lua_State*L){auto*p=static_cast<LuaRuntime::GameHandle*>(lua_newuserdata(L,sizeof(LuaRuntime::GameHandle)));p->reserved=0;luaL_getmetatable(L,LuaRuntime::kGameMetatable);lua_setmetatable(L,-2);return 1;}
 static void Grid(lua_State*L,void*p,const char*name){auto*h=static_cast<LuaRuntime::GridEntityHandle*>(lua_newuserdata(L,sizeof(LuaRuntime::GridEntityHandle)));h->entity=p;luaL_getmetatable(L,LuaRuntime::kGridEntityMetatable);lua_setmetatable(L,-2);lua_setglobal(L,name);}
@@ -341,7 +347,7 @@ assert(Seeds.InitSeedInfo()==nil)
 assert(seed:RemoveBlockingSeedEffects(17)==nil)
 assert(seed:Reset()==nil)
 assert(seed:Restart(17)==nil)
-assert(sprite:SetOverlayAnimation("overlay-name",true)==nil)
+assert(sprite:SetOverlayAnimation("overlay-name",true)==false)
 assert(not pcall(function()p:SetSize({},Vector(3,4),17)end))
 assert(not pcall(function()p:SetSize(2.5,{},17)end))
 assert(not pcall(function()p:SetSize(2.5,Vector(3,4),{})end))
@@ -530,7 +536,7 @@ assert(Seeds.InitSeedInfo()==nil)
 assert(seed:RemoveBlockingSeedEffects(17)==nil)
 assert(seed:Reset()==nil)
 assert(seed:Restart(17)==nil)
-assert(sprite:SetOverlayAnimation("overlay-name",false)==nil)
+assert(sprite:SetOverlayAnimation("overlay-name",false)==false)
 assert(not pcall(function()p:SetSize({},Vector(3,4),17)end))
 assert(not pcall(function()p:SetSize(2.5,{},17)end))
 assert(not pcall(function()p:SetSize(2.5,Vector(3,4),{})end))
@@ -606,7 +612,7 @@ assert(Seeds.InitSeedInfo()==nil)
 assert(seed:RemoveBlockingSeedEffects('4294967313')==nil)
 assert(seed:Reset()==nil)
 assert(seed:Restart('4294967313')==nil)
-assert(sprite:SetOverlayAnimation("overlay-name",true)==nil)
+assert(sprite:SetOverlayAnimation("overlay-name",true)==false)
 assert(not pcall(function()p:SetSize({},Vector(3,4),'4294967313')end))
 assert(not pcall(function()p:SetSize('2.5',{},'4294967313')end))
 assert(not pcall(function()p:SetSize('2.5',Vector(3,4),{})end))
@@ -684,6 +690,22 @@ end
   RetireEntityLifetime(AddressOf(g_Entities[kEnemyA]));
   if(luaL_dostring(L,"assert(not pcall(function()path:Reset()end), 'pathfinder must reject a destroyed NPC owner')")){std::fprintf(stderr,"%s\n",lua_tostring(L,-1));return 3;}
  }
+ if(scene=="spawn-grid-return"){
+  WriteWord(g_ModuleBytes,kRoomSpawnGridEntityOffset,kRoomSpawnGridEntityEntryWord);
+  g_HostEngineCallTrampolineIntegerResult=1;
+  if(luaL_dostring(L,"assert(room:SpawnGridEntity(17,20,2,12345,0)==true,'spawn must return native true')")){std::fprintf(stderr,"%s\n",lua_tostring(L,-1));return 32;}
+  assert(g_HostEngineCallTrampolineLastTarget==g_EngineBase+kRoomSpawnGridEntityOffset);
+  const std::uint64_t expected[]={reinterpret_cast<std::uintptr_t>(roomPointer),17,20,2,12345,0};
+  for(unsigned i=0;i<6;++i)assert(g_HostEngineCallTrampolineLastIntegers[i]==expected[i]);
+  g_HostEngineCallTrampolineIntegerResult=0;
+  if(luaL_dostring(L,"assert(room:SpawnGridEntity(17,20,2,12345,0)==false,'spawn must return native false')")){std::fprintf(stderr,"%s\n",lua_tostring(L,-1));return 33;}
+ }
+ if(scene=="overlay-return"){
+  expectedBoolean=true;overlayNativeResult=true;
+  if(luaL_dostring(L,"assert(sprite:SetOverlayAnimation('overlay-name')==true,'must return native true')")){std::fprintf(stderr,"%s\n",lua_tostring(L,-1));return 30;}
+  expectedBoolean=false;overlayNativeResult=false;
+  if(luaL_dostring(L,"assert(sprite:SetOverlayAnimation('overlay-name',false)==false,'must return native false')")){std::fprintf(stderr,"%s\n",lua_tostring(L,-1));return 31;}
+ }
  lua_close(L);return 0;}
 '''
 class Main48Behavior(unittest.TestCase):
@@ -694,5 +716,5 @@ class Main48Behavior(unittest.TestCase):
   source=source.replace('static void* roomPointer{};', 'void*api200Room{};\nstatic void* roomPointer{};').replace('roomPointer=g_RoomBytes.data();','roomPointer=g_RoomBytes.data();api200Room=roomPointer;')
   with tempfile.TemporaryDirectory(prefix='api200-main-')as d:
    binary=build_lua_harness(source_root=fixture.SOURCE,workdir=Path(d),harness_source=source)
-   for scene in ('normal','badguard','crossbase','deadentity','deadpath','boundaries','consumer','nullitem'):
+   for scene in ('normal','badguard','crossbase','deadentity','deadpath','boundaries','consumer','nullitem','overlay-return','spawn-grid-return'):
     result=subprocess.run([str(binary),scene],capture_output=True,text=True);self.assertEqual(result.returncode,0,scene+result.stdout+result.stderr)

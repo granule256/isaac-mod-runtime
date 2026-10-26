@@ -200,6 +200,9 @@ using RenderPositionHostFunction = void (*)(const float* input, float* output, b
 // Input bindings (controller actions). Zero means "not available", which the handlers turn
 // into a Lua error instead of answering a fabricated value.
 [[nodiscard]] std::uintptr_t InputIsActionPressedThunk() noexcept;
+// 已校验发布的引擎绑定；内部批量读取必须在RawEngineInputQueryScope内调用。
+// 入口可能已是本运行时中继，消费者不能再次按原序言逐字拒绝。
+[[nodiscard]] std::uintptr_t InputIsActionPressedBinding() noexcept;
 
 //: 批次 417（2026-10-08）：**Lua 状态自己占了多少内存**（字节）。
 //:

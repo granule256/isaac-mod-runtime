@@ -30,6 +30,10 @@ Status RelaySlotHookAdapter::Install(HookId id, const HookTarget& target) noexce
     if (installed_[index]) {
         return Status{StatusCode::InvalidState};
     }
+    if(id==HookId::ProjectileUpdate || id==HookId::ProjectileInit) {
+        if(!TryInstallProjectileTailRelay(ModuleOf(target),id==HookId::ProjectileInit))return Status{StatusCode::Rejected};
+        installed_[index]=true;return Status::Ok();
+    }
     // 本后端只实现 `GameStart` 那一处；别的挂点由路由表交给各自的适配器。
     // 走到这里的其它 `HookId` 是配置错误，**响亮失败**而不是静默成功。
     if (id != HookId::GameStart) {

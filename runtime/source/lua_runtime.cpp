@@ -11,6 +11,8 @@
 #include "card_rng_scope.hpp"
 #include "interfaces/lua/entity_lifetime.hpp"
 #include "lua_runtime.hpp"
+#include "native_player_init.hpp"
+#include "interfaces/lua/os_api.hpp"
 #include "infrastructure/memory/engine_field_access.hpp"
 // 批次 106：`Level:GetStartingRoomIndex()` 的派生记账（纯逻辑，见该头文件顶部的取证说明）。
 #include "frame_event_decision.hpp"
@@ -120,7 +122,7 @@ extern "C" {
 //   （只在模组加载期写一次）。
 // ★ 用内建 `unsigned` 而不是 `std::size_t`：这一段**故意放在标准头之前**
 //   （`<cstddef>` 还没进来），而且它就是数组维度、不需要 `std::size_t` 那个类型。
-static constexpr unsigned kModOwnerNameSlots = 32;
+static constexpr unsigned kModOwnerNameSlots = 258;
 static constexpr unsigned kModOwnerNameCapacity = 64;
 // ★★ 必须用**块形式** `extern "C" { … }`：写成 `[[gnu::used]] extern "C" char x[…] = {};`
 //    会被 gcc 判成语法错（`expected unqualified-id before string constant`）——
@@ -378,6 +380,19 @@ int InvokeObservedCallback(lua_State* state);
 
 namespace {
 
+// luaL_loadfilex skips a complete leading UTF-8 BOM; luaL_loadbufferx does not.
+// File callers borrow the same bytes without copying or changing line numbers.
+int LoadFileChunk(lua_State* state, const char* source, std::size_t length,
+                  const char* chunkName) {
+    if (length >= 3 && static_cast<unsigned char>(source[0]) == 0xef &&
+        static_cast<unsigned char>(source[1]) == 0xbb &&
+        static_cast<unsigned char>(source[2]) == 0xbf) {
+        source += 3;
+        length -= 3;
+    }
+    return luaL_loadbufferx(state, source, length, chunkName, "t");
+}
+
 const char* g_LoadingModRoot="";
 constexpr char kModMethodsField[] = "__methods";
 //: 批次 216（2026-09-30）：**Mod 方法的共享原型表**在 registry 里的键。
@@ -469,6 +484,8 @@ constexpr std::array<LuaIntegerConstant, 120> kKeyboardConstants{{
 }};
 
 lua_State* g_LuaState = nullptr;
+// 只在游戏线程的显式整批重载期间置位；终结器和73回调不能递归关闭或新建VM。
+bool g_ShuttingDownForModReload = false;
 // One registry owns every registered callback, so several Mods can register the
 // same phase and dispatch order is deterministic. Probe and production builds
 // share it; the legacy per-phase single slots were deleted with the migration.
@@ -494,7 +511,11 @@ std::atomic<u32> g_ModRegisteredCount{0};
 std::atomic<u32> g_NextModOwnerIndex{2};
 
 isaac::runtime::ModHandle NextModOwner() noexcept {
-    const u32 index = g_NextModOwnerIndex.fetch_add(1, std::memory_order_relaxed);
+    u32 index = g_NextModOwnerIndex.load(std::memory_order_relaxed);
+    do {
+        if (index > UINT16_MAX) return {}; // 饱和失败，不允许截断后复用其它模组owner。
+    } while (!g_NextModOwnerIndex.compare_exchange_weak(index, index + 1,
+                                                       std::memory_order_relaxed));
     return isaac::runtime::ModHandle{static_cast<std::uint16_t>(index), 1};
 }
 
@@ -750,6 +771,7 @@ std::atomic<uintptr_t> g_InputGetActionValue{0};
 // Font entry points (`KAGE::Graphics::Font`). The Font object these are called on is allocated
 // and released by the `Font` family unit, not by the game.
 std::atomic<uintptr_t> g_FontCtor{0};
+std::atomic<std::uint64_t> g_FontBindingGeneration{0};
 std::atomic<uintptr_t> g_FontDestructor{0};
 std::atomic<uintptr_t> g_FontLoad{0};
 std::atomic<uintptr_t> g_FontUnload{0};
@@ -1149,7 +1171,7 @@ int Require(lua_State* state) {
     std::memcpy(chunkNameStorage.data() + 1, path.data(), pathLength + 1);
     const char* chunkName = chunkNameStorage.data();
     auto& source = g_Stage13RequireSource;
-    if (luaL_loadbufferx(state, source.data(), length, chunkName, "t") != LUA_OK) {
+    if (LoadFileChunk(state, source.data(), length, chunkName) != LUA_OK) {
         --g_Stage13RequireDepth;
         RecordRequireErrorTail(state);
         RecordRequireFailure(22);
@@ -1370,8 +1392,7 @@ int Include(lua_State* state) {
     std::array<char, kStage13RequirePathCapacity + 1> chunkNameStorage{};
     chunkNameStorage[0] = '@';
     std::memcpy(chunkNameStorage.data() + 1, path.data(), pathLength + 1);
-    if (luaL_loadbufferx(state, g_Stage13RequireSource.data(), length, chunkNameStorage.data(),
-                         "t") != LUA_OK) {
+    if (LoadFileChunk(state, g_Stage13RequireSource.data(), length, chunkNameStorage.data()) != LUA_OK) {
         --g_Stage13RequireDepth;
         return lua_error(state);  // 编译错误的原文（带 chunk 名与行号）直接抛出，与 PC 一致
     }
@@ -1506,6 +1527,7 @@ int RegisterMod(lua_State* state) {
     auto* mod = static_cast<ModHandle*>(lua_newuserdata(state, sizeof(ModHandle)));  // [U]
     mod->persistenceNamespace = ModPersistence::HashModNamespace(name, std::strlen(name));
     const isaac::runtime::ModHandle ownerHandle = NextModOwner();
+    if (ownerHandle.index == 0) return luaL_error(state, "mod owner capacity exceeded");
     mod->ownerPacked = PackModOwner(ownerHandle);
     // 批次 418：把 `owner.index` 与模组名的对应关系留下来（读数用；掉帧归因的"落名"）。
     // 只有这一处知道"这个编号是谁" —— 事后再拿清单去对是错的（清单含被禁用的模组）。
@@ -1873,8 +1895,11 @@ void RegisterGameApi(lua_State* state) {
     // 方法表作为闭包的上值 1 带进去，认不出的键原样落回它。
     lua_pushcclosure(state, isaac::runtime::GameIndex, 1);
     lua_setfield(state, -2, "__index");
-    // 批次 061：与 `Level` 同理（同一个实现）—— PC 的 `Game` 字段可写，
-    // 例如 GoodTrip 的 `Game().TimeCounter = Game().TimeCounter + addTime`。
+    // 批次 061：与 `Level` 同理（同一个实现）。★ 2026-10-26（BUG-014）更正：此前这里只是
+    // "**接受并忽略**"，注释举的例子（`Game().TimeCounter = Game().TimeCounter + addTime`）
+    // 其实一直没生效 —— 真机 TimeMachine 的计时补偿就是这么丢的。现在 `TimeCounter` 已是
+    // **真写**（`IgnoredObjectFieldWrite` 里的 `TryWriteGameTimeCounter`），其余没有偏移证据的
+    // 字段仍只记忽略计数（`g_IsaacIgnoredFieldWriteCount` / `g_IsaacLastIgnoredFieldName`）。
     lua_pushcfunction(state, isaac::runtime::IgnoredObjectFieldWrite);
     lua_setfield(state, -2, "__newindex");
     lua_pop(state, 1);
@@ -2341,125 +2366,9 @@ void RegisterDebugLibrary(lua_State* state) {
 // 只实现有据可依、且无害的子集：`clock`/`date`/`difftime`/`getenv`/`setlocale`/`time`。
 // **刻意不提供** `remove`/`rename`/`tmpname`/`exit`：前三个是文件系统写操作（本项目的写通道
 // 尚未打通，给了只会骗调用方），`exit` 会直接把玩家的游戏结束掉。
-int OsClock(lua_State* state) {
-    lua_pushnumber(state, static_cast<lua_Number>(std::clock()) / CLOCKS_PER_SEC);
-    return 1;
-}
-
-// `*t` 形态（`os.date("*t")`）要返回字段表；字段名与顺序照 Lua 5.3 的手册。
-int PushDateTable(lua_State* state, const std::tm& value) {
-    lua_createtable(state, 0, 9);
-    lua_pushinteger(state, value.tm_year + 1900);
-    lua_setfield(state, -2, "year");
-    lua_pushinteger(state, value.tm_mon + 1);
-    lua_setfield(state, -2, "month");
-    lua_pushinteger(state, value.tm_mday);
-    lua_setfield(state, -2, "day");
-    lua_pushinteger(state, value.tm_hour);
-    lua_setfield(state, -2, "hour");
-    lua_pushinteger(state, value.tm_min);
-    lua_setfield(state, -2, "min");
-    lua_pushinteger(state, value.tm_sec);
-    lua_setfield(state, -2, "sec");
-    lua_pushinteger(state, value.tm_wday + 1);
-    lua_setfield(state, -2, "wday");
-    lua_pushinteger(state, value.tm_yday + 1);
-    lua_setfield(state, -2, "yday");
-    lua_pushboolean(state, value.tm_isdst > 0);
-    lua_setfield(state, -2, "isdst");
-    return 1;
-}
-
-int OsDate(lua_State* state) {
-    const char* format = luaL_optstring(state, 1, "%c");
-    const std::time_t when = static_cast<std::time_t>(
-        luaL_optinteger(state, 2, static_cast<lua_Integer>(std::time(nullptr))));
-    bool utc = false;
-    if (format[0] == '!') {
-        utc = true;
-        ++format;
-    }
-    std::tm broken{};
-    const bool ok = utc ? gmtime_r(&when, &broken) != nullptr : localtime_r(&when, &broken) != nullptr;
-    if (!ok) {
-        // 设备时钟读不出来时也不能报错：Mod 只是拿不到日期，不该因此整包加载失败。
-        lua_pushliteral(state, "");
-        return 1;
-    }
-    if (std::strcmp(format, "*t") == 0) {
-        return PushDateTable(state, broken);
-    }
-    std::array<char, 256> buffer{};
-    const std::size_t written = std::strftime(buffer.data(), buffer.size(), format, &broken);
-    lua_pushlstring(state, buffer.data(), written);
-    return 1;
-}
-
-int OsTime(lua_State* state) {
-    if (lua_istable(state, 1)) {
-        std::tm broken{};
-        broken.tm_year = static_cast<int>(luaL_checkinteger(state, 1)) - 1900;
-        const char* names[6] = {"month", "day", "hour", "min", "sec", nullptr};
-        int* fields[6] = {&broken.tm_mon, &broken.tm_mday, &broken.tm_hour, &broken.tm_min,
-                          &broken.tm_sec, nullptr};
-        // 表里只给 year 也要能算（Lua 5.3 手册允许省略字段，缺的按 1 月 0 时 0 分 0 秒算）。
-        lua_getfield(state, 1, "year");
-        if (!lua_isnumber(state, -1)) {
-            lua_pop(state, 1);
-            return luaL_error(state, "field 'year' missing in date table");
-        }
-        broken.tm_year = static_cast<int>(lua_tointeger(state, -1)) - 1900;
-        lua_pop(state, 1);
-        for (std::size_t index = 0; names[index] != nullptr; ++index) {
-            lua_getfield(state, 1, names[index]);
-            *fields[index] = lua_isnumber(state, -1) ? static_cast<int>(lua_tointeger(state, -1)) : 0;
-            lua_pop(state, 1);
-        }
-        broken.tm_mon -= 1;  // Lua 的月份从 1 开始，`std::tm` 从 0
-        lua_pushinteger(state, static_cast<lua_Integer>(std::mktime(&broken)));
-        return 1;
-    }
-    lua_pushinteger(state, static_cast<lua_Integer>(std::time(nullptr)));
-    return 1;
-}
-
-int OsDifftime(lua_State* state) {
-    const std::time_t later = static_cast<std::time_t>(luaL_checkinteger(state, 1));
-    const std::time_t earlier = static_cast<std::time_t>(luaL_checkinteger(state, 2));
-    lua_pushnumber(state, static_cast<lua_Number>(std::difftime(later, earlier)));
-    return 1;
-}
-
-int OsGetenv(lua_State* state) {
-    // Switch 上没有进程环境变量。返回 nil 是安全降级（Mod 拿到 nil 会走自己的默认分支）。
-    luaL_checkstring(state, 1);
-    lua_pushnil(state);
-    return 1;
-}
-
-int OsSetlocale(lua_State* state) {
-    // 引擎不做 locale 切换：只认 "C"，并把当前值报回去（与 PC 的调用形状一致）。
-    luaL_optstring(state, 1, "C");
-    lua_pushliteral(state, "C");
-    return 1;
-}
-
-// 把最小 `os` 表挂成全局。由 `PrepareRuntime` 在 Mod 脚本运行前调用一次。
+// os语义直接复用固定Lua5.3.3；原近似实现全文保留在本轮证据归档。
 void RegisterOsLibrary(lua_State* state) {
-    lua_newtable(state);
-    lua_pushcfunction(state, OsClock);
-    lua_setfield(state, -2, "clock");
-    lua_pushcfunction(state, OsDate);
-    lua_setfield(state, -2, "date");
-    lua_pushcfunction(state, OsDifftime);
-    lua_setfield(state, -2, "difftime");
-    lua_pushcfunction(state, OsGetenv);
-    lua_setfield(state, -2, "getenv");
-    lua_pushcfunction(state, OsSetlocale);
-    lua_setfield(state, -2, "setlocale");
-    lua_pushcfunction(state, OsTime);
-    lua_setfield(state, -2, "time");
-    lua_setglobal(state, "os");
+    isaac::runtime::RegisterOsLibrary(state);
 }
 
 void RegisterModApi(lua_State* state) {
@@ -2626,10 +2535,10 @@ bool InstallConsoleControlsMenu(lua_State* state) {
 int PrepareRuntime(lua_State* state) {
     OpenSafeLibraries(state);
 #if !defined(EXL_DIAGNOSTIC_STAGE) || EXL_DIAGNOSTIC_STAGE == 13
-    if (g_Stage13Mode) {
-        g_PreparationStep.store(7, std::memory_order_relaxed);
-        RegisterStage13Require(state);
-    }
+    // 菜单先建空VM、随后逐模组装载时也需要require/include；实际读文件仍由
+    // SetStage13Context发布根和绑定，不能把安装这些全局依赖于首建时已存在模组。
+    g_PreparationStep.store(7, std::memory_order_relaxed);
+    RegisterStage13Require(state);
 #endif
     RegisterModApi(state);
     lua_newtable(state);
@@ -2683,6 +2592,7 @@ int LuaPanicForensics(lua_State* state) {
 // 建立流程的唯一实现：建 Lua 状态并运行 PrepareRuntime；不装额外菜单模组。
 // 成功时把 `g_LuaState`/`g_Ready` 设好（模组随后往同一个状态里追加）。
 LuaInitResult EnsureRuntimeWithMenuInternal() {
+    if (g_ShuttingDownForModReload) return LuaInitResult::ScriptRunFailed;
     if(g_LuaState && !g_Ready.load(std::memory_order_acquire) && isaac::runtime::HasPressurePlateAnimationPins())
         return LuaInitResult::ScriptRunFailed; // 上次关闭清理失败，保留强持状态，不覆盖丢失它。
     if (g_LuaState != nullptr && g_Ready.load(std::memory_order_acquire)) {
@@ -2746,7 +2656,9 @@ LuaInitResult EnsureRuntimeWithMenuInternal() {
     return LuaInitResult::Success;
 }
 
-LuaInitResult InitializeScript(const char* script, std::size_t length, const char* chunkName) {
+LuaInitResult InitializeScript(const char* script, std::size_t length, const char* chunkName,
+                               bool fileSource = false) {
+    if (g_ShuttingDownForModReload) return LuaInitResult::ScriptRunFailed;
     if (script == nullptr || length == 0 || chunkName == nullptr) {
         return LuaInitResult::ScriptLoadFailed;
     }
@@ -2774,7 +2686,8 @@ LuaInitResult InitializeScript(const char* script, std::size_t length, const cha
         return ready;
     }
     lua_State* state = g_LuaState;
-    if (luaL_loadbufferx(state, script, length, chunkName, "t") != LUA_OK) {
+    if ((fileSource ? LoadFileChunk(state, script, length, chunkName)
+                    : luaL_loadbufferx(state, script, length, chunkName, "t")) != LUA_OK) {
         CaptureLuaErrorTop(state);
         lua_pop(state, 1);
         return ResetAfterFailure(state, LuaInitResult::ScriptLoadFailed);
@@ -3188,6 +3101,10 @@ std::uintptr_t InputIsActionPressedThunk() noexcept {
     return g_InputIsActionPressed.load(std::memory_order_acquire) == 0
                ? 0
                : isaac::runtime::engine_call::AddressOfFunction(&RawInputActionPressedShell);
+}
+
+std::uintptr_t InputIsActionPressedBinding() noexcept {
+    return g_InputIsActionPressed.load(std::memory_order_acquire);
 }
 
 // 批次 417（2026-10-08）：Lua 状态自己的内存占用（字节）。
@@ -3795,6 +3712,7 @@ LuaInitResult InitializeFromBuffer(const char* script, std::size_t length, const
 LuaInitResult InitializeManifestMod(const char* entry, std::size_t entryLength,
                                     const char* chunkName, const char* modRoot,
                                     const GameFileReader::Bindings& bindings) {
+    if (g_ShuttingDownForModReload) return LuaInitResult::ScriptRunFailed;
     g_RequireFailureDetail.store(0, std::memory_order_release);
     g_RequireErrorTail.store(0, std::memory_order_release);
     g_RequireFirstFailureCode.store(0, std::memory_order_release);
@@ -3830,7 +3748,7 @@ LuaInitResult InitializeManifestMod(const char* entry, std::size_t entryLength,
     // `docs/问题与解决记录.md`，后续要做"按调用者所在 chunk 解析"才能彻底对齐 PC。
     if (g_LuaState != nullptr && g_Ready.load(std::memory_order_acquire)) {
         lua_State* state = g_LuaState;
-        if (luaL_loadbufferx(state, entry, entryLength, chunkName, "t") != LUA_OK) {
+        if (LoadFileChunk(state, entry, entryLength, chunkName) != LUA_OK) {
             CaptureLuaErrorTop(state);
             lua_pop(state, 1);
             RecordRequireFailure(22);
@@ -3847,7 +3765,7 @@ LuaInitResult InitializeManifestMod(const char* entry, std::size_t entryLength,
     g_Ready.store(false, std::memory_order_release);
     g_CallbackError.store(false, std::memory_order_release);
     g_PostUpdateCount.store(0, std::memory_order_release);
-    const LuaInitResult result = InitializeScript(entry, entryLength, chunkName);
+    const LuaInitResult result = InitializeScript(entry, entryLength, chunkName, true);
     if (result != LuaInitResult::Success) {
         ResetStage13Context();
     } else if (!InstallConsoleControlsMenu(g_LuaState)) {
@@ -3881,6 +3799,15 @@ u32 PreparationFailureDetail() {
     const u32 step = g_PreparationStep.load(std::memory_order_acquire);
     const u32 status = g_PreparationStatus.load(std::memory_order_acquire);
     return (step << 8) | (status & 0xFF);
+}
+
+bool DebugConsoleEnabled() noexcept {
+    return isaac::runtime::console::ConsoleSwitchEnabled();
+}
+
+void SetDebugConsoleEnabled(bool enabled) noexcept {
+    if (isaac::runtime::console::ConsoleSwitchEnabled() != enabled)
+        isaac::runtime::console::RequestConsoleSwitchWrite(enabled);
 }
 
 void SetGameBindings(uintptr_t ownerSlot, uintptr_t isPausedThunk) {
@@ -4036,6 +3963,11 @@ void SetFontBindings(const LuaFontBindings& bindings) {
                                std::memory_order_release);
     g_FontDrawStringScaledUTF8.store(isaac::runtime::engine_call::AddressOfFunction(bindings.drawStringScaledUTF8),
                                      std::memory_order_release);
+    g_FontBindingGeneration.fetch_add(1, std::memory_order_release);
+}
+
+std::uint64_t FontBindingGeneration() noexcept {
+    return g_FontBindingGeneration.load(std::memory_order_acquire);
 }
 
 void SetSpriteBindings(const LuaSpriteBindings& bindings) {
@@ -4635,11 +4567,32 @@ namespace {
 // （`runtime/tests/test_manager_update_hook_audit.py::test_runtime_source_contains_no_bool_atomics`
 // 做的是纯字符串匹配，所以这里连写法都不能照抄）。
 std::atomic<std::uint32_t> g_PendingGameStarted{0};
+isaac::runtime::ManagedUpdateSnapshot g_LastManagedUpdate{};
+bool g_HasManagedUpdate{};
+
+// 两个明确相关的派发入口复用同一窗口，嵌套GAME_STARTED不清空外层缓存。
+class ManagedEngineDispatchScope final {
+public:
+    ManagedEngineDispatchScope() noexcept
+        : owns_(isaac::runtime::EngineGuardDispatchActive().load(std::memory_order_acquire) == 0) {
+        if (owns_) isaac::runtime::EngineGuardEnterDispatch();
+    }
+    ~ManagedEngineDispatchScope() noexcept {
+        if (owns_) isaac::runtime::EngineGuardLeaveDispatch();
+    }
+    ManagedEngineDispatchScope(const ManagedEngineDispatchScope&) = delete;
+    ManagedEngineDispatchScope& operator=(const ManagedEngineDispatchScope&) = delete;
+private:
+    bool owns_;
+};
+
 constexpr std::uint32_t kGameStartedFromSave = 1;
 constexpr std::uint32_t kGameStartedFresh = 2;
 }  // namespace
 
 void NoteGameStarted(bool isSave) noexcept {
+    g_HasManagedUpdate = false;
+    g_LastManagedUpdate = {};
     isaac::runtime::console::InvalidateConsoleSession();
     g_PendingGameStarted.store(isSave ? kGameStartedFromSave : kGameStartedFresh,
                                std::memory_order_release);
@@ -4653,7 +4606,7 @@ bool DispatchPostGameStarted(bool isSave) {
         !isaac::runtime::ShouldDispatchManagedCallbacks()) {
         return false;
     }
-    isaac::runtime::EngineGuardEnterDispatch();
+    const ManagedEngineDispatchScope dispatchScope;
     // ★ 2026-10-07（批次 388-fix）：`IsContinued` 必须压 **布尔** —— 老式写法
     //   `LuaCallbackInvoker{0,false,false, isSave?1:0, true}` 走 `AddInteger`，
     //   而 Lua 里 `0` 是 truthy ⇒ 新开局时模组判 `if isContinued then` 会走成"继续存档"。
@@ -4662,7 +4615,6 @@ bool DispatchPostGameStarted(bool isSave) {
     isaac::runtime::CallbackDispatcher dispatcher{g_CallbackRegistry, invoker};
     static_cast<void>(dispatcher.Dispatch(isaac::runtime::kCallbackPostGameStarted,
                                           isaac::runtime::ThreadAffinity::Any));
-    isaac::runtime::EngineGuardLeaveDispatch();
     return true;
 }
 
@@ -4752,6 +4704,8 @@ struct FrameEventState {
 };
 
 FrameEventState g_FrameEventState{};
+// 原生Init已经接管时，扫描只建立开局/玩家账本，不重复补发初始化。
+bool g_NativePlayerInitObserved{};
 
 //: 本层"起始房间"的记账（批次 106）。与 `g_FrameEventState` 同一条约定：只有游戏线程的派发路径
 //: 读写它，所以是普通全局、不是原子。读数工具不读它（它只有 API 层按需取值）。
@@ -4831,7 +4785,7 @@ RegisteredCallbackMask BuildRegisteredCallbackMask() noexcept {
            mask.Has(isaac::runtime::kCallbackPostPlayerUpdate) || mask.Has(isaac::runtime::kCallbackPostPlayerRender) ||
            mask.Has(isaac::runtime::kCallbackPostPickupRender) || mask.Has(isaac::runtime::kCallbackPostTearInit) ||
            mask.Has(isaac::runtime::kCallbackPostTearUpdate) || mask.Has(isaac::runtime::kCallbackPostTearRender) ||
-           mask.Has(isaac::runtime::kCallbackPostProjectileInit) || mask.Has(isaac::runtime::kCallbackPostProjectileUpdate) ||
+           mask.Has(isaac::runtime::kCallbackPostProjectileInit) ||
            mask.Has(isaac::runtime::kCallbackPostProjectileRender) || mask.Has(isaac::runtime::kCallbackPostLaserInit) ||
            mask.Has(isaac::runtime::kCallbackPostLaserUpdate) || mask.Has(isaac::runtime::kCallbackPostLaserRender) ||
            mask.Has(isaac::runtime::kCallbackPostKnifeInit) || mask.Has(isaac::runtime::kCallbackPostKnifeUpdate) ||
@@ -4938,20 +4892,7 @@ void DispatchTearEntityEvents(EntityEventScan* scan, std::uintptr_t entity,
 
 void DispatchProjectileEntityEvents(EntityEventScan* scan, std::uintptr_t entity,
                              std::int64_t filter) noexcept {
-    if (!scan->renderPhase && scan->registered.Has(isaac::runtime::kCallbackPostProjectileInit) &&
-        NoteNewEntity(g_FrameEventState.seenProjectiles, kSeenProjectileCapacity,
-                      &g_FrameEventState.seenProjectileCount, entity)) {
-        LuaCallbackInvoker invoker = LuaCallbackInvoker::ForEntity(entity);
-        isaac::runtime::CallbackDispatcher dispatcher{g_CallbackRegistry, invoker};
-        static_cast<void>(dispatcher.DispatchFiltered(isaac::runtime::kCallbackPostProjectileInit,
-                                              isaac::runtime::ThreadAffinity::Any, filter));
-    }
-    if (!scan->renderPhase && scan->registered.Has(isaac::runtime::kCallbackPostProjectileUpdate)) {
-        LuaCallbackInvoker invoker = LuaCallbackInvoker::ForEntity(entity);
-        isaac::runtime::CallbackDispatcher dispatcher{g_CallbackRegistry, invoker};
-        static_cast<void>(dispatcher.DispatchFiltered(isaac::runtime::kCallbackPostProjectileUpdate,
-                                              isaac::runtime::ThreadAffinity::Any, filter));
-    }
+    // 44号由真实Projectile.Update正常完成尾部派发，不能随Manager/渲染循环扫描。
     if (scan->renderPhase && scan->registered.Has(isaac::runtime::kCallbackPostProjectileRender)) {
         LuaCallbackInvoker invoker = LuaCallbackInvoker::ForEntityWithVector(
             entity, scan->renderOffsetX, scan->renderOffsetY);
@@ -5091,6 +5032,7 @@ void DispatchPlayerInitialization(EntityEventScan* scan, std::uintptr_t entity,
     if (!scan->renderPhase && scan->registered.Has(isaac::runtime::kCallbackPostPlayerInit) &&
         NoteNewEntity(g_FrameEventState.seenPlayers, kSeenPlayerCapacity,
                       &g_FrameEventState.seenPlayerCount, entity)) {
+        if (g_NativePlayerInitObserved) return;
         LuaCallbackInvoker invoker = LuaCallbackInvoker::ForEntity(entity);
         isaac::runtime::CallbackDispatcher dispatcher{g_CallbackRegistry, invoker};
         static_cast<void>(dispatcher.DispatchFiltered(isaac::runtime::kCallbackPostPlayerInit,
@@ -5333,16 +5275,14 @@ void DispatchFrameEvents(bool initialOnly = false) {
 }
 
 void DispatchPostUpdate() {
-    if (isaac::runtime::console::ConsolePaused()) return;
-    if (!IsReady() || g_LuaState == nullptr ||
-        !isaac::runtime::ShouldDispatchManagedCallbacks()) {
-        return;
-    }
+    if (!IsReady() || g_LuaState == nullptr) return;
+    const ManagedEngineDispatchScope dispatchScope;
+    if (isaac::runtime::console::ConsolePaused() ||
+        !isaac::runtime::ShouldDispatchManagedCallbacks()) return;
     // 2026-10-16更正：PC在PLAYER_INIT、NEW_ROOM、NEW_LEVEL之后才发GAME_STARTED。
     // 旧顺序原文保存在callback-order-fix/lua_runtime.cpp.before，不能再让作者自行补初始化。
     if (const std::uint32_t pending = g_PendingGameStarted.load(std::memory_order_acquire);
         pending != 0) {
-        isaac::runtime::EngineGuardEnterDispatch();
         if (g_FrameEventState.preparedGameStartKind != pending) {
             ResetLevelStartRoomTracker();
             g_FrameEventState.roomKnown = 0;
@@ -5356,27 +5296,27 @@ void DispatchPostUpdate() {
         if (initialPlayers.registered.Has(isaac::runtime::kCallbackPostPlayerInit)) {
             isaac::runtime::VisitPlayerEntities(&OnInitialPlayerEvent, &initialPlayers);
             if (g_FrameEventState.seenPlayerCount == 0) {
-                isaac::runtime::EngineGuardLeaveDispatch();
                 return;
             }
         }
         DispatchFrameEvents(true);
         const bool initialRoomReady = g_FrameEventState.initialRoomPending == 0;
-        isaac::runtime::EngineGuardLeaveDispatch();
         if (!initialRoomReady || !DispatchPostGameStarted(pending == kGameStartedFromSave)) {
             return;
         }
         g_PendingGameStarted.store(0, std::memory_order_release);
         g_FrameEventState.preparedGameStartKind = 0;
     }
-    // 引擎内存可读性缓存只在派发期间有效（见 `engine_memory_guard.hpp`）：游戏线程正在执行
-    // 我们的 Lua，这段时间里没有东西会改页表，所以这一层缓存不可能读到过期结论；
-    // 出了派发就关闭，任何非派发路径仍然每次都做真正的 `svcQueryMemory`。
-    //
-    // 每帧事件与 POST_UPDATE 共用**同一个**窗口（2026-09-18）：两者都发生在本帧这一个派发时机里，
-    // 分成两段进入/退出只会让每帧多两次往返。口径没变 —— `Isaac.GetFrameCount()` 唯一的累加点
-    // 仍是下面那次 `Dispatch(kCallbackPostUpdate, …)`，没有登记 POST_UPDATE 时它照旧不推进。
-    isaac::runtime::EngineGuardEnterDispatch();
+    // 一次性初始化保持原次序；普通更新只认领当前Game的一个原生simulation帧。
+    isaac::runtime::ManagedUpdateSnapshot snapshot{};
+    if (!isaac::runtime::ShouldDispatchManagedUpdates(&snapshot)) return;
+    if (snapshot.game != 0) {
+        if (g_HasManagedUpdate && snapshot.game == g_LastManagedUpdate.game &&
+            snapshot.frame == g_LastManagedUpdate.frame) return;
+        // 进入任何Lua前认领；同步重入不能再次派发同一帧。
+        g_LastManagedUpdate = snapshot;
+        g_HasManagedUpdate = true;
+    }
     if (isaac::runtime::BuiltinCallbackEnabled(isaac::runtime::kCallbackPostUpdate)) {
         LuaCallbackInvoker invoker{0, false, true};
         isaac::runtime::CallbackDispatcher dispatcher{g_CallbackRegistry, invoker};
@@ -5384,7 +5324,21 @@ void DispatchPostUpdate() {
                                               isaac::runtime::ThreadAffinity::Any));
     }
     DispatchFrameEvents();
-    isaac::runtime::EngineGuardLeaveDispatch();
+}
+
+void DispatchNativePlayerInit(std::uintptr_t player) noexcept {
+    if (!IsReady() || g_LuaState == nullptr || player == 0) return;
+    const ManagedEngineDispatchScope dispatchScope;
+    std::int64_t variant{};
+    if (isaac::runtime::ClassifyCallbackEntity(player, &variant) !=
+        isaac::runtime::CallbackEntityClass::Player) return;
+    g_NativePlayerInitObserved = true;
+    if (!isaac::runtime::BuiltinCallbackEnabled(isaac::runtime::kCallbackPostPlayerInit)) return;
+    // 每次真正Init都是新生命周期；同地址重建不能靠旧指针集合去重。
+    LuaCallbackInvoker invoker = LuaCallbackInvoker::ForEntity(player);
+    isaac::runtime::CallbackDispatcher dispatcher{g_CallbackRegistry, invoker};
+    static_cast<void>(dispatcher.DispatchFiltered(isaac::runtime::kCallbackPostPlayerInit,
+                                                   isaac::runtime::ThreadAffinity::Any, variant));
 }
 
 void DispatchPostRender(uintptr_t manager) {
@@ -5502,6 +5456,7 @@ struct UseItemResultContext {
     LuaCallbackInvoker* invoker;
     isaac::runtime::UseItemCallbackResult result{};
     std::uintptr_t player{};std::int32_t item{},flags{};
+    bool nativeBoundary{},animationAllowed{true};std::uint64_t nativeResult{};
 };
 int CollectUseItemResult(lua_State* state){
     auto* context=static_cast<UseItemResultContext*>(lua_touserdata(state,1));
@@ -5520,27 +5475,42 @@ int CollectUseItemResult(lua_State* state){
         lua_pop(state,1);
         lua_getfield(state,2,"ShowAnim");context->result.showAnimation=lua_toboolean(state,-1)!=0;lua_pop(state,1);
     }else context->result.showAnimation=outcome.anyTruthy;
-    if(context->result.showAnimation&&!(context->flags&1))
+    if(context->result.showAnimation&&!(context->flags&1)&&context->animationAllowed)
         isaac::runtime::ApplyUseItemCallbackAnimation(state,context->player,context->item);
+    if(context->nativeBoundary&&(context->flags&64)&&(context->result.Apply(context->nativeResult)&0x100U)){
+        isaac::runtime::ApplyUseItemNativeRemoval(state,context->player,context->item);
+        context->result.hasRemove=true;context->result.remove=false;
+    }
     return 0;
 }
 }
-isaac::runtime::UseItemCallbackResult DispatchUseItem(std::uintptr_t player, std::int32_t collectibleType,
-    std::int32_t useFlags,std::int32_t activeSlot,std::int32_t customVarData){
+static isaac::runtime::UseItemCallbackResult DispatchUseItemImpl(std::uintptr_t player, std::int32_t collectibleType,
+    std::int32_t useFlags,std::int32_t activeSlot,std::int32_t customVarData,
+    bool nativeBoundary,std::uint64_t nativeResult,bool animationAllowed){
     if(!IsReady()||!g_LuaState||!isaac::runtime::ShouldDispatchManagedCallbacks()||
-       !isaac::runtime::BuiltinCallbackEnabled(isaac::runtime::kCallbackUseItem))return {};
+       (!isaac::runtime::BuiltinCallbackEnabled(isaac::runtime::kCallbackUseItem)&&
+        !(nativeBoundary&&(useFlags&64)&&(nativeResult&0x100U))))return {};
     if(!lua_checkstack(g_LuaState,4)){g_CallbackError.store(true,std::memory_order_release);return {};}
     isaac::runtime::EngineGuardEnterDispatch();
     LuaCallbackInvoker invoker{0,false,false};
     invoker.arguments.AddInteger(collectibleType);invoker.arguments.AddCollectibleRng(player,collectibleType);
     AddPlayerArgument(&invoker.arguments,player);invoker.arguments.AddInteger(useFlags);
     invoker.arguments.AddInteger(activeSlot);invoker.arguments.AddInteger(customVarData);
-    UseItemResultContext context{&invoker,{},player,collectibleType,useFlags};
+    UseItemResultContext context{&invoker,{},player,collectibleType,useFlags,nativeBoundary,animationAllowed,nativeResult};
     const int top=lua_gettop(g_LuaState);const auto owner=g_ErrorContextOwner;
     lua_pushcfunction(g_LuaState,CollectUseItemResult);lua_pushlightuserdata(g_LuaState,&context);
     if(lua_pcall(g_LuaState,1,0,0)!=LUA_OK){CaptureLuaErrorTop(g_LuaState);g_CallbackError.store(true,std::memory_order_release);}
     lua_settop(g_LuaState,top);g_ErrorContextOwner=owner;
     isaac::runtime::EngineGuardLeaveDispatch();return context.result;
+}
+
+isaac::runtime::UseItemCallbackResult DispatchUseItem(std::uintptr_t player,std::int32_t item,
+    std::int32_t flags,std::int32_t slot,std::int32_t custom){
+    return DispatchUseItemImpl(player,item,flags,slot,custom,false,0,true);
+}
+isaac::runtime::UseItemCallbackResult DispatchUseItemAtNativeBoundary(std::uintptr_t player,std::int32_t item,
+    std::int32_t flags,std::int32_t slot,std::int32_t custom,std::uint64_t nativeResult,bool animationAllowed){
+    return DispatchUseItemImpl(player,item,flags,slot,custom,true,nativeResult,animationAllowed);
 }
 
 void DispatchUseCard(std::uintptr_t player, std::int32_t card, std::int32_t useFlags) {
@@ -5623,6 +5593,26 @@ bool DispatchPrePickupCollision(std::uintptr_t pickup, std::uintptr_t collider, 
                                 std::int32_t pickupVariant) {
     return DispatchPreEntityCollision(isaac::runtime::kCallbackPrePickupCollision, pickup,
         collider, low, pickupVariant) != CollisionOverride::Continue;
+}
+
+static void DispatchProjectileNativeEvent(std::uint32_t id,std::uintptr_t projectile) {
+    if (!IsReady() || g_LuaState == nullptr || !isaac::runtime::BuiltinCallbackEnabled(id) ||
+        !isaac::runtime::ShouldDispatchManagedCallbacks()) return;
+    std::uint32_t type{},variant{};
+    if (!isaac::runtime::ReadEntityIdentity(projectile,&type,&variant) || type!=9) return;
+    isaac::runtime::EngineGuardEnterDispatch();
+    auto invoker=LuaCallbackInvoker::ForEntity(projectile);
+    isaac::runtime::CallbackDispatcher dispatcher{g_CallbackRegistry,invoker};
+    static_cast<void>(dispatcher.DispatchFiltered(id,
+        isaac::runtime::ThreadAffinity::Any,variant));
+    isaac::runtime::EngineGuardLeaveDispatch();
+}
+
+void DispatchPostProjectileInit(std::uintptr_t projectile) {
+    DispatchProjectileNativeEvent(isaac::runtime::kCallbackPostProjectileInit,projectile);
+}
+void DispatchPostProjectileUpdate(std::uintptr_t projectile) {
+    DispatchProjectileNativeEvent(isaac::runtime::kCallbackPostProjectileUpdate,projectile);
 }
 
 void DispatchPostNpcRender(std::uintptr_t npc, const void* renderOffset) {
@@ -5892,9 +5882,9 @@ std::uint64_t DispatchPostGetCollectible(void* itemPool, std::uint32_t itemPoolT
 //   `RawEngineInputQueryScope`（中继见标记直接走原函数，见 `hook_manager.cpp` 那三个壳）；
 //   ② 下面这道重入守卫只管"派发正在进行中"这一种情形（例如模组的处理器里再问输入）。
 InputActionOutcome DispatchInputAction(std::uint32_t action, std::uint32_t controllerIndex,
-                                       std::int32_t inputHook) {
+                                       std::int32_t inputHook, std::uintptr_t entity) {
     InputActionOutcome outcome{};
-    static_cast<void>(controllerIndex);  // 目前不参与，理由见 `lua_runtime.hpp` 的声明处
+    static_cast<void>(controllerIndex);  // PC回调不暴露此参数，真实Entity由原生独立提供。
     if (!IsReady() || g_LuaState == nullptr ||
         !isaac::runtime::ShouldDispatchManagedCallbacks()) {
         return outcome;
@@ -5909,12 +5899,9 @@ InputActionOutcome DispatchInputAction(std::uint32_t action, std::uint32_t contr
     isaac::runtime::EngineGuardEnterDispatch();
     LuaCallbackInvoker invoker{0, false, false};
     // PC 签名：`(Entity, InputHook, ButtonAction)`。
-    // ★ 我们对 `entity` 是**近似**：PC 是"正在请求输入的那个实体"（可能是 `nil`、也可能是
-    //   被 Friend Finder 控制的实体），我们只能给**当前玩家**；拿不到就给 `nil`（PC 也允许 nil）。
-    //   语料里两个消费者（minimapi / MCM）都写 `if entity and ...` ⇒ 给 nil 会让它们**整段不生效**。
-    const std::uintptr_t player = isaac::runtime::ResolveEnginePlayerAt(0);
-    if (player != 0) {
-        invoker.arguments.AddEntity(player);
+    // 真实nil/玩家/受控实体，保留原调用者上下文，不把界面输入伪装成玩家0。
+    if (entity != 0) {
+        invoker.arguments.AddEntity(entity);
     } else {
         invoker.arguments.AddNil();
     }
@@ -6592,6 +6579,115 @@ bool UnloadManifestMods() noexcept {
     lua_settop(g_LuaState,top);s_UnloadingManifestMods=false;
     return success;
 }
+
+bool ShutdownForModReload() noexcept {
+    // 先确认线程，再读Lua栈；没有VM时重复调用不需要触碰任何Lua对象。
+    if (!g_LuaState && !g_ShuttingDownForModReload) return true;
+    if (!IsOnGameThread()) {
+        constexpr char error[] = "mod reload shutdown requires the observed game thread";
+        RecordLuaErrorText(error,sizeof(error)-1);return false;
+    }
+    lua_Debug frame{};
+    if (g_ShuttingDownForModReload || s_UnloadingManifestMods ||
+        InManagedCallbackScope() || g_ActiveCallbackBatch || g_CardRngScopes.top ||
+        lua_getstack(g_LuaState,0,&frame)) {
+        constexpr char error[] = "mod reload shutdown rejected while Lua is executing";
+        RecordLuaErrorText(error,sizeof(error)-1);return false;
+    }
+    g_ShuttingDownForModReload = true;
+    if (!UnloadManifestMods()) {
+        g_ShuttingDownForModReload = false;
+        return false; // 正常卸载的错误与可重试对象仍由原VM持有，不进入失败清理。
+    }
+    lua_State* state = g_LuaState;
+    if (isaac::runtime::HasPressurePlateAnimationPins()) {
+        const int top = lua_gettop(state);
+        if (!lua_checkstack(state,1)) {
+            constexpr char error[] = "mod reload shutdown cannot reserve cleanup stack";
+            RecordLuaErrorText(error,sizeof(error)-1);
+            g_ShuttingDownForModReload = false;return false;
+        }
+        lua_pushcfunction(state,RestoreAllPressurePinsProtected);
+        const int result = lua_pcall(state,0,0,0);
+        if (result != LUA_OK) {
+            CaptureLuaErrorTop(state);lua_settop(state,top);
+            g_CallbackError.store(true,std::memory_order_release);
+            g_ShuttingDownForModReload = false;return false;
+        }
+        lua_settop(state,top);
+    }
+    g_Ready.store(false,std::memory_order_release);
+    // lua_close负责完整运行Font/Sprite和其它userdata终结器；绑定仍须有效。
+    isaac::runtime::ResetEntityLifetimeState();
+    lua_close(state);
+    g_LuaState = nullptr;
+    // 用户终结器可能再次访问过GetData，关闭之后再解除一次外部缓存。
+    isaac::runtime::ResetEntityLifetimeState();
+    g_CallbackRegistry.Reset();
+    isaac::runtime::ResetCallbackRuntimeState();
+    ResetCallbackRegistrationCensus();
+    g_ModRegistered = false;
+    g_ModRegisteredCount.store(0,std::memory_order_relaxed);
+    g_NextModOwnerIndex.store(2,std::memory_order_relaxed);
+    std::memset(g_ModOwnerNames,0,sizeof(g_ModOwnerNames));
+    g_LoadingModRoot = "";
+#if !defined(EXL_DIAGNOSTIC_STAGE) || EXL_DIAGNOSTIC_STAGE == 13
+    ResetStage13Context();
+    SetRequireCurrentModule(nullptr,0);
+    g_RequireFailureDetail.store(0,std::memory_order_relaxed);
+    g_RequireErrorTail.store(0,std::memory_order_relaxed);
+#endif
+    g_RequireFirstFailureCode.store(0,std::memory_order_relaxed);
+    g_RequireFirstFailureName.store(0,std::memory_order_relaxed);
+    g_RequireLastFailureCode.store(0,std::memory_order_relaxed);
+    g_RequireLastFailureName.store(0,std::memory_order_relaxed);
+    g_RequireFailureTotal.store(0,std::memory_order_relaxed);
+    g_PendingGameStarted.store(0,std::memory_order_release);
+    g_FrameEventState = {};
+    g_NativePlayerInitObserved = false;
+    ResetLevelStartRoomTracker();
+    g_CurrentCallbackManager.store(0,std::memory_order_release);
+    g_InManagedCallbackDispatch.store(false,std::memory_order_release);
+    g_InPreGetCollectibleDispatch = false;
+    g_InPostEntityKillDispatch = false;
+    g_CardRngScopes = {};
+    g_ErrorContextOwner = 0;
+    g_ErrorContextCallbackId = isaac::runtime::kNoCallbackDispatched;
+    g_PreparationStep.store(0,std::memory_order_relaxed);
+    g_PreparationStatus.store(0,std::memory_order_relaxed);
+    g_PostUpdateCount.store(0,std::memory_order_relaxed);
+    g_CallbackError.store(false,std::memory_order_release);
+#if defined(EXL_PERSISTENCE_TRACE) || defined(EXL_PERSISTENCE_EVENT_DIAGNOSTIC)
+    g_CallbackOperation.store(static_cast<u8>(CallbackOperation::None),std::memory_order_relaxed);
+    g_CallbackFailureDetail.store(0,std::memory_order_relaxed);
+#endif
+#if defined(EXL_DIAGNOSTIC_STAGE) && EXL_DIAGNOSTIC_STAGE == 15
+    g_PostRenderCount.store(0,std::memory_order_relaxed);
+    g_PostRenderPausedCount.store(0,std::memory_order_relaxed);
+#endif
+#if defined(EXL_DIAGNOSTIC_STAGE) && (EXL_DIAGNOSTIC_STAGE == 16 || EXL_DIAGNOSTIC_STAGE == 17)
+    g_MusicDiagnosticCycleCompleted.store(false,std::memory_order_relaxed);
+#endif
+#if defined(EXL_DIAGNOSTIC_STAGE) && EXL_DIAGNOSTIC_STAGE == 45
+    g_MusicDiagnosticCurrentIdReady.store(false,std::memory_order_relaxed);
+    g_MusicDiagnosticCurrentId.store(0,std::memory_order_relaxed);
+#endif
+    g_MusicResolveFailure.store(0,std::memory_order_relaxed);
+    g_fontLastGcFrame = 0;
+    g_fontGcProductive = true;
+    g_fontLastUnproductiveAllocation = 0;
+    g_fontDestructionsAtCycleStart = 0;
+    // Owner编号会重用，旧代的按owner计时桶不能落到新模组名上。
+    for (auto& bucket : g_RuntimePerfCallbackBuckets) bucket = {};
+    g_RuntimePerfBucketOverflow = 0;
+    g_ProfileSessionStarted = false;
+    ResetRuntimePerfProfile();
+    g_ShuttingDownForModReload = false;
+    return true;
+}
+bool ClosingForModReload() noexcept {
+    return g_ShuttingDownForModReload && !g_Ready.load(std::memory_order_acquire);
+}
 }
 
 #include "console_callback_hook.hpp"
@@ -6625,7 +6721,7 @@ int ReloadConsoleMod(lua_State* state){
        reinterpret_cast<u8*>(g_Stage13RequireSource.data()),g_Stage13RequireSource.size(),&length)!=GameFileReader::TextReadResult::Success)
         return luaL_error(state,"luamod cannot read %s",path.data());
     std::array<char,kStage13RequirePathCapacity+1> chunk{};chunk[0]='@';std::memcpy(chunk.data()+1,path.data(),static_cast<std::size_t>(n)+1);
-    if(luaL_loadbufferx(state,g_Stage13RequireSource.data(),length,chunk.data(),"t")!=LUA_OK)return lua_error(state);
+    if(LoadFileChunk(state,g_Stage13RequireSource.data(),length,chunk.data())!=LUA_OK)return lua_error(state);
     const int function=lua_gettop(state);
     // 所有可抛Lua错误的卸载/缓存/入口执行放在内层保护内，之后始终恢复原装载上下文。
     const auto previousRoot=g_Stage13ModRoot;const auto previousBindings=g_Stage13Bindings;

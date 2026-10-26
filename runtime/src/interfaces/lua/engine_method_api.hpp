@@ -157,7 +157,9 @@ enum class EngineCallShape : std::uint8_t {
     //: `SpawnGridEntity(index, GridEntityType.GRID_WALL, 0, 1, 0)`）⇒ 全部必填。
     //: 引擎符号 `_ZN15IsaacRepentance4Room15SpawnGridEntityEiNS_15eGridEntityTypeEjji`
     //: ⇒ 5 个整数参数（第 3/4 个是 `uint`，ABI 上仍是 `x` 寄存器）。
-    VoidIntIntIntIntInt = 22,
+// ★ 2026-10-23更正：非模板函数mangled名称通常不包含返回类型，不能由其缺失断言void。
+// NRO0x4525CC/0x45263C明确返回0/1，PC0x7AAA5C返回true；本入口保留原生bool。
+    BoolIntIntIntIntInt = 22,
     //: 23 `void(this, i32, bool, i32, bool)`，**尾部 3 个可省** —— 批次 252：
     //: `EntityPlayer:RemoveCollectible(CollectibleType, boolean, ActiveSlot, boolean)`
     //: （PC 契约 `EntityPlayer.md:1588`）。
@@ -351,6 +353,8 @@ enum class EngineArgKind : std::uint8_t {
     //:   这一个表达能力 ⇒ 补进机制比手写划算（手写 ≈ 190 字节代码，机制只多一个枚举值 + 几行）。
     FloatDefaultOne = 5,
     Seed = 6, // 字符串走原生String2Seed；数字直接保留原整数ABI。
+    IntOrZero = 7, // PC脚本 value or 0：nil/false为0，其余保持整数校验。
+    BoolDefaultTrue = 8, // PC脚本 value ~= false：只有布尔false为假，nil/省略为真。
 };
 
 //: 返回值怎么解释（跳板把 `x0` 与 `d0` 都回填，这里只说读哪一个）。
@@ -415,6 +419,7 @@ struct EngineCallShapeRow {
 
     //: 这一行是不是"静态调用"（没有 `this`）—— 见上面 `reserved[0]` 那段。
     [[nodiscard]] constexpr bool staticCall() const noexcept { return reserved[0] != 0U; }
+    [[nodiscard]] constexpr bool ignoresExtraArguments() const noexcept { return reserved[1] != 0; }
 };
 
 static_assert(sizeof(EngineCallShapeRow) == 16,

@@ -2,6 +2,8 @@
 
 #include <array>
 #include <cstring>
+#include <memory>
+#include <new>
 
 namespace isaac::runtime {
 
@@ -35,26 +37,31 @@ std::string_view LeafName(std::string_view path) noexcept {
 } // namespace
 
 Status ModToggleService::Load() noexcept {
-    std::array<char, kModToggleStateMaximumBytes> buffer{};
+    std::unique_ptr<char[]> buffer(new (std::nothrow) char[kModToggleStateMaximumBytes]);
+    if (!buffer) return Status{StatusCode::IoFailure};
     std::size_t size = 0;
-    const Status read = files_.Read(kModToggleStateFileName, buffer.data(), buffer.size(), &size);
+    const Status read = files_.Read(kModToggleStateFileName, buffer.get(), kModToggleStateMaximumBytes, &size);
     if (read.code() == StatusCode::NotFound) {
-        state_ = ModToggleState{};   // 第一次运行：没有状态就是"全都开着"
+        state_.disabled.fill({}); state_.disabledCount = 0; // 第一次运行：全都开着
+        ++revision_;
         return Status::Ok();
     }
     if (!read.ok()) {
         return read;
     }
-    return state_.Parse(std::string_view(buffer.data(), size));
+    if (size > kModToggleStateMaximumBytes) return Status{StatusCode::Corrupted};
+    ++revision_; // Parse失败也可能清理部分状态，读面必须重新计算。
+    return state_.Parse(std::string_view(buffer.get(), size));
 }
 
 Status ModToggleService::Save() noexcept {
-    std::array<char, kModToggleStateMaximumBytes> buffer{};
-    const std::size_t size = state_.Serialize(buffer.data(), buffer.size());
+    std::unique_ptr<char[]> buffer(new (std::nothrow) char[kModToggleStateMaximumBytes]);
+    if (!buffer) return Status{StatusCode::IoFailure};
+    const std::size_t size = state_.Serialize(buffer.get(), kModToggleStateMaximumBytes);
     if (size == 0) {
         return Status{StatusCode::CapacityExceeded};
     }
-    return files_.Write(kModToggleStateFileName, std::string_view(buffer.data(), size));
+    return files_.Write(kModToggleStateFileName, std::string_view(buffer.get(), size));
 }
 
 bool ModToggleService::HasUserDisableMarker(const char* modRoot) noexcept {
@@ -95,6 +102,7 @@ std::size_t ModToggleService::ApplyToBatch(ResolvedManifestModBatch* batch) noex
     });
     g_ModTogglePrunedEntries.fetch_add(static_cast<std::uint32_t>(pruned),
                                        std::memory_order_relaxed);
+    if (pruned) ++revision_;
     std::size_t kept = 0;
     std::size_t removed = 0;
     for (std::size_t index = 0; index < batch->count; ++index) {

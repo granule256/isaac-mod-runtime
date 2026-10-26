@@ -24,3 +24,5 @@ namespace isaac::runtime{int Api700GameShowFortune(lua_State*);int Api700GameSho
 namespace isaac::runtime{int Api700IsaacScreenToWorldDistance(lua_State*);int Api700IsaacGetScreenPointScale(lua_State*);}
 
 namespace isaac::runtime{int Api700GameSpawnEntityDesc(lua_State*);}
+
+namespace isaac::runtime {int Api700RoomGetEnemyDamageInflicted(lua_State*);}

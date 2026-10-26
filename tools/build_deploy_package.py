@@ -185,6 +185,20 @@ def _approved_entry_patch(source: Path) -> Path:
     return patch
 
 
+def _approved_rplus_entry_patch(source: Path) -> Path:
+    """只为核过的忏悔加入口补齐阅读页手柄确认，不改未知作者版本。"""
+    if source.stat().st_size != 369225 or hashlib.sha256(source.read_bytes()).hexdigest() != (
+        "c9553b4c90b6292eb65aa53bb0f5136d21934d376df2172a65d2c18ad6128591"
+    ):
+        return source
+    patch = ROOT / "runtime/mod-patches/repentanceplus/main.lua"
+    if hashlib.sha256(patch.read_bytes()).hexdigest() != (
+        "ac6e41fd54f9689ab710a72fdb8185e9b31da510758ab4ca99df88e11a7ca98d"
+    ):
+        raise ValueError("忏悔加阅读页补丁已变化，需要重新审查并更新打包身份")
+    return patch
+
+
 def _approved_dss_patch(source: Path) -> Path:
     """只替换已核作者版本的DSS资源，其它版本保持原样。"""
     if source.stat().st_size != 116028 or hashlib.sha256(source.read_bytes()).hexdigest() != (
@@ -257,7 +271,7 @@ def copy_tree(source: Path, target: Path, *, drop_pcx: bool = False) -> int:
         relative = item.relative_to(source)
         destination = target / relative
         destination.parent.mkdir(parents=True, exist_ok=True)
-        copied_source = _approved_entry_patch(item) if relative == Path("main.lua") else item
+        copied_source = _approved_rplus_entry_patch(_approved_entry_patch(item)) if relative == Path("main.lua") else item
         if relative == Path("scripts/dssmenucore.lua"):
             copied_source = _approved_dss_patch(item)
         elif relative == Path("scripts/stageapi/core/callbacks.lua"):

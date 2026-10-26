@@ -47,6 +47,7 @@ namespace {constexpr LuaHandlerBinding kBindings[]={
 {0x0F011525,&Api400SeedsSeed2String},
 {0x0F011526,&Api400SeedsString2Seed},
 {0x0F011527,&Api400SeedsIsStringValidSeed},
+{0x0E011528,&Api400EntityKnifeIsFlying},
 };}
 std::size_t AttachApi400Methods(lua_State*L,const char*owner)noexcept{return AttachOwnerMethods(L,owner,kBindings,sizeof(kBindings)/sizeof(kBindings[0]));}
 // Effects currently use the base Entity view. Only reveal their own methods

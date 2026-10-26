@@ -39,12 +39,16 @@ ManifestParseAllOutcome ManifestParser::ParseAll(const char* json, std::size_t l
     // 不再压成一句"字节坏了"。
     const ManifestParseFailure reported = selectAll_(json, length, &outcome.manifest);
     if (reported != ManifestParseFailure::None) {
-        outcome.manifest = ModManifestSet{};
+        outcome.manifest.entries.fill(ModManifestEntry{});
+        outcome.manifest.disabledDirectories.fill({});
+        outcome.manifest.count = outcome.manifest.disabledCount = 0;
         outcome.failure = reported;
         return outcome;
     }
     if (outcome.manifest.empty()) {
-        outcome.manifest = ModManifestSet{};
+        outcome.manifest.entries.fill(ModManifestEntry{});
+        outcome.manifest.disabledDirectories.fill({});
+        outcome.manifest.count = outcome.manifest.disabledCount = 0;
         outcome.failure = ManifestParseFailure::InvalidMod;
         return outcome;
     }
@@ -52,7 +56,9 @@ ManifestParseAllOutcome ManifestParser::ParseAll(const char* json, std::size_t l
     // `entry` 为空**不是**错误（纯资源 Mod，见 `ModLoadService`）。
     for (std::size_t index = 0; index < outcome.manifest.count; ++index) {
         if (outcome.manifest.entries[index].directory[0] == '\0') {
-            outcome.manifest = ModManifestSet{};
+            outcome.manifest.entries.fill(ModManifestEntry{});
+            outcome.manifest.disabledDirectories.fill({});
+            outcome.manifest.count = outcome.manifest.disabledCount = 0;
             outcome.failure = ManifestParseFailure::InvalidMod;
             return outcome;
         }

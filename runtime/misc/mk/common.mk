@@ -254,6 +254,8 @@ CPPFILES += throw_forensics.cpp
 # 与上面两行同一个理由 —— `source/` **根目录**下的文件不�� `SOURCES` 的 wildcard 收
 # （`SOURCES` 只含各模块子目录），必须显式登记，否则会以"未定义符号"的形式在链接期暴露。
 CPPFILES += anm2_load_override_hook.cpp
+# 原生资源所有者适配器：source根目录同样须显式进入生产链接。
+CPPFILES += native_game_resource_reload.cpp
 # 2026-10-09：71内部桥同样位于source根目录，必须显式进入生产链接。
 CPPFILES += room_spawn_internal_hook.cpp
 # 2026-10-10：66双内部钩位于source根目录，同样必须显式进入生产链接。

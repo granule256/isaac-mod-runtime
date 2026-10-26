@@ -3,6 +3,8 @@
 #include "application/mod/mod_load_step.hpp"
 
 #include <cstring>
+#include <memory>
+#include <new>
 
 namespace isaac::runtime {
 namespace {
@@ -49,6 +51,8 @@ Status MapParseFailure(ManifestParseFailure failure) noexcept {
             // 清单合法、只是条数超过本运行时的上限 ⇒ 与"字节坏了"分开报（`Corrupted` 会把人
             // 引到清单格式上去查）。
             return Status{StatusCode::CapacityExceeded};
+        case ManifestParseFailure::OutOfMemory:
+            return Status{StatusCode::IoFailure};
         case ManifestParseFailure::InvalidJson:
         case ManifestParseFailure::InvalidSchema:
         case ManifestParseFailure::InvalidMod:
@@ -155,8 +159,15 @@ Status ManifestService::ResolveAll(std::uint8_t* manifestBuffer, std::size_t man
         return Status{StatusCode::Corrupted};
     }
 
-    const ManifestParseAllOutcome parsed =
-        parser_.ParseAll(reinterpret_cast<const char*>(manifestBuffer), manifestBytes);
+    // 256条结果约384KiB，只在加载期暂存；C++17直接在申请的目标上构造返回值。
+    const std::unique_ptr<ManifestParseAllOutcome> storage(new (std::nothrow)
+        ManifestParseAllOutcome(parser_.ParseAll(reinterpret_cast<const char*>(manifestBuffer), manifestBytes)));
+    if (!storage) {
+        RecordFailure(failure, ModLoadStep::ManifestParse,
+                      static_cast<std::uint32_t>(StatusCode::IoFailure));
+        return Status{StatusCode::IoFailure};
+    }
+    const auto& parsed = *storage;
     if (parsed.failure != ManifestParseFailure::None) {
         const Status status = MapParseFailure(parsed.failure);
         RecordFailure(failure, ModLoadStep::ManifestParse,

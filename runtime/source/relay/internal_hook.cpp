@@ -1,4 +1,5 @@
 #include "relay/internal_hook.hpp"
+#include "relay/internal_gateway_allocator.hpp"
 #include "lib/util/sys/jit.hpp"
 #include "infrastructure/memory/engine_field_access.hpp"
 #include "infrastructure/call/engine_call_access.hpp"
@@ -10,12 +11,12 @@ extern "C" void isaac_internal_hook_context();
 
 namespace isaac::runtime::relay {
 namespace {
-// 每个gateway独占页首，让8B ADRP+BR无需第三条ADD；16B旧近桩仍按默认形态编码。
+// 安装期固定空间分配；只有Page8要求页首，其他gateway紧密排列。
 JIT_CREATE(InternalHookArena, 0x10000);
-constexpr std::size_t kInternalCapacity = 16;
-constexpr std::size_t kGatewayStride = 0x1000;
+constexpr std::size_t kInternalCapacity = 32;
+static_assert(kInternalGatewayBytes == 32);
 InternalHookBinding s_Bindings[kInternalCapacity]{};
-std::size_t s_Next{};
+InternalGatewayAllocator s_Allocator;
 bool s_Ready{}; // 安装器只在安装期单线程使用，回调不读这些变量。
 }
 InternalHookFailure TryInstallInternalHook(const InternalHookBinding& binding,
@@ -42,13 +43,14 @@ InternalHookFailure TryInstallInternalHook(const InternalHookBinding& binding,
     if (std::memcmp(engine_memory::AsObject(veneer),zeros,nearBytes) != 0) return Failure::VeneerNotEmpty;
     if(literal && std::memcmp(engine_memory::AsObject(site.literalSlot),zeros,8))
         return Failure::VeneerNotEmpty;
-    if (s_Next >= kInternalCapacity) return Failure::ArenaExhausted;
+    const auto allocation = s_Allocator.Plan(site.veneerKind == InternalVeneerKind::Page8);
+    if (!allocation.valid) return Failure::ArenaExhausted;
     if (!s_Ready) {
         InternalHookArena.Initialize(std::span {impl::InternalHookArena::s_Area});
         s_Ready = true;
     }
-    const auto index = s_Next;
-    const auto gateway = InternalHookArena.GetRo() + index*kGatewayStride;
+    const auto index = allocation.index;
+    const auto gateway = InternalHookArena.GetRo() + allocation.offset;
     std::uint8_t nearImage[16]{};
     if(literal) {
         if(!BuildInternalLiteralVeneer(nearImage,veneer,site.literalSlot))return Failure::InvalidPlan;
@@ -57,12 +59,11 @@ InternalHookFailure TryInstallInternalHook(const InternalHookBinding& binding,
     } else {
         BuildInternalVeneer(nearImage,gateway);
     }
-    ++s_Next;
     s_Bindings[index] = binding;
     std::uint8_t image[kInternalGatewayBytes];
     BuildInternalGateway(image,engine_memory::AddressOf(&s_Bindings[index]),
         engine_call::AddressOfFunction(&isaac_internal_hook_context));
-    std::memcpy(engine_memory::AsObject(InternalHookArena.GetRw()+index*kGatewayStride),image,sizeof(image));
+    std::memcpy(engine_memory::AsObject(InternalHookArena.GetRw()+allocation.offset),image,sizeof(image));
     InternalHookArena.Flush();
     if (std::memcmp(engine_memory::AsObject(gateway),image,sizeof(image)) != 0)
         return Failure::WriteVerifyFailed;
@@ -70,6 +71,8 @@ InternalHookFailure TryInstallInternalHook(const InternalHookBinding& binding,
         exl::util::RwPages slotPages(site.literalSlot,8);
         auto* slot=static_cast<std::uintptr_t*>(engine_memory::AsObject(slotPages.GetRw()));
         std::uintptr_t empty{};
+        // 从指针CAS起可能发布可达gateway；提交后不回收。
+        if (!s_Allocator.Commit(allocation)) return Failure::InvalidPlan;
         if(!__atomic_compare_exchange_n(slot,&empty,gateway,false,__ATOMIC_RELEASE,__ATOMIC_RELAXED))
             return Failure::VeneerNotEmpty;
         slotPages.Flush();
@@ -79,6 +82,8 @@ InternalHookFailure TryInstallInternalHook(const InternalHookBinding& binding,
     exl::util::RwPages nearPages(veneer,nearBytes);
     // RW映射建立后再核完整空区；既有IPS/其它模块的字节绝不覆盖。
     if (std::memcmp(engine_memory::AsObject(veneer),zeros,nearBytes) != 0) return Failure::VeneerNotEmpty;
+    // 普通近桩在最后一次空区核验通过后才提交；Literal已在指针发布前提交。
+    if (!literal && !s_Allocator.Commit(allocation)) return Failure::InvalidPlan;
     std::memcpy(engine_memory::AsObject(nearPages.GetRw()),nearImage,nearBytes);
     nearPages.Flush();
     if (std::memcmp(engine_memory::AsObject(veneer),nearImage,nearBytes) != 0)
@@ -113,21 +118,24 @@ namespace {
 InternalHookFailure PublishColdBinding(const InternalHookBinding& binding,std::uintptr_t slot) {
     using Failure=InternalHookFailure;
     std::uintptr_t current{};
-    if (s_Next>=kInternalCapacity) return Failure::ArenaExhausted;
+    const auto allocation=s_Allocator.Plan(false);
+    if (!allocation.valid) return Failure::ArenaExhausted;
     if (!s_Ready) {InternalHookArena.Initialize(std::span{impl::InternalHookArena::s_Area});s_Ready=true;}
-    const auto index=s_Next++;
-    const auto gateway=InternalHookArena.GetRo()+index*kGatewayStride;
+    const auto index=allocation.index;
+    const auto gateway=InternalHookArena.GetRo()+allocation.offset;
     s_Bindings[index]=binding;
     std::uint8_t image[kInternalGatewayBytes];
     BuildInternalGateway(image,engine_memory::AddressOf(&s_Bindings[index]),
                          engine_call::AddressOfFunction(&isaac_internal_hook_context));
-    std::memcpy(engine_memory::AsObject(InternalHookArena.GetRw()+index*kGatewayStride),image,sizeof(image));
+    std::memcpy(engine_memory::AsObject(InternalHookArena.GetRw()+allocation.offset),image,sizeof(image));
     InternalHookArena.Flush();
     if (std::memcmp(engine_memory::AsObject(gateway),image,sizeof(image))) return Failure::WriteVerifyFailed;
     std::atomic_thread_fence(std::memory_order_release);
     exl::util::RwPages pages(slot,8);
     auto* pointer=static_cast<std::uintptr_t*>(engine_memory::AsObject(pages.GetRw()));
     std::uintptr_t expected{};
+    // 指针发布失败也保留已提交的绑定和gateway，禁止后续覆盖。
+    if (!s_Allocator.Commit(allocation)) return Failure::InvalidPlan;
     if (!__atomic_compare_exchange_n(pointer,&expected,gateway,false,__ATOMIC_RELEASE,__ATOMIC_RELAXED))
         return Failure::GuardMismatch;
     pages.Flush();
@@ -147,7 +155,7 @@ InternalHookFailure TryInstallPreinstalledInternalHook(const InternalHookBinding
     if (!ValidInternalBinding(binding) || site.source==0 || site.gate==0 || (site.gate&7)!=0 ||
         site.source>UINTPTR_MAX-4 || site.gate>UINTPTR_MAX-32 ||
         site.gate%0x1000+32>0x1000 || binding.resumeCount!=1 || binding.resumes[0]!=site.gate+16 ||
-        (site.original!=0xF9400309U && site.original!=0x7100A29FU && site.original!=0xB85FC3B4U) ||
+        (site.original!=0xF9400309U && site.original!=0x7100A29FU && site.original!=0xB85FC3B4U && site.original!=0xB94056E8U && site.original!=0xB9595B69U) ||
         !engine_memory::EngineMemoryReadable(site.source,4) ||
         !engine_memory::EngineMemoryReadable(site.gate,32)) return Failure::InvalidPlan;
     std::uint32_t branch{},resume{};

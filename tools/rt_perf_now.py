@@ -37,6 +37,15 @@ MEMO_SLOTS = 64
 MEMO_SLOT_BYTES = 42  # char name[40]; u8 view; u8 used;
 
 
+def read_owner_names(dev) -> bytes:
+    """只读配对ELF实际存在的表；缺符号或布局不明时不猜地址。"""
+    symbol = dev.syms.get('g_ModOwnerNames')
+    if not symbol or not symbol[1] or symbol[1] % 64:
+        return b''
+    raw = dev.read(dev.base + symbol[0], symbol[1])
+    return raw if len(raw) == symbol[1] else b''
+
+
 def owner_name(names: bytes, idx: int) -> str:
     if names is None or idx * 64 + 64 > len(names):
         return f'#{idx}'
@@ -58,7 +67,6 @@ def main() -> int:
         return 3
 
     addr_buckets = dev.base + dev.sym('g_RuntimePerfCallbackBuckets')
-    addr_names = dev.base + dev.sym('g_ModOwnerNames')
     addr_state = dev.base + dev.sym('g_ModMenuState')
     # 431 的探针只在 431+ 的 elf 里有 —— 老版本（428 等）就跳过，不报错。
     addr_memo_hits = (dev.base + dev.syms[MEMO_HITS_SYM][0]) if MEMO_HITS_SYM in dev.syms else None
@@ -73,7 +81,7 @@ def main() -> int:
             k, c, t, m = struct.unpack_from('<QQQQ', raw, o)
             if c:
                 rows[k] = [c, t, m]
-        names = dev.read(addr_names, 32 * 64)
+        names = read_owner_names(dev)
         state = dev.read(addr_state, 4 * 200)
         driven = struct.unpack_from('<I', state, 34 * 4)[0] if len(state) >= 35 * 4 else None
         memo_hits = dev.u64(addr_memo_hits) if addr_memo_hits is not None else None

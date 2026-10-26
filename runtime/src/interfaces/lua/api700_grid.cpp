@@ -57,6 +57,7 @@ struct AnimationPin {
     std::uintptr_t pinned;
     bool active;
 };
+void RestorePinnedNative(lua_State*, AnimationPin*, bool beforeDestroy);
 void ReleasePin(AnimationPin* pin) noexcept {
     if (pin && pin->active) { pin->active = false; --g_AnimationPinCount; }
 }
@@ -70,7 +71,11 @@ void RetirePin(lua_State* L, int index) {
     lua_setuservalue(L, index);
 }
 int CollectAnimationPin(lua_State* L) {
-    ReleasePin(static_cast<AnimationPin*>(lua_touserdata(L, 1)));
+    auto* pin = static_cast<AnimationPin*>(lua_touserdata(L, 1));
+    // 正常lua_close也可能直接触达仍有借用的对象；仅恢复仍属同一Room/槽位且
+    // 字段仍指向本pin的情况，不覆盖后来的原生写入或已退役对象。
+    RestorePinnedNative(L, pin, false);
+    ReleasePin(pin);
     return 0;
 }
 // 返回表的栈索引；userdata 的 __gc 让 lua_close 后快路径计数也归零。
@@ -156,6 +161,10 @@ int PushNextGreedAnimation(lua_State* L, const Owner& owner) {
     }
 }
 void WriteNextGreedAnimation(lua_State* L, const Owner& owner) {
+    // Lua5.3.3不会执行关闭期新建userdata的终结器，故不能在用户__gc中新增借用。
+    // 73通知期间VM仍ready，允许其正常清理；只在随后的lua_close阶段拒绝。
+    if (LuaRuntime::ClosingForModReload())
+        luaL_error(L,"NextGreedAnimation cannot acquire a Lua string while the VM is closing");
 #if defined(__SWITCH__)
     if(!PressurePlateDestructorHooksReady() || !EntryRelayInstalled(HookId::PressurePlateAnimationWriter))
         luaL_error(L,"NextGreedAnimation lifetime hooks are unavailable");

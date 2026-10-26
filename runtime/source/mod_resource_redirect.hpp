@@ -57,7 +57,7 @@
 namespace isaac::runtime::bridge {
 
 // 与 `kModManifestCapacity`（32）一致；本 TU 刻意**不包含应用层头文件**（耦合最小化）。
-inline constexpr std::size_t kModResourceRedirectCapacity = 32;
+inline constexpr std::size_t kModResourceRedirectCapacity = 256;
 // `isaac_mods/mods/`（17）+ 目录名容量（256）+ 结尾 `\0`。
 inline constexpr std::size_t kModResourceRedirectRootCapacity = 288;
 inline constexpr std::size_t kModResourceRedirectQueryCapacity = 192;
@@ -87,7 +87,7 @@ extern ModResourceRedirectState g_ModResourceRedirectState;
 //
 // `modRoots` = 每个模组的**应用根相对**根目录（例：`isaac_mods/mods/EID`；
 // 带 `rom:/` 前缀或结尾 `/` 都会被规范化掉）。顺序 = 清单顺序 = PC 的优先级顺序。
-// `count` 超过容量时只取前 `kModResourceRedirectCapacity` 个（与清单容量一致）。
+// `count` 超过容量时返回false，保留上一份完整名单；不截断。
 bool PublishModResourceRedirectList(const char* const* modRoots, std::size_t count) noexcept;
 void ClearModResourceRedirectList() noexcept;
 [[nodiscard]] bool ModResourceRedirectListPublished() noexcept;

@@ -133,7 +133,7 @@ class Batch409Test(unittest.TestCase):
         self.assertLess(body.index("g_CostumeCountAfter = CountNullCostumeEntries(manager);"), finish,
                         "`g_CostumeCountAfter` 必须在收尾**之前**赋值")
         # 阶段字仍在收尾之后（它就该反映"这一轮最后的结果"）。
-        self.assertGreater(body.index("g_ModEngineScanStage = EngineModContentLoaded()"), finish)
+        self.assertGreater(body.index("g_ModEngineScanStage = 2;"), finish)
 
     def test_load_helper_passes_contract_arguments(self):
         body = self.cpp.split("void LoadModManagerDefaultAnm2Once(", 1)[1]
@@ -162,15 +162,18 @@ class Batch409Test(unittest.TestCase):
         self.assertIn("'g_ModEngineModDefaultsAnm2Loads': 'g_ModEngineModDefaultsAnm2Loads',",
                       self.reader)
         self.assertIn("'mod_engine_mod_defaults_anm2_loads'", self.reader)
-        self.assertIn("('mod_menu_state', base + SYMS['mod_menu_state'], 38)", self.reader,
-                      "75 个 u32 = 300 字节 = 38 个 8 字节字")
-        self.assertIn("unpack_from('<75I'", self.reader)
+        # 状态面后来已扩到90格；仍核对读数宽度与生产测试的真实计数一致。
+        from .test_mod_menu_native_production import STATE_FIELDS
+        self.assertGreaterEqual(STATE_FIELDS,75)
+        self.assertIn(f"('mod_menu_state', base + SYMS['mod_menu_state'], {(STATE_FIELDS+1)//2})", self.reader)
+        self.assertIn(f"unpack_from('<{STATE_FIELDS}I'", self.reader)
         self.assertIn("[74]", self.reader, "读数里要把这一格打出来")
 
     def test_mod_menu_gate_pins_75_fields(self):
         text = MOD_MENU_TEST.read_text(encoding="utf-8")
-        self.assertIn("STATE_FIELDS = 75", text,
-                      "`test_mod_menu_native_production.py` 的下标必须跟着改到 75")
+        match=re.search(r"^STATE_FIELDS = (\d+)",text,re.M)
+        self.assertIsNotNone(match)
+        self.assertGreaterEqual(int(match.group(1)),75)
 
 
 if __name__ == "__main__":

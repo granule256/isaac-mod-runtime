@@ -495,6 +495,10 @@ inline constexpr std::uint32_t kGameChangeRoomEntryWord = 0xA9BC7BFDU;
 // （见 `engine_call_trampoline.hpp` 与 `EngineCallShape::VoidIntIntIntHandleInt`）。
 inline constexpr uintptr_t kGameStartRoomTransitionOffset = 0x353CBC;
 inline constexpr std::uint32_t kGameStartRoomTransitionEntryWord = 0xD10343FFU;
+// 2026-10-26：固定NRO 0x353CBC读取，供首层贪婪沙漏错误房原生入口认证。
+inline constexpr std::array<u8, 16> kGameStartRoomTransitionExpectedBytes = {
+    0xff,0x43,0x03,0xd1,0xea,0x2b,0x00,0xfd,0xe9,0x23,0x06,0x6d,0xfd,0x7b,0x07,0xa9
+};
 
 // 批次 063：`Entity::IsFlying() const`（`0x5C744`，入口 `0xB941E008`）。
 //
@@ -2869,11 +2873,13 @@ inline constexpr std::array<u8, 16> kManagerGetActionValueExpectedBytes = {
 //     那个桩指向符号 `_ZN4KAGE5Input11ManagerBase15IsActionPressedEjjPj`）；
 //   * **它不是"只有 Lua 才走"的胶水**：`tools/nro_callers.py 0x3F9B6C` 给出 **35 个**调用点，含
 //     `Entity_Player::get_movement_input` / `control_shooting` / 各 `Menu_*::ProcessInput`
-//     ⇒ **Lua 的 `Input.*` 与引擎本体的读取是同一次调用**（`Entity_Player::Update` 那几处同样传空实体）。
+//     ⇒ Lua与引擎都会经过此入口；部分检查传nil，移动/射击等传真实Entity*。
 //   * ⇒ 只挂下面这三条**并不能**自动满足"覆盖不影响 Lua 读取"：它会把 Lua 的读取一起覆盖
 //     （MCM 菜单可见时 `return false` 冻住自己光标，就是这么来的）。批次 392 的处置 =
 //     我们这侧读输入时套 `LuaRuntime::RawEngineInputQueryScope`，中继见标记就跳过派发
-//     （见 `hook_manager.cpp` 的 `PublishRawInputBindings` 一节）。
+//     （见 `hook_manager.cpp` 的输入中继及 `lua_runtime.cpp` 的直读壳）。
+//   * 2026-10-25：钩子已移到高层，精确重定位这16字节，先取得Entity*再原样执行清x3/尾跳；
+//     下面底层常量保留作ABI/绑定依据，不再作为MC_INPUT_ACTION入口。
 //
 // 取证（**全部来自 `Repentance.nro` 的动态符号表**，可重跑；build `91C73FDD575061318D68886316AFEAC72388B2AB`）：
 //   `KAGE::Input::ManagerBase::IsActionPressed / IsActionTriggered / GetActionValue`
@@ -3253,7 +3259,10 @@ inline constexpr uintptr_t kSpriteAnimationStateOffset = 0x60;
 //   实现复用 `sprite_api.cpp` 里那份唯一的 `ReadLibcxxStringAt`。
 // ★ PC 侧的绑定 `GetFilename` 在 `isaac-ng.exe` 的名字表里**没有被引用**（`push 引用 0 处`）
 //   ⇒ PC 侧的偏移（若有）读不到；本条的判定**完全靠 Switch 侧这两处具名函数**。
-inline constexpr uintptr_t kSpriteFilenameOffset = 0x08;
+// ★ 2026-10-23更正：上方Sprite类证据不适用于Lua Sprite（实际ANM2）。
+// ANM2::Load@0xC9C4把this直接作为string赋值目标；原生文件名位于+0。
+// 真机长串+0/+8/+0x10依次是cap/len/data，旧+8读法会把长度当SSO头。
+inline constexpr uintptr_t kSpriteFilenameOffset = 0x00;
 // `ANM2+0x54`：在播标志（同一个 `IsPlaying` 读到的第二个条件）。
 inline constexpr uintptr_t kSpritePlayingFlagOffset = 0x54;
 
@@ -3385,11 +3394,12 @@ inline constexpr std::array<u8, 16> kSpriteGetLayerFrameExpectedBytes = {
 // 用 `anm2Tester:GetDefaultAnimationName() ~= "" or anm2Tester:GetLayerCount() > 0` 判"这条路径是不是
 // 一个真 anm2"（它靠这个给自己的中文字体找路径），并且紧接着 `anm2Tester:Reset()`——
 // **那三行不在 `pcall` 里**（只有 `Load` 被包着）⇒ 缺任何一条都会抛错、把调用方整条回调打断。
-inline constexpr uintptr_t kSpriteResetOffset = 0x4A4724;
+inline constexpr uintptr_t kSpriteResetOffset = 0x65B8;
+// 2026-10-23更正：Lua Sprite使用ANM2，4A4724是另一个Sprite类，不能混用。
 inline constexpr std::array<u8, 16> kSpriteResetExpectedBytes = {
-    0xFD, 0x7B, 0xBE, 0xA9, 0xF4, 0x4F, 0x01, 0xA9,
-    0xFD, 0x03, 0x00, 0x91, 0x1F, 0x90, 0x00, 0x79,
-};  // stp x29,x30,[sp,#-0x20]! / stp x20,x19,[sp,#0x10] / mov x29,sp / strh wzr,[x0,#0x48]
+    0xFD, 0x7B, 0xBC, 0xA9, 0xF8, 0x5F, 0x01, 0xA9,
+    0xFD, 0x03, 0x00, 0x91, 0xF6, 0x57, 0x02, 0xA9,
+}; // ANM2::Reset @0x65B8，与原NRO动态符号及入口16B独立核同。
 
 //: `Sprite` 里的 **ANM2 指针**：`Sprite+0x30`（`ANM2::GetLayerFrame @0xA96C` 就是 `ldr x9,[x19,#0x30]`
 //: 之后 `ldr w9,[x9,#0xb0]`）。★ 别与 `Sprite+0x38` 混 —— 那个是当前动画名的 `std::string`。
@@ -4254,7 +4264,7 @@ inline constexpr std::size_t kRealModEntryStride = 0x12C0;
 //: `runtime/source/mod_manifest.hpp:25`）。32 × 0x12C0 = 153,600 字节 ≈ 150 KiB —— 本模块的
 //: bss 有 130 MB 级余量（`HeapSize` 已是 128 MiB），不差这点；而**取小了**的后果是
 //: "第 N 个之后的模组的 content 永远喂不进去"（静默、只在读数里看得出），不能取小。
-inline constexpr std::size_t kMaximumRealModEntries = 32;
+inline constexpr std::size_t kMaximumRealModEntries = 256;
 
 // ---- 批次 378：真 `ModEntry` 的**内容目录成员**（`LoadCustomResources` 靠它才找得到文件）-----
 //
@@ -6485,6 +6495,8 @@ inline constexpr std::uint32_t kGameShowHallucinationEntryWord = 0xA9BD7BFDU;
 //   （G3 口径：形状按 mangled 签名取、不按文档），用 `VoidIntIntIntIntInt`。
 //   ★ 语料那处也**不接返回值**（`BOIStageAPI15/.../roomHandler.lua:59`）⇒ 先这么做；
 //   日后若发现模组拿返回值判断，再单独核实（**不猜**）。
+// ★ 2026-10-23更正：非模板函数mangled名称通常不包含返回类型，不能由其缺失断言void。
+// NRO0x4525CC/0x45263C明确返回0/1，PC0x7AAA5C返回true；本入口保留原生bool。
 inline constexpr uintptr_t kRoomSpawnGridEntityOffset = 0x452528;
 inline constexpr std::uint32_t kRoomSpawnGridEntityEntryWord = 0xA9BC7BFDU;
 
@@ -9926,3 +9938,12 @@ inline constexpr uintptr_t kPressurePlateDtorVeneerOffset = 0x68CD20;
 inline constexpr std::size_t kPressurePlateDtorVeneerBytes = 16;
 inline constexpr uintptr_t kPressurePlateDeletingVeneerOffset = 0x68CD30;
 inline constexpr std::size_t kPressurePlateDeletingVeneerBytes = 16;
+
+// 2026-10-26：原生Entity_Player::Init结束时派MC_POST_PLAYER_INIT，
+// 避免零初始血角色被延迟扫描到时已经死亡。固定NRO实际虚函数入口；
+// ABI void(this, EntityType, variant, subType, initSeed)，原函数完整执行后派发。
+inline constexpr uintptr_t kNativePlayerInitOffset = 0x278D94;
+inline constexpr std::array<u8, 16> kNativePlayerInitExpectedBytes = {
+    0xFF,0x03,0x05,0xD1,0xEA,0x63,0x00,0xFD,
+    0xE9,0x23,0x0D,0x6D,0xFD,0x7B,0x0E,0xA9,
+};

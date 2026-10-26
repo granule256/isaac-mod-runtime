@@ -38,6 +38,7 @@ template<class Fn>Fn OrbitHostFunction(std::uintptr_t target){OrbitHostTarget(ta
 
 MAIN=r'''
 #include "interfaces/lua/entity_lifetime.hpp"
+#include "interfaces/lua/rplus_extended_fields_guards.hpp"
 static unsigned calls=0;static std::uintptr_t target=0,receiver=0,reference=0;
 static unsigned layerValue=0;static bool addValue=false;static float inputX=0,inputY=0;
 extern "C" void OrbitHostTarget(std::uintptr_t value){target=value;}
@@ -50,6 +51,11 @@ extern "C" void OrbitHostRemove(std::uintptr_t self){++calls;receiver=self;}
 int main(int argc,char** argv){
  if(argc!=2)return 99;std::string scenario=argv[1];
  PublishFakeGame();LuaRuntime::SetGameBindings(AddressOf(g_OwnerSlotBytes),0x2222);
+ // Parent现走完整Entity布局守卫；旧夹具只铺轨道方法指纹会在取fam前失败。
+ namespace E=isaac::runtime::extended_fields;
+ std::memcpy(g_ModuleBytes.data()+E::kEntity0Entry,E::kEntity0Guard.data(),E::kEntity0Guard.size());
+ std::memcpy(g_ModuleBytes.data()+E::kEntity1Entry,E::kEntity1Guard.data(),E::kEntity1Guard.size());
+ std::memcpy(g_ModuleBytes.data()+E::kEntity2Entry,E::kEntity2Guard.data(),E::kEntity2Guard.size());
  const unsigned offsets[4]={0xafd84,0xacea0,0xae844,0xad648};
  const unsigned char guards[4][16]={ORBIT_GUARDS};
  for(unsigned i=0;i<4;++i)std::memcpy(g_ModuleBytes.data()+offsets[i],guards[i],16);
@@ -88,7 +94,7 @@ int main(int argc,char** argv){
   script+=R"AGONY(SOULMATES_ORIGINAL)AGONY";
   script+="\nAgony:AddCallback(1,function() local fam=Isaac.GetPlayer(0).Parent:ToFamiliar();"+body+" end)";
  }
- if(LuaRuntime::InitializeFromBuffer(script.data(),script.size(),"@orbit.lua")!=LuaRuntime::LuaInitResult::Success){std::puts("missing familiar orbit method");return 1;}
+ if(LuaRuntime::InitializeFromBuffer(script.data(),script.size(),"@orbit.lua")!=LuaRuntime::LuaInitResult::Success){LuaRuntime::LuaErrorHistoryEntryView errors[8]{};const auto count=LuaRuntime::CopyLuaErrorHistory(errors,8);for(std::size_t i=0;i<count;++i)std::fprintf(stderr,"%s\n",errors[i].text);std::puts("familiar orbit fixture initialization failed");return 1;}
  if(scenario=="entry")for(unsigned i=0;i<4;++i)g_ModuleBytes[offsets[i]+15]^=1;
  if(scenario=="token")isaac::runtime::RetireEntityLifetime(AddressOf(g_FamiliarBytes));
  if(scenario=="wrong_type")WriteAt<unsigned>(g_FamiliarBytes,kEntityTypeOffset,kEntityTypeTear);

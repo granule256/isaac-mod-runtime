@@ -744,6 +744,13 @@ void RecordCallbackRegistration(std::uint32_t callbackId, bool hasDispatchSite) 
     }
 }
 
+void ResetCallbackRegistrationCensus() noexcept {
+    g_RegisteredLow.store(0,std::memory_order_release);
+    g_RegisteredHigh.store(0,std::memory_order_release);
+    g_Dispatchable.store(0,std::memory_order_release);
+    g_Unhooked.store(0,std::memory_order_release);
+}
+
 std::uint64_t RegisteredCallbackKindMaskLow() noexcept {
     return g_RegisteredLow.load(std::memory_order_acquire);
 }

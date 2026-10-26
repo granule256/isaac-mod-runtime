@@ -5,6 +5,8 @@
 #include <array>
 #include <cstddef>
 #include <cstring>
+#include <memory>
+#include <new>
 
 #if defined(__GNUC__) && !defined(__clang__)
 #pragma GCC optimize ("Os")
@@ -50,10 +52,9 @@ public:
         : cursor_(reinterpret_cast<const unsigned char*>(json)), end_(cursor_ + length) {}
 
     ModManifest::ParseResult Parse(ModManifest::SelectedMod* selected) {
-        ModManifest::SelectedMods selectedMods{};
-        const ModManifest::ParseResult result = Parse(&selectedMods);
+        const ModManifest::ParseResult result = Parse(&selectedMods_);
         if (result == ModManifest::ParseResult::Success) {
-            *selected = selectedMods.mods[0];
+            *selected = selectedMods_.mods[0];
         }
         return result;
     }
@@ -662,8 +663,9 @@ ParseResult SelectFirstEnabled(const char* json, std::size_t length, SelectedMod
         return ParseResult::InvalidArgument;
     }
     SelectedMod selected{};
-    Parser parser(json, length);
-    const ParseResult result = parser.Parse(&selected);
+    std::unique_ptr<Parser> parser(new (std::nothrow) Parser(json, length));
+    if (!parser) return ParseResult::OutOfMemory;
+    const ParseResult result = parser->Parse(&selected);
     if (result == ParseResult::Success) {
         *output = selected;
     }
@@ -674,13 +676,9 @@ ParseResult SelectAllEnabled(const char* json, std::size_t length, SelectedMods*
     if (json == nullptr || length == 0 || output == nullptr) {
         return ParseResult::InvalidArgument;
     }
-    SelectedMods selected{};
-    Parser parser(json, length);
-    const ParseResult result = parser.Parse(&selected);
-    if (result == ParseResult::Success) {
-        *output = selected;
-    }
-    return result;
+    std::unique_ptr<Parser> parser(new (std::nothrow) Parser(json, length));
+    if (!parser) return ParseResult::OutOfMemory;
+    return parser->Parse(output);
 }
 
 } // namespace ModManifest

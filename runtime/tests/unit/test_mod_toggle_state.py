@@ -28,6 +28,7 @@ SRC = ROOT / "runtime" / "src"
 DRIVER = textwrap.dedent(
     r"""
     #include "domain/mod/mod_toggle_state.hpp"
+    #include "domain/mod/mod_bits.hpp"
 
     #include <cstdio>
     #include <cstring>
@@ -51,6 +52,24 @@ DRIVER = textwrap.dedent(
     } // namespace
 
     int main() {
+        Check(kMaximumDisabledMods == 256, "disabled capacity is 256");
+        {
+            ModBits built{}, fed{}, active{};
+            Check(built.Empty(),"new_bits_empty");
+            for (std::size_t i : {31u,32u,63u,64u,255u}) {
+                Check(active.Set(i) && active.Test(i),"boundary_bit_set");
+                Check(!built.Contains(active),"unbuilt_active_rejected");
+                built.Set(i);fed.Set(i);
+                Check(built.Contains(active) && fed.Test(i),"constructed_and_fed_recorded");
+            }
+            Check(!built.Set(256) && !built.Test(256),"bit_256_rejected");
+            for (std::size_t i : {31u,32u,63u,64u,255u}) {
+                Check(built.Test(i) && built.Set(i,false) && !built.Test(i),"destruct_once");
+                Check(fed.Test(i),"free_does_not_alias_fed_bits");
+            }
+            Check(built.Empty(),"all_destructed_empty");
+            fed={};Check(fed.Empty(),"reload_clears_fed_bits");
+        }
         // --- 1) 空文本 = 空状态；抬头不符整份拒绝 ---------------------------
         {
             ModToggleState state{};
@@ -111,6 +130,16 @@ DRIVER = textwrap.dedent(
             for (std::size_t index = 0; index < kMaximumDisabledMods; ++index) {
                 const std::string name = "Mod" + std::to_string(index);
                 Check(state.SetEnabled(name, false).ok(), "填满之前都应当成功");
+            }
+            const auto serialized = Serialize(state);
+            ModToggleState reloaded{};
+            Check(reloaded.Parse(serialized).ok() && reloaded.disabledCount==256,
+                  "all_256_disabled_reload");
+            for (std::size_t i : {31u,32u,63u,64u,255u}) {
+                const auto name="Mod"+std::to_string(i);
+                Check(reloaded.IsDisabled(name),"high_disabled_survives_reload");
+                Check(reloaded.SetEnabled(name,true).ok() && !reloaded.IsDisabled(name),
+                      "high_disabled_can_enable");
             }
             Check(state.SetEnabled("OneTooMany", false).code() == StatusCode::CapacityExceeded,
                   "超出容量必须报 CapacityExceeded");

@@ -316,7 +316,7 @@ void NoteModPlayerNameReadFailure() noexcept {
     ++g_Stats.readFailures;
 }
 
-void ResetModPlayerNamesForTests() noexcept {
+void ClearModPlayerNames() noexcept {
     std::memset(g_NamePool, 0, sizeof(g_NamePool));
     g_NameUsed = 0;
     std::memset(g_Entries, 0, sizeof(g_Entries));
@@ -326,5 +326,7 @@ void ResetModPlayerNamesForTests() noexcept {
     g_NextId = kModPlayerTypeIdBase;
     g_Stats = {};
 }
+
+void ResetModPlayerNamesForTests() noexcept { ClearModPlayerNames(); }
 
 } // namespace isaac::runtime

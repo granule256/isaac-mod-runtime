@@ -53,6 +53,23 @@ using InflateFn = int (*)(uint8_t* dest, size_t dest_len, const uint8_t* src, si
 //   口径不可能漂移；改动只改这里。
 inline constexpr std::uint64_t kPngToPcxPeakBudgetBytes = 64ull * 1024 * 1024;
 
+inline constexpr std::size_t kPcxStreamBlockBytes = 65536;
+inline constexpr std::uint64_t kPcxStreamBlockOverhead = 2 * sizeof(void*);
+
+// 流式路径按已预留的块容量核峰值：包含块尾空位、块头和最终连续输出，
+// 不再以整幅图片最坏RLE长度提前拒绝压缩良好的字体页。128KiB覆盖zlib及分配开销。
+[[nodiscard]] constexpr std::uint64_t PngToPcxStreamingPeakUpperBound(
+    std::uint64_t png_size, std::uint64_t width, std::uint64_t channels,
+    std::uint64_t blocks) noexcept {
+    if (width > 65535 || channels > 4) return UINT64_MAX;
+    const auto fixed = 3 * width * channels + 12 * width + 2 * 128 + 1 + 128 * 1024;
+    if (png_size > (UINT64_MAX - fixed) / 2) return UINT64_MAX;
+    const auto workspace = 2 * png_size + fixed;
+    constexpr auto perBlock = 2 * kPcxStreamBlockBytes + kPcxStreamBlockOverhead;
+    if (blocks > (UINT64_MAX - workspace) / perBlock) return UINT64_MAX;
+    return workspace + blocks * perBlock;
+}
+
 //: 上面那条最坏峰值公式的实现。调用方预检只需 IHDR（W/H/颜色类型）+ 文件长度即可先算它。
 [[nodiscard]] constexpr std::uint64_t PngToPcxPeakUpperBound(std::uint64_t png_size,
                                                              std::uint64_t width,

@@ -49,6 +49,9 @@ u64 RequireErrorTail();
 #endif
 #endif
 u32 PreparationFailureDetail();
+// Options与既有控制台共用开关；变化只挂待写，文件I/O仍由控制台帧点处理。
+[[nodiscard]] bool DebugConsoleEnabled() noexcept;
+void SetDebugConsoleEnabled(bool enabled) noexcept;
 void SetGameBindings(uintptr_t ownerSlot, uintptr_t isPausedThunk);
 void SetGameIsGreedModeBinding(uintptr_t method);
 void SetLevelIsAscentBinding(uintptr_t method);
@@ -145,6 +148,7 @@ struct LuaFontBindings {
     FontDrawStringScaledUTF8Fn drawStringScaledUTF8{nullptr};
 };
 void SetFontBindings(const LuaFontBindings& bindings);
+std::uint64_t FontBindingGeneration() noexcept;
 
 // `Sprite`（引擎侧 `IsaacRepentance::ANM2`）第一步的入口集合：全部只收 `char const*` 与数值，
 // 因此不涉及 libc++/libstdc++ 的 `std::string` ABI 差异（`Load`/`ReplaceSpritesheet` 需要那层桥，
@@ -281,11 +285,11 @@ struct InputActionOutcome {
     float value{0.0F};
 };
 
-// `controllerIndex` 目前**不参与**（PC 的回调实参里没有它）；留着是为了将来把 `entity` 精化成
-// "持有那个手柄的那具玩家"。
+// Entity由Manager高层原生实参直接传入，0必须保持nil；不能按controller猜玩家。
 [[nodiscard]] InputActionOutcome DispatchInputAction(std::uint32_t action,
                                                      std::uint32_t controllerIndex,
-                                                     std::int32_t inputHook);
+                                                     std::int32_t inputHook,
+                                                     std::uintptr_t entity);
 
 // --- 批次 392（2026-10-07）：`Input` 类读取必须**绕开**上面那条覆盖 -----------------------------
 //
@@ -295,7 +299,7 @@ struct InputActionOutcome {
 // —— **正是批次 390 挂中继的那三条**（`tools/engine_symbol_signatures.json` 里该符号 offset = 0x4f9920）。
 // 同一个符号另有 35/21/20 个调用点，含 `Entity_Player::get_movement_input` / `control_shooting` /
 // 各菜单类自己的输入处理 ⇒ **我们这侧的读取与引擎自己的读取是同一次调用，在函数入口上区分不了**
-// （连实参都同形：`Entity_Player::Update` 读输入时也是 `mov x3, xzr`，实体为空）。
+// （部分原生请求传nil，移动/射击等请求传真实Entity*；高层中继保留这项差异）。
 //
 // 而 PC 契约（`analysis/isaacdocs-snapshot/docs/enums/ModCallbacks.md:355`）明写：
 //   *"This callback will not affect any custom mod code that is reading user input via the
@@ -332,6 +336,9 @@ struct EntitySpawnOverride {
 [[nodiscard]] EntitySpawnOverride DispatchPreEntitySpawn(std::int32_t type, std::uint32_t variant,
     std::uint32_t subType, const void* position, const void* velocity,
     std::uintptr_t spawner, std::uint32_t seed);
+// 仅由Projectile正常完成尾部调用；同帧显式Update每次独立派发。
+void DispatchPostProjectileInit(std::uintptr_t projectile);
+void DispatchPostProjectileUpdate(std::uintptr_t projectile);
 void DispatchPostNpcRender(std::uintptr_t npc, const void* renderOffset);
 [[nodiscard]] bool DispatchPrePickupCollision(std::uintptr_t pickup, std::uintptr_t collider,
                                              bool low, std::int32_t pickupVariant);
@@ -385,6 +392,11 @@ std::uint64_t DispatchPostGetCollectible(void* itemPool, std::uint32_t itemPoolT
 bool IsMusicReadyForDefaultCallback(uintptr_t manager);
 #endif
 bool IsReady();
+// 仅已确认的游戏线程、Lua空闲时正常73卸载并关闭旧VM；失败保留旧VM供重试。
+// 不建立新状态、不清持久化数据或引擎入口绑定；无状态时幂等成功。
+[[nodiscard]] bool ShutdownForModReload() noexcept;
+// 正常卸载通知已完成、正在lua_close时为true；原生借用setter此时不能新增Lua引用。
+[[nodiscard]] bool ClosingForModReload() noexcept;
 u32 PostUpdateCount();
 #if defined(EXL_DIAGNOSTIC_STAGE) && EXL_DIAGNOSTIC_STAGE == 15
 u32 PostRenderCount();
@@ -457,3 +469,9 @@ namespace isaac::runtime {struct ShaderProgramView;}
 namespace LuaRuntime {bool FillShaderParameters(const isaac::runtime::ShaderProgramView&,float*,std::uintptr_t) noexcept;}
 
 namespace LuaRuntime { void DispatchPressurePlateAnimationPinEvent(std::uintptr_t,bool beforeDestroy) noexcept; }
+
+namespace LuaRuntime {
+isaac::runtime::UseItemCallbackResult DispatchUseItemAtNativeBoundary(std::uintptr_t player,
+    std::int32_t item,std::int32_t flags,std::int32_t slot,std::int32_t custom,
+    std::uint64_t nativeResult,bool animationAllowed);
+}

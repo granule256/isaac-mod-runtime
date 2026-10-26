@@ -1,6 +1,7 @@
 """EntityPtr真实Lua公共构造/读取/方法、nil、只读、销毁与同址复用。"""
 import unittest
 from .test_api400_params import run_main
+from .entityptr_native_fixture import with_native_weak
 MAIN=r'''
 #include "interfaces/lua/api600_entityptr.hpp"
 #include "interfaces/lua/entity_lifetime.hpp"
@@ -45,4 +46,4 @@ lua_close(L);return 0;}
 '''
 class EntityPtrConsumer(unittest.TestCase):
  def test_public_entityptr(self):
-  r=run_main(MAIN);self.assertEqual(r.returncode,0,r.stdout+r.stderr)
+  r=run_main(with_native_weak(MAIN));self.assertEqual(r.returncode,0,r.stdout+r.stderr)

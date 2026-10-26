@@ -52,7 +52,7 @@ int main() {
     CheckU(kModsPageState, 16, "模组页 = 引擎状态 16（PC 上选模组就是切到它）");
     CheckU(kModsSelectedElementOffset, 0x0, "SelectedElement 在页面对象 +0x0");
     CheckU(kModsHoldTimerOffset, 0x4, "HoldInputTimer 在 +0x4");
-    CheckU(kModsEditedOffset, 0x124, "State（改过没有）在 +0x124");
+    CheckU(kModsEditedOffset, 0x168, "Switch修改标记在 +0x168，不能写入ANM2内部");
     CheckU(kModsSelectedElementOffset + 4, kModsHoldTimerOffset,
            "两个字段首尾相接（抄错偏移最容易在这里露馅）");
 

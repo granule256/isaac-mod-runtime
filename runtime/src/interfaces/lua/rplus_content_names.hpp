@@ -3,9 +3,10 @@
 #include <cstdint>
 struct lua_State;
 namespace isaac::runtime {
-// 只能在真实配置装载完成的边界调用；查询不隐式重扫配置。
+// 真实配置边界可立即刷新，或显式标记变更后由首个查询刷新一次；稳定帧不重扫。
 bool RefreshRuntimeContentNames() noexcept;
 void ClearRuntimeContentNames() noexcept;
+void InvalidateRuntimeContentNames() noexcept;
 int RuntimeGetPillEffectByName(lua_State*);
 int RuntimeGetEntityTypeByName(lua_State*);
 int RuntimeGetEntityVariantByName(lua_State*);

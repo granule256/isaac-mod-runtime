@@ -141,5 +141,7 @@ void ProbeMountVisibilityAfterRemount() noexcept;
 // 驻留了多少"量出来。定义在 `image_pcx_bridge_hook.cpp`；调用点 = `mod_menu_native.cpp`
 // 的 60 帧节拍。**不改变缓存行为**，也**不**要求调用方按对象偏移硬读 `used_bytes_`。
 [[nodiscard]] std::uint32_t ImagePcxCacheUsedBytes() noexcept;
+// 重载的游戏线程安全点释放旧转码缓存，避免新旧缓存叠加峰值。
+void ClearImagePcxConversionCache() noexcept;
 
 } // namespace isaac::runtime::bridge

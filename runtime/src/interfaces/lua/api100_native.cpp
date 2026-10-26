@@ -20,13 +20,15 @@ __attribute__((noinline)) std::uintptr_t Resolve(lua_State* state,const Entry& e
     engine_memory::EngineMemoryReadable(base+entry.offset,16)&&
     !std::memcmp(engine_memory::AsObject(base+entry.offset),entry.guard,16);
 #if defined(__SWITCH__)
-  // 仅对与入口中继重合的两个公开API补登记校验；成功缓存热路径不增加工作。
+  // 仅对与入口中继重合的公开API补登记校验；成功缓存热路径不增加工作。
   if(!cache.valid && base && base<=UINTPTR_MAX-entry.offset-16) {
    std::uintptr_t fallback=0;
    if(entry.offset==kApi100ItemPoolGetPillOffset)
     fallback=EntryRelayFallbackEntry(HookId::ItemPoolGetPill);
    else if(entry.offset==kApi200GameEndOffset)
     fallback=EntryRelayFallbackEntry(HookId::GameEnd);
+   else if(entry.offset==kApi200GameStartStageTransitionOffset)
+    fallback=EntryRelayFallbackEntry(HookId::GameStartStageTransition);
    if(fallback) {
     std::array<std::uint8_t,16> original{};
     std::memcpy(original.data(),entry.guard,original.size());

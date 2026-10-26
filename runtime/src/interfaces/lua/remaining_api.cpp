@@ -34,6 +34,7 @@
 #include "interfaces/lua/sprite_api.hpp"   // 批次 298：`PushEngineGridEntitySpriteHandle`
 #include "interfaces/lua/lua_integer_argument.hpp"
 #include "interfaces/lua/owner_binding.hpp"
+#include "interfaces/lua/object_identity_registry.hpp"
 
 #include "game_observer.hpp"
 #include "lua_object_handles.hpp"
@@ -1530,7 +1531,8 @@ std::uint64_t g_GridEntityProbeRestTicks = 0;
 int RoomGetGridEntity(lua_State* state) {
     luaL_checkudata(state, 1, kRoomMetatable);
     const int argumentCount = lua_gettop(state);
-    if (argumentCount != 2 || !RoomGridIndexArgument(state, 2, nullptr)) {
+    lua_Integer gridIndex = 0;
+    if (argumentCount != 2 || !RoomGridIndexArgument(state, 2, &gridIndex)) {
         return luaL_error(state, "Room:GetGridEntity accepts one grid index");
     }
     // 网格实体表在 `Room + 0x30`（证据见 `kRoomGridEntityTableOffset`），按网格下标索引、
@@ -1547,8 +1549,7 @@ int RoomGetGridEntity(lua_State* state) {
     if (!ResolveCurrentRoomCached(&roomAddress)) {
         return PushNativeFallbackNil(state, kFbRoomGetGridEntity);
     }
-    lua_Integer gridIndex = 0;
-    if (!RoomGridIndexArgument(state, 2, &gridIndex) || gridIndex < 0) {
+    if (gridIndex < 0) {
         return luaL_error(state, "Room:GetGridEntity accepts one grid index");
     }
 #if PERF_API_WRAPPER
@@ -1856,11 +1857,21 @@ int GridEntityInit(lua_State* state) {
 // （PC 返回 `void`）；`IsTargetRoomArcade` 给 **`false`**（保守那一边）。
 
 // `GridEntityDoor:Open()` —— PC 契约 `tools/pc_contract_docs/GridEntityDoor.md:73`，语料 1 处。
+void* LiveDoorArgument(lua_State* state,int index) {
+    const auto candidate=engine_memory::AddressOf(GridEntityArgument(state,index));
+    const auto base=EngineModuleBase();
+    std::uintptr_t vtable{};
+    // 精确Door类型同时拒绝已失效/错误子类，不能把裸网格指针直接交给Door原生方法。
+    if(!candidate||!base||base>UINTPTR_MAX-kGridEntity_DoorVtableOffset||
+       !engine_memory::ReadAt(candidate,&vtable,engine_memory::EngineMemoryReadable)||
+       vtable!=base+kGridEntity_DoorVtableOffset)return nullptr;
+    return engine_memory::AsObject(candidate);
+}
 int GridEntityDoorOpen(lua_State* state) {
     if (lua_gettop(state) != 1) {
         return luaL_error(state, "GridEntityDoor:Open accepts no arguments");
     }
-    void* entityPointer = GridEntityArgument(state, 1);
+    void* entityPointer = LiveDoorArgument(state, 1);
     if (entityPointer == nullptr) {
         return luaL_error(state, "GridEntityDoor:Open expects a door");
     }
@@ -1881,7 +1892,7 @@ int GridEntityDoorClose(lua_State* state) {
     if (lua_gettop(state) != 2 || lua_type(state, 2) != LUA_TBOOLEAN) {
         return luaL_error(state, "GridEntityDoor:Close expects a boolean");
     }
-    void* entityPointer = GridEntityArgument(state, 1);
+    void* entityPointer = LiveDoorArgument(state, 1);
     if (entityPointer == nullptr) {
         return luaL_error(state, "GridEntityDoor:Close expects a door");
     }
@@ -1901,7 +1912,7 @@ int GridEntityDoorIsTargetRoomArcade(lua_State* state) {
     if (lua_gettop(state) != 1) {
         return luaL_error(state, "GridEntityDoor:IsTargetRoomArcade accepts no arguments");
     }
-    void* entityPointer = GridEntityArgument(state, 1);
+    void* entityPointer = LiveDoorArgument(state, 1);
     if (entityPointer == nullptr) {
         return luaL_error(state, "GridEntityDoor:IsTargetRoomArcade expects a door");
     }
@@ -2898,7 +2909,7 @@ std::uintptr_t CurrentRoomIndex(std::uintptr_t level) noexcept {
     return index;
 }
 
-int PushRoomDescriptor(lua_State* state, std::uintptr_t descriptor) {
+int PushRoomDescriptor(lua_State* state, std::uintptr_t descriptor, std::uintptr_t level) {
     // ★ 2026-09-19（批次 043）：**永远给对象**，哪怕这一刻拿不到地址。
     //
     // 原来 `descriptor == 0` 时推 nil，真机代价（GoodTrip 的 `scripts/floor.lua:15-16`）：
@@ -2915,6 +2926,8 @@ int PushRoomDescriptor(lua_State* state, std::uintptr_t descriptor) {
         auto* empty = static_cast<LuaRuntime::RoomDescriptorHandle*>(
             lua_newuserdata(state, sizeof(LuaRuntime::RoomDescriptorHandle)));
         empty->descriptor = nullptr;
+        empty->level = nullptr;
+        empty->moduleBase = EngineModuleBase();
         luaL_getmetatable(state, LuaRuntime::kRoomDescriptorMetatable);
         lua_setmetatable(state, -2);
         return 1;
@@ -2922,6 +2935,8 @@ int PushRoomDescriptor(lua_State* state, std::uintptr_t descriptor) {
     auto* handle = static_cast<LuaRuntime::RoomDescriptorHandle*>(
         lua_newuserdata(state, sizeof(LuaRuntime::RoomDescriptorHandle)));
     handle->descriptor = isaac::runtime::engine_memory::AsObject(descriptor);
+    handle->level = isaac::runtime::engine_memory::AsObject(level);
+    handle->moduleBase = EngineModuleBase();
     luaL_getmetatable(state, LuaRuntime::kRoomDescriptorMetatable);
     lua_setmetatable(state, -2);
     return 1;
@@ -2937,26 +2952,15 @@ int RoomDescriptorListGet(lua_State* state) {
     }
     const lua_Integer requested = lua_tointegerx(state, 2, nullptr);
     const std::uintptr_t level = isaac::runtime::engine_memory::AddressOf(handle->level);
-    const std::uint32_t count = DescriptorCount(level);
-    if (requested < 0 || static_cast<std::uint64_t>(requested) >= count) {
-        lua_pushnil(state);
-        return 1;
+    if (handle->moduleBase != EngineModuleBase() || level==0 ||
+        level != ResolveLevelForDescriptor()) {lua_pushnil(state);return 1;}
+    if (requested < 0 || static_cast<std::uint64_t>(requested) >= handle->value.count) {
+        lua_pushnil(state);return 1;
     }
-    const std::uint32_t slot = static_cast<std::uint32_t>(requested);
-    std::uintptr_t descriptor = DescriptorAddress(level, slot);
-    std::uint32_t listIndex = 0;
-    if (ReadDescriptorU32(descriptor, kListIndexOffset, &listIndex) && listIndex != slot) {
-        descriptor = 0;
-        for (std::uint32_t candidate = 0; candidate < count; ++candidate) {
-            const std::uintptr_t address = DescriptorAddress(level, candidate);
-            std::uint32_t value = 0;
-            if (ReadDescriptorU32(address, kListIndexOffset, &value) && value == slot) {
-                descriptor = address;
-                break;
-            }
-        }
-    }
-    return PushRoomDescriptor(state, descriptor);
+    const auto descriptor=handle->value.begin+static_cast<std::uintptr_t>(requested)*kDescriptorStride;
+    if(!IsEngineMemoryReadable(descriptor,kDescriptorStride)){lua_pushnil(state);return 1;}
+    // PC ArrayProxy.Get直接按槽索引；ListIndex不参与定位，不扫描整张数组。
+    return PushRoomDescriptor(state, descriptor, level);
 }
 
 // `RoomDescriptorList` 的**方法**表（`Size` 是字段、走 `__index`；这里只有 `Get`）。
@@ -2979,12 +2983,12 @@ int LevelGetCurrentRoomDesc(lua_State* state) {
         // 都解析不到"**，而模组**加载期**走的正是后者（GoodTrip 的 `scripts/floor.lua:16`），
         // 所以那次修复没救到它。空句柄的字段由 `RoomDescriptorIndex()` 给空值（-1/0/false）。
         RecordNativeStateFallback(kFbLevelGetCurrentRoomDesc);
-        return PushRoomDescriptor(state, 0);
+        return PushRoomDescriptor(state, 0, level);
     }
     const std::uintptr_t index = CurrentRoomIndex(level);
     if (index == kUnallocatedGridIndex) {
         RecordNativeStateFallback(kFbLevelGetCurrentRoomDesc);
-        return PushRoomDescriptor(state, 0);
+        return PushRoomDescriptor(state, 0, level);
     }
     // 批次 077：先问引擎自己（`Level::GetCurrentRoomDesc` 内部就是"读这两个字段 + 转调
     // `Level::GetRoomByIdx`"）；问不到才回落到我们手写的那条链。
@@ -2995,10 +2999,10 @@ int LevelGetCurrentRoomDesc(lua_State* state) {
     const std::uintptr_t native = ResolveDescriptorNative(
         level, static_cast<std::int32_t>(index), static_cast<std::int32_t>(dimension));
     if (native != 0) {
-        return PushRoomDescriptor(state, native);
+        return PushRoomDescriptor(state, native, level);
     }
     return PushRoomDescriptor(state, FindDescriptorByGridIndexTracked(
-                                        level, static_cast<std::uint32_t>(index)));
+                                        level, static_cast<std::uint32_t>(index)), level);
 }
 
 int LevelGetRoomByIdx(lua_State* state) {
@@ -3008,20 +3012,11 @@ int LevelGetRoomByIdx(lua_State* state) {
         return luaL_error(state, "Level:GetRoomByIdx expects an index and an optional dimension");
     }
     const lua_Integer requested = lua_tointegerx(state, 2, nullptr);
-    if (argumentCount == 3 && isaac::runtime::IsIntegerArgument(state, 3)) {
-        const lua_Integer dimension = lua_tointegerx(state, 3, nullptr);
-        if (dimension != 0 && dimension != -1) {
-            // 非 0 维度还没验证过（真机那几轮都在普通楼层，维度恒为 0）。宁可给 nil，
-            // 也不把"另一个维度的房间"当成当前维度的返回给 Mod。
-            lua_pushnil(state);
-            return 1;
-        }
-    }
     const std::uintptr_t level = ResolveLevelForDescriptor();
     if (level == 0) {
         // 批次 250：给**空句柄**（既不报错、也不给 nil）—— 与 `GetCurrentRoomDesc` 同一条口径。
         RecordNativeStateFallback(kFbLevelGetRoomByIdx);
-        return PushRoomDescriptor(state, 0);
+        return PushRoomDescriptor(state, 0, level);
     }
     // 批次 077：**负索引也交给引擎**（`Level::GetRoomByIdx` 自带负数分支，PC 的 -1/-2/-3
     // 语义就在里面）—— 以前给 nil 是因为"负数槽位公式没有证据"，现在不用猜了。
@@ -3030,7 +3025,18 @@ int LevelGetRoomByIdx(lua_State* state) {
     const std::uintptr_t native = ResolveDescriptorNative(
         level, static_cast<std::int32_t>(requested), dimension);
     if (native != 0) {
-        return PushRoomDescriptor(state, native);
+        return PushRoomDescriptor(state, native, level);
+    }
+    // 原生入口消费-1/0/1/2及特殊房索引。没有原生入口时，旧手扫只识别
+    // 当前维度；禁止把其它维度同格房间误报成当前维度的对象。
+    if (dimension != -1) {
+        std::uint32_t currentDimension = 0;
+        if (dimension < 0 || dimension > 2 ||
+            !ReadDescriptorU32(level, kLevelCurrentRoomDimensionOffset, &currentDimension) ||
+            static_cast<std::uint32_t>(dimension) != currentDimension) {
+            lua_pushnil(state);
+            return 1;
+        }
     }
     // 回落（引擎调用不可用时的老路径）：只支持非负索引与 -1。
     if (requested == -1) {
@@ -3040,7 +3046,7 @@ int LevelGetRoomByIdx(lua_State* state) {
             return 1;
         }
         return PushRoomDescriptor(state, FindDescriptorByGridIndexTracked(level,
-                                                                  static_cast<std::uint32_t>(index)));
+                                                                  static_cast<std::uint32_t>(index)), level);
     }
     if (requested < 0) {
         lua_pushnil(state);
@@ -3048,7 +3054,7 @@ int LevelGetRoomByIdx(lua_State* state) {
     }
     return PushRoomDescriptor(
         state, FindDescriptorByGridIndexTracked(level,
-                                             static_cast<std::uint32_t>(requested)));
+                                             static_cast<std::uint32_t>(requested)), level);
 }
 
 int LevelGetRooms(lua_State* state) {
@@ -3064,7 +3070,8 @@ int LevelGetRooms(lua_State* state) {
     }
     auto* handle = static_cast<LuaRuntime::RoomDescriptorListHandle*>(
         lua_newuserdata(state, sizeof(LuaRuntime::RoomDescriptorListHandle)));
-    handle->level = isaac::runtime::engine_memory::AsObject(level);
+    *handle={{DescriptorCount(level),0,level?DescriptorAddress(level,0):0},
+             isaac::runtime::engine_memory::AsObject(level),EngineModuleBase()};
     luaL_getmetatable(state, LuaRuntime::kRoomDescriptorListMetatable);
     lua_setmetatable(state, -2);
     return 1;
@@ -3203,12 +3210,7 @@ int RoomGetGridPosition(lua_State* state) {
 }
 
 // `Room:GetRandomPosition(float Margin)` —— PC 契约 `Room.md:451`。
-int RoomGetRandomPosition(lua_State* state) {
-    //: ★ `[1]=self`、`[2]=Margin`（方法调用 ⇒ `lua_gettop` 含 `self`）。
-    if (lua_gettop(state) != 2) {
-        return luaL_error(state, "Room:GetRandomPosition expects a margin");
-    }
-    const float margin = static_cast<float>(luaL_checknumber(state, 2));
+int PushRandomRoomPosition(lua_State* state, float margin) {
     const std::uintptr_t method =
         ResolveRoomVectorMethod(kRoomGetRandomPositionOffset, kRoomGetRandomPositionEntryWord);
     void* room = nullptr;
@@ -3222,6 +3224,13 @@ int RoomGetRandomPosition(lua_State* state) {
     const RoomVector2 value = isaac::runtime::engine_call::AsFunction<RoomGetRandomPositionFn>(method)(room, margin);
     isaac::runtime::PushLuaVector(state, value.x, value.y);
     return 1;
+}
+
+int RoomGetRandomPosition(lua_State* state) {
+    if (lua_gettop(state) != 2) {
+        return luaL_error(state, "Room:GetRandomPosition expects a margin");
+    }
+    return PushRandomRoomPosition(state, static_cast<float>(luaL_checknumber(state, 2)));
 }
 
 
@@ -3432,6 +3441,26 @@ int RoomGetDoorSlotPosition(lua_State* state) {
 
 
 } // namespace
+
+int IsaacGetRandomPosition(lua_State* state) {
+    // 固定PC 80BB00从当前Manager取Room，传margin=0给7D9B50；无Lua实参参与。
+    return PushRandomRoomPosition(state, 0.0F);
+}
+
+std::uintptr_t ResolveRoomDescriptorArgument(lua_State* state, int index) noexcept {
+    const auto* handle = static_cast<const LuaRuntime::RoomDescriptorHandle*>(
+        luaL_testudata(state, index, LuaRuntime::kRoomDescriptorMetatable));
+    if (handle == nullptr || handle->descriptor == nullptr || handle->level == nullptr ||
+        handle->moduleBase == 0 || handle->moduleBase != EngineModuleBase()) {
+        return 0;
+    }
+    const auto level = engine_memory::AddressOf(handle->level);
+    if (level != ResolveLevelForDescriptor()) return 0;
+    const auto descriptor = engine_memory::AddressOf(handle->descriptor);
+    // 原生还会返回静态空描述符/特殊房描述符，不能用Count、GridIndex或
+    // 内联数组范围过滤。验证当前来源与实际可读性，不重新扫描或再次调引擎。
+    return IsEngineMemoryReadable(descriptor, kDescriptorStride) ? descriptor : 0;
+}
 
 // 批次 436：让"当前房间解析"的**派发窗口内缓存**立即失效。
 // ★ 定义必须在**匿名 namespace 之外**（本文件 116 行那个匿名 ns 在上一行才关闭；
@@ -3924,7 +3953,10 @@ bool CallGridEntityGetPosition(std::uintptr_t method, const std::array<u8, 16>& 
 int GridEntityIndex(lua_State* state) {
     const char* key = lua_tostring(state, 2);
     void* entityPointer = (key == nullptr) ? nullptr : GridEntityArgument(state, 1);
-    if (entityPointer != nullptr) {
+    const bool methodOnly = key != nullptr && key[0] == 'G' &&
+        (std::strcmp(key, "GetType") == 0 || std::strcmp(key, "GetVariant") == 0 ||
+         std::strcmp(key, "GetSprite") == 0 || std::strcmp(key, "GetGridIndex") == 0);
+    if (entityPointer != nullptr && !methodOnly) {
         const std::uintptr_t entity = isaac::runtime::engine_memory::AddressOf(entityPointer);
         if(const int pushed=TryPushApi500GridField(state,entity,key))return pushed;
     if(const int n=TryPushApi600GridField(state,entity,key))return n;
@@ -4207,7 +4239,9 @@ int RoomConfigEntryIndex(lua_State* state) {
         lua_pushinteger(state, static_cast<lua_Integer>(value));
         return 1;
     }
-    if (std::strcmp(key, "Variant") == 0 || std::strcmp(key, "SubType") == 0) {
+    // PC注册0x808724与文档均为Subtype；保留已有SubType调用的兼容拼写。
+    if (std::strcmp(key, "Variant") == 0 ||
+        (key[0] == 'S' && (std::strcmp(key, "Subtype") == 0 || std::strcmp(key, "SubType") == 0))) {
         std::int16_t value = 0;   // ★ i16 ⇒ 符号扩展（`0xFFFF` 读成 `-1`）
         if (entry != 0) {
             const std::uintptr_t offset = key[0] == 'V' ? kRoomConfigEntryVariantOffset
@@ -4404,7 +4438,7 @@ int RoomDescriptorListIndex(lua_State* state) {
     }
     if (std::strcmp(key, "Size") == 0) {
         lua_pushinteger(state, static_cast<lua_Integer>(
-            DescriptorCount(isaac::runtime::engine_memory::AddressOf(handle->level))));
+            handle->value.count));
         return 1;
     }
     // ★ 必须从**元表**取方法表：用 `lua_getfield(state, 1, ...)` 去索引 userdata 会再次
@@ -4425,7 +4459,7 @@ int RoomDescriptorListIndex(lua_State* state) {
 // `rooms:Get(i)`：EID 的用法是 `for i = 0, rooms.Size - 1 do local room = rooms:Get(i)`。
 // 快路径直接取第 i 个槽位；它的 `+0x08`（ListIndex）不等于 i 时才退化为整表扫描
 // （槽位顺序与 ListIndex 顺序在真机上一致，但这里不把"一致"当永久保证）。
-// --- 批次 061：`Level`/`Game` 句柄的 `__newindex`（接受并忽略）-------------------------
+// --- 批次 061：`Level`/`Game` 句柄的 `__newindex`（有证据的真写 + 其余接受并忽略）---------
 //
 // 详见 `remaining_api.hpp` 的说明。两件事要注意：
 //   1. **绝不能报错**：这些赋值往往出现在绘制/传送路径上，抛错会把整条回调摘掉
@@ -4437,12 +4471,79 @@ extern "C" {
 std::atomic<std::uint32_t> g_IsaacIgnoredFieldWriteCount{0};
 //: 最后一次被忽略的字段名（截断到 23 字节 + NUL）；空串表示还没发生过。
 char g_IsaacLastIgnoredFieldName[24] = {};
+//: BUG-014（2026-10-26）：`Game.TimeCounter` **真写成功**的次数（诊断面，与上面那条忽略计数分开）。
+std::atomic<std::uint32_t> g_IsaacGameTimeCounterWriteCount{0};
+//: 最后一次真写进去的 `Game.TimeCounter` 值（0 表示还没写过）。
+std::int32_t g_IsaacLastGameTimeCounterWrite = 0;
 }
+
+namespace {
+// BUG-014（2026-10-26）：`Game.TimeCounter` 的**真写**。
+//
+// 为什么要有这一段：PC 契约（`analysis/isaacdocs-snapshot/docs/Game.md:634`）写的是
+// `#### int TimeCounter` —— **非 const**，注释逐字为 "same as FrameCounter but can be modified,
+// mostly used for timed events (bossrush, daily, ...)"。TimeMachine 每次加速后都会做
+// `Game().TimeCounter = Game().TimeCounter + add`（作者 `main.lua` 的计时补偿），
+// 我们此前把它交给"接受并忽略" ⇒ **补偿静默丢失**。
+// 真机证据（320000/PID151，`dist/timemachine-test-20261026/`）：144 逻辑帧样本额外补偿 82、
+// 113 帧样本额外 161，两段里 `TimeCounter` 都**只**增加了 144/113（= 引擎自己每帧 +1，
+// 不含作者的额外量），而同一段里的 `BlueWombParTime`/`BossRushParTime` 真实减少了 82/161
+// —— 那两个走 api600 世界字段表、本来就是真写。补强样本：原生帧 2653 不动时写 +123，
+// 原生值仍 2653、忽略计数 1955→1956、最后忽略字段 = `TimeCounter`。
+//
+// 偏移证据（`runtime_constants.hpp` 的 `kGameTimeCounterOffset` 段，早已在库，本处不新增常量）：
+//   * `Game::Update @ 0x352114-0x352120` 每帧与 `FrameCount(0x24F99C)` **一起** +1；
+//   * 控制台 `time` 命令 `@0x3EF48` 用 `ldrsw`（**有符号**）读它再 /30 输出秒。
+//
+// 口径（三条，逐条对齐本函数所在通道的既有纪律）：
+//   ① **绝不报错**：这些赋值出现在每帧回调里，抛错会把整条回调摘掉；
+//   ② **非数字不写**（`nil`/表/函数）：`lua_tointegerx` 的 `isnum` 为 0 ⇒ 落回原有"忽略计数"，
+//      诊断面照样看得到有人写了什么；
+//   ③ **写不进去也不报错**（解析不到当前 Game / 那段内存不可写）⇒ 同样落回忽略计数。
+//      ⇒ "写了"与"没写"必须能从 `g_IsaacGameTimeCounterWriteCount` /
+//        `g_IsaacLastIgnoredFieldName` 两条线上分开读出来（"没量到"与"没发生"不许混）。
+//
+// 开销：只在**有人给 `TimeCounter` 赋值**时执行 —— 一次 `ResolveCurrentLevel`（7 步读 + 检查）
+// + 一次 4 字节写，不进任何每帧路径；没有新的堆分配、没有新的 I/O。
+bool TryWriteGameTimeCounter(lua_State* state) noexcept {
+    if (lua_type(state, 2) != LUA_TSTRING) {
+        return false;
+    }
+    const char* key = lua_tostring(state, 2);
+    if (key == nullptr || std::strcmp(key, "TimeCounter") != 0) {
+        return false;
+    }
+    int isNumber = 0;
+    const lua_Integer raw = lua_tointegerx(state, 3, &isNumber);
+    if (isNumber == 0) {
+        return false;
+    }
+    std::uintptr_t game = 0;
+    if (!ResolveCurrentLevel(&game)) {
+        return false;
+    }
+    // PC 侧这个字段是 `int`（32 位有符号）；Lua 整数按同样宽度截断，与 PC 的转换一致。
+    const auto value = static_cast<std::int32_t>(raw);
+    if (!engine_memory::WriteField(game, kGameTimeCounterOffset, value,
+                                   engine_memory::EngineMemoryWritable)) {
+        return false;
+    }
+    g_IsaacLastGameTimeCounterWrite = value;
+    g_IsaacGameTimeCounterWriteCount.fetch_add(1, std::memory_order_relaxed);
+    return true;
+}
+}  // namespace
 
 int IgnoredObjectFieldWrite(lua_State* state) {
     const char* key=lua_tostring(state,2);
     const char* owner=luaL_testudata(state,1,LuaRuntime::kGameMetatable)?"Game":luaL_testudata(state,1,LuaRuntime::kLevelMetatable)?"Level":nullptr;
     if(owner&&IsApi600WorldField(owner,key)){std::uintptr_t p{};if(ResolveCurrentLevel(&p)&&TryWriteApi600WorldField(state,p,owner,key))return 0;}
+    // BUG-014：`Game.TimeCounter` 是 PC 契约里**唯一**还没真写的可写标量字段（另外两个
+    // `BlueWombParTime`/`BossRushParTime` 走上面的 api600 表；`Difficulty`/`ScreenShakeOffset`
+    // 在 PC 契约里是 `const` ⇒ 保持忽略是对的）。只在 `Game` 句柄上生效，`Level` 不受影响。
+    if (owner != nullptr && std::strcmp(owner, "Game") == 0 && TryWriteGameTimeCounter(state)) {
+        return 0;
+    }
     if (lua_gettop(state) < 3 || !lua_isstring(state, 2)) {
         return 0;
     }
@@ -4473,11 +4574,21 @@ int RoomDescriptorListLen(lua_State* state) {
         return 1;
     }
     lua_pushinteger(state, static_cast<lua_Integer>(
-        DescriptorCount(isaac::runtime::engine_memory::AddressOf(handle->level))));
+        handle->value.count));
     return 1;
 }
 
+namespace {
+std::uintptr_t RoomListIdentity(lua_State* state,int index) noexcept {
+    return lua_rawlen(state,index)==sizeof(LuaRuntime::RoomDescriptorListHandle)
+        ?engine_memory::AddressOf(lua_touserdata(state,index)):0;
+}
+}
 std::size_t AttachRoomDescriptorListMethods(lua_State* state) noexcept {
+    luaL_getmetatable(state,LuaRuntime::kRoomDescriptorListMetatable);
+    const bool registered=RegisterNativeObjectIdentity(state,-1,RoomListIdentity);
+    lua_pop(state,1);
+    if(!registered)return 0;
     static constexpr NamedHandler kMethods[] = {
         {"Get", &RoomDescriptorListGet},
     };
@@ -4547,12 +4658,14 @@ constexpr EngineMethodRow kRoomEngineRows[] = {
     //   （boolean SpawnGridEntity ( int GridIndex, GridEntityType Type, int Variant, int Seed, int VarData )）
     // PC 契约 `tools/pc_contract_docs/Room.md:867`。
     // ★ 契约写返回 `boolean`，但引擎符号 `_ZN15IsaacRepentance4Room15SpawnGridEntityEiNS_15eGridEntityTypeEjji`
-    //   **没有返回值特征**（`void`）⇒ 形状按**符号**取（G3 口径，不按文档）：`VoidIntIntIntIntInt`。
+    //   **没有返回值特征**（`void`）⇒ 形状按**符号**取（G3 口径，不按文档）：`BoolIntIntIntIntInt`。
     // ★ 语料传满 5 个（`BOIStageAPI15/scripts/stageapi/room/roomHandler.lua:59` 的
     //   `SpawnGridEntity(index, GridEntityType.GRID_WALL, 0, 1, 0)`）且**不接返回值**。
     //   日后若发现模组拿返回值判断，再单独核实（**不猜**）。
+// ★ 2026-10-23更正：非模板函数mangled名称通常不包含返回类型，不能由其缺失断言void。
+// NRO0x4525CC/0x45263C明确返回0/1，PC0x7AAA5C返回true；本入口保留原生bool。
     {0x0401001E, kRoomSpawnGridEntityOffset, kRoomSpawnGridEntityEntryWord, FieldReceipt::Room,
-     EngineCallShape::VoidIntIntIntIntInt, 5, 0xFF},
+     EngineCallShape::BoolIntIntIntIntInt, 5, 0xFF},
     // ---- 批次 253（2026-10-01）：`Room:IsPositionInRoom`
     //   （boolean IsPositionInRoom ( Vector Pos, float Margin )），PC 契约 `Room.md:691`。
     // ★ 引擎收的是 `Vector2 const&`（mangled 里的 `RKN4KAGE4Math7Vector2E`）⇒ 走**指针**，
@@ -5043,7 +5156,7 @@ int LevelGetLastRoomDesc(lua_State* state) {
     if (level == 0) {
         // 批次 250：给**空句柄**（与 `GetCurrentRoomDesc` 同口径）。
         RecordNativeStateFallback(kFbLevelGetLastRoomDesc);
-        return PushRoomDescriptor(state, 0);
+        return PushRoomDescriptor(state, 0, level);
     }
     const std::uintptr_t base = EngineModuleBase();
     std::uint32_t entryWord = 0;
@@ -5063,7 +5176,7 @@ int LevelGetLastRoomDesc(lua_State* state) {
         lua_pushnil(state);
         return 1;
     }
-    return PushRoomDescriptor(state, isaac::runtime::engine_memory::AddressOf(descriptor));
+    return PushRoomDescriptor(state, isaac::runtime::engine_memory::AddressOf(descriptor), level);
 }
 
 // ============================================================================

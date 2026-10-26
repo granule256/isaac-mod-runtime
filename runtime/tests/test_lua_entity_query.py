@@ -779,9 +779,9 @@ local function verifyEntityView()
         'InitSeed must be the spawn seed, got ' .. describe(enemy.InitSeed))
   check(GetPtrHash(enemy) == EXPECT.enemyA, 'GetPtrHash must return the entity address')
 
-  -- `GetPtrHash` 对非实体对象返回 0（我们只有 Entity 家族持有原生指针），不报错。
-  check(GetPtrHash(42) == 0, 'GetPtrHash(non-object) must be 0')
-  check(GetPtrHash('nope') == 0, 'GetPtrHash(string) must be 0')
+  -- 固定PC只接受userdata；对象族身份覆盖与非法首参是不同判据。
+  check(not pcall(GetPtrHash,42), 'PC GetPtrHash rejects non-object')
+  check(not pcall(GetPtrHash,'nope'), 'PC GetPtrHash rejects string')
   check(type(GetPtrHash(Vector(1, 1))) == 'number', 'GetPtrHash must always answer a number')
 
   -- `Entity:ToPlayer()`：非玩家实体必须 nil（`Entity.md:631`），玩家实体必须能转型。
@@ -1004,7 +1004,7 @@ local function verifyGetData()
   check(Isaac.GetPlayer(0):GetData() == data, 'the store must be shared');
 
   -- 过期/伪造句柄 → nil（EID 的判据就是 `~= nil`）。
-  check(GetPtrHash(nil) == 0, 'GetPtrHash(nil) must be 0')
+  check(not pcall(GetPtrHash,nil), 'PC GetPtrHash rejects nil')
 end
 
 local function verifySecondFrame()

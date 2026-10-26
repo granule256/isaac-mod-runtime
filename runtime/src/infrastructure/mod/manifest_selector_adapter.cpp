@@ -4,6 +4,8 @@
 
 #include <algorithm>
 #include <cstring>
+#include <memory>
+#include <new>
 
 namespace isaac::runtime {
 
@@ -38,7 +40,9 @@ ManifestParseFailure ManifestSelectorAdapter::SelectAll(const char* json, std::s
     if (json == nullptr || length == 0 || manifest == nullptr) {
         return ManifestParseFailure::InvalidArgument;
     }
-    ::ModManifest::SelectedMods selected{};
+    const std::unique_ptr<::ModManifest::SelectedMods> storage(new (std::nothrow) ::ModManifest::SelectedMods);
+    if (!storage) return ManifestParseFailure::OutOfMemory;
+    auto& selected = *storage;
     switch (::ModManifest::SelectAllEnabled(json, length, &selected)) {
         case ::ModManifest::ParseResult::Success:
             break;
@@ -54,8 +58,12 @@ ManifestParseFailure ManifestSelectorAdapter::SelectAll(const char* json, std::s
             return ManifestParseFailure::NoEnabledMod;
         case ::ModManifest::ParseResult::TooManyMods:
             return ManifestParseFailure::TooManyMods;
+        case ::ModManifest::ParseResult::OutOfMemory:
+            return ManifestParseFailure::OutOfMemory;
     }
-    *manifest = ModManifestSet{};
+    manifest->entries.fill(ModManifestEntry{});
+    manifest->disabledDirectories.fill({});
+    manifest->count = manifest->disabledCount = 0;
     for (std::size_t index = 0; index < selected.count; ++index) {
         ModManifestEntry& target = manifest->entries[index];
         const ::ModManifest::SelectedMod& source = selected.mods[index];

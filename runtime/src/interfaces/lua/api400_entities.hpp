@@ -13,6 +13,7 @@ int Api400EntityEffectFollowParent(lua_State*);
 int Api400EntityEffectSetDamageSource(lua_State*);
 int Api400EntityEffectSetRadii(lua_State*);
 int Api400EntityEffectSetTimeout(lua_State*);
+int Api400EntityKnifeIsFlying(lua_State*);
 int Api400EntityKnifeGetKnifeDistance(lua_State*);
 int Api400EntityKnifeGetKnifeVelocity(lua_State*);
 int Api400EntityKnifeSetPathFollowSpeed(lua_State*);

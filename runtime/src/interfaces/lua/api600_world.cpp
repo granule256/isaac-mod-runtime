@@ -37,6 +37,8 @@ constexpr Field kFields[]={
 {"GridEntityRock","Anim",0x1a0,Kind::String,11},
 {"GridEntityRock","RubbleAnim",0x1b8,Kind::String,11},
 {"GridEntityRock","FrameCnt",0x1e8,Kind::Int,11},
+// PC5b75c0/569a10；NS Store/RestoreGameState同一保存槽23040互证21570。
+{"Level","DungeonReturnRoomIndex",0x21570,Kind::Int,13},
 };
 struct Layout{std::uintptr_t offset;std::array<std::uint8_t,16> bytes;};
 constexpr Layout kLayouts[]={
@@ -53,8 +55,9 @@ constexpr Layout kLayouts[]={
 {0x38f244,{0x61,0x1a,0x40,0xb9,0x60,0x2,0xc,0x91,0xe2,0x3,0x80,0x52,0xc8,0x85,0xb,0x94}},
 {0x392e68,{0x1a,0x80,0x6,0x91,0xf3,0x3,0x0,0xaa,0x41,0x28,0x0,0xf0,0x21,0x1c,0xa,0x91}},
 {0x3e1200,{0xe2,0x3,0x14,0x2a,0xbf,0x6a,0xa,0x94,0x8,0xf4,0x40,0xb9,0x1f,0x1,0x0,0x71}},
+{0x3e5d1c,{0xe8,0x62,0x40,0xb9,0xa8,0x4a,0x8,0xb9,0x88,0xb9,0x82,0x52,0x48,0x0,0xa0,0x72}},
 };
-api100_native::Cache g_Layouts[13]{};
+api100_native::Cache g_Layouts[14]{};
 constexpr std::uint32_t Hash(const char*p){std::uint32_t h=2166136261U;while(*p)h=(h^static_cast<unsigned char>(*p++))*16777619U;return h;}
 const Field* Find(const char*owner,const char*name){
  if(!owner||!name||!name[0]||!name[1])return nullptr;
@@ -97,6 +100,7 @@ case Hash("GreedModeRNG"):f=&kFields[15];break;
 case Hash("Anim"):f=&kFields[16];break;
 case Hash("RubbleAnim"):f=&kFields[17];break;
 case Hash("FrameCnt"):f=&kFields[18];break;
+case Hash("DungeonReturnRoomIndex"):f=&kFields[19];break;
 default:return nullptr;}return std::strcmp(owner,f->owner)||std::strcmp(name,f->name)?nullptr:f;
 }
 void Check(lua_State*L,const Field&f){const auto&g=kLayouts[f.layout];static_cast<void>(api100_native::Resolve(L,{g.offset,g.bytes.data()},g_Layouts[f.layout]));}

@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include "domain/callback/managed_update_snapshot.hpp"
 
 extern "C" {
 #include <lua.h>
@@ -321,6 +322,13 @@ void SetItemConfigCardIsRuneHostImplementation(
 // Device-side gate for managed callbacks: menus and load transitions can leave a stale player
 // vector behind. Do not dispatch until both the current room and a validated player exist.
 [[nodiscard]] bool ShouldDispatchManagedCallbacks() noexcept;
+// 仅普通更新使用：原生暂停/未知拒绝，并返回同一Game的原生simulation帧。
+[[nodiscard]] bool ShouldDispatchManagedUpdates(ManagedUpdateSnapshot* snapshot) noexcept;
+#if !defined(__SWITCH__)
+using ManagedUpdateSnapshotReader = bool (*)(ManagedUpdateSnapshot*) noexcept;
+void SetManagedUpdateSnapshotReaderForTest(ManagedUpdateSnapshotReader reader) noexcept;
+#endif
+
 
 // --- 每帧事件（回调面地基）需要的"游戏侧视图" ----------------------------------
 //
@@ -394,3 +402,5 @@ std::uintptr_t ResolveEngineReceiver(lua_State*,FieldReceipt,int index=1);
 namespace isaac::runtime {std::uintptr_t ResolveContentConfigRoot(bool entityConfig) noexcept;}
 
 namespace isaac::runtime {void ApplyUseItemCallbackAnimation(lua_State*,std::uintptr_t,std::int32_t);}
+
+namespace isaac::runtime {void ApplyUseItemNativeRemoval(lua_State*,std::uintptr_t,std::int32_t);}

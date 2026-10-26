@@ -7,6 +7,7 @@
 #include "interfaces/lua/vector_api.hpp"
 #include "interfaces/lua/entity_lifetime.hpp"
 #include "interfaces/lua/class_metadata.hpp"
+#include "interfaces/lua/object_identity_registry.hpp"
 #include "infrastructure/memory/engine_field_access.hpp"
 #include "infrastructure/call/engine_call_access.hpp"
 #include "lua_object_handles.hpp"
@@ -36,14 +37,31 @@ template<class Fn>Fn Native(lua_State*L,unsigned i){std::uintptr_t host{};
  return engine_call::AsFunction<Fn>(api100_native::Resolve(L,api700_containers::kEntries[i],g_Cache[i],host));}
 std::uintptr_t Room(lua_State*L){const auto p=ResolveEngineReceiver(L,FieldReceipt::Room);if(!p){luaL_error(L,"current Room reference is unavailable");}return p;}
 std::uintptr_t NPC(lua_State*L){luaL_checkudata(L,1,LuaRuntime::kEntityNPCMetatable);const auto p=ResolveEngineReceiver(L,FieldReceipt::Entity);if(!p||ClassifyCallbackEntity(p)!=CallbackEntityClass::Npc){luaL_error(L,"NPC reference is unavailable");}return p;}
-void Check(lua_State*L,const List&v){if(v.base!=LuaRuntime::EngineModuleBase()){luaL_error(L,"container module has changed");}
- if(v.vector){if(!EntityLifetimeAlive(v.lifetime)||!IsLiveEntityPointer(v.owner)||ClassifyCallbackEntity(v.owner)!=CallbackEntityClass::Laser){luaL_error(L,"VectorList reference owner is unavailable");}}
- else{if(Room(L)!=v.owner||Read<std::uintptr_t>(L,v.owner,8)!=v.descriptor){luaL_error(L,"EntityList Room owner has changed");}if(v.query&&(Read<std::uintptr_t>(L,v.owner,0x1a28)!=v.arena||Read<std::uint32_t>(L,v.owner,0x1a30)!=v.arenaCapacity)){luaL_error(L,"EntityList arena has changed");}}
-}
-List* Get(lua_State*L,int index,const char*mt){auto*v=static_cast<List*>(luaL_checkudata(L,index,mt));return v;}
 struct Span{std::uintptr_t begin;std::uint64_t count;};
-Span Data(lua_State*L,const List&v){Check(L,v);if(v.vector){const auto begin=Read<std::uintptr_t>(L,v.object,0),end=Read<std::uintptr_t>(L,v.object,8),cap=Read<std::uintptr_t>(L,v.object,16);if(end<begin||cap<end||(end-begin)%8||(cap-begin)%8){luaL_error(L,"VectorList native array is invalid");}return{begin,(end-begin)/8};}
- const auto p=v.query?engine_memory::AddressOf(v.value.bytes):v.object;const auto begin=Read<std::uintptr_t>(L,p,8);const auto count=Read<std::uint32_t>(L,p,20),cap=Read<std::uint32_t>(L,p,16);if(count>cap){luaL_error(L,"EntityList native array is invalid");}if(v.query&&(begin<v.arena||(begin-v.arena)%8||(begin-v.arena)/8+count>v.arenaCapacity)){luaL_error(L,"EntityList result is outside arena");}return{begin,count};
+template<class T>bool TryRead(std::uintptr_t p,unsigned offset,T*out)noexcept{return engine_memory::ReadField(p,offset,out,engine_memory::EngineMemoryReadable);}
+bool TryCheck(lua_State*L,const List&v)noexcept {
+ if(!v.base||v.base!=LuaRuntime::EngineModuleBase())return false;
+ if(v.vector)return EntityLifetimeAlive(v.lifetime)&&IsLiveEntityPointer(v.owner)&&ClassifyCallbackEntity(v.owner)==CallbackEntityClass::Laser;
+ std::uintptr_t descriptor{},arena{};std::uint32_t capacity{};
+ if(ResolveEngineReceiver(L,FieldReceipt::Room)!=v.owner||!TryRead(v.owner,8,&descriptor)||descriptor!=v.descriptor)return false;
+ return !v.query||(TryRead(v.owner,0x1a28,&arena)&&TryRead(v.owner,0x1a30,&capacity)&&arena==v.arena&&capacity==v.arenaCapacity);
+}
+void Check(lua_State*L,const List&v){if(!TryCheck(L,v))luaL_error(L,"container module or reference owner has changed");}
+List* Get(lua_State*L,int index,const char*mt){return static_cast<List*>(luaL_checkudata(L,index,mt));}
+bool TryData(lua_State*L,const List&v,Span*out)noexcept {
+ if(!TryCheck(L,v))return false;
+ if(v.vector){std::uintptr_t begin{},end{},cap{};if(!TryRead(v.object,0,&begin)||!TryRead(v.object,8,&end)||!TryRead(v.object,16,&cap)||end<begin||cap<end||(end-begin)%8||(cap-begin)%8)return false;*out={begin,(end-begin)/8};return true;}
+ const auto p=v.query?engine_memory::AddressOf(v.value.bytes):v.object;
+ std::uintptr_t begin{};std::uint32_t count{},cap{};
+ if(!TryRead(p,8,&begin)||!TryRead(p,20,&count)||!TryRead(p,16,&cap)||count>cap)return false;
+ if(v.query&&(begin<v.arena||(begin-v.arena)%8||(begin-v.arena)/8>v.arenaCapacity||count>v.arenaCapacity-(begin-v.arena)/8))return false;
+ *out={begin,count};return true;
+}
+Span Data(lua_State*L,const List&v){Span data{};if(!TryData(L,v,&data))luaL_error(L,"container module, reference owner or native array has changed");return data;}
+std::uintptr_t ListIdentity(lua_State*L,int index)noexcept {
+ if(lua_rawlen(L,index)!=sizeof(List))return 0;
+ const auto*v=static_cast<const List*>(lua_touserdata(L,index));Span data{};
+ return TryData(L,*v,&data)?(v->query?engine_memory::AddressOf(v->value.bytes):v->object):0;
 }
 int ReadOnly(lua_State*L){auto*v=static_cast<List*>(luaL_testudata(L,1,kVectors));if(!v)v=static_cast<List*>(luaL_checkudata(L,1,kEntities));Check(L,*v);return luaL_error(L,"container is read-only");}
 List* Push(lua_State*L,const List&value,const char*mt){auto*v=new(lua_newuserdata(L,sizeof(List)))List(value);luaL_getmetatable(L,mt);lua_setmetatable(L,-2);return v;}
@@ -55,7 +73,11 @@ int Query(lua_State*L,unsigned kind){const auto npc=NPC(L);const auto room=Room(
  // 原生本组三函数返回arena借用flag=1；拒绝未知拥有型结果，不能泄漏或擅自释放。
  if(result.bytes[0]!=1){return luaL_error(L,"EntityList returned an unsupported owned result");}
  List value{};value.base=LuaRuntime::EngineModuleBase();value.owner=room;value.descriptor=Read<std::uintptr_t>(L,room,8);value.query=true;value.arena=Read<std::uintptr_t>(L,room,0x1a28);value.arenaCapacity=Read<std::uint32_t>(L,room,0x1a30);value.value=result;static_cast<void>(Data(L,value));Push(L,value,kEntities);return 1;}
-void VectorRead(lua_State*L,int owner,std::uintptr_t address,LuaRuntime::VectorHandle*out){const auto*v=Get(L,owner,kVectors);const auto s=Data(L,*v);if(address<s.begin||(address-s.begin)%8||(address-s.begin)/8>=s.count){luaL_error(L,"Vector reference array has changed");}*out=Read<LuaRuntime::VectorHandle>(L,address,0);}
+bool VectorRead(lua_State*L,int owner,std::uintptr_t address,LuaRuntime::VectorHandle*out)noexcept {
+ if(!luaL_testudata(L,owner,kVectors)||lua_rawlen(L,owner)!=sizeof(List))return false;
+ const auto*v=static_cast<const List*>(lua_touserdata(L,owner));Span s{};
+ return TryData(L,*v,&s)&&address>=s.begin&&(address-s.begin)%8==0&&(address-s.begin)/8<s.count&&TryRead(address,0,out);
+}
 int Method(lua_State*L){lua_getmetatable(L,1);lua_getfield(L,-1,"__methods");lua_pushvalue(L,2);lua_rawget(L,-2);return 1;}
 int EntityIndex(lua_State*L){static_cast<void>(Get(L,1,kEntities));const auto*n=lua_tostring(L,2);if(n&&!std::strcmp(n,"Get")){return Method(L);}else if(n&&!std::strcmp(n,"Size")){lua_pushinteger(L,Data(L,*Get(L,1,kEntities)).count);}else{return Method(L);}return 1;}
 int ListVectorIndex(lua_State*L){const auto*v=Get(L,1,kVectors);const auto*n=lua_tostring(L,2);if(n&&!std::strcmp(n,"Get")){return Method(L);}else if(n&&!std::strcmp(n,"Size")){lua_pushinteger(L,Data(L,*v).count);}else{return Method(L);}return 1;}
@@ -63,7 +85,7 @@ int ListVectorIndex(lua_State*L){const auto*v=Get(L,1,kVectors);const auto*n=lua
 #if !defined(__SWITCH__)
 void SetApi700ContainerNatives(const std::uintptr_t(&v)[3])noexcept{std::memcpy(g_Tests,v,sizeof(g_Tests));}
 #endif
-void RegisterApi700Containers(lua_State*L){for(unsigned i=0;i<2;++i){const auto*mt=i?kVectors:kEntities;luaL_newmetatable(L,mt);lua_pushcfunction(L,i?ListVectorIndex:EntityIndex);lua_setfield(L,-2,"__index");lua_pushcfunction(L,ReadOnly);lua_setfield(L,-2,"__newindex");lua_newtable(L);static_cast<void>(AttachApi700Methods(L,i?"VectorList":"EntityList"));lua_getfield(L,-1,"__len");if(lua_isnil(L,-1)){lua_pop(L,1);lua_pushcfunction(L,i?Api700VectorListLen:Api700EntityListLen);}lua_setfield(L,-3,"__len");lua_setfield(L,-2,"__methods");lua_pop(L,1);PublishNativeClass(L,i?"VectorList":"EntityList",mt);}
+void RegisterApi700Containers(lua_State*L){for(unsigned i=0;i<2;++i){const auto*mt=i?kVectors:kEntities;luaL_newmetatable(L,mt);if(!RegisterNativeObjectIdentity(L,-1,ListIdentity))luaL_error(L,"container identity resolver conflicts");lua_pushcfunction(L,i?ListVectorIndex:EntityIndex);lua_setfield(L,-2,"__index");lua_pushcfunction(L,ReadOnly);lua_setfield(L,-2,"__newindex");lua_newtable(L);static_cast<void>(AttachApi700Methods(L,i?"VectorList":"EntityList"));lua_getfield(L,-1,"__len");if(lua_isnil(L,-1)){lua_pop(L,1);lua_pushcfunction(L,i?Api700VectorListLen:Api700EntityListLen);}lua_setfield(L,-3,"__len");lua_setfield(L,-2,"__methods");lua_pop(L,1);PublishNativeClass(L,i?"VectorList":"EntityList",mt);}
  lua_getglobal(L,"CppContainer");if(!lua_istable(L,-1)){lua_pop(L,1);lua_newtable(L);}lua_getglobal(L,"EntityList");lua_setfield(L,-2,"EntityList");lua_getfield(L,-1,"Vector");if(!lua_istable(L,-1)){lua_pop(L,1);lua_newtable(L);}lua_getglobal(L,"VectorList");lua_setfield(L,-2,"VectorList");lua_setfield(L,-2,"Vector");lua_setglobal(L,"CppContainer");}
 int Api700LaserGetSamples(lua_State*L){return Samples(L,0x478);}
 int Api700LaserGetNonOptimizedSamples(lua_State*L){return Samples(L,0x490);}

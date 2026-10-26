@@ -1,6 +1,9 @@
+#include "use_item_internal_hook.hpp"
 #include "interfaces/lua/rplus_options.hpp"
 #include "application/shader/shader_pipeline.hpp"
 #include "hook_manager.hpp"
+#include "mod_reload_cycle.hpp"
+#include "interfaces/lua/runtime_perf.hpp"
 #include "domain/runtime/render_frame_coordinator.hpp"
 
 #include "lib.hpp"
@@ -13,6 +16,9 @@
 #endif
 #include "game_observer.hpp"
 #include "lua_runtime.hpp"
+#include "native_player_init.hpp"
+#include "application/game/greed_hourglass_transition.hpp"
+#include "projectile_update_tail.hpp"
 // 回调登记普查（`LuaRuntime::RegisteredCallbackKindMaskLow` 等）：诊断出口要把
 // “Mod 登记了哪些回调种类、哪些有派发点”报给探针，因此这里需要状态头的声明。
 #include "lua_runtime_state.hpp"
@@ -83,6 +89,8 @@
 #include "interfaces/lua/runtime_perf.hpp"
 #endif
 #include "infrastructure/relay/entry_relay_binding.hpp"
+#include "infrastructure/relay/entry_relay_hook_adapter.hpp"
+#include "relay/entry_relay.hpp"
 // L1 引擎内存访问层（批次 147 用）：读 `ModEntry` 的字段、读槽里的指针、写 `+0x139` 那一字节
 // 全部走它 —— 调用点里不再出现 `reinterpret_cast`，也不再自己写"这段地址能不能读"。
 #include "infrastructure/memory/engine_field_access.hpp"
@@ -1210,6 +1218,7 @@ enum class DefaultManifestFailureDetail : u32 {
     // 6：没有可用清单，运行时**自己列目录**发现的模组（方案 A，2026-09-16）。
     // 不是失败：与 0 一样是"加载成功"，只是告诉读数"这批模组不是清单点名的那批"。
     Discovered = 6,
+    NameOrder = 7, // 显示名收集或排序失败，不能发布与PC不一致的顺序。
 };
 std::atomic<DefaultManifestState> g_DefaultManifestState{DefaultManifestState::Unarmed};
 std::atomic<u32> g_DefaultManifestFailureDetail{static_cast<u32>(DefaultManifestFailureDetail::None)};
@@ -1356,10 +1365,11 @@ bool InitializeDefaultManifestMod(u32* failureDetail) {
     // 模组数是个位数，64 足够；真卡住也不会把主线程吊死在这里。
     constexpr int kMaxLoadStepsPerCall = 64;
     bool result = LoadDefaultManifestModThroughService(failureDetail);
-    for (int step = 1; step < kMaxLoadStepsPerCall && result && !DefaultManifestLoadFinished(); ++step) {
+    for (int step = 1; step < kMaxLoadStepsPerCall && !DefaultManifestLoadFinished(); ++step) {
         result = LoadDefaultManifestModThroughService(failureDetail);
     }
-    return result;
+    // 未完成步的false只是“结果尚未产生”，只有finished才可解释最终成败。
+    return DefaultManifestLoadFinished() && result;
 }
 
 // File-scope so nothing depends on dynamic initialisation order, and so the rebuild
@@ -1840,6 +1850,8 @@ enum class ManifestLoadStep : u32 {
     Done,
 };
 
+bool g_ModMenuReloadLoading{};
+
 struct ManifestLoadState {
     // 一批 Mod 的路径缓冲放在**静态存储**里：`ResolvedManifestModBatch` 约 9.6 KiB，
     // 放在这条路径的栈上不合适（它跑在游戏线程），而且 `ResolvedManifestMod` 里的指针
@@ -1999,7 +2011,16 @@ bool LoadDefaultManifestModThroughService(u32* failureDetail) {
         // 菜单要显示**全部**扫描到的模组（包括被关掉的，用户正是要重新打开它们），
         // 所以清单在过滤**之前**先灌进去；过滤之后再把"这次真的加载了哪些"标上。
         isaac::runtime::ModMenuAttachToggles(&g_ModToggleService);
-        isaac::runtime::ModMenuPublishDiscovered(batch);
+        const auto module = FindTargetModule();
+        if (!module || !isaac::runtime::modmenu::SortAndPublishDiscoveredMods(*module, batch)) {
+            load.detail = static_cast<u32>(DefaultManifestFailureDetail::NameOrder);
+            load.batchOk = false;
+            load.result = false;
+            load.finished = true;
+            if (failureDetail != nullptr) *failureDetail = load.detail;
+            step = ManifestLoadStep::Done;
+            break;
+        }
         if (const isaac::runtime::Status toggles = g_ModToggleService.Load(); toggles.ok()) {
             (void)g_ModToggleService.ApplyToBatch(&batch);
         }
@@ -2053,6 +2074,8 @@ bool LoadDefaultManifestModThroughService(u32* failureDetail) {
         // ★ 批次 356 那次"挂完问一次可见性"的探针**撤掉**：它的对象（"我们挂的挂载点还在不在
         //   表里"）在本批之后不存在了。新的证据面是 `g_ModResourceRedirectState`
         //   （重定向调用/命中/命中来自哪个模组）与贴图桥既有的"按路径查询/回答"记录。
+        // Shader集合在本体配置和每个模组脚本之前就绪，保持PC的Reset顺序。
+        load.batchOk = isaac::runtime::modmenu::BeginEngineModContentCycle(g_ModMenuReloadLoading) && load.batchOk;
         load.index = 0;
         step = ManifestLoadStep::Content;
         break;
@@ -2078,7 +2101,7 @@ bool LoadDefaultManifestModThroughService(u32* failureDetail) {
         // 安全性：这一段本来就跑在**游戏线程**、引擎自己的 `Manager::Update` 帧里（文件 API 已可用，
         // 见 `g_CardSwitchProbeAllowed` 那段）；本调用只读文件 + 调那两个加载器，不碰引擎的模组表。
         // 每帧重试那条路**保留**（它救过一次），成功之后它会因为"容器涨过"立刻变成空转。
-        isaac::runtime::modmenu::LoadEngineModContentBeforeModScripts();
+        // 内容改到Scripts循环内逐模组加载，不能提前统一收尾。
         const auto options=isaac::runtime::LoadRuntimeOptions();
         if(!options.ok()){
             char message[96];const auto n=std::snprintf(message,sizeof(message),"runtime options load failed: %u",static_cast<unsigned>(options.code()));
@@ -2086,7 +2109,8 @@ bool LoadDefaultManifestModThroughService(u32* failureDetail) {
         }
         // ★ 376：原来这里还有一刀 `bridge::NoteMountVisibilityCheckpoint(1)`（357 的"内容步收尾"）
         //   —— 它属于**挂载可见性时间轴**，已随机制撤除（见 `EntryRelayManagerUpdateCallback`）。
-        // 原生模组页不需要额外Lua模组；内容完成后直接加载用户模组。
+        // 资源模组/全关闭也保留基础Lua环境，下一次重载无需重启游戏。
+        load.batchOk = (LuaRuntime::EnsureRuntimeWithMenu()==LuaRuntime::LuaInitResult::Success) && load.batchOk;
         load.index = 0;
         step = ManifestLoadStep::Scripts;
         break;
@@ -2100,6 +2124,8 @@ bool LoadDefaultManifestModThroughService(u32* failureDetail) {
             step = ManifestLoadStep::Finalize;
             break;
         }
+        load.batchOk = isaac::runtime::modmenu::LoadEngineModContentForMod(
+            load.batch.mods[load.index].modRoot) && load.batchOk;
         load.single.count = 1;
         load.single.mods[0] = load.batch.mods[load.index];
         load.oneOutcome.count = 0;
@@ -2121,6 +2147,7 @@ bool LoadDefaultManifestModThroughService(u32* failureDetail) {
         break;
     }
     case ManifestLoadStep::Finalize: {
+        load.batchOk = isaac::runtime::modmenu::FinishEngineModContentCycle() && load.batchOk;
         u32 detail = MapModLoadFailure(load.failure);
         auto& loadOutcome = load.loadOutcome;  // 别名：同上
         // 加载失败仍如实报告；原生模组页独立于Lua状态，无需重装额外菜单。
@@ -2289,6 +2316,10 @@ EarlyModMountOutcome MountModsBeforeHeavyWorkImpl(const TargetModule& module) no
     }
     // 与游戏线程那一轮同一条"合并"口径：清单里**没列出**的目录也要能用。
     (void)g_ModDiscoveryService.AppendUnlisted(&batch);
+    if (!isaac::runtime::modmenu::SortAndPublishDiscoveredMods(module, batch)) {
+        ++outcome.mountsFailed;
+        return outcome;
+    }
 
     // 批次 438 更正上面的旧限制：本入口唯一生产调用者是 Game::Init 中继，
     // 在游戏线程上执行；启动 0x3B2FC8 已挂载存档，0x3B304C 才进入 Manager::Init。
@@ -3714,10 +3745,87 @@ NORETURN void ManagerLoadConfigsResetDiagnosticCallback(IsaacRepentance::Manager
 } // namespace
 
 namespace isaac::runtime {
+extern "C" {
+ModReloadState g_ModReloadState{};
+std::uint64_t g_ModReloadLastMicros{};
+std::uint64_t g_ModReloadMaxMicros{};
+}
+bool ReloadModsFromMenu(bool edited) noexcept {
+#if defined(EXL_DIAGNOSTIC_STAGE)
+    return !edited;
+#else
+    struct Operations {
+        bool Preflight() noexcept {
+            const auto current=g_DefaultManifestState.load(std::memory_order_acquire);
+            return LuaRuntime::IsOnGameThread() &&
+                (current==DefaultManifestState::Ready || current==DefaultManifestState::Failed) &&
+                modmenu::PreflightEngineModReload();
+        }
+        bool Save() noexcept {
+            const bool saved=ModMenuSaveToggles();
+            modmenu::NoteModToggleSaveResult(saved);
+            return saved;
+        }
+        bool CloseLua() noexcept { return modmenu::WaitEngineGraphicsForModReload() && LuaRuntime::ShutdownForModReload(); }
+        bool CreateLua() noexcept { return LuaRuntime::EnsureRuntimeWithMenu()==LuaRuntime::LuaInitResult::Success; }
+        bool ReleaseNative() noexcept { return modmenu::ReleaseEngineModsForReload(); }
+        bool Load() noexcept {
+            auto& load=ManifestLoadStateRef();
+            load.batch.count=0;load.batch.disabledCount=0;load.batch.manifestBytes=0;
+            load.single.count=0;load.loadOutcome={};load.oneOutcome={};load.failure={};
+            load.index=0;load.discoveryMark=0;load.detail=0;load.batchOk=true;load.finished=false;load.result=false;
+            ManifestLoadStepRef()=ManifestLoadStep::Idle;
+            g_DefaultManifestFailureWord.store(0,std::memory_order_release);
+            g_DefaultManifestState.store(DefaultManifestState::Running,std::memory_order_release);
+            g_ModMenuReloadLoading=true;
+            u32 detail{};
+            const bool initialized=InitializeDefaultManifestMod(&detail);
+            g_ModMenuReloadLoading=false;
+            // 即使作者脚本报错，也必须恢复已经放开的菜单动画/字体，允许修正开关重试。
+            const bool nativeFinished=modmenu::FinishEngineModReload();
+            const bool success=initialized && DefaultManifestLoadFinished() && nativeFinished;
+            g_DefaultManifestFailureDetail.store(detail,std::memory_order_release);
+            g_DefaultManifestState.store(success?DefaultManifestState::Ready:DefaultManifestState::Failed,
+                                         std::memory_order_release);
+            return success;
+        }
+    } operations;
+    const auto tick=RuntimePerfTick();
+    const bool result=ApplyModMenuReload(edited,g_ModReloadState,operations);
+    if (edited) {
+        const auto frequency=RuntimePerfTicksPerSecond();
+        g_ModReloadLastMicros=frequency?(RuntimePerfTick()-tick)*1000000ULL/frequency:0;
+        if (g_ModReloadLastMicros>g_ModReloadMaxMicros) g_ModReloadMaxMicros=g_ModReloadLastMicros;
+        if (!result) {
+            char message[96];
+            const int count=std::snprintf(message,sizeof(message),"Mod reload failed at phase %u",g_ModReloadState.failure);
+            if (count>0) LuaRuntime::RecordLuaErrorText(message,static_cast<std::size_t>(count));
+        }
+    }
+    return result;
+#endif
+}
+} // namespace isaac::runtime
+
+namespace isaac::runtime {
 bool PublishManagerUpdateEntryRelayOriginal(std::uintptr_t original) noexcept {
     return ManagerUpdateHook::PublishOriginal(original);
 }
 }
+
+namespace {
+// 先认证后发布；回调只取缓存，不反复查询代码映射或扫描入口。
+std::atomic<std::uintptr_t> g_GreedHourglassRoomTransition{0};
+[[maybe_unused]] void PublishGreedHourglassRoomTransition(const TargetModule& module) noexcept {
+    std::uintptr_t entry = 0;
+    if (module.buildId == kTargetBuildId) {
+        static_cast<void>(isaac::runtime::engine_call::ResolveEntryAddress(
+            module.base, module.textSize, kGameStartRoomTransitionOffset,
+            kGameStartRoomTransitionExpectedBytes, &entry, &IsMappedRxModuleCodeWindow));
+    }
+    g_GreedHourglassRoomTransition.store(entry, std::memory_order_release);
+}
+} // namespace
 
 #if defined(EXL_DIAGNOSTIC_STAGE) && EXL_DIAGNOSTIC_STAGE == 14
 void MarkStage14DiagnosticReady() {
@@ -3836,6 +3944,7 @@ DefaultManifestInstallResult TryInstallDefaultManifestMod(const TargetModule& mo
     std::memcpy(info.buildId.data(), module.buildId.data(), buildIdBytes);
     // 先在安装前把真实回调接进入口中继绑定表，再换成按挂点路由的适配器
     // （M2a 第一路：`ManagerUpdate` 已切到 `EntryRelay`；`ManagerRender` 是 M1 切的）。
+    PublishGreedHourglassRoomTransition(module);
     isaac::runtime::RegisterEntryRelayCallbacks();
     isaac::runtime::HookRoutingAdapter hookAdapter{};
     isaac::runtime::HookInstallService hookService{hookAdapter};
@@ -4377,6 +4486,34 @@ GameStartRelayInstallResult TryInstallGameStartRelay(const TargetModule& module)
     return GameStartRelayInstallResult::Success;
 }
 
+// 加载前静态补丁已经改好正常完成边界；运行时只发布8B槽，不热改栈指令。
+bool TryInstallProjectileTailRelay(const TargetModule& module,bool initialize) {
+    namespace tail=isaac::runtime::projectile_tail;
+    const auto function=initialize?tail::kInitFunction:tail::kFunction;
+    const auto length=initialize?tail::kInitSize:tail::kSize;
+    const auto gate=initialize?tail::kInitGate:tail::kGate;
+    const auto offset=initialize?tail::kInitSlot:tail::kSlot;
+    if(module.base==0 || module.buildId!=kTargetBuildId ||
+       module.base>UINTPTR_MAX-offset-8 || module.textSize<offset+8 ||
+       !IsMappedRxModuleCodeWindow(module.base+function,length) ||
+       !IsMappedRxModuleCodeWindow(module.base+gate,40))return false;
+    const auto* image=static_cast<const std::uint8_t*>(isaac::runtime::engine_memory::AsObject(module.base));
+    if(!tail::ImageMatches(image,module.textSize,initialize))return false;
+    const auto slot=module.base+offset;
+    const auto callback=isaac::runtime::engine_call::AddressOfFunction(initialize?&LuaRuntime::DispatchPostProjectileInit:&LuaRuntime::DispatchPostProjectileUpdate);
+    exl::util::RwPages pages(slot,sizeof(uintptr_t));
+    auto* pointer=static_cast<uintptr_t*>(isaac::runtime::engine_memory::AsObject(pages.GetRw()));
+    if(!pointer)return false;
+    uintptr_t empty{};
+    if(!__atomic_compare_exchange_n(pointer,&empty,callback,false,__ATOMIC_RELEASE,__ATOMIC_RELAXED))return false;
+    pages.Flush();
+    auto* readable=static_cast<const uintptr_t*>(isaac::runtime::engine_memory::AsObject(slot));
+    if(__atomic_load_n(readable,__ATOMIC_ACQUIRE)==callback)return true;
+    auto expected=callback;
+    static_cast<void>(__atomic_compare_exchange_n(pointer,&expected,0,false,__ATOMIC_RELEASE,__ATOMIC_RELAXED));
+    pages.Flush();return false;
+}
+
 #if defined(EXL_DIAGNOSTIC_STAGE) && (EXL_DIAGNOSTIC_STAGE == 108 || EXL_DIAGNOSTIC_STAGE == 110)
 namespace {
 bool VerifyStage108LifecycleRelay(const TargetModule& module, uintptr_t* slot) {
@@ -4788,6 +4925,19 @@ bool VerifyLevelIsNextStageAvailable(const TargetModule& module, uintptr_t* meth
     return true;
 }
 
+// 重新发布绑定时只接受本HookId已登记、且完整入口桩地址匹配的中继。
+// 初次安装前仍必须逐字核原生16字节，不能接受未知钩子。
+bool IsInstalledManagerInputEntry(isaac::runtime::HookId id, std::uintptr_t candidate,
+                                  const std::uint8_t* bytes) {
+    if (!isaac::runtime::EntryRelayInstalled(id)) return false;
+    const auto fallback = isaac::runtime::EntryRelayFallbackEntry(id);
+    if (fallback < isaac::runtime::relay::kSlotFallbackOffset) return false;
+    std::uint8_t expected[isaac::runtime::relay::kEntryPatchBytes]{};
+    isaac::runtime::relay::BuildEntryPatch(expected,
+        fallback - isaac::runtime::relay::kSlotFallbackOffset);
+    return candidate != 0 && std::memcmp(bytes, expected, sizeof(expected)) == 0;
+}
+
 bool VerifyManagerIsActionTriggered(const TargetModule& module, uintptr_t* method) {
     if (method == nullptr || module.base == 0 || module.buildId != kTargetBuildId ||
         kManagerIsActionTriggeredOffset > UINTPTR_MAX - module.base ||
@@ -4802,7 +4952,9 @@ bool VerifyManagerIsActionTriggered(const TargetModule& module, uintptr_t* metho
     }
     std::array<u8, kManagerIsActionTriggeredExpectedBytes.size()> bytes{};
     std::memcpy(bytes.data(), reinterpret_cast<const void*>(candidate), bytes.size());
-    if (!verify_bytes(kManagerIsActionTriggeredExpectedBytes.data(), bytes.data(), bytes.size())) return false;
+    if (!verify_bytes(kManagerIsActionTriggeredExpectedBytes.data(), bytes.data(), bytes.size()) &&
+        !IsInstalledManagerInputEntry(isaac::runtime::HookId::ManagerIsActionTriggered,
+                                     candidate, bytes.data())) return false;
     *method = candidate;
     return true;
 }
@@ -4822,7 +4974,9 @@ bool VerifyManagerIsActionPressed(const TargetModule& module, uintptr_t* method)
     }
     std::array<u8, kManagerIsActionPressedExpectedBytes.size()> bytes{};
     std::memcpy(bytes.data(), reinterpret_cast<const void*>(candidate), bytes.size());
-    if (!verify_bytes(kManagerIsActionPressedExpectedBytes.data(), bytes.data(), bytes.size())) {
+    if (!verify_bytes(kManagerIsActionPressedExpectedBytes.data(), bytes.data(), bytes.size()) &&
+        !IsInstalledManagerInputEntry(isaac::runtime::HookId::ManagerIsActionPressed,
+                                     candidate, bytes.data())) {
         return false;
     }
     *method = candidate;
@@ -4844,7 +4998,9 @@ bool VerifyManagerGetActionValue(const TargetModule& module, uintptr_t* method) 
     }
     std::array<u8, kManagerGetActionValueExpectedBytes.size()> bytes{};
     std::memcpy(bytes.data(), reinterpret_cast<const void*>(candidate), bytes.size());
-    if (!verify_bytes(kManagerGetActionValueExpectedBytes.data(), bytes.data(), bytes.size())) {
+    if (!verify_bytes(kManagerGetActionValueExpectedBytes.data(), bytes.data(), bytes.size()) &&
+        !IsInstalledManagerInputEntry(isaac::runtime::HookId::ManagerGetActionValue,
+                                     candidate, bytes.data())) {
         return false;
     }
     *method = candidate;
@@ -5466,41 +5622,27 @@ extern "C" std::uint32_t EntryRelayPreGetCollectibleCallback(void* itemPool, std
 // （不是本次使用算出来的那套标志）⇒ 用后记账（扣充能 / 移除单次道具 / 服装动画）按垃圾值走分支。
 // 判据与扫描方式见 `tools/engine_offset_abi_report.py` 的"入口中继回调"一节（门禁
 // `runtime/tests/test_engine_offset_signatures.py` 钉住"引擎有返回值而我们声明 void"这一类错）。
-// --- 批次 390（2026-10-07）：`MC_INPUT_ACTION` 的三条查询中继 -----------------------------------
-//
-// 靶点 = `KAGE::Input::ManagerBase::IsActionPressed / IsActionTriggered / GetActionValue`
-// （偏移与 16 字节守卫见 `runtime_constants.hpp` 的 `kKageManager*` 段）—— **引擎自己**读输入走的那条路。
-// ★★ 批次 392 更正（2026-10-07，真机回归 + 反汇编定案）：这里原来写着"`kManagerIsActionPressedOffset
-//   = 0x3F9B6C` 那一组是**引擎给 Lua 用的胶水函数**"——**只说对了一半**，另一半害了人：
-//   `0x3F9B6C` 的符号是 `IsaacRepentance::Manager::IsActionPressed`，它**尾跳进**下面这三条，
-//   而**引擎本体**（`Entity_Player::get_movement_input` / `control_shooting` / `Menu_*::ProcessInput` …）
-//   也调它 ⇒ **Lua 的 `Input.*` 与引擎自己的读取是同一次调用**。当初据此以为"挂下面这三条就不会
-//   影响 Lua 读取"⇒ 实际把 Lua 读取一起覆盖了（MCM 菜单可见时 `return false` 冻住了自己的光标）。
-//   ⇒ 现在多一道闸门：我们这侧读输入时套 `RawEngineInputQueryScope`，本中继见标记就**不派发、直接调原函数**。
-//   判别法（可重跑）：`tools/nro_callers.py 0x3F9B6C`（35 个调用点）、
-//   `tools/engine_symbol_signatures.json` 里 `ManagerBase::IsActionPressed` 的 offset = 0x4f9920。
-//
-// 形状（三条同构）：
-//   ⓪ ★ 批次 392：**我们这侧在读**（Lua 的 `Input.*` / 每帧采样器 / 原生模组页）⇒ 直读、不派发；
-//   ① 先派发 —— `DispatchInputAction` 自己带"**没有任何模组登记就立刻返回**"的快路径
-//      （这条路上引擎每秒问约 1470 次，快路径是性能红线所在）；
-//   ② 模组想覆盖（`overridden`）⇒ **不调原函数**，直接把覆盖值交出去；
-//   ③ 否则调原函数并**原样搬运**它的返回值（★ 入口中继以目标函数的身份运行，返回值由本回调负责；
-//      这一点在批次 102 的 `UseActiveItem` 上栽过，见上面那段注释）。
+// MC_INPUT_ACTION在Manager高层接收真实Entity*；底层ManagerBase第四实参是unsigned*。
+// 三个高层原生函数各16字节，加载输入单例、清x3后尾跳到底层；入口中继精确重定位
+// 该短函数并保留原回退，不再将所有KAGE通用查询伪装成玩家输入。
+// 公开Input查询保留RawEngineInputQueryScope，保证覆盖不影响模组读取。
+// 证据与历史更正见docs/MCM与StageAPI兼容层修复实施计划-20261025.md及本轮反汇编。
+// raw直接回退；否则先派发，首非nil可以覆盖，不覆盖则原样交还原函数结果。
 #define ISAAC_RUNTIME_INPUT_ACTION_RELAY(NAME, HOOK, HOOKPTR, RET, HOOKVALUE)                     \
     extern "C" RET NAME(void* manager, std::uint32_t action, std::uint32_t controller,            \
-                        std::uint32_t* out) {                                                     \
-        using QueryFn = RET (*)(void*, std::uint32_t, std::uint32_t, std::uint32_t*);             \
+                        void* entity) {                                                        \
+        using QueryFn = RET (*)(void*, std::uint32_t, std::uint32_t, void*);                      \
         const auto original = isaac::runtime::Original<QueryFn>(isaac::runtime::HookId::HOOK);    \
         if (LuaRuntime::IsRawEngineInputQuery()) {                                                \
-            return original(manager, action, controller, out);                                    \
+            return original(manager, action, controller, entity);                               \
         }                                                                                         \
         const LuaRuntime::InputActionOutcome outcome =                                            \
-            LuaRuntime::DispatchInputAction(action, controller, HOOKVALUE);                       \
+            LuaRuntime::DispatchInputAction(action, controller, HOOKVALUE,                      \
+                reinterpret_cast<std::uintptr_t>(entity));                                      \
         if (outcome.overridden) {                                                                 \
             return outcome.HOOKPTR;                                                               \
         }                                                                                         \
-        return original(manager, action, controller, out);                                        \
+        return original(manager, action, controller, entity);                                   \
     }
 
 ISAAC_RUNTIME_INPUT_ACTION_RELAY(EntryRelayManagerIsActionPressedCallback, ManagerIsActionPressed,
@@ -5534,6 +5676,13 @@ extern "C" std::uint64_t EntryRelayUseActiveItemCallback(void* player, std::uint
                                                         std::int32_t customVarData) {
     using UseActiveItemFn = std::uint64_t (*)(void*, std::uint32_t, std::uint32_t, std::int32_t,
                                               std::int32_t);
+    // PC 5A13D8..5A13DA skips both use callbacks for the empty item (0).
+    // Keep the native empty-item return path and all original arguments intact.
+    if (item == 0 || !LuaRuntime::IsOnGameThread()) {
+        const auto original =
+            isaac::runtime::Original<UseActiveItemFn>(isaac::runtime::HookId::UseActiveItem);
+        return original(player, item, useFlags, activeSlot, customVarData);
+    }
     if (LuaRuntime::DispatchPreUseItem(isaac::runtime::engine_memory::AddressOf(player),
                                        static_cast<std::int32_t>(item),
                                        static_cast<std::int32_t>(useFlags), activeSlot,
@@ -5543,15 +5692,28 @@ extern "C" std::uint64_t EntryRelayUseActiveItemCallback(void* player, std::uint
     }
     const auto original =
         isaac::runtime::Original<UseActiveItemFn>(isaac::runtime::HookId::UseActiveItem);
-    const std::uint64_t result = original(player, item, useFlags, activeSlot, customVarData);
-    const auto outcome=LuaRuntime::DispatchUseItem(isaac::runtime::engine_memory::AddressOf(player),
-                                static_cast<std::int32_t>(item),
-                                static_cast<std::int32_t>(useFlags), activeSlot, customVarData);
-    return outcome.Apply(result);
+    std::uint32_t type{}, variant{};
+    const bool mainVariant = isaac::runtime::ReadEntityIdentity(
+        isaac::runtime::engine_memory::AddressOf(player), &type, &variant) && variant == 0;
+    isaac::runtime::UseItemCallScope scope(isaac::runtime::ActiveUseItemFrame(),
+        isaac::runtime::engine_memory::AddressOf(player),static_cast<std::int32_t>(item),
+        useFlags,activeSlot,customVarData,mainVariant);
+    return original(player,item,useFlags,activeSlot,customVarData);
 }
 
 extern "C" void EntryRelayUseCardCallback(void* player, std::uint32_t card,
                                           std::uint32_t useFlags) {
+    // 入口中继用BR保留原始LR；这里必须在调用原生/回调之前取调用点。
+    const auto caller = isaac::runtime::engine_memory::AddressOf(
+        __builtin_extract_return_addr(__builtin_return_address(0)));
+    if (card == 48 && LuaRuntime::IsOnGameThread()) {
+        auto* frame = isaac::runtime::ActiveUseItemFrame();
+        if (frame && !frame->dispatched && frame->item == 286) {
+            isaac::runtime::NoteUseItemCardAnimation(frame,
+                isaac::runtime::engine_memory::AddressOf(player), card, caller,
+                LuaRuntime::EngineModuleBase());
+        }
+    }
     using UseCardFn = void (*)(void*, std::uint32_t, std::uint32_t);
     const auto original = isaac::runtime::Original<UseCardFn>(isaac::runtime::HookId::UseCard);
     original(player, card, useFlags);
@@ -5791,6 +5953,42 @@ extern "C" void EntryRelayEntityKillCallback(void* entity) {
                                        identityReadable ? static_cast<std::int32_t>(type) : -1);
     const auto original = isaac::runtime::Original<KillFn>(isaac::runtime::HookId::EntityKill);
     original(entity);
+}
+
+// 在StartStageTransition原生楼层完成/切层操作之前拦截非法贪婪Home分支。
+extern "C" void EntryRelayGameStartStageTransitionCallback(
+    void* game, bool goingUp, int animation, void* player) {
+    using namespace isaac::runtime;
+    const auto original = Original<StageTransitionFn>(HookId::GameStartStageTransition);
+    const auto room = engine_call::AsFunction<RoomTransitionFn>(
+        g_GreedHourglassRoomTransition.load(std::memory_order_acquire));
+    const auto result = DispatchGreedHourglassTransition(
+        game, goingUp, animation, player, original, room,
+        {kLevelStageOffset, kGameDifficultyOffset, kGameStateFlagsOffset,
+         kGamePlayerArrayBeginOffset, kGamePlayerArrayEndOffset},
+        &engine_memory::EngineMemoryReadable);
+    const char* error = nullptr;
+    switch (result) {
+        case HourglassTransitionResult::Forwarded:
+        case HourglassTransitionResult::Rerouted: return;
+        case HourglassTransitionResult::StateUnreadable:
+            error = "Glowing Hour Glass transition failed: native game state unreadable"; break;
+        case HourglassTransitionResult::RoomUnavailable:
+            error = "Glowing Hour Glass transition failed: native ERROR room entry unavailable"; break;
+        case HourglassTransitionResult::OriginalUnavailable:
+            error = "Glowing Hour Glass transition failed: original stage entry unavailable"; break;
+    }
+    if (error) LuaRuntime::RecordLuaErrorText(error, std::strlen(error));
+}
+
+// Init为虚调用；挂实际入口才能覆盖开局、读档与合作玩家创建。
+extern "C" void EntryRelayEntityPlayerInitCallback(void* player, std::uint32_t type,
+    std::uint32_t variant, std::uint32_t subType, std::uint32_t seed) {
+    using Init = void (*)(void*, std::uint32_t, std::uint32_t, std::uint32_t, std::uint32_t);
+    const auto original = isaac::runtime::Original<Init>(isaac::runtime::HookId::EntityPlayerInit);
+    if (!original) return;
+    original(player, type, variant, subType, seed);
+    LuaRuntime::DispatchNativePlayerInit(isaac::runtime::engine_memory::AddressOf(player));
 }
 
 // `MC_POST_NPC_DEATH`(29)：`Entity_NPC::trigger_death_remove()` 入口，返回 void。

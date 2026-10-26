@@ -4,6 +4,7 @@
 #include "interfaces/lua/runtime_perf.hpp"
 #include "interfaces/lua/api_sequence_probe.hpp"
 #include "interfaces/lua/font_api.hpp"
+#include "interfaces/lua/font_width_cache.hpp"
 #include "interfaces/lua/color_api.hpp"
 
 #include "interfaces/lua/lua_integer_argument.hpp"
@@ -11,6 +12,7 @@
 
 #include "lua_object_handles.hpp"
 #include "lua_runtime_state.hpp"
+#include "lua_runtime.hpp"
 #include "runtime_constants.hpp"
 
 // 批次 415：Font 存储改走 **Lua 状态自己的分配器**（`lua_getallocf`）—— 不再需要额外头文件
@@ -114,6 +116,8 @@ namespace {
 using LuaRuntime::FontHandle;
 using LuaRuntime::kFontMetatable;
 
+FontWidthCache g_FontWidthCache{};
+
 // --- Instance storage ------------------------------------------------------
 //
 // `Font` is the first family whose native object belongs to the Runtime. The Stage148 audit
@@ -171,9 +175,12 @@ bool LiveGameFont(const BorrowedGameFont*view)noexcept{
 // value with Lua's standard message; a handle that `__gc` already released is unreachable in
 // normal use, but a null object must never reach a native call. Returns 0 when the call may
 // proceed, otherwise the Lua error code to return verbatim.
-int ResolveFont(lua_State* state, const char* apiName, void** font) {
+int ResolveFont(lua_State* state, const char* apiName, void** font, bool* cacheable = nullptr) {
     auto* handle = static_cast<FontHandle*>(luaL_checkudata(state, 1, kFontMetatable));
-    if(lua_rawlen(state,1)==sizeof(BorrowedGameFont)&&!LiveGameFont(static_cast<const BorrowedGameFont*>(lua_touserdata(state,1))))return luaL_error(state,"%s: borrowed Font owner is no longer available",apiName);
+    const std::size_t storageBytes = lua_rawlen(state, 1);
+    const bool borrowed = storageBytes == sizeof(BorrowedGameFont);
+    if (cacheable != nullptr) *cacheable = storageBytes == kFontStorageBytes;
+    if(borrowed&&!LiveGameFont(static_cast<const BorrowedGameFont*>(lua_touserdata(state,1))))return luaL_error(state,"%s: borrowed Font owner is no longer available",apiName);
     if (handle->font == nullptr) {
         return luaL_error(state, "%s was called on a released Font", apiName);
     }
@@ -380,6 +387,7 @@ int FontLoad(lua_State* state) {
     const std::string_view normalized =
         NormalizeModResourcePath(lua_tostring(state, 2), normalizedStorage);
     const char* handedToEngine = normalized.empty() ? lua_tostring(state, 2) : normalized.data();
+    g_FontWidthCache.Invalidate(state, lua_touserdata(state, 1));
 #if EXL_DIAGNOSTIC_PROBES
     // 271-perf：把这次引擎 `Font::Load` 包成窗口 + 计时（回答"那 1 秒在谁的代码里"）。
     const std::uint64_t fontBeginTick = isaac::runtime::RuntimePerfTick();
@@ -428,6 +436,7 @@ int FontUnload(lua_State* state) {
     if (method == 0) {
         return luaL_error(state, "Font:Unload native binding is unavailable");
     }
+    g_FontWidthCache.Invalidate(state, lua_touserdata(state, 1));
     method(font);
     return 0;
 }
@@ -455,7 +464,8 @@ int FontIsLoaded(lua_State* state) {
 
 int FontGetStringWidth(lua_State* state) {
     void* font = nullptr;
-    if (const int error = ResolveFont(state, "Font:GetStringWidth", &font); error != 0) {
+    bool cacheable = false;
+    if (const int error = ResolveFont(state, "Font:GetStringWidth", &font, &cacheable); error != 0) {
         return error;
     }
     if (lua_gettop(state) != 2 || !lua_isstring(state, 2)) {
@@ -468,14 +478,23 @@ int FontGetStringWidth(lua_State* state) {
     if (const int error = RequireLoadedFont(state, font, "Font:GetStringWidth"); error != 0) {
         return error;
     }
-    lua_pushinteger(state, static_cast<lua_Integer>(
-                               method(font, lua_tostring(state, 2))));
+    std::size_t length = 0;
+    const char* text = lua_tolstring(state, 2, &length);
+    const FontWidthCache::Key key{state, lua_touserdata(state, 1), font,
+        reinterpret_cast<std::uintptr_t>(method), LuaRuntime::FontBindingGeneration(), false};
+    int width = 0;
+    if (!cacheable || !g_FontWidthCache.Find(key, text, length, &width)) {
+        width = method(font, text);
+        if (cacheable) g_FontWidthCache.Insert(key, text, length, width);
+    }
+    lua_pushinteger(state, static_cast<lua_Integer>(width));
     return 1;
 }
 
 int FontGetStringWidthUTF8(lua_State* state) {
     void* font = nullptr;
-    if (const int error = ResolveFont(state, "Font:GetStringWidthUTF8", &font); error != 0) {
+    bool cacheable = false;
+    if (const int error = ResolveFont(state, "Font:GetStringWidthUTF8", &font, &cacheable); error != 0) {
         return error;
     }
     if (lua_gettop(state) != 2 || !lua_isstring(state, 2)) {
@@ -491,9 +510,16 @@ int FontGetStringWidthUTF8(lua_State* state) {
     // The native function converts UTF-8 into a module-static 512-unit UTF-16 buffer before
     // measuring, so it is not reentrant and silently truncates longer strings; both properties
     // belong to the game and are not something this handler can repair.
-    lua_pushinteger(
-        state, static_cast<lua_Integer>(
-                   method(font, lua_tostring(state, 2))));
+    std::size_t length = 0;
+    const char* text = lua_tolstring(state, 2, &length);
+    const FontWidthCache::Key key{state, lua_touserdata(state, 1), font,
+        reinterpret_cast<std::uintptr_t>(method), LuaRuntime::FontBindingGeneration(), true};
+    int width = 0;
+    if (!cacheable || !g_FontWidthCache.Find(key, text, length, &width)) {
+        width = method(font, text);
+        if (cacheable) g_FontWidthCache.Insert(key, text, length, width);
+    }
+    lua_pushinteger(state, static_cast<lua_Integer>(width));
     return 1;
 }
 
@@ -587,6 +613,7 @@ int FontSetMissingCharacter(lua_State* state) {
     // it dereferences no glyph record. The unsafe combination -- a missing character >= 255 set on
     // an object that was never loaded -- is contained by the `IsLoaded()` gate on every
     // measurement method above, which is the only path that would follow the index.
+    g_FontWidthCache.Invalidate(state, lua_touserdata(state, 1));
     method(font, static_cast<std::uint16_t>(character));
     return 0;
 }
@@ -733,9 +760,8 @@ int FontDrawStringScaledUTF8(lua_State* state) {
 namespace {
 constexpr char kDefaultScreenFontRegistryKey[] = "IsaacRuntime.DefaultScreenFont";
 constexpr const char* kDefaultScreenFontPaths[] = {
-    "font/teammeatfont12.fnt",
-    "font/droid.fnt",
-    "font/terminus.fnt",
+    // 2026-10-24：PC GetTextWidth契约点名terminus8；菜单字体不能替代默认屏幕字体。
+    "font/terminus8.fnt",
 };
 
 // 把运行时默认字体压到栈顶（命中缓存时直接压缓存那份）。**要求调用前栈是空的**
@@ -888,6 +914,10 @@ bool MeasureTextWithDefaultFont(lua_State* state, const char* text, std::size_t 
 }
 
 int CreateFontHandle(lua_State* state) {
+    // Lua5.3关闭时不再终结__gc新建的对象，必须在申请原生所有者之前拒绝。
+    if (LuaRuntime::ClosingForModReload()) {
+        return luaL_error(state, "Font cannot allocate native resources during mod reload shutdown");
+    }
     if (lua_gettop(state) != 0) {
         return luaL_error(state, "Font accepts no arguments");
     }
@@ -908,6 +938,7 @@ int CreateFontHandle(lua_State* state) {
 
 int DestroyFontHandle(lua_State* state) {
     auto* handle = static_cast<FontHandle*>(luaL_checkudata(state, 1, kFontMetatable));
+    g_FontWidthCache.Invalidate(state, handle);
     if(lua_rawlen(state,1)==sizeof(BorrowedGameFont)){handle->font=nullptr;return 0;}
     if (handle->font == nullptr) {
         // Idempotent: Lua may collect a userdata that failed to construct, and a double release of
@@ -1006,5 +1037,15 @@ int PushBorrowedGameFont(lua_State*L,std::uintptr_t game,std::uintptr_t offset){
  auto*view=static_cast<BorrowedGameFont*>(lua_newuserdata(L,sizeof(BorrowedGameFont)));
  *view={{engine_memory::AsObject(game+offset)},LuaRuntime::EngineModuleBase(),game};
  luaL_getmetatable(L,LuaRuntime::kFontMetatable);lua_setmetatable(L,-2);return 1;
+}
+}
+
+namespace isaac::runtime {
+void* TryResolveFontArgument(lua_State* state,int index) noexcept {
+    auto* handle=static_cast<LuaRuntime::FontHandle*>(luaL_testudata(state,index,LuaRuntime::kFontMetatable));
+    if(!handle || lua_rawlen(state,index)<sizeof(LuaRuntime::FontHandle) || !handle->font)return nullptr;
+    if(lua_rawlen(state,index)==sizeof(BorrowedGameFont) &&
+       !LiveGameFont(static_cast<const BorrowedGameFont*>(lua_touserdata(state,index))))return nullptr;
+    return engine_memory::EngineMemoryReadable(engine_memory::AddressOf(handle->font),kFontObjectSize)?handle->font:nullptr;
 }
 }
