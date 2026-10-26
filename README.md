@@ -20,7 +20,7 @@
 
 | 项目 | 要求 |
 | --- | --- |
-| 主机 | 能够加载自制运行环境的机型 |
+| 主机 | 已安装 **Atmosphère** 自制固件 |
 | 游戏 | **The Binding of Isaac: Repentance** 1.7.9b |
 | 其他 | 运行时**会核对游戏构建号**，版本不符不会加载 |
 
@@ -85,7 +85,13 @@ tests/               跨模块集成与契约测试
 
 ## 致谢与许可
 
-项目派生/参考了若干开源项目，**整体以 GPL-2.0 发布**（见 `LICENSE`）。
+项目派生/参考了以下开源项目，**整体以 GPL-2.0 发布**（见 `LICENSE`）：
+
+- [Atmosphère-NX](https://github.com/Atmosphere-NX/Atmosphere)（GPL-2.0）：`runtime/source/nn/os/*` 等；
+- libnx（ISC）：`runtime/source/lib/nx/*` 等；
+- [exlaunch](https://github.com/shadowninja108/exlaunch)（GPL-2.0）：兼容层与入口约定；
+- [Lua 5.3.3](https://www.lua.org/)（MIT）：`runtime/source/third_party/lua-5.3.3`。
+
 各第三方组件的版权与许可声明保留在对应源文件头部。
 
 第三方模组（例如 EID，作者 wofsauge）**不在本仓库内**，版权归原作者。
