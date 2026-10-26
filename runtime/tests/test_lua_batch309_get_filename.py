@@ -88,7 +88,8 @@ std::string g_Text;
 int g_Form = 0;                          // 0 = 空串，1 = 短串，2 = 长串，3 = 超长长串
 
 void WriteFilenameInto(void* self) {
-    auto* base = static_cast<unsigned char*>(self) + kSpriteFilenameOffset;
+    // 2026-10-23: original ANM2::Load@C9C4 writes the filename at +0; independent of the production constant.
+    auto* base = static_cast<unsigned char*>(self);
     std::memset(base, 0, 24);
     if (g_Form == 0) {
         return;                                     // 首字节 0 = 空串
@@ -332,7 +333,8 @@ class SpriteGetFilenameBatch309Tests(unittest.TestCase):
         self.assertIn('lua_pushliteral(state, "")', block)
 
         #: ★ 偏移常量写死 + 两处具名证据留在常量段里。
-        self.assertRegex(constants, rf"inline constexpr uintptr_t {OFFSET_NAME}\s*=\s*0x08;")
+        self.assertRegex(constants, rf"inline constexpr uintptr_t {OFFSET_NAME}\s*=\s*0x00;")
+        self.assertIn("0xC9C4", constants, "必须记录真实ANM2写入入口")
         self.assertIn("0x4A48B4", constants, "取证里必须留下 `LoadAnimationsFile` 的地址")
         self.assertIn("std::string::assign", constants, "取证里必须留下 assign 那一句")
         self.assertIn("0x4A4658", constants, "取证里必须留下构造函数的地址")

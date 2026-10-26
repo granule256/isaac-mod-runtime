@@ -357,6 +357,7 @@ int Api200SpriteSetOverlayAnimation(lua_State*L){
  auto*self=ResolveSpriteArgument(L,1);
  const auto arg0=luaL_checkstring(L,2);
  const auto arg1=!(lua_isboolean(L,3)&&!lua_toboolean(L,3));
- static_cast<void>(Native<bool(*)(void*,const char*,bool)>(L,Api200MainNative::SpriteSetOverlayAnimation)(self,arg0,arg1));return 0;
+ const bool success=Native<bool(*)(void*,const char*,bool)>(L,Api200MainNative::SpriteSetOverlayAnimation)(self,arg0,arg1);
+ lua_pushboolean(L,success);return 1;
 }
 }

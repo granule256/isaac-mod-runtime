@@ -15,7 +15,7 @@ const char* entryB=R"lua(B=RegisterMod('ReloadB',1);Bmodule=require('b_module');
 namespace GameFileReader {
 TextReadResult ReadTextFile(const Bindings&,const char* path,u8* out,std::size_t capacity,std::size_t* n){
  const char* source=nullptr;
- if(!std::strcmp(path,"rom:/isaac_mods/mods/A/main.lua")){source=entryA;++readsA;}
+ if(!std::strcmp(path,"rom:/isaac_mods/mods/A/main.lua")){static const std::string bomEntry=std::string("\xef\xbb\xbf")+entryA;source=bomEntry.c_str();++readsA;}
  if(!std::strcmp(path,"rom:/isaac_mods/mods/A/a_module.lua")){source=version==1?"return 1":"return 2";++readsA;}
  if(!std::strcmp(path,"rom:/isaac_mods/mods/B/b_module.lua")){source="return {}";++readsB;}
  if(!std::strcmp(path,"rom:/isaac_mods/mods/A/a_include.lua"))source="return 77";

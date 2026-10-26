@@ -769,7 +769,8 @@ bool ImagePcxConvert(const ImagePcxOwnedBytes& png,uint8_t** out,std::size_t* si
         const auto be=[](const u8* p) { return (uint32_t(p[0])<<24)|(uint32_t(p[1])<<16)|(uint32_t(p[2])<<8)|p[3]; };
         const auto color=png.data()[25];
         const auto channels=color==6?4:color==2?3:color==4?2:1;
-        const auto need=isaac::runtime::content::PngToPcxPeakUpperBound(png.size(),be(png.data()+16),be(png.data()+20),channels);
+        // 只为首个输出块预留；后续实际分配失败沿用清缓存后重试一次的路径。
+        const auto need=isaac::runtime::content::PngToPcxStreamingPeakUpperBound(png.size(),be(png.data()+16),channels,1);
         if(need<=isaac::runtime::content::kPngToPcxPeakBudgetBytes) ImagePcxReserveWorkspace(need);
     }
     isaac::runtime::content::PngToPcxFailure failure{};
@@ -1089,8 +1090,9 @@ ImagePcxPngVerdict PngHeaderVerdictForBridge(const char* pngPath,
     //   超预算 ⇒ `kTooLarge`，**原样放行给引擎**（它自己解，慢但一定成功）。
     const std::uint64_t fileBytesForPeak =
         fileBytes > 0 ? static_cast<std::uint64_t>(fileBytes) : 0u;
-    const std::uint64_t peak = isaac::runtime::content::PngToPcxPeakUpperBound(
-        fileBytesForPeak, width, height, static_cast<std::uint64_t>(channels));
+    // 流式输出逐块守住同一个64MiB上限，不按16×像素预拒实际很小的字体页。
+    const std::uint64_t peak = isaac::runtime::content::PngToPcxStreamingPeakUpperBound(
+        fileBytesForPeak, width, static_cast<std::uint64_t>(channels), 1);
     if (peak > isaac::runtime::content::kPngToPcxPeakBudgetBytes) {
         return ImagePcxPngVerdict::kTooLarge;
     }
@@ -1678,6 +1680,11 @@ void Attach(const GameFileReader::Bindings* fileBindings,
 // 而读数看起来完全正常（本项目在"判据里硬编码常量"上已经踩过：去抖窗口写死 6 那一次）。
 // ★ 只在 60 帧节拍里调一次（见 `mod_menu_native.cpp` 的 `NoteHeapUsagePeriodically`），
 // 不在每帧热路径上。
+void ClearImagePcxConversionCache() noexcept {
+    g_ImagePcxCache.TrimToBytes(0);
+    g_ImagePcxSyntheticRingCount.store(0,std::memory_order_release);
+}
+
 std::uint32_t ImagePcxCacheUsedBytes() noexcept {
     const std::size_t used = g_ImagePcxCache.used_bytes();
     return used > 0xFFFFFFFFULL ? 0xFFFFFFFFu : static_cast<std::uint32_t>(used);

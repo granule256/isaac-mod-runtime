@@ -739,7 +739,7 @@ int GameSpawnParticles(lua_State* state) {
     static_assert(sizeof(EngineColorMod) == kColorModSize,
                   "ColorMod 的字段数变了（见 kColorModSize 的取证）");
     EngineColorMod color = isaac::runtime::DefaultEngineColorMod();
-    if (arguments >= 6) {
+    if (lua_toboolean(state, 6)) {
         //: 缺省（不给第 5 个参数）就是契约的 `Color.Default` —— 白色不透明，
         //: 也就是 `DefaultEngineColorMod()` 那份全 1 的 tint。
         if (!isaac::runtime::FillEngineColorMod(state, 6, &color)) {
@@ -747,11 +747,11 @@ int GameSpawnParticles(lua_State* state) {
         }
     }
     float height = 100000.0F;  // 契约缺省；引擎会拿它比一次，别改成 0
-    if (arguments >= 7) {
+    if (lua_toboolean(state, 7)) {
         height = static_cast<float>(luaL_checknumber(state, 7));
     }
     unsigned int subtype = 0;
-    if (arguments >= 8) {
+    if (lua_toboolean(state, 8)) {
         if (!isaac::runtime::IsIntegerArgument(state, 8)) {
             return luaL_error(state, "Game:SpawnParticles expects an integer subtype");
         }
@@ -1125,6 +1125,8 @@ int GameIndex(lua_State* state) {
         }
         if (std::strcmp(field, "TimeCounter") == 0) {
             // **有符号**读：控制台 `time` 命令用的是 `ldrsw`。
+            // ★ 写侧见 `remaining_api.cpp` 的 `TryWriteGameTimeCounter`（BUG-014，2026-10-26 补：
+            //   此前这个字段只有 getter，`__newindex` 只记忽略 ⇒ TimeMachine 的计时补偿丢失）。
             std::int32_t value = 0;
             if (game <= UINTPTR_MAX - kGameTimeCounterOffset &&
                 ReadEngine(game + kGameTimeCounterOffset, &value)) {

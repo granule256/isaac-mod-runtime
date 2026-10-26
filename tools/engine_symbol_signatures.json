@@ -99,6 +99,15 @@
   "kind": "field"
  },
  {
+  "constant": "kSpriteFilenameOffset",
+  "offset": "0x0",
+  "mangled": null,
+  "demangled": null,
+  "parameters": null,
+  "parameter_count": null,
+  "kind": "field"
+ },
+ {
   "constant": "kRoomFirstVisitOffset",
   "offset": "0x1",
   "mangled": null,
@@ -298,15 +307,6 @@
  },
  {
   "constant": "kSoundEffectVectorEndOffset",
-  "offset": "0x8",
-  "mangled": null,
-  "demangled": null,
-  "parameters": null,
-  "parameter_count": null,
-  "kind": "field"
- },
- {
-  "constant": "kSpriteFilenameOffset",
   "offset": "0x8",
   "mangled": null,
   "demangled": null,
@@ -2623,6 +2623,15 @@
   "offset": "0x6540",
   "mangled": "_ZN15IsaacRepentance4ANM2C2Ev",
   "demangled": "IsaacRepentance::ANM2::ANM2()",
+  "parameters": [],
+  "parameter_count": 0,
+  "kind": "function"
+ },
+ {
+  "constant": "kSpriteResetOffset",
+  "offset": "0x65b8",
+  "mangled": "_ZN15IsaacRepentance4ANM25ResetEv",
+  "demangled": "IsaacRepentance::ANM2::Reset()",
   "parameters": [],
   "parameter_count": 0,
   "kind": "function"
@@ -8064,15 +8073,6 @@
    "IsaacRepentance::eSoundEffect"
   ],
   "parameter_count": 1,
-  "kind": "function"
- },
- {
-  "constant": "kSpriteResetOffset",
-  "offset": "0x4a4724",
-  "mangled": "_ZN15IsaacRepentance6Sprite5ResetEv",
-  "demangled": "IsaacRepentance::Sprite::Reset()",
-  "parameters": [],
-  "parameter_count": 0,
   "kind": "function"
  },
  {

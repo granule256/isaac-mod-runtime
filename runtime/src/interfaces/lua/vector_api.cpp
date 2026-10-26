@@ -1,6 +1,7 @@
 #include "infrastructure/call/engine_call_access.hpp"
 #include "interfaces/lua/field_api.hpp"
 #include "interfaces/lua/entity_lifetime.hpp"
+#include "interfaces/lua/object_identity_registry.hpp"
 #include "interfaces/lua/isaac_api.hpp"
 #include "infrastructure/memory/engine_field_access.hpp"
 #include "interfaces/lua/vector_api.hpp"
@@ -490,19 +491,28 @@ struct EntityVectorReference {
 };
 static_assert(sizeof(EntityVectorReference)==48,"const Vector metadata must not increase existing userdata allocations");
 }
+namespace {
+bool ReadReference(lua_State*state,int index,EntityVectorReference&reference,VectorHandle*out)noexcept {
+ if(reference.module!=LuaRuntime::EngineModuleBase())return false;
+ if(reference.grid==2){lua_getuservalue(state,index);const auto resolver=engine_call::AsFunction<ExternalVectorResolver>(reference.offset);const bool live=resolver&&resolver(state,lua_gettop(state),reference.entity,out);lua_pop(state,1);return live;}
+ bool live=false;
+ if(reference.grid){lua_getuservalue(state,index);live=ResolveEngineReceiver(state,FieldReceipt::GridEntity,-1)==reference.entity;lua_pop(state,1);}
+ else live=EntityLifetimeAlive(reference.lifetime)&&IsLiveEntityPointer(reference.entity);
+ return live&&engine_memory::ReadField(reference.entity,reference.offset,out,engine_memory::EngineMemoryReadable);
+}
+std::uintptr_t ReferenceIdentity(lua_State*state,int index)noexcept {
+ if(lua_rawlen(state,index)!=sizeof(EntityVectorReference))return 0;
+ auto*r=static_cast<EntityVectorReference*>(lua_touserdata(state,index));VectorHandle value{};
+ if(!ReadReference(state,index,*r,&value))return 0;
+ if(r->grid==2)return r->entity;
+ return r->entity<=UINTPTR_MAX-r->offset?r->entity+r->offset:0;
+}
+}
 VectorHandle* TryVectorArgument(lua_State* state,int index) {
-    if(auto* vector=static_cast<VectorHandle*>(luaL_testudata(state,index,kVectorMetatable)))return vector;
-    auto* reference=static_cast<EntityVectorReference*>(luaL_testudata(state,index,kVectorReferenceMetatable));
-    if(!reference)return nullptr;
-    if(reference->grid==2){lua_getuservalue(state,index);engine_call::AsFunction<ExternalVectorResolver>(reference->offset)(state,lua_gettop(state),reference->entity,&reference->value);lua_pop(state,1);return &reference->value;}
-    bool live=false;
-    if(reference->grid){
-        if(reference->module==LuaRuntime::EngineModuleBase()){lua_getuservalue(state,index);live=ResolveEngineReceiver(state,FieldReceipt::GridEntity,-1)==reference->entity;lua_pop(state,1);}
-    }else live=EntityLifetimeAlive(reference->lifetime)&&IsLiveEntityPointer(reference->entity);
-    if(!live ||
-       !engine_memory::ReadField(reference->entity,reference->offset,&reference->value,engine_memory::EngineMemoryReadable))
-        luaL_error(state,"Vector reference owner is no longer available");
-    return &reference->value;
+ if(auto*vector=static_cast<VectorHandle*>(luaL_testudata(state,index,kVectorMetatable)))return lua_rawlen(state,index)==sizeof(VectorHandle)?vector:nullptr;
+ auto*reference=static_cast<EntityVectorReference*>(luaL_testudata(state,index,kVectorReferenceMetatable));
+ if(!reference||lua_rawlen(state,index)!=sizeof(EntityVectorReference)||!ReadReference(state,index,*reference,&reference->value))return nullptr;
+ return &reference->value;
 }
 VectorHandle* RequireVectorArgument(lua_State* state,int index) {
     auto* vector=TryVectorArgument(state,index);if(!vector)luaL_argerror(state,index,"expected a live Vector");
@@ -512,7 +522,7 @@ void PushEntityVectorReference(lua_State* state,std::uintptr_t entity,std::uintp
     if(!IsLiveEntityPointer(entity))luaL_error(state,"Vector reference owner is unavailable");
     auto* lifetime=PushEntityLifetimeToken(state,entity);const int token=lua_gettop(state);
     auto* view=static_cast<EntityVectorReference*>(lua_newuserdata(state,sizeof(EntityVectorReference)));
-    *view={{},lifetime,entity,offset,0,false};luaL_getmetatable(state,kVectorReferenceMetatable);lua_setmetatable(state,-2);
+    *view={{},lifetime,entity,offset,LuaRuntime::EngineModuleBase(),false};luaL_getmetatable(state,kVectorReferenceMetatable);lua_setmetatable(state,-2);
     lua_pushvalue(state,token);lua_setuservalue(state,-2);lua_remove(state,token);
 }
 void PushGridVectorReference(lua_State*state,std::uintptr_t grid,std::uintptr_t offset){
@@ -524,6 +534,7 @@ void PushGridVectorReference(lua_State*state,std::uintptr_t grid,std::uintptr_t 
 void PushExternalVectorReference(lua_State*L,int owner,std::uintptr_t address,ExternalVectorResolver resolver){owner=lua_absindex(L,owner);auto*v=static_cast<EntityVectorReference*>(lua_newuserdata(L,sizeof(EntityVectorReference)));*v={{},nullptr,address,engine_call::AddressOfFunction(resolver),LuaRuntime::EngineModuleBase(),2};luaL_getmetatable(L,kVectorReferenceMetatable);lua_setmetatable(L,-2);lua_pushvalue(L,owner);lua_setuservalue(L,-2);}
 void RegisterVectorReferenceMetatable(lua_State* state) {
     luaL_newmetatable(state,kVectorReferenceMetatable);
+    if(!RegisterNativeObjectIdentity(state,-1,ReferenceIdentity))luaL_error(state,"Vector reference identity resolver conflicts");
     for(const auto& row : {std::pair<const char*,lua_CFunction>{"__index",VectorIndex},
         {"__newindex",VectorNewIndex},{"__add",VectorAdd},{"__sub",VectorSub},
         {"__mul",VectorMul},{"__div",VectorDiv},{"__unm",VectorUnaryMinus},

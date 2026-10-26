@@ -11,13 +11,15 @@
 #include "lua_runtime.hpp"
 #include "runtime_constants.hpp"
 #include "mod_room_guards.hpp"
+#include "interfaces/lua/opaque_scalar_value.hpp"
+#include "interfaces/lua/object_identity_registry.hpp"
 #include <cstring>
 extern "C" {
 #include <lauxlib.h>
 }
 namespace isaac::runtime {
 namespace {
-enum class Kind : unsigned char {Int,UInt,Bool,Float,U16,U8,String,Bit};
+enum class Kind : unsigned char {Int,UInt,Bool,Float,U16,U8,String,Bit,DoorVariant};
 enum class Group : unsigned char {Grid,Door,Poop,Pit,Tnt,Spikes,RoomConfig,Descriptor,Pill,GridDesc};
 struct Field {const char* name;unsigned offset;Kind kind;Group group;unsigned bit;};
 constexpr Field kFields[]={
@@ -61,10 +63,24 @@ constexpr Field kFields[]={
     {"VarData",0x1c,Kind::Int,Group::GridDesc,0},
     {"Type",0x8,Kind::Int,Group::RoomConfig,0},
     {"Shape",0x5c,Kind::Int,Group::RoomConfig,0},
+    // PC828253登记eVariant；NS385fb8及play_animation384698/3846d0确认历史Variant。
+    {"PreviousVariant",0x314,Kind::DoorVariant,Group::Door,0},
 };
 api100_native::Cache g_Caches[9]{};
 constexpr char kDescMeta[]="IsaacRuntime.GridEntityDesc";
 constexpr char kRoomMeta[]="IsaacRuntime.RoomConfigRoom";
+constexpr char kDoorSetMeta[]="IsaacRuntime.DoorSetValue";
+constexpr char kModeMeta[]="IsaacRuntime.RoomConfigModeValue";
+constexpr char kDoorVariantMeta[]="IsaacRuntime.GridEntityDoorVariant";
+api100_native::Cache g_AllowedDoorsLayout{};
+void AllowedDoorsGuard(lua_State* L) {
+ // precalc_allowed_doors从Data+0x40向Descriptor+0x20复制完整原生8B门集合。
+ static constexpr std::uint8_t bytes[]={0x88,0x0a,0x40,0xf9,0xa8,0x15,0x00,0xb4,0x08,0x21,0x40,0xf9,0x88,0x12,0x00,0xf9};
+ static_cast<void>(api100_native::Resolve(L,{0x3d680c,bytes},g_AllowedDoorsLayout));
+}
+bool IsAllowedDoors(const char* name) {
+ return name && name[0]=='A' && name[1]=='l' && !std::strcmp(name,"AllowedDoors");
+}
 struct View {std::uintptr_t object,base,owner;};
 void Guard(lua_State* L,Group group) {
     unsigned i=static_cast<unsigned>(group);
@@ -224,6 +240,9 @@ const Field* Find(const char* name,Group group) {
     case Hash("Shape"):
         if(group==Group::RoomConfig)field=&kFields[39];
         break;
+    case Hash("PreviousVariant"):
+        if(group==Group::Door)field=&kFields[40];
+        break;
     default:return nullptr;
     }
     return field&&!std::strcmp(name,field->name)?field:nullptr;
@@ -249,12 +268,16 @@ int Push(lua_State* L,std::uintptr_t p,const Field& field) {
     case Kind::U16:lua_pushinteger(L,Read<std::uint16_t>(L,p,field.offset));break;
     case Kind::U8:lua_pushinteger(L,Read<std::uint8_t>(L,p,field.offset));break;
     case Kind::String:return Api500PushConfigString(L,p+field.offset);
+    case Kind::DoorVariant:PushOpaqueScalarValue(L,kDoorVariantMeta,"GridEntityDoor.eVariant",Read<std::uint32_t>(L,p,field.offset));break;
     case Kind::Bit:lua_pushboolean(L,(Read<std::uint32_t>(L,p,field.offset)&(1U<<field.bit))!=0);break;
     }
     return 1;
 }
 void Store(lua_State* L,std::uintptr_t p,const Field& field) {
     Guard(L,field.group);
+    if(field.kind==Kind::DoorVariant){
+        Write(L,p,field.offset,RequireOpaqueScalarValue<std::uint32_t>(L,3,kDoorVariantMeta));return;
+    }
     if(field.kind==Kind::Bool) {
         Write(L,p,field.offset,static_cast<std::uint8_t>(lua_toboolean(L,3)!=0));return;
     }
@@ -292,6 +315,7 @@ bool GridCandidate(const char* name) {
     case 0x4861:return !std::strcmp(name,"HasLadder");
     case 0x4672:return !std::strcmp(name,"FrameCnt");
     case 0x5469:return !std::strcmp(name,"Timeout");
+    case 0x5072:return !std::strcmp(name,"PreviousVariant");
     default:return false;
     }
 }
@@ -300,11 +324,22 @@ const Field* GridField(lua_State* L,std::uintptr_t p,const char* name) {
     if(const auto* base=Find(name,Group::Grid))return base;
     return Find(name,GridGroup(L,p));
 }
+std::uintptr_t TryDesc(lua_State* L,int index) noexcept {
+    if(lua_rawlen(L,index)!=sizeof(View))return 0;
+    const auto* view=static_cast<const View*>(luaL_testudata(L,index,kDescMeta));
+    if(!view||!view->base||view->base!=LuaRuntime::EngineModuleBase())return 0;
+    lua_getuservalue(L,index);const auto p=engine_memory::AddressOf(GridEntityHandleArgument(L,-1));lua_pop(L,1);
+    if(!p||p!=view->object||!IsLiveGridEntityPointer(p))return 0;
+    return p;
+}
+std::uintptr_t DescIdentity(lua_State*L,int index) noexcept {
+    const auto p=TryDesc(L,index);
+    // PC返回this+4的32B借用描述符；NS的完整描述符位于Grid+8。
+    return p&&p<=UINTPTR_MAX-8&&engine_memory::EngineMemoryReadable(p+8,32)?p+8:0;
+}
 std::uintptr_t LiveDesc(lua_State* L) {
-    const auto* view=static_cast<View*>(luaL_checkudata(L,1,kDescMeta));
-    if(view->base!=LuaRuntime::EngineModuleBase())luaL_error(L,"GridEntityDesc belongs to an old module");
-    lua_getuservalue(L,1);const auto p=Grid(L,-1);lua_pop(L,1);
-    if(p!=view->object)luaL_error(L,"GridEntityDesc owner is no longer available");
+    luaL_checkudata(L,1,kDescMeta);const auto p=TryDesc(L,1);
+    if(!p)luaL_error(L,"GridEntityDesc owner or module is no longer available");
     return p;
 }
 int DescIndex(lua_State* L) {
@@ -342,9 +377,10 @@ bool IsRoomSetMember(std::uintptr_t owner,std::uintptr_t object) {
     return offset%0x80==0 && offset/0x80<count &&
         engine_memory::EngineMemoryReadable(object,0x80);
 }
-std::uintptr_t RoomSetOwner(lua_State* L,std::uintptr_t object) {
-    const auto stage=Read<std::uint32_t>(L,object,0);
-    const auto mode=Read<std::uint32_t>(L,object,4);
+std::uintptr_t RoomSetOwner(std::uintptr_t object) noexcept {
+    std::uint32_t stage{},mode{};
+    if(!engine_memory::ReadField(object,0,&stage,engine_memory::EngineMemoryReadable)||
+       !engine_memory::ReadField(object,4,&mode,engine_memory::EngineMemoryReadable))return 0;
     // 固定NRO构造37个0x100字节阶段，每阶段两个0x48字节RoomSet。
     if(stage>=37 || mode>=2)return 0;
     const auto base=LuaRuntime::EngineModuleBase();
@@ -356,20 +392,29 @@ std::uintptr_t RoomSetOwner(lua_State* L,std::uintptr_t object) {
     const auto owner=game+offset;
     return IsRoomSetMember(owner,object)?owner|kRoomSetOwnerTag:0;
 }
-std::uintptr_t LiveRoom(lua_State* L,int index=1) {
-    const auto* view=static_cast<View*>(luaL_checkudata(L,index,kRoomMeta));
-    if(view->base!=LuaRuntime::EngineModuleBase())luaL_error(L,"RoomConfigRoom belongs to an old module");
+std::uintptr_t TryRoom(lua_State* L,int index) noexcept {
+    if(lua_rawlen(L,index)!=sizeof(View))return 0;
+    const auto* view=static_cast<const View*>(luaL_testudata(L,index,kRoomMeta));
+    if(!view||!view->base||view->base!=LuaRuntime::EngineModuleBase()||
+       !view->object||!engine_memory::EngineMemoryReadable(view->object,0x80))return 0;
     if(view->owner&kRoomSetOwnerTag) {
-        if(!IsRoomSetMember(view->owner&~kRoomOwnerTags,view->object))
-            luaL_error(L,"RoomConfigRoom is no longer in its room set");
-    } else if(view->owner && Read<std::uintptr_t>(L,view->owner&~kRoomOwnerTags,
-                    (view->owner&kOverrideDataOwnerTag)?0x18:0x10)!=view->object) {
-        luaL_error(L,"RoomConfigRoom owner has changed");
+        if(RoomSetOwner(view->object)!=view->owner)return 0;
+    } else if(view->owner) {
+        std::uintptr_t data{};
+        if(!engine_memory::ReadField(view->owner&~kRoomOwnerTags,
+             (view->owner&kOverrideDataOwnerTag)?0x18:0x10,&data,
+             engine_memory::EngineMemoryReadable)||data!=view->object)return 0;
     }
     return view->object;
 }
+std::uintptr_t LiveRoom(lua_State* L,int index=1) {
+    luaL_checkudata(L,index,kRoomMeta);const auto p=TryRoom(L,index);
+    if(!p)luaL_error(L,"RoomConfigRoom owner or module is no longer available");
+    return p;
+}
 int RoomIndex(lua_State* L) {
     const auto* name=lua_tostring(L,2);
+    if(name && name[0]=='M' && !std::strcmp(name,"Mode")){Guard(L,Group::RoomConfig);PushOpaqueScalarValue(L,kModeMeta,"RoomConfigMode",Read<std::int32_t>(L,LiveRoom(L),4));return 1;}
     if(name&&!std::strcmp(name,"Doors")){Guard(L,Group::RoomConfig);lua_pushinteger(L,Read<std::uint32_t>(L,LiveRoom(L),0x40));return 1;}
     if(name&&!std::strcmp(name,"Spawns"))return Api500PushRoomSpawns(L,LiveRoom(L));
     const auto* field=Find(name,Group::RoomConfig);
@@ -383,6 +428,8 @@ void Metatable(lua_State* L,const char* name,const char* type,lua_CFunction inde
         lua_pushcfunction(L,write);lua_setfield(L,-2,"__newindex");
         lua_pushstring(L,type);lua_setfield(L,-2,"__type");
         lua_pushvalue(L,-1);lua_setfield(L,-2,"__class");
+        if(!RegisterNativeObjectIdentity(L,-1,!std::strcmp(name,kDescMeta)?DescIdentity:TryRoom))
+            luaL_error(L,"RoomConfig/GridDesc identity resolver conflicts");
     }
     lua_setmetatable(L,-2);
 }
@@ -416,13 +463,18 @@ bool PushApi500GridDesc(lua_State* L,std::uintptr_t p) {
 }
 void PushApi500RoomConfig(lua_State* L,std::uintptr_t p,std::uintptr_t owner) {
     // 原生配置属于RoomSet，不属于当前恰好引用它的可复用描述符槽。
-    const auto set=RoomSetOwner(L,p);
+    const auto set=RoomSetOwner(p);
     auto* view=static_cast<View*>(lua_newuserdata(L,sizeof(View)));
     *view={p,LuaRuntime::EngineModuleBase(),set?set:owner};
     lua_pushvalue(L,1);lua_setuservalue(L,-2);
     Metatable(L,kRoomMeta,"RoomConfigRoom",RoomIndex,ReadOnly);
 }
 int TryPushApi500DescriptorField(lua_State* L,std::uintptr_t p,const char* name) {
+    if(IsAllowedDoors(name)) {
+        if(!p){lua_pushnil(L);return 1;}
+        AllowedDoorsGuard(L);
+        PushOpaqueScalarValue(L,kDoorSetMeta,"DoorSet",Read<std::uint64_t>(L,p,0x20));return 1;
+    }
     if(IsOverrideData(name)) {
         if(!p){lua_pushnil(L);return 1;}
         OverrideDataGuard(L);
@@ -436,6 +488,11 @@ int TryPushApi500DescriptorField(lua_State* L,std::uintptr_t p,const char* name)
     return Push(L,p,*field);
 }
 bool TryWriteApi500DescriptorField(lua_State* L,std::uintptr_t p,const char* name) {
+    if(IsAllowedDoors(name)) {
+        AllowedDoorsGuard(L);
+        if(!p)luaL_error(L,"RoomDescriptor reference is no longer available");
+        Write(L,p,0x20,RequireOpaqueScalarValue<std::uint64_t>(L,3,kDoorSetMeta));return true;
+    }
     if(IsOverrideData(name)) {
         OverrideDataGuard(L);
         // PC setter只是借用RoomConfigRoom原生指针；不复制/释放、不更改Data或flags。

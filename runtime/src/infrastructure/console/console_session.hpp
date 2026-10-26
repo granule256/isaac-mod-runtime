@@ -88,15 +88,19 @@ inline void SessionFrameUpdate() noexcept {
         kage=KageSystemManager(base);
         resolved=ResolveConsoleEntries(base,kGameModuleRangeCheckSize,&entries) &&
                  ResolvePanelEntries(base,kGameModuleRangeCheckSize,&SessionPanelEntries());
-        query=engine_call::ResolveFunction<ActionQueryFn>(base,kGameModuleRangeCheckSize,
-            kManagerIsActionPressedOffset,kManagerIsActionPressedExpectedBytes,&engine_memory::EngineMemoryReadable);
+        // 复用已验证发布的绑定：Manager入口已由我们挂钩，旧原字节守卫会误拒绝。
+        // 后面的批量扫描已有RawEngineInputQueryScope，不再为每个动作叠加一层壳。
+        query=engine_call::AsFunction<ActionQueryFn>(LuaRuntime::InputIsActionPressedBinding());
         buttonQuery=engine_call::ResolveFunction<ActionQueryFn>(base,kGameModuleRangeCheckSize,
             kKageIsButtonPressedOffset,kKageIsButtonPressedExpectedBytes,&engine_memory::EngineMemoryReadable);
         if (!engine_call::VerifyEntryBytes(base+kKageIsButtonPressedOffset+kKageInputButtonDiscriminatorOffset,
             kKageIsButtonPressedDiscriminator.data(),kKageIsButtonPressedDiscriminator.size(),
             &engine_memory::EngineMemoryReadable)) buttonQuery=nullptr;
     }
-    if (!resolved || !query) return;
+    if (!resolved) return;
+    // 首次帧点早于绑定发布时允许恢复，不能永久缓存nullptr。
+    if (!query) query=engine_call::AsFunction<ActionQueryFn>(LuaRuntime::InputIsActionPressedBinding());
+    if (!query) return;
     if (!ConsoleSwitchEnabled()) {
         PanelFrame(entries,SessionPanelEntries(),base,0,0,{},0,0,false);
         return;

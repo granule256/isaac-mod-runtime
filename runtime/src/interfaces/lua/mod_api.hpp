@@ -106,3 +106,4 @@ int IsaacHasModData(lua_State* state);
 } // namespace isaac::runtime
 
 namespace isaac::runtime {int Api700IsaacRemoveModData(lua_State*);}
+namespace LuaRuntime {void ResetCallbackRegistrationCensus() noexcept;}

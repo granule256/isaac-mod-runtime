@@ -24,15 +24,21 @@ namespace engine_call = isaac::runtime::engine_call;
 
 namespace isaac::runtime {
 
-void* ResolveRngObject(lua_State* state, LuaRuntime::RngHandle* handle, bool writable) {
+void* TryResolveRngObject(LuaRuntime::RngHandle* handle, bool writable) noexcept {
+    if (handle == nullptr) return nullptr;
     if (handle->resolver == nullptr) { return handle->storage.data(); }
     const auto address = handle->resolver(handle);
     if (address == 0 || !engine_memory::EngineMemoryReadable(address, kRngObjectSize) ||
         (writable && !engine_memory::EngineMemoryWritable(address, kRngObjectSize))) {
-        luaL_error(state, "RNG reference is no longer available");
         return nullptr;
     }
     return engine_memory::AsObject(address);
+}
+
+void* ResolveRngObject(lua_State* state, LuaRuntime::RngHandle* handle, bool writable) {
+    auto* object=TryResolveRngObject(handle,writable);
+    if (object == nullptr) luaL_error(state, "RNG reference is no longer available");
+    return object;
 }
 
 namespace {

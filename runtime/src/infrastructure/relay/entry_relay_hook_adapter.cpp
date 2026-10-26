@@ -1,3 +1,4 @@
+#include "infrastructure/internal/use_item_hook_installer.hpp"
 #include "infrastructure/relay/entry_relay_hook_adapter.hpp"
 #include "room_spawn_internal_hook.hpp"
 #include "infrastructure/call/engine_call_access.hpp"
@@ -50,7 +51,7 @@ extern "C" void EntryRelayPersistentGameDataSetReadOnlyCallback(void* self,
 //
 // 形状各自不同，按目标函数的 ABI 逐字写（依据见 `runtime_constants.hpp` 那一段注释）：
 //   * `UseActiveItem`：`(this /*x0*/, 道具 /*w1*/, UseFlags /*w2*/, ActiveSlot /*w3*/,
-//     CustomVarData /*w4*/)`；入口派发 `MC_PRE_USE_ITEM`、原函数返回后派发 `MC_USE_ITEM`。
+//     CustomVarData /*w4*/)`；入口派发 `MC_PRE_USE_ITEM`，五处原生消费前边界派 `MC_USE_ITEM`。
 //   * `UseCard`：`(this, 卡 /*w1*/, UseFlags /*w2*/)`。
 //   * `UsePill`：`(this, 药丸效果 /*w1*/, 药丸颜色 /*w2*/, UseFlags /*w3*/)`。
 //   * `Game::Exit`：`(this /*x0*/, 要不要存档 /*w1*/)`。
@@ -62,17 +63,17 @@ extern "C" void EntryRelayUseCardCallback(void* player, std::uint32_t card,
 extern "C" void EntryRelayUsePillCallback(void* player, std::uint32_t pillEffect,
                                           std::uint32_t pillColor, std::uint32_t useFlags);
 extern "C" void EntryRelayGameExitCallback(void* game, std::uint32_t shouldSave);
-// 批次 390（2026-10-07）：`MC_INPUT_ACTION` 的三条查询中继（`KAGE::Input::ManagerBase::*`）。
-// 形参 `(this, 动作号, controllerIndex, 出参指针)`；前两条返回 bool、第三条返回 float。
+// MC_INPUT_ACTION的Manager高层查询；第四实参是请求输入的Entity*，可为nullptr。
+// 前两条返回bool，第三条float；底层ManagerBase的unsigned*不是本ABI。
 extern "C" bool EntryRelayManagerIsActionPressedCallback(void* manager, std::uint32_t action,
                                                          std::uint32_t controller,
-                                                         std::uint32_t* out);
+                                                         void* entity);
 extern "C" bool EntryRelayManagerIsActionTriggeredCallback(void* manager, std::uint32_t action,
                                                            std::uint32_t controller,
-                                                           std::uint32_t* out);
+                                                           void* entity);
 extern "C" float EntryRelayManagerGetActionValueCallback(void* manager, std::uint32_t action,
                                                          std::uint32_t controller,
-                                                         std::uint32_t* out);
+                                                         void* entity);
 
 // 批次 103：`(掉落物 /*x0*/, 碰它的实体 /*x1*/, low /*w2*/)`。返回值决定要不要跑原函数
 // （PC 三态，见 `runtime_constants.hpp` 里那个靶点的注释）。
@@ -125,8 +126,11 @@ extern "C" std::uint64_t EntryRelayGameDevolveEnemyCallback(void* game, void* en
 //     **两个实参**声明，把它**原样转发**给原函数（我们从不解释它 ⇒ 转发即透明，无论它是什么）。
 //   * `Game::End(eEnding)` —— x0 = this（Game*）、w1 = eEnding。
 extern "C" void EntryRelayEntityKillCallback(void* entity);
+extern "C" void EntryRelayEntityPlayerInitCallback(void*, std::uint32_t, std::uint32_t,
+                                                   std::uint32_t, std::uint32_t);
 extern "C" void EntryRelayNpcDeathRemoveCallback(void* npc, void* forwarded);
 extern "C" void EntryRelayGameEndCallback(void* game, std::int32_t ending);
+extern "C" void EntryRelayGameStartStageTransitionCallback(void*, bool, int, void*);
 //   * `Entity_Player::FireTear(...)` —— 形状**逐字照批次 337 已经定死的 ABI**
 //     （`runtime_constants.hpp` 的「批次 337」段，那边是给 Lua API 手写转发用的同一套取证）：
 //     `(this, Vector2 const& /*x1*/, Vector2 /*按值 HFA s0:s1*/, u32 flags /*w2*/,
@@ -228,19 +232,19 @@ EntryRelayBinding BindingOf(HookId id) noexcept {
             return {"Entity_Player::UseCard", kEntityPlayerUseCardOffset,
                     kEntityPlayerUseCardExpectedBytes.data(), callback, &g_fallbackEntries[index]};
         // 批次 390（2026-10-07）：`MC_INPUT_ACTION` 的三处**引擎查询入口**。
-        // ★ 用 `kKageManager*` 那一组（游戏自己用的），**不是** `kManager*`（那三个是给 Lua 的胶水）。
+        // 高层保留Entity*；精确重定位其16字节完整短函数，不能拦底层unsigned*出口。
         case HookId::ManagerIsActionPressed:
-            return {"KAGE::Input::ManagerBase::IsActionPressed", kKageManagerIsActionPressedOffset,
-                    kKageManagerIsActionPressedExpectedBytes.data(), callback,
+            return {"IsaacRepentance::Manager::IsActionPressed", kManagerIsActionPressedOffset,
+                    kManagerIsActionPressedExpectedBytes.data(), callback,
                     &g_fallbackEntries[index]};
         case HookId::ManagerIsActionTriggered:
-            return {"KAGE::Input::ManagerBase::IsActionTriggered",
-                    kKageManagerIsActionTriggeredOffset,
-                    kKageManagerIsActionTriggeredExpectedBytes.data(), callback,
+            return {"IsaacRepentance::Manager::IsActionTriggered",
+                    kManagerIsActionTriggeredOffset,
+                    kManagerIsActionTriggeredExpectedBytes.data(), callback,
                     &g_fallbackEntries[index]};
         case HookId::ManagerGetActionValue:
-            return {"KAGE::Input::ManagerBase::GetActionValue", kKageManagerGetActionValueOffset,
-                    kKageManagerGetActionValueExpectedBytes.data(), callback,
+            return {"IsaacRepentance::Manager::GetActionValue", kManagerGetActionValueOffset,
+                    kManagerGetActionValueExpectedBytes.data(), callback,
                     &g_fallbackEntries[index]};
         // 批次 396（2026-10-07）：`MC_ENTITY_TAKE_DMG` 的四条（靶点与守卫见 runtime_constants.hpp
         // 那一大段取证）——基类吃通用实体，三个不回跳基类的子类各挂一条。
@@ -268,6 +272,12 @@ EntryRelayBinding BindingOf(HookId id) noexcept {
         case HookId::EntityKill:
             return {"Entity::Kill", kEntityKillOffset, kEntityKillExpectedBytes.data(), callback,
                     &g_fallbackEntries[index]};
+        case HookId::GameStartStageTransition:
+            return {"Game::StartStageTransition", kApi200GameStartStageTransitionOffset,
+                    kApi200GameStartStageTransitionExpectedBytes.data(), callback, &g_fallbackEntries[index]};
+        case HookId::EntityPlayerInit:
+            return {"Entity_Player::Init", kNativePlayerInitOffset,
+                    kNativePlayerInitExpectedBytes.data(), callback, &g_fallbackEntries[index]};
         case HookId::NpcDeathRemove:
             return {"Entity_NPC::trigger_death_remove", kEntityNpcTriggerDeathRemoveOffset,
                     kEntityNpcTriggerDeathRemoveExpectedBytes.data(), callback,
@@ -372,6 +382,8 @@ EntryRelayBinding BindingOf(HookId id) noexcept {
         case HookId::PickupSelectionSpecial:
         case HookId::PressurePlateDestructor:
         case HookId::PressurePlateDeletingDestructor:
+        case HookId::ProjectileInit:
+        case HookId::ProjectileUpdate:
         case HookId::Count:
             // ManagerPresent 的靶点是 PLT 调用点（16 字节含 bl），入口中继无法回放：
             // 它走 GOT 槽改写（spec §4.5），在 M2b 单独实现。
@@ -466,6 +478,10 @@ void RegisterEntryRelayCallbacks() noexcept {
     // 批次 397（2026-10-07）：补全回调（第 2 批）的三条（回调体都在 `source/hook_manager.cpp`）。
     g_hookCallbacks[static_cast<std::size_t>(HookId::EntityKill)] =
         engine_memory::AsObject(engine_call::AddressOfFunction(&EntryRelayEntityKillCallback));
+    g_hookCallbacks[static_cast<std::size_t>(HookId::GameStartStageTransition)] =
+        engine_memory::AsObject(engine_call::AddressOfFunction(&EntryRelayGameStartStageTransitionCallback));
+    g_hookCallbacks[static_cast<std::size_t>(HookId::EntityPlayerInit)] =
+        engine_memory::AsObject(engine_call::AddressOfFunction(&EntryRelayEntityPlayerInitCallback));
     g_hookCallbacks[static_cast<std::size_t>(HookId::NpcDeathRemove)] =
         engine_memory::AsObject(engine_call::AddressOfFunction(&EntryRelayNpcDeathRemoveCallback));
     g_hookCallbacks[static_cast<std::size_t>(HookId::GameEnd)] =
@@ -559,6 +575,9 @@ Status EntryRelayHookAdapter::Install(HookId id, const HookTarget& target) noexc
         noteIfTracked(false, 1U);
         return Status{StatusCode::Rejected};
     }
+    if(id==HookId::UseActiveItem&&!TryInstallUseItemNativeBoundaries(target)){
+        lastFailure_=1U;noteIfTracked(false,1U);return Status{StatusCode::Rejected};
+    }
     std::uintptr_t originalEntry = 0;
     EntryPublicationContext publication{id,binding.fallbackEntry};
     if (!isaac::runtime::relay::TryInstallEntryRelayWithPublisher(
@@ -620,6 +639,7 @@ bool TryInstallEntryRelayEarly(HookId id, const HookTarget& target,
     if (EvaluateEntryRelayBinding(binding, target, &address) != BindingVerdict::Ok) {
         return false;   // 纯判定拒绝（地址/边界/对齐/回调未接线）—— 不写任何字节
     }
+    if(id==HookId::UseActiveItem&&!TryInstallUseItemNativeBoundaries(target))return false;
     std::uintptr_t originalEntry = 0;
     EntryPublicationContext publication{id,binding.fallbackEntry};
     if (!isaac::runtime::relay::TryInstallEntryRelayWithPublisher(

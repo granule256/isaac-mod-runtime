@@ -120,7 +120,7 @@ DATA_ROW_SURFACE: dict[str, str] = {
     "MusicManager:Queue": "Void1",
     "MusicManager:Crossfade": "VoidIntFloatOpt1",
     "Game:ShowHallucination": "Void2",
-    "Room:SpawnGridEntity": "VoidIntIntIntIntInt",
+    "Room:SpawnGridEntity": "BoolIntIntIntIntInt",
     "EntityPlayer:RemoveCollectible": "VoidIntBoolIntBoolOpt3",
     # ---- 批次 253：带 `Vector2 const&` 参数的两条（引用 ⇒ 指针，不需要扩跳板）----
     "Room:IsPositionInRoom": "BoolVector2RefFloat",

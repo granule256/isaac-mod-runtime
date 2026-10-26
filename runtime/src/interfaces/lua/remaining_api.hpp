@@ -18,6 +18,9 @@ extern "C" {
 // MusicManager, RNG and Input already moved that way.
 namespace isaac::runtime {
 
+// 固定PC全局入口与Room方法共用原生随机位置调用，margin为0。
+int IsaacGetRandomPosition(lua_State* state);
+
 [[nodiscard]] std::size_t AttachLevelMethods(lua_State* state) noexcept;
 //: 批次 348（2026-10-04）：`Level` 元表的 `__index`。**必须是个函数**（PC 的类元表 `__index` 就是函数）
 //: —— minimapi 的 `scripts/minimapapi/apioverride.lua` 会把 `getmetatable(Level).__class.__index`
@@ -41,6 +44,8 @@ int GridEntityIndex(lua_State* state);
 int GridEntityDoorIndex(lua_State* state);
 // 地基二期（2026-09-15）：`RoomDescriptor` 的字段访问与列表的 `Size`/`Get`。
 // 两者的 `__index` 都是函数（同时服务字段与方法），由 `lua_runtime.cpp` 注册元表时接线。
+// GetPtrHash共享描述符来源/可读性校验；无效或非本族对象返回0。
+[[nodiscard]] std::uintptr_t ResolveRoomDescriptorArgument(lua_State* state, int index) noexcept;
 int RoomDescriptorIndex(lua_State* state);
 int RoomDescriptorNewIndex(lua_State* state);
 int RoomDescriptorListIndex(lua_State* state);
@@ -156,13 +161,20 @@ struct GameCursesProbe {
 // 真机原文 `trip.lua:123: attempt to index a IsaacRuntime.Level value (field 'level')`，
 // 而屏幕上表现为"按了方向键、光标能动，但怎么都不传送"（**看起来像功能缺失**）。
 //
-// **口径**：**接受并忽略**字段写入 —— 形状先对齐 PC（我们不许比 PC 严），语义留给以后：
-// `EnterDoor`/`LeaveDoor` 的偏移在布局表里**没有证据**，而"猜一个偏移写进引擎"比"不写"危险得多
-// （会踩坏引擎状态）。为了不把拼错的字段名完全吞掉，被忽略的写入会记一个计数与最后那个字段名，
-// 调试桩读得到（见 `g_IsaacIgnoredFieldWriteCount` / `g_IsaacLastIgnoredFieldName`）。
+// **口径**：**有证据的字段真写，其余接受并忽略** —— 形状先对齐 PC（我们不许比 PC 严），
+// 语义留给以后：`EnterDoor`/`LeaveDoor` 的偏移在布局表里**没有证据**，而"猜一个偏移写进引擎"
+// 比"不写"危险得多（会踩坏引擎状态）。为了不把拼错的字段名完全吞掉，被忽略的写入会记一个
+// 计数与最后那个字段名，调试桩读得到（见 `g_IsaacIgnoredFieldWriteCount` /
+// `g_IsaacLastIgnoredFieldName`）。
+//
+// ★ 2026-10-26（BUG-014）：`Game.TimeCounter` 从本条起是**真写**（PC 契约
+//   `Game.md:634` 非 const；作者 TimeMachine 每帧补偿依赖它）。真写成功记在
+//   `g_IsaacGameTimeCounterWriteCount` / `g_IsaacLastGameTimeCounterWrite`，
+//   **不再**进忽略计数 —— "写了"与"没写"必须能分开读。
 //
 // **已知偏离**：`EnterDoor`/`LeaveDoor` 置 -1（PC 上表示"到站不走门的开合动画"）在我们这里不生效，
 // 所以传送到达时的门动画可能按引擎默认走。取证到偏移后应改成真写。
+// 同类未做：`Game.Challenge`（PC 非 const，我们仍是忽略写）。
 [[nodiscard]] int IgnoredObjectFieldWrite(lua_State* state);
 
 //: 批次 340（2026-10-04）：引擎自己的 `RandomU32()`（无参、返回 `unsigned`）—— 实现仍在

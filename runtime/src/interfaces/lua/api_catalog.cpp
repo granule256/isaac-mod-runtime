@@ -29,6 +29,7 @@ bool EmptyText(const char* text) noexcept {
 // deliberately conservative: only APIs with hardware evidence are marked
 // HardwareVerified, and persistence stays Experimental while Stage145 is open.
 constexpr LuaApiDescriptor kDefaultApis[] = {
+    {MakeId(ApiDomain::Room,1,0x17B0),ApiDomain::Room,"Room","GetEnemyDamageInflicted",kV1,0,ThreadAffinity::ManagedCallback,ApiMaturity::Experimental},
     // 第七批：固定PC版本真实缺口，按实际数量计数。
     {MakeId(ApiDomain::Game,1,0x17A9),ApiDomain::Game,"Game","SpawnEntityDesc",kV1,0,ThreadAffinity::ManagedCallback,ApiMaturity::Experimental},
     {MakeId(ApiDomain::Isaac,1,0x17D0),ApiDomain::Isaac,"GridEntityPoop","ReduceSpawnRate",kV1,0,ThreadAffinity::ManagedCallback,ApiMaturity::Experimental},
@@ -121,7 +122,10 @@ constexpr LuaApiDescriptor kDefaultApis[] = {
     {MakeId(ApiDomain::Isaac,1,0x1606),ApiDomain::Isaac,"EntityPlayer","GetMultiShotPositionVelocity",kV1,0,ThreadAffinity::ManagedCallback,ApiMaturity::Experimental},
     {MakeId(ApiDomain::Isaac,1,0x1600),ApiDomain::Isaac,"ItemConfigCard","IsCard",kV1,0,ThreadAffinity::ManagedCallback,ApiMaturity::Experimental},
     {MakeId(ApiDomain::ItemPool,1,0x1601),ApiDomain::ItemPool,"ItemPool","IdentifyPill",kV1,0,ThreadAffinity::ManagedCallback,ApiMaturity::Experimental},
+    {MakeId(ApiDomain::Isaac,1,0x1528),ApiDomain::Isaac,"EntityKnife","IsFlying",kV1,0,ThreadAffinity::ManagedCallback,ApiMaturity::Experimental},
+    {MakeId(ApiDomain::Isaac,1,0x1529),ApiDomain::Isaac,"Isaac","GetRandomPosition",kV1,0,ThreadAffinity::ManagedCallback,ApiMaturity::Experimental},
     // 第四批主审更正：40方法+60字段；未证明的CurveStrength另留候选。
+    // 2026-10-25追加Knife同名独立飞行状态getter，不改基类悬浮语义。
     {MakeId(ApiDomain::Seed,1,0x1527),ApiDomain::Seed,"Seeds","IsStringValidSeed",kV1,0,ThreadAffinity::ManagedCallback,ApiMaturity::Experimental},
     // 第四批40新方法；60个公共字段单列布局/消费清单，全部Experimental。
     {MakeId(ApiDomain::Isaac,1,0x1500),ApiDomain::Isaac,"EntityPlayer","RenderGlow",kV1,0,ThreadAffinity::ManagedCallback,ApiMaturity::Experimental},
@@ -553,9 +557,8 @@ constexpr LuaApiDescriptor kDefaultApis[] = {
      ThreadAffinity::MainRender, ApiMaturity::Experimental},
     // 全局 `GetPtrHash(object)`：PC 的"把对象指针变成稳定整数"（`GlobalFunctions.md:143`），
     // EID 用它做实体身份比较（`main.lua:492`/`527`/`1473`，`features/eid_api.lua:2387`）。
-    // 我们只持有 `Entity`/`EntityPlayer`/`EntityPickup` 三种**原生指针**句柄
-    // （`Game`/`Level`/`Room` 的句柄是占位符，见 `lua_object_handles.hpp`），所以只对它们返回
-    // 真实指针整数，其余返回 0（见 `isaac_api.cpp` 的 `GlobalGetPtrHash`）。
+    // 实体族保留存活/退役校验；2026-10-25新增RoomDescriptor真实地址及来源校验，
+    // 修StageAPI维度身份比较。其它非实体族仍待独立补齐，不提高生产成熟度。
     {MakeId(ApiDomain::Global, 1, 0x001F), ApiDomain::Global, "Global", "GetPtrHash", kV1, 0,
      ThreadAffinity::ManagedCallback, ApiMaturity::Experimental},
 
@@ -2857,6 +2860,8 @@ constexpr LuaApiDescriptor kDefaultApis[] = {
     // ---- 批次 252（2026-10-01）：`Room:SpawnGridEntity`（走数据行；域内序号取 0x001E）。
     // 契约写返回 `boolean`，但引擎符号 `…EiNS_15eGridEntityTypeEjji` **没有返回值特征**
     // ⇒ 按**符号**取形状（G3 口径）：`VoidIntIntIntIntInt`。语料那处也不接返回值。
+// ★ 2026-10-23更正：非模板函数mangled名称通常不包含返回类型，不能由其缺失断言void。
+// NRO0x4525CC/0x45263C明确返回0/1，PC0x7AAA5C返回true；本入口保留原生bool。
     {MakeId(ApiDomain::Room, 1, 0x001E), ApiDomain::Room, "Room", "SpawnGridEntity", kV1, 0,
      ThreadAffinity::ManagedCallback, ApiMaturity::Experimental},
     // ---- 批次 253（2026-10-01）：`Room:IsPositionInRoom`（域内序号取 0x001F）。

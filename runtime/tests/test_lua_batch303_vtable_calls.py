@@ -72,6 +72,7 @@ HARNESS = r'''
 #include "entity_layout.hpp"
 #include "runtime_constants.hpp"
 #include "interfaces/lua/engine_method_api.hpp"
+#include "interfaces/lua/rplus_extended_fields_guards.hpp"
 
 #include <cstdint>
 #include <cstdio>
@@ -173,6 +174,12 @@ void PublishFakeWorld(std::uintptr_t playerSlotTarget, std::uintptr_t npcSlotTar
     WriteAt<std::uint64_t>(g_OwnerSlotBytes, 0, AddressOf(g_GameBytes));
 
     MakeFakeEntity(g_NpcBytes, kEntityNpcVtableOffset);
+    WriteAt<std::uint32_t>(g_NpcBytes,kEntityTypeOffset,20);
+    namespace E=isaac::runtime::extended_fields;
+    std::memcpy(g_ModuleBytes.data()+E::kEntity0Entry,E::kEntity0Guard.data(),E::kEntity0Guard.size());
+    std::memcpy(g_ModuleBytes.data()+E::kEntity1Entry,E::kEntity1Guard.data(),E::kEntity1Guard.size());
+    std::memcpy(g_ModuleBytes.data()+E::kEntity2Entry,E::kEntity2Guard.data(),E::kEntity2Guard.size());
+
     MakeFakeEntity(g_PlayerBytes, kEntityPlayerVtableOffset);
     WriteAt<std::uint64_t>(g_PlayerBytes, kEntityParentOffset, AddressOf(g_NpcBytes));
 
@@ -245,7 +252,7 @@ int main(int argc, char** argv) {
 
     const char* script = script_text.c_str();
     const auto result = LuaRuntime::InitializeFromBuffer(script, std::strlen(script), "@b303.lua");
-    static_cast<void>(result);
+    if(result!=LuaRuntime::LuaInitResult::Success){char text[512]{};static_cast<void>(LuaRuntime::CopyLastLuaErrorText(text,sizeof(text)));std::fprintf(stderr,"B303 init: %s\n",text);return 11;}
     std::printf("B303 calls=%u\n", g_HostEngineCallTrampolineCalls);
     std::printf("B303 target=0x%llX\n",
                 static_cast<unsigned long long>(g_HostEngineCallTrampolineLastTarget));

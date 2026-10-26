@@ -90,9 +90,9 @@ enum class HookId : std::uint8_t {
     // `ButtonAction` 时**触发一次（官方"执行信息"栏写 **每秒约 1470 次**），且**返回值可以覆盖**
     // 这次查询的结果（`nil` = 不覆盖）。语料 3 个消费者里**有 2 个靠这个覆盖**
     // （MCM 开菜单时屏蔽玩家输入、InputHelper 强制某键按下）⇒ 只"观察"不"覆盖"做不完整。
-    // ★★ 只挂**引擎自己用的**那三处（`KAGE::Input::ManagerBase::*`）：`runtime_constants.hpp` 里
-    //   名字很像的 `kManager*Offset = 0x3F9B**` 是**引擎给 Lua 的胶水函数**，挂它们只能拦到 Lua 调用。
-    // 三条都 `required = false`：装不上只让这条回调静默不派发（与改造前一样）。
+    // 2026-10-25：挂Manager高层三入口，原生Entity*尚未被清掉；其调用者含玩家、
+    // HUD、受控跟班等。底层ManagerBase不再接此PC事件，原始Input查询仍有独立旁路。
+    // 三条required=false，精确守卫及短函数重定位均通过才安装。
     ManagerIsActionPressed,
     ManagerIsActionTriggered,
     ManagerGetActionValue,
@@ -159,6 +159,10 @@ enum class HookId : std::uint8_t {
     PressurePlateAnimationWriter,
     PressurePlateDestructor,
     PressurePlateDeletingDestructor,
+    ProjectileUpdate,
+    ProjectileInit,
+    EntityPlayerInit,
+    GameStartStageTransition,
     Count,
 };
 
@@ -170,7 +174,7 @@ inline constexpr std::size_t kHookIdCount = static_cast<std::size_t>(HookId::Cou
 //   GotSlot    —— 只改写该函数所用 PLT 桩读的那条 GOT 槽（零代码字节）
 //   RelaySlot  —— 引擎侧的中继代码（由 IPS 放进游戏模块的代码洞）在"原调用返回之后"
 //                 从一个**回调槽**里取出函数指针来调用；本后端只负责把我们的回调指针
-//                 写进那个槽（同样零代码字节）。目前只有 `GameStart` 走这条路。
+//                 写进那个槽（同样零代码字节）；包括GameStart与弹幕Init/Update完成边界。
 enum class HookBackend : std::uint8_t { LegacyIps, EntryRelay, GotSlot, RelaySlot, Internal };
 
 struct HookDescriptor {
@@ -266,6 +270,10 @@ inline constexpr std::array<HookDescriptor, kHookIdCount> kHookCatalog = {{
     {HookId::PressurePlateAnimationWriter, "PressurePlateAnimationWriter", HookBackend::EntryRelay, false},
     {HookId::PressurePlateDestructor, "PressurePlateDestructor", HookBackend::Internal, false},
     {HookId::PressurePlateDeletingDestructor, "PressurePlateDeletingDestructor", HookBackend::Internal, false},
+    {HookId::ProjectileUpdate, "ProjectileUpdate", HookBackend::RelaySlot, false},
+    {HookId::ProjectileInit, "ProjectileInit", HookBackend::RelaySlot, false},
+    {HookId::EntityPlayerInit, "EntityPlayerInit", HookBackend::EntryRelay, false},
+    {HookId::GameStartStageTransition, "GameStartStageTransition", HookBackend::EntryRelay, false},
 }};
 
 // 取登记项。传入 `HookId::Count` 或越界值属于调用方错误，这里退化成第一个登记项

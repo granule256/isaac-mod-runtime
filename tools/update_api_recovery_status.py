@@ -108,7 +108,9 @@ def build():
         row['evidence'].append(observed_path)
     # 所有明确失败/尚缺条件最后覆盖，绝不被模组加载或早期成熟度吞掉。
     for key,override in manual['overrides'].items():
-        row=add(key,'回调'if key.startswith('Callback:')else'API',source='人工缺陷/复验判定');row.update(override);row['basis']='单项真机：修复后复验' if row['status']=='已测暂未发现问题' else ('明确缺陷' if row['status']=='有问题待修复' else '人工核定：尚缺条件')
+        row=add(key,'回调'if key.startswith('Callback:')else'API',source='人工缺陷/复验判定');row.update(override)
+        # 人工记录可明确宿主/真机等证据类型；不能把宿主通过自动改写成真机复验。
+        row['basis']=override.get('basis', '单项真机：修复后复验' if row['status']=='已测暂未发现问题' else ('明确缺陷' if row['status']=='有问题待修复' else '人工核定：尚缺条件'))
     row=records['Callback:71'];row.update(status='已测暂未发现问题',basis='单项真机：返回值真实替换实体',progress='未覆盖全部网格/过滤边界');row['evidence'].append('dist/api-callback-verification-20261020/enemy-room-result.json')
     # 已记录行若暂时不在生成来源中，保留原行，不删除历史信息。
     previous=json.loads(DATA.read_text())if DATA.exists()else{}

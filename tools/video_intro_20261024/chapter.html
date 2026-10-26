@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8">
+<meta name="viewport" content="width=1920, height=1080">
+<style>
+*{box-sizing:border-box}html,body{margin:0;width:1920px;height:1080px;overflow:hidden;background:transparent;font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Hiragino Sans GB",sans-serif;color:#f2eee7}
+.top{position:absolute;left:0;top:0;width:1920px;height:80px;background:#111917;border-bottom:1px solid #34433c;display:flex;align-items:center;padding:0 42px;gap:16px}
+.brand-mark{width:9px;height:30px;border-radius:3px;background:#c7e89b}.brand{font-size:27px;font-weight:650;letter-spacing:1px}.sep{color:#52665b;font-size:24px}.brand-sub{font-size:22px;color:#a9b9ad}.chapter{margin-left:auto;display:flex;gap:20px;align-items:center}.counter{font-size:22px;font-variant-numeric:tabular-nums;color:#c7e89b}.chapter-name{font-size:26px;font-weight:550}
+.left{position:absolute;left:0;top:80px;width:160px;height:900px;background:#111917;display:flex;align-items:center;flex-direction:column}.tag{margin-top:29px;font-size:20px;color:#b4c2b6}.status{font-size:17px;color:#7f9586;margin-top:11px}.nav{margin-top:132px;display:flex;flex-direction:column;gap:26px}.nav i{width:5px;height:26px;border-radius:4px;background:#304337;display:block}.nav i.active{background:#c7e89b}.nav-num{margin-top:22px;font-size:35px;font-weight:600;color:#c7e89b;font-variant-numeric:tabular-nums}
+.right{position:absolute;left:1760px;top:80px;width:160px;height:900px;background:#111917}.note{position:absolute;top:30px;left:10px;width:140px;text-align:center;font-size:18px;line-height:1.8;color:#9daf9f}.speed{position:absolute;left:10px;bottom:35px;width:140px;padding:12px 5px;border:1px solid #536149;border-radius:8px;text-align:center;font-size:18px;color:#e4eabd;visibility:hidden}
+.bottom{position:absolute;left:0;top:980px;width:1920px;height:100px;background:#111917;border-top:1px solid #34433c}.progress{position:absolute;left:0;bottom:0;width:1920px;height:4px;background:#26392d}.fill{height:4px;background:#c7e89b;transform-origin:left;transform:scaleX(0)}
+.opening{position:absolute;left:290px;top:285px;width:1320px;padding:48px 52px;border:1px solid #5d7155;border-radius:14px;background:rgba(12,22,16,.94);text-align:center;opacity:0}.eyebrow{font-size:23px;letter-spacing:8px;color:#c7e89b}.headline{margin-top:22px;font-size:67px;line-height:1.3;font-weight:750;letter-spacing:1px}.subline{margin-top:22px;font-size:26px;color:#b6c6b6}
+</style>
+<div class="top"><span class="brand-mark"></span><span class="brand">以撒 · Switch 模组运行时</span><span class="sep">/</span><span class="brand-sub">实机介绍</span><div class="chapter"><span class="counter" id="counter"></span><span class="chapter-name" id="title"></span></div></div>
+<div class="left"><span class="tag">实机录像</span><span class="status">开发测试版</span><div class="nav" id="nav"></div><span class="nav-num" id="number"></span></div>
+<div class="right"><div class="note" id="note"></div><div class="speed" id="speed">输入过程<br><span id="speed-value"></span></div></div>
+<div class="bottom"></div><div class="progress"><div class="fill" id="fill"></div></div>
+<div class="opening" id="opening"><div class="eyebrow">ISAAC · SWITCH MODS</div><div class="headline">让熟悉的 PC 模组<br>在 Switch 上运行</div><div class="subline">中文道具说明 · 模组列表 · 手柄控制台</div></div>
+<script type="module">
+const index = Number(new URLSearchParams(location.search).get('chapter'));
+const chapters = [
+  {start:0,duration:10,title:'Switch，也能加载 PC 模组',note:'PC 模组\n掌机运行'},
+  {start:10,duration:15,title:'补齐模组需要的运行环境',note:'脚本接口\n事件回调\n资源加载'},
+  {start:25,duration:18,title:'先看模组列表，再看实际效果',note:'浏览列表\n切换开关'},
+  {start:43,duration:20,title:'中文道具说明：拿之前，先看清',note:'名称\n图标\n效果说明'},
+  {start:63,duration:13,title:'地图与资源：实际加载，实际绘制',note:'字体\n图片\n动画'},
+  {start:76,duration:18,title:'手柄控制台：输入命令，现场验证',note:'长按\nA + B\n约 0.8 秒'},
+  {start:94,duration:12,title:'生成道具，检查模组反应',note:'正常速度\n展示结果'},
+  {start:106,duration:14,title:'持续开发，目标是还原 PC 模组环境',note:'开发测试版\n兼容性持续\n测试中'},
+];
+const c=chapters[index];
+document.getElementById('title').textContent=c.title;
+document.getElementById('counter').textContent=`${String(index+1).padStart(2,'0')} / 08`;
+document.getElementById('number').textContent=String(index+1).padStart(2,'0');
+document.getElementById('note').style.whiteSpace='pre-line';
+document.getElementById('note').textContent=c.note;
+document.getElementById('nav').innerHTML=chapters.map((_,i)=>`<i class="${i===index?'active':''}"></i>`).join('');
+const opening=document.getElementById('opening');
+if(index===7){
+  opening.querySelector('.eyebrow').textContent='持续测试 · 持续完善';
+  opening.querySelector('.headline').innerHTML='目标：还原 PC 模组环境';
+  opening.querySelector('.subline').textContent='以撒 Switch 模组运行时 · 开发测试版';
+}
+const speed=document.getElementById('speed');
+const ease=x=>Math.max(0,Math.min(1,x));
+window.film={
+  width:1920,height:1080,duration:c.duration,
+  ready:document.fonts.ready,
+  frame(t){
+    document.getElementById('fill').style.transform=`scaleX(${ease((c.start+t)/120)})`;
+    const opacity=index===0?ease(t/.35)*ease((3.7-t)/.4):index===7?ease((t-8.4)/.4):0;
+    opening.style.opacity=String(opacity);
+    opening.style.transform=`translateY(${(1-opacity)*12}px)`;
+    speed.style.visibility=index===5?'visible':'hidden';
+    document.getElementById('speed-value').textContent=t<9?'2× 速度':'1.5× 速度';
+  }
+};
+</script>
+</html>

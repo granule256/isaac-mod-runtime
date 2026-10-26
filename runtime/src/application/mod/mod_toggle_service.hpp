@@ -47,6 +47,7 @@ public:
     // 内存里改一个模组的开关（**不落盘**，落盘由调用方在合适时机调 `Save()`）。
     [[nodiscard]] Status SetEnabled(std::string_view directory, bool enabled) noexcept {
         const Status status = state_.SetEnabled(directory, enabled);
+        if (status.ok()) ++revision_;
         if (!status.ok() && status.code() == StatusCode::CapacityExceeded) {
             // ★ 批次 427：让"被容量挡下"留痕（用户报的"关不掉"就是它）。
             g_ModToggleCapacityRejections.fetch_add(1, std::memory_order_relaxed);
@@ -56,6 +57,7 @@ public:
 
     [[nodiscard]] const ModToggleState& state() const noexcept { return state_; }
     [[nodiscard]] std::size_t DisabledCount() const noexcept { return state_.disabledCount; }
+    [[nodiscard]] std::uint64_t Revision() const noexcept { return revision_; }
 
     // 用户在 SD 卡上手工放的标记文件：`<modRoot>/disable.it` 存在 ⇒ 这个模组不加载。
     // 只读，不写卡（卡上的覆盖层是只读的），所以它是一条**给用户保底**的手工路径。
@@ -69,6 +71,7 @@ public:
 private:
     ISaveFilePort& files_;
     ModToggleState state_{};
+    std::uint64_t revision_{0};
 };
 
 } // namespace isaac::runtime

@@ -40,25 +40,21 @@ namespace isaac::runtime {
 // （2026-09-18 统计）。要逐处把它们改成"先取局部变量再判"会把那些表达式改得很难读，
 // 而实际上只需要换一个判据 —— 用这个函数做**纯文本替换**即可，语义与 `IntegerArgumentAt` 一致。
 [[nodiscard]] inline bool IsIntegerArgument(lua_State* state, int index) noexcept {
-    if (state == nullptr || lua_isnumber(state, index) == 0) {
-        return false;
-    }
-    const lua_Number value = lua_tonumber(state, index);
-    const lua_Integer truncated = static_cast<lua_Integer>(value);
-    return static_cast<lua_Number>(truncated) == value;
+    if (state == nullptr) return false;
+    int converted = 0;
+    lua_tointegerx(state, index, &converted);
+    return converted != 0;
 }
 
 [[nodiscard]] inline bool IntegerArgumentAt(lua_State* state, int index,
                                             lua_Integer* out) noexcept {
-    if (state == nullptr || out == nullptr || lua_isnumber(state, index) == 0) {
+    if (state == nullptr || out == nullptr) {
         return false;
     }
-    const lua_Number value = lua_tonumber(state, index);
-    const lua_Integer truncated = static_cast<lua_Integer>(value);
-    if (static_cast<lua_Number>(truncated) != value) {
-        return false;
-    }
-    *out = truncated;
+    int converted = 0;
+    const lua_Integer value = lua_tointegerx(state, index, &converted);
+    if (converted == 0) return false;
+    *out = value;
     return true;
 }
 

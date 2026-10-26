@@ -32,11 +32,16 @@ constexpr std::size_t kMaximumMenuEntries = kModManifestCapacity;
 struct MenuEntry {
     ModToggleName directory{};
     bool active{false};
+    const char* displayName{nullptr};
 };
 
 std::array<MenuEntry, kMaximumMenuEntries> g_entries{};
 std::size_t g_entryCount{0};
 ModToggleService* g_toggles{nullptr};
+bool g_readingValid{false};
+std::uint64_t g_readingToggleRevision{};
+ModMenuDiscoveredReading g_reading{};
+std::size_t g_enabledCount{}, g_activeCount{};
 
 void CopyName(ModToggleName* target, std::string_view name) noexcept {
     const std::size_t length =
@@ -177,9 +182,14 @@ namespace {
 //: ★ 用于「禁成就」的 **fail-closed** 判定：还没出结果时不能当成「没有模组」，
 //:   否则游戏刚起来那几秒（加载阶段）的解锁会漏过去。
 bool g_discoveryDone = false;
+std::uint32_t g_discoveryGeneration = 0;
 }  // namespace
 
-void ModMenuPublishDiscovered(const ResolvedManifestModBatch& batch) noexcept {
+void ModMenuPublishDiscovered(const ResolvedManifestModBatch& batch,
+                              const char* const* displayNames) noexcept {
+    if (batch.count > kMaximumMenuEntries) return; // 拒绝超量批次，保留原完整列表。
+    g_readingValid = false;
+    ++g_discoveryGeneration;
     g_discoveryDone = true;
     g_entryCount = 0;
     for (std::size_t index = 0; index < batch.count && g_entryCount < kMaximumMenuEntries;
@@ -192,11 +202,14 @@ void ModMenuPublishDiscovered(const ResolvedManifestModBatch& batch) noexcept {
         }
         CopyName(&g_entries[g_entryCount].directory, name);
         g_entries[g_entryCount].active = false;
+        g_entries[g_entryCount].displayName = displayNames != nullptr ? displayNames[index] : nullptr;
         ++g_entryCount;
     }
 }
 
 void ModMenuMarkActive(const ResolvedManifestModBatch& batch) noexcept {
+    if (batch.count > kMaximumMenuEntries) return;
+    g_readingValid = false;
     for (std::size_t index = 0; index < batch.count; ++index) {
         const char* root = batch.mods[index].modRoot;
         const std::string_view name = LeafName(root == nullptr ? std::string_view{}
@@ -210,6 +223,7 @@ void ModMenuMarkActive(const ResolvedManifestModBatch& batch) noexcept {
 
 void ModMenuAttachToggles(ModToggleService* service) noexcept {
     g_toggles = service;
+    g_readingValid = false;
 }
 
 // ---- 读面（C++ 侧访问器）：与 `RuntimeMods.List()` 同一份数据、同一套口径 ----------------
@@ -218,6 +232,12 @@ void ModMenuAttachToggles(ModToggleService* service) noexcept {
 std::size_t ModMenuDiscoveredCount() noexcept { return g_entryCount; }
 
 bool ModMenuDiscoveryDone() noexcept { return g_discoveryDone; }
+std::uint32_t ModMenuDiscoveryGeneration() noexcept { return g_discoveryGeneration; }
+const char* ModMenuDiscoveredDisplayName(std::size_t index) noexcept {
+    if (index >= g_entryCount) return nullptr;
+    const auto& entry = g_entries[index];
+    return entry.displayName != nullptr ? entry.displayName : entry.directory.data();
+}
 
 const char* ModMenuDiscoveredDirectory(std::size_t index) noexcept {
     return index < g_entryCount ? g_entries[index].directory.data() : nullptr;
@@ -237,13 +257,8 @@ std::size_t ModMenuActiveCount() noexcept {
     // 用它会在"关了开关但还没重启"的那一局里判成"不开模组"。
     // ★ 2026-09-24 批次 107：它**不再是**「禁成就」的判据（那条改成 PC 口径的
     //   `ModMenuEnabledCount`），现在只作为读数/诊断用。
-    std::size_t active = 0;
-    for (std::size_t index = 0; index < g_entryCount; ++index) {
-        if (g_entries[index].active) {
-            ++active;
-        }
-    }
-    return active;
+    (void)ModMenuDiscoveredForReading();
+    return g_activeCount;
 }
 
 std::size_t ModMenuEnabledCount() noexcept {
@@ -251,32 +266,41 @@ std::size_t ModMenuEnabledCount() noexcept {
     // 列表里每一项的启用位）。用 `ModMenuDiscoveredEnabled` 而不是 `g_entries[].active` ——
     // 后者是"开机时加载过"，前者是"现在开着"（页面开关一改就变，不需要重启）。
     // 两者的差别正是真机漏判的那一种情形，说明与判据都写在头文件那一段。
-    std::size_t enabled = 0;
-    for (std::size_t index = 0; index < g_entryCount; ++index) {
-        if (ModMenuDiscoveredEnabled(g_entries[index].directory.data())) {
-            ++enabled;
-        }
-    }
-    return enabled;
+    (void)ModMenuDiscoveredForReading();
+    return g_enabledCount;
 }
 
+// 完整状态诊断出口；8个u32分别覆盖索引0..255，旧状态面仅保留word[0]。
+[[gnu::used]] ModBits g_ModDiscoveredEnabledBits{};
+[[gnu::used]] ModBits g_ModDiscoveredActiveBits{};
+[[gnu::used]] std::uint64_t g_ModReadingRebuilds{};
+
 ModMenuDiscoveredReading ModMenuDiscoveredForReading() noexcept {
-    // 位图一格只装得下 32 条 —— 清单容量涨到 33 以上就得在读数那边加格。
-    // 这里用 static_assert 挡住（**不许静默截断**：截断了读数会撒谎，而这一格存在的理由就是别撒谎）。
-    static_assert(kMaximumMenuEntries <= 32,
-                  "发现清单容量超过 32 ⇒ 位图一格装不下，状态面的 [42]/[43] 要加格");
+    const auto revision = g_toggles ? g_toggles->Revision() : 0;
+    if (g_readingValid && revision == g_readingToggleRevision) return g_reading;
+    ++g_ModReadingRebuilds;
+    g_enabledCount = g_activeCount = 0;
     ModMenuDiscoveredReading reading{};
     reading.count = static_cast<std::uint32_t>(g_entryCount);
     for (std::size_t index = 0; index < g_entryCount; ++index) {
-        const std::uint32_t bit = 1U << static_cast<unsigned>(index);
+        const std::uint32_t bit = index < 32 ? (1U << index) : 0;
         // 与 `ModMenuEnabledCount()` 走**同一个** `ModMenuDiscoveredEnabled`（同一份口径，不另算一遍）。
         if (ModMenuDiscoveredEnabled(g_entries[index].directory.data())) {
             reading.enabledMask |= bit;
+            reading.enabledBits.Set(index);
+            ++g_enabledCount;
         }
         if (g_entries[index].active) {
             reading.activeMask |= bit;
+            reading.activeBits.Set(index);
+            ++g_activeCount;
         }
     }
+    g_ModDiscoveredEnabledBits = reading.enabledBits;
+    g_ModDiscoveredActiveBits = reading.activeBits;
+    g_reading = reading;
+    g_readingToggleRevision = revision;
+    g_readingValid = true;
     return reading;
 }
 

@@ -32,6 +32,7 @@ class ContentNameConsumerTests(unittest.TestCase):
    r=subprocess.run([str(binary)],capture_output=True,text=True);self.assertEqual(r.returncode,0,'原生已加载pill67，但动态名字查询没有消费：'+r.stdout+r.stderr)
 NATIVE_MAIN=r'''
 #include "interfaces/lua/rplus_content_names.hpp"
+namespace isaac::runtime {__attribute__((weak)) void InvalidateRuntimeContentNames() noexcept {}}
 #include "interfaces/lua/rplus_content_names_guards.hpp"
 #include <cassert>
 static void Word(std::vector<unsigned char>&v,std::size_t off,std::int32_t n){std::memcpy(v.data()+off,&n,4);}
@@ -63,21 +64,24 @@ int main(int argc,char**argv){
  if(scene=="malformed")WriteWord(nodes[3],16,AddressOf(nodes[3]));
  if(scene=="oom")isaac::runtime::SetRuntimeContentNameAllocationFailureForTest(true);
  if(scene=="empty"){WriteWord(manager,kManagerItemConfigOffset+0x60,0);WriteWord(manager,kManagerItemConfigOffset+0x68,0);WriteWord(manager,kManagerEntityConfigOffset,end);WriteWord(manager,kManagerEntityConfigOffset+8,0);WriteWord(manager,kManagerEntityConfigOffset+16,0);}
- bool built=isaac::runtime::RefreshRuntimeContentNames();if(built!=(scene=="normal"||scene=="reload"||scene=="clear"||scene=="empty"))return 1;
+ bool built=isaac::runtime::RefreshRuntimeContentNames();if(built!=(scene=="normal"||scene=="reload"||scene=="lazy"||scene=="clear"||scene=="empty"))return 1;
  auto stats=isaac::runtime::RuntimeContentNameStatsSnapshot();if(stats.ready!=built)return 2;
  if(scene=="clear")isaac::runtime::ClearRuntimeContentNames();
- if(scene=="reload"){
+ if(scene=="reload"||scene=="lazy"){
   Word(pill[1],0,68);Word(nodes[1],0x2c,2001);Word(nodes[1],0x20,(1000<<20)|(2001<<8));
   // 同根、同begin/root/size：只有显式加载边界刷新才能看见实际新ID。
-  if(!isaac::runtime::RefreshRuntimeContentNames())return 3;
+  if(scene=="lazy"){
+   for(unsigned i=0;i<32;++i)isaac::runtime::InvalidateRuntimeContentNames();
+   if(isaac::runtime::RuntimeContentNameStatsSnapshot().refreshes!=stats.refreshes)return 8;
+  }else if(!isaac::runtime::RefreshRuntimeContentNames())return 3;
  }
  std::string script=R"lua(local m=RegisterMod('loaded-config-names',1);_names={count=0};m:AddCallback(1,function()
  )lua";
  if(!built||scene=="clear")script+=R"lua(assert(not pcall(function()Isaac.GetPillEffectByName('Estrogen Up')end));assert(not pcall(function()Isaac.GetEntityVariantByName('Crippling Hands Helper')end)))lua";
  else if(scene=="empty")script+="assert(Isaac.GetPillEffectByName('#HEALTH_UP')==-1 and Isaac.GetEntityTypeByName('Crippling Hands Helper')==0 and Isaac.GetEntityVariantByName('Crippling Hands Helper')==-1)";
  else{
-  script+="assert(Isaac.GetPillEffectByName('Estrogen Up')=="+std::to_string(scene=="reload"?68:67)+")\n";
-  script+="assert(Isaac.GetEntityTypeByName('Crippling Hands Helper')==1000 and Isaac.GetEntityVariantByName('Crippling Hands Helper')=="+std::to_string(scene=="reload"?2001:2002)+")\n";
+  script+="assert(Isaac.GetPillEffectByName('Estrogen Up')=="+std::to_string((scene=="reload"||scene=="lazy")?68:67)+")\n";
+  script+="assert(Isaac.GetEntityTypeByName('Crippling Hands Helper')==1000 and Isaac.GetEntityVariantByName('Crippling Hands Helper')=="+std::to_string((scene=="reload"||scene=="lazy")?2001:2002)+")\n";
   script+=R"lua(
   assert(Isaac.GetPillEffectByName('#HEALTH_UP')==1 and Isaac.GetPillEffectByName('#health_up')==-1)
   assert(Isaac.GetPillEffectByName('Same Pill')==79)
@@ -95,7 +99,7 @@ int main(int argc,char**argv){
  if(LuaRuntime::InitializeFromBuffer(script.data(),script.size(),"@native-loaded-names.lua")!=LuaRuntime::LuaInitResult::Success)return 4;
  LuaRuntime::DispatchPostUpdate();if(LuaRuntime::TakeCallbackError()){LuaRuntime::LuaErrorHistoryEntryView errors[8]{};auto n=LuaRuntime::CopyLuaErrorHistory(errors,8);for(unsigned i=0;i<n;++i)fprintf(stderr,"%s\n",errors[i].text);return 5;}
  double count=0;if(LuaRuntime::ReadLuaTableNumber("_names","count",&count)||count!=1)return 6;
- auto after=isaac::runtime::RuntimeContentNameStatsSnapshot();if(after.refreshes!=stats.refreshes+(scene=="reload"?1:0))return 7;
+ auto after=isaac::runtime::RuntimeContentNameStatsSnapshot();if(after.refreshes!=stats.refreshes+((scene=="reload"||scene=="lazy")?1:0))return 7;
  return 0;
 }
 '''
@@ -109,6 +113,6 @@ class NativeContentNameTests(unittest.TestCase):
  @classmethod
  def tearDownClass(cls):cls.tmp.cleanup()
  def test_loaded_ids_conflict_resolution_cache_lifecycle_and_pc_name_rules(self):
-  for scene in ('normal','reload','clear','empty','oom','badguard','malformed'):
+  for scene in ('normal','reload','lazy','clear','empty','oom','badguard','malformed'):
    with self.subTest(scene=scene):
     r=subprocess.run([str(self.binary),scene],capture_output=True,text=True);self.assertEqual(r.returncode,0,r.stdout+r.stderr)

@@ -32,6 +32,7 @@ struct Cache {
 static_assert(std::is_trivial_v<Cache> && std::is_standard_layout_v<Cache>);
 // -nostartfiles：全局必须只需静态零初始化，不注册C++全局析构。
 Cache g_Cache{};
+bool g_RefreshPending{};
 std::uint64_t g_Refreshes{};
 #if !defined(__SWITCH__)
 bool g_FailAllocation{};
@@ -149,6 +150,10 @@ bool Insert(Cache& cache,Family family,const Name& name,std::int32_t type,std::i
 }
 const Entry* Lookup(lua_State* state,Family family) {
     std::size_t length{};const auto* name=luaL_checklstring(state,1,&length);
+    // 只有明确配置变更才允许刷新；无缓存/未知根仍保持原错误，不能用轮询掩盖生命周期。
+    if(g_RefreshPending && !RefreshRuntimeContentNames()) {
+        luaL_error(state,"native content name cache refresh failed");return nullptr;
+    }
     if(!g_Cache.ready){luaL_error(state,"native content name cache is not ready");return nullptr;}
     const auto item=ResolveContentConfigRoot(false);
     // 两配置根均由同一Manager固定内嵌；复核一次ItemConfig根即可避免重复Manager跳链。
@@ -156,7 +161,8 @@ const Entry* Lookup(lua_State* state,Family family) {
     return Find(g_Cache,family,name,length,Hash(family,name,length));
 }
 }
-void ClearRuntimeContentNames() noexcept {delete[] g_Cache.memory;g_Cache={};}
+void ClearRuntimeContentNames() noexcept {delete[] g_Cache.memory;g_Cache={};g_RefreshPending=false;}
+void InvalidateRuntimeContentNames() noexcept {g_RefreshPending=true;}
 bool RefreshRuntimeContentNames() noexcept {
     ClearRuntimeContentNames();++g_Refreshes;
     if(!LayoutValid())return false;

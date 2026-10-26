@@ -1,0 +1,463 @@
+{
+  "title": "Switch以撒模组支持：EID、GoodTrip、控制台和跳舞",
+  "voice": "无旁白，完整中文字幕，低音量器乐背景音乐",
+  "music_asset": "assets/原创背景音乐-确认版.wav",
+  "assets": {
+    "mcm": "@capture/mcm-current.jpg",
+    "mary": "@capture/角色浏览-03.jpg",
+    "peter": "@capture/角色浏览-02.jpg",
+    "isaiah": "@capture/角色浏览-01.jpg",
+    "gabriel": "@capture/角色浏览-05.jpg",
+    "babyl": "@capture/角色浏览-06.jpg",
+    "bf-menu": "@capture/角色浏览-04.jpg",
+    "bf-game": "dist/change-archive-20261012/444-bf-image-request-alias/bf-hair-final.jpg",
+    "planetarium": "dist/planetarium-vector-fix-20261015/chance-visible.jpg",
+    "custom-full": "dist/bossbar-restore-20261015/controlled-full.jpg",
+    "custom-half": "dist/bossbar-restore-20261015/boss-half.jpg",
+    "enhanced-full": "dist/corpus-hardware-20261016/resume-enhanced-clean-full.jpg",
+    "enhanced-damaged": "dist/corpus-hardware-20261016/resume-enhanced-clean-damaged.jpg",
+    "specialist": "dist/specialist-music-followup-20261020/dance-music-current.jpg",
+    "reading": "dist/rplus-menu-regression-20261024/gfx-reading-visible.jpg",
+    "rplus-item": "dist/rplus-menu-regression-20261024/gfx-final-eid-visible.jpg",
+    "characters": "@capture/选人界面初始.jpg",
+    "characters-last": "@capture/自定义角色末尾.jpg",
+    "goodtrip-video": "@capture/GoodTrip-实机录像.mp4",
+    "dance-video": "@capture/跳舞-实机录像.mp4",
+    "goodtrip-video-clean": "@capture/GoodTrip-地图键重设录像.mp4"
+  },
+  "scenes": [
+    {
+      "id": "opening",
+      "title": "项目效果",
+      "lines": [
+        [
+          5,
+          "我给 Switch 版以撒做了模组支持。"
+        ],
+        [
+          5,
+          "中文道具描述、小地图这些已经能用了。"
+        ],
+        [
+          5,
+          "也能装增加人物和道具的模组。"
+        ]
+      ],
+      "shots": [
+        [
+          "video",
+          9,
+          188,
+          5,
+          1
+        ],
+        [
+          "footage",
+          "dance-video",
+          14,
+          4,
+          1
+        ],
+        [
+          "image",
+          "mary",
+          3
+        ],
+        [
+          "video",
+          9,
+          264,
+          3,
+          1
+        ]
+      ]
+    },
+    {
+      "id": "requirements",
+      "title": "游戏版本与环境",
+      "lines": [
+        [
+          5,
+          "目前用的是 Switch《忏悔》1.7.9b，需要能运行 Atmosphère 的主机。"
+        ],
+        [
+          5,
+          "模组本体需要自行获取，按项目说明安装。"
+        ]
+      ],
+      "shots": [
+        [
+          "video",
+          3,
+          0,
+          3,
+          1
+        ],
+        [
+          "video",
+          9,
+          82,
+          7,
+          1
+        ]
+      ]
+    },
+    {
+      "id": "achievements",
+      "title": "妈腿与成就",
+      "lines": [
+        [
+          5,
+          "这个存档如果还没打过妈腿，开着模组就解锁不了成就。"
+        ],
+        [
+          5,
+          "先关闭模组，正常打过一次妈腿，再开着玩。"
+        ],
+        [
+          5,
+          "之后不会因为模组本身禁成就，其他原版限制还是照常。"
+        ]
+      ],
+      "shots": [
+        [
+          "video",
+          9,
+          120,
+          7,
+          1
+        ],
+        [
+          "video",
+          9,
+          193,
+          8,
+          1
+        ]
+      ]
+    },
+    {
+      "id": "switches",
+      "title": "模组列表",
+      "lines": [
+        [
+          4,
+          "装好的模组，可以在主菜单的模组页里开关。"
+        ],
+        [
+          4,
+          "有些模组需要一起装前置，安装时看一下各自的说明。"
+        ]
+      ],
+      "shots": [
+        [
+          "video",
+          9,
+          82,
+          8,
+          1
+        ]
+      ]
+    },
+    {
+      "id": "eid",
+      "title": "EID：中文道具说明",
+      "lines": [
+        [
+          6,
+          "这个是 EID，靠近地上的物品就会显示中文说明。"
+        ],
+        [
+          6,
+          "名称、图标和效果都在这里，买东西之前也能先看一眼。"
+        ],
+        [
+          5,
+          "不光是道具，饰品、卡牌和药丸也有对应说明。"
+        ],
+        [
+          5,
+          "语言、字号这些，可以在模组设置里调整。"
+        ],
+        [
+          5,
+          "记不住道具效果的话，装这个会方便很多。"
+        ]
+      ],
+      "shots": [
+        [
+          "video",
+          9,
+          184,
+          9,
+          1
+        ],
+        [
+          "video",
+          9,
+          193,
+          9,
+          1
+        ],
+        [
+          "video",
+          9,
+          202,
+          9,
+          1
+        ]
+      ]
+    },
+    {
+      "id": "goodtrip",
+      "title": "GoodTrip：地图传送",
+      "lines": [
+        [
+          4,
+          "GoodTrip 是地图传送，主要是少跑回头路。"
+        ],
+        [
+          4,
+          "按住地图键，用射击方向选择已经清过的房间。"
+        ],
+        [
+          4,
+          "选好后松开，就能直接过去。"
+        ],
+        [
+          5,
+          "这里直接选到商店，不用再一路跑过去。"
+        ],
+        [
+          5,
+          "战斗和特殊房间，仍然要按模组本身的规则来。"
+        ]
+      ],
+      "shots": [
+        [
+          "footage",
+          "goodtrip-video-clean",
+          2,
+          22,
+          1
+        ]
+      ]
+    },
+    {
+      "id": "console",
+      "title": "手柄控制台",
+      "lines": [
+        [
+          5,
+          "控制台也接到了手柄上，长按 A + B 约 0.8 秒打开。"
+        ],
+        [
+          5,
+          "弹出来的是系统键盘，可以用手柄输入命令。"
+        ],
+        [
+          5,
+          "比如这条 spawn 5.100.182，就是生成一个圣心。"
+        ],
+        [
+          5,
+          "执行后回到游戏，道具就会出现在房间里。"
+        ],
+        [
+          5,
+          "平时测试模组，也可以用它快速准备需要的道具。"
+        ]
+      ],
+      "shots": [
+        [
+          "video",
+          9,
+          214,
+          7,
+          1
+        ],
+        [
+          "video",
+          9,
+          238,
+          6,
+          1
+        ],
+        [
+          "video",
+          9,
+          247,
+          5,
+          1
+        ],
+        [
+          "video",
+          9,
+          262,
+          7,
+          1
+        ]
+      ]
+    },
+    {
+      "id": "specialist",
+      "title": "高品质道具跳舞",
+      "lines": [
+        [
+          5,
+          "有了高品质道具，还可以看看这个跳舞模组。"
+        ],
+        [
+          5,
+          "人物会跳专家舞，也会播放对应的音乐。"
+        ],
+        [
+          4,
+          "哪些品质的道具能触发，可以自己设置。"
+        ],
+        [
+          4,
+          "不想放音乐的话，也可以在设置里关掉。"
+        ]
+      ],
+      "shots": [
+        [
+          "footage",
+          "dance-video",
+          11.3,
+          18,
+          1
+        ]
+      ]
+    },
+    {
+      "id": "other-mods",
+      "title": "其他辅助模组",
+      "lines": [
+        [
+          6,
+          "另外，小地图增强、Boss 血条和伤害显示这些，也有适配。"
+        ],
+        [
+          6,
+          "星象房概率、捐款机防卡、染色石头提示，也有收录。"
+        ],
+        [
+          5,
+          "模组设置可以通过中文 MCM 菜单来调整。"
+        ]
+      ],
+      "shots": [
+        [
+          "image",
+          "enhanced-full",
+          5
+        ],
+        [
+          "image",
+          "bf-game",
+          4
+        ],
+        [
+          "image",
+          "planetarium",
+          4
+        ],
+        [
+          "image",
+          "mcm",
+          4
+        ]
+      ]
+    },
+    {
+      "id": "characters",
+      "title": "新增角色与内容",
+      "lines": [
+        [
+          5,
+          "新人物比如 Trinity 里的 Mary、Peter、Isaiah，都能在选人页看到。"
+        ],
+        [
+          5,
+          "Babyl、Gabriel、BF 这些角色，也有加载和运行的记录。"
+        ],
+        [
+          5,
+          "增加道具、卡牌的内容模组，同样在做适配。"
+        ]
+      ],
+      "shots": [
+        [
+          "image",
+          "mary",
+          2
+        ],
+        [
+          "image",
+          "peter",
+          2
+        ],
+        [
+          "image",
+          "isaiah",
+          2
+        ],
+        [
+          "image",
+          "babyl",
+          2
+        ],
+        [
+          "image",
+          "gabriel",
+          2
+        ],
+        [
+          "image",
+          "bf-menu",
+          2
+        ],
+        [
+          "image",
+          "rplus-item",
+          3
+        ]
+      ]
+    },
+    {
+      "id": "ending",
+      "title": "发布与开源计划",
+      "lines": [
+        [
+          5,
+          "目前还有一些功能没恢复完，模组之间也有些冲突。"
+        ],
+        [
+          6,
+          "之后我会整理一个稳定些的版本发出来，项目后面也会开源。"
+        ],
+        [
+          4,
+          "感兴趣的话可以先关注一下，顺手点个赞。"
+        ]
+      ],
+      "shots": [
+        [
+          "video",
+          9,
+          270,
+          7,
+          1
+        ],
+        [
+          "video",
+          9,
+          188,
+          8,
+          1
+        ]
+      ]
+    }
+  ]
+}

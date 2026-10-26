@@ -101,7 +101,7 @@ constexpr ApiDeviation kApiDeviations[] = {
      "⇒ `+0x38` = **上一帧**的按钮位图 ⇒ 它的语义是「连续两帧都按着」（引擎自己拿它做**连按**："
      "`Menu_Title::Update` / `Console::check_key_autorepeat`），不是 PC 的「刚按下」。另外 NX 本体"
      "**连模组回调系统都没有**（批次 151：整份镜像里 `AddCallback`/`RunCallback`/`MC_*` 出现 0 次）"
-     "⇒ `MC_INPUT_ACTION` 当时也没有游戏侧派发点可接。 ★ 2026-10-07（批次 390）**已更正**：它现在**已接线**（挂 `KAGE::Input::ManagerBase::IsActionPressed/IsActionTriggered/GetActionValue` 三条入口中继 + `LuaRuntime::DispatchInputAction` 用返回值覆盖），见 `hook_catalog.hpp` 的 `ManagerIsAction*` 段。"
+     "⇒ `MC_INPUT_ACTION` 当时也没有游戏侧派发点可接。 ★ 2026-10-07（批次 390）**已更正**：它现在**已接线**（2026-10-25修正为挂保留Entity*的Manager高层三条入口中继 + `LuaRuntime::DispatchInputAction` 用返回值覆盖），见 `hook_catalog.hpp` 的 `ManagerIsAction*` 段。"
      " ★★ 2026-10-07（批次 392）**又纠正一处（会咬人的）**：Lua 的 `Input.*` 绑的 `0x3F9B6C`"
      "（符号 = `IsaacRepentance::Manager::IsActionPressed`）**尾跳**进上面那三条，而**引擎本体**"
      "（`Entity_Player::get_movement_input` / `control_shooting` / 各菜单）也走同一个符号 ⇒ 中继会"

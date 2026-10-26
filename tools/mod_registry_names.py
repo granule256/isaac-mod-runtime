@@ -8,10 +8,10 @@
 
 数据来源（**不是**自己扫目录，是读运行时内存里那份**发现结果**）
 --------------------------------------------------------------
-`mod_menu_api.cpp` 里的静态数组：`std::array<MenuEntry, 32> g_entries`、
-`MenuEntry { std::array<char,256> directory; bool active; }`
-⇒ **步长 257**（`kModDirectoryCapacity = 256` + 1 字节 bool），
-自带自检：符号大小 = 32 × 257 = **8224** ✓（`nm` 一看就知道布局对不对）。
+`mod_menu_api.cpp` 里的静态数组：`std::array<MenuEntry, 256> g_entries`、
+`MenuEntry { std::array<char,256> directory; bool active; const char* displayName; }`
+⇒ **步长 272**（尾部bool后7字节对齐与8字节指针）（`kModDirectoryCapacity = 256` + 1 字节 bool），
+自带自检：符号大小 = 256 × 272 = **69632** ✓（`nm` 一看就知道布局对不对）。
 条目数在 `g_entryCount`（u64）。
 
 ★ 口径提醒：这是**运行时发现顺序**（字母序），**不一定**等于回调桶里那个属主编号的顺序
@@ -36,8 +36,8 @@ REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / 'tools'))
 sys.path.insert(0, '/tmp')          # /tmp/nxc_mem.py
 
-ENTRY_STRIDE = 257        # std::array<char,256> + bool，对齐 1 ⇒ 257
-ENTRY_COUNT = 32          # kModManifestCapacity
+ENTRY_STRIDE = 272        # 256字节目录 + bool + 7字节对齐 + 8字节displayName
+ENTRY_COUNT = 256          # kModManifestCapacity
 
 
 def main() -> int:
@@ -69,7 +69,17 @@ def main() -> int:
     count = u64(dev.base + dev.sym('g_entryCount'))
     print(f'runtime.elf = {elf}')
     print(f'g_entries @ {base:#x}（步长 {ENTRY_STRIDE}，容量 {ENTRY_COUNT}）｜g_entryCount = {count}')
-    for index in range(min(int(count), ENTRY_COUNT)):
+    if count > ENTRY_COUNT:
+        raise RuntimeError(f'清单数量{count}超过容量{ENTRY_COUNT}，拒绝截断诊断')
+    for symbol in ('g_ModDiscoveredEnabledBits', 'g_ModDiscoveredActiveBits',
+                   'g_RealModEntryBuiltMask', 'g_ModContentUnobservableFedMask'):
+        raw = dev.read(dev.base + dev.sym(symbol), 32)
+        if len(raw) != 32:
+            raise RuntimeError(f'{symbol}读取不完整')
+        words = struct.unpack('<8I', raw)
+        indices = [i for i in range(ENTRY_COUNT) if words[i // 32] & (1 << (i % 32))]
+        print(f'{symbol}（完整0..255索引） = {indices}')
+    for index in range(int(count)):
         blob = dev.read(base + index * ENTRY_STRIDE, ENTRY_STRIDE)
         if len(blob) < ENTRY_STRIDE:
             print(f'  [{index + 1:2d}] （读不到）')

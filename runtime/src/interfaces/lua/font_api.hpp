@@ -120,3 +120,8 @@ struct FontChainProbe {
 } // namespace isaac::runtime
 
 namespace isaac::runtime {int PushBorrowedGameFont(lua_State*,std::uintptr_t game,std::uintptr_t offset);}
+
+namespace isaac::runtime {
+// 与字体公开方法共用借用拥有者判据；不加载字体、不改变缓存或GC状态。
+void* TryResolveFontArgument(lua_State*,int index) noexcept;
+}

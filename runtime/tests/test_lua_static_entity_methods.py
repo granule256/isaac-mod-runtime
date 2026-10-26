@@ -45,6 +45,7 @@ template<class Fn>Fn EntityMethodHostFunction(std::uintptr_t target){EntityMetho
 '''
 MAIN = r'''
 #include "interfaces/lua/entity_lifetime.hpp"
+#include "interfaces/lua/rplus_extended_fields_guards.hpp"
 static unsigned calls[8]{};static std::uintptr_t spawnerAddress{},sourceAddress{};static std::uintptr_t target{},self{},hptr{},vptr{};
 static int frame{},delay{};static unsigned sound{};static float volume{},pitch{},speed{};static bool loop{};
 static std::string horizontal,vertical,name;
@@ -63,7 +64,12 @@ extern "C" void* EntityTearHost(std::uintptr_t s,const void*,float,float,unsigne
 extern "C" void* EntitySpawnerHost(std::uintptr_t,std::uintptr_t spawner){++calls[6];spawnerAddress=spawner;return g_FamiliarBytes.data();}
 extern "C" void EntitySourceHost(std::uintptr_t,std::uintptr_t source){++calls[7];sourceAddress=source;}
 int main(int argc,char** argv){
- if(argc!=2)return 99;std::string scene=argv[1];PublishFakeGame();LuaRuntime::SetGameBindings(AddressOf(g_OwnerSlotBytes),0x2222);
+ if(argc!=2)return 99;std::string scene=argv[1];PublishFakeGame();
+ namespace E=isaac::runtime::extended_fields;
+ std::memcpy(g_ModuleBytes.data()+E::kEntity0Entry,E::kEntity0Guard.data(),E::kEntity0Guard.size());
+ std::memcpy(g_ModuleBytes.data()+E::kEntity1Entry,E::kEntity1Guard.data(),E::kEntity1Guard.size());
+ std::memcpy(g_ModuleBytes.data()+E::kEntity2Entry,E::kEntity2Guard.data(),E::kEntity2Guard.size());
+LuaRuntime::SetGameBindings(AddressOf(g_OwnerSlotBytes),0x2222);
  const unsigned offsets[]={0xa65c,0x33d010,0x119998,0x1100b0,0x2a991c,0x33bf7c,0x3540d0,0x355c68};
  const unsigned char guards[][16]={METHOD_GUARDS};
  for(unsigned i=0;i<8;++i)std::memcpy(g_ModuleBytes.data()+offsets[i],guards[i],16);

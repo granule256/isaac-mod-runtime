@@ -32,7 +32,15 @@ struct Save final : ISaveFilePort {
 ModToggleService g_ModToggleService{g_SaveFileAdapter};
 unsigned g_ModToggleStateLoaded=0;
 struct Outcome { bool attempted=false; std::size_t mountsAttempted=0,mountsFailed=0; };
+struct TargetModule {};
+namespace isaac::runtime::modmenu {
+ bool sortOk=true; unsigned sortCalls=0;
+ bool SortAndPublishDiscoveredMods(const TargetModule&, ResolvedManifestModBatch&) {
+  ++sortCalls; return sortOk;
+ }
+}
 Outcome Publish(ResolvedManifestModBatch& batch) {
+ TargetModule module{};
  Outcome outcome{};
  @EARLY_SEGMENT@
 }
@@ -48,6 +56,7 @@ int main(int argc,char** argv) {
  if(scenario==2) {g_SaveFileAdapter.missing=true;g_SaveFileAdapter.marker=true;}
  if(scenario==3) g_SaveFileAdapter.missing=true;
  if(scenario==4) g_SaveFileAdapter.failed=true;
+ if(scenario==5) isaac::runtime::modmenu::sortOk=false;
  static ResolvedManifestModBatch batch{};
  const char* dirs[]={"minimapi","EID"}; batch.count=2;
  for(int i=0;i<2;++i) {
@@ -55,6 +64,12 @@ int main(int argc,char** argv) {
   batch.mods[i].modRoot=b.modRoot.data();batch.mods[i].hasEntry=false;
  }
  auto outcome=Publish(batch);
+ if(isaac::runtime::modmenu::sortCalls!=1) return 16;
+ if(scenario==5) {
+  if(outcome.mountsFailed!=1 || g_SaveFileAdapter.reads || g_ModToggleStateLoaded ||
+     isaac::runtime::bridge::ModResourceRedirectListPublished()) return 17;
+  std::puts("SORT_FAILURE_STOPS_BEFORE_TOGGLE_IO"); return 0;
+ }
  auto* result=isaac::runtime::bridge::TryRedirectModResource("gfx/ui/minimap1.anm2",nullptr,Probe,Release);
  const bool wantMod=scenario==1 || scenario==3 || scenario==4;
  if(bool(result)!=wantMod) {std::fprintf(stderr,"MINIMAP_RESOURCE_FAIL scenario=%d disabled mod took original path\n",scenario);return 10;}
@@ -72,7 +87,7 @@ class MinimapEnabledResourcesTests(unittest.TestCase):
   cls.temp=tempfile.TemporaryDirectory(prefix='minimap-enabled-')
   code=(ROOT/'runtime/source/hook_manager.cpp').read_text()
   body=code.split('EarlyModMountOutcome MountModsBeforeHeavyWorkImpl(',1)[1]
-  body=body.split('(void)g_ModDiscoveryService.AppendUnlisted(&batch);',1)[1].split('return outcome;',1)[0]+'return outcome;'
+  body=body.split('(void)g_ModDiscoveryService.AppendUnlisted(&batch);',1)[1].split('\n    return outcome;\n}',1)[0]+'return outcome;'
   body=re.sub(r'//[^\n]*','',body)
   driver=Path(cls.temp.name)/'driver.cpp';driver.write_text(DRIVER.replace('@EARLY_SEGMENT@',body))
   cls.binary=Path(cls.temp.name)/'test'
@@ -84,3 +99,7 @@ class MinimapEnabledResourcesTests(unittest.TestCase):
    with self.subTest(scenario=scenario):
     r=subprocess.run([str(self.binary),str(scenario)],capture_output=True,text=True)
     self.assertEqual(r.returncode,0,r.stdout+r.stderr)
+ def test_sort_failure_stops_before_toggle_io_and_publication(self):
+  r=subprocess.run([str(self.binary),'5'],capture_output=True,text=True)
+  self.assertEqual(r.returncode,0,r.stdout+r.stderr)
+  self.assertIn('SORT_FAILURE_STOPS_BEFORE_TOGGLE_IO',r.stdout)

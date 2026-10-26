@@ -119,6 +119,32 @@ bool FakeReader(void*, const char* path, char* buffer, std::size_t capacity,
 }  // namespace
 
 int main() {
+        Check(kModPageMaximumMods == 256, "menu supports 256 mods");
+    {
+        const auto provider=[](void*,const char** out,std::uint32_t capacity)->std::uint32_t {
+            if (capacity<256) return 256;
+            for (unsigned i=0;i<256;++i) out[i]="AlphaMod";
+            return 256;
+        };
+        ModPageEntrySource out[256]{};
+        char names[256*256]{};
+        char path[isaac::runtime::kModPageMetadataPathCapacity]{};
+        char text[isaac::runtime::kModPageMetadataCapacity]{};
+        ModPageRuntimeStats stats{};
+        Check(CollectRuntimeModPageSources(out,256,provider,nullptr,nullptr,nullptr,
+                  &FakeReader,nullptr,names,sizeof(names),path,text,&stats)==256,
+              "all_256_menu_sources");
+        std::uint8_t entries[257*isaac::runtime::kModPageEntryStride]{};
+        std::uintptr_t pointers[257]{};
+        ModPageEntrySource rows[257]{};
+        rows[0]={"Console: ON",true,false};
+        for(unsigned i=0;i<256;++i)rows[i+1]=out[i];
+        std::uintptr_t vector[3]{};std::size_t used=0;
+        char arena[256*256]{};
+        Check(isaac::runtime::BuildModPageEntries(entries,pointers,vector,257,
+              rows,arena,sizeof(arena),&used)==257,
+              "console_plus_256_menu_entries");
+    }
     // ---- DecideModPageSource：该等 / 该走 / 该退，三态的分界只有一处 ----
     {
         // 条目造好了 ⇒ 走（不管目录数、不管试了几次）

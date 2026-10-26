@@ -3,6 +3,8 @@
 #include <cstdint>
 namespace isaac::runtime {
 bool PublishManagerUpdateEntryRelayOriginal(std::uintptr_t original) noexcept;
+// 仅原生模组页退出安全点调用；失败保持在模组页供用户修正。
+bool ReloadModsFromMenu(bool edited) noexcept;
 }
 
 #include "module_finder.hpp"
@@ -324,4 +326,5 @@ enum class GameStartRelayInstallResult {
     RelayPublishFailed,
 };
 GameStartRelayInstallResult TryInstallGameStartRelay(const TargetModule& module);
+bool TryInstallProjectileTailRelay(const TargetModule& module,bool initialize);
 bool IsHookEnabled();

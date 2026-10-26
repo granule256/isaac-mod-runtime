@@ -55,7 +55,8 @@ constexpr std::uintptr_t MenuManagerStateSlotYOffset(std::uint32_t state) noexce
 //: `Menu_Mods` 页面对象里我们要读写的那三个字段。
 constexpr std::uintptr_t kModsSelectedElementOffset = 0x0;
 constexpr std::uintptr_t kModsHoldTimerOffset = 0x4;
-constexpr std::uintptr_t kModsEditedOffset = 0x124;
+// Switch原始Reset @0x41020C与Update @0x41062C均使用strb +0x168；PC为+0x124。
+constexpr std::uintptr_t kModsEditedOffset = 0x168;
 
 //: 按住重复的节奏（与引擎一致）。
 constexpr std::uint32_t kModPageHoldDelayFrames = 50;

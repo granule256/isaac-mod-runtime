@@ -4,6 +4,7 @@
 #include "interfaces/lua/isaac_api.hpp"
 #include "interfaces/lua/field_api.hpp"
 #include "interfaces/lua/class_metadata.hpp"
+#include "interfaces/lua/object_identity_registry.hpp"
 #include "interfaces/lua/vector_api.hpp"
 #include "interfaces/lua/engine_color_mod.hpp"
 #include "infrastructure/call/engine_call_access.hpp"
@@ -21,6 +22,12 @@ constexpr char kMetatable[]="IsaacRuntime.ProjectileParams";
 // public offsets, but its private flags at+A0 are u64. No native C++ object copied.
 struct alignas(8) Params {unsigned char bytes[0xA8];};
 static_assert(sizeof(Params)==0xA8);
+// 元表已由registry识别，无需再扫类型；bytes就是交给NS fire_projectiles的自有native值。
+std::uintptr_t ParamsIdentity(lua_State* L,int index) noexcept {
+ if(lua_rawlen(L,index)!=sizeof(Params))return 0;
+ const auto*value=static_cast<const Params*>(lua_touserdata(L,index));
+ return engine_memory::AddressOf(value->bytes);
+}
 using Vec=LuaRuntime::VectorHandle;
 constexpr api100_native::Entry kEntries[]={
 {api400_params::kRandomU32Entry,api400_params::kRandomU32Guard.data()},
@@ -93,7 +100,7 @@ void* Npc(lua_State*L){luaL_checkudata(L,1,LuaRuntime::kEntityNPCMetatable);cons
 void SetApi400ParamsNativeTestBindings(Api400ParamsNativeTestBindings value)noexcept{g_Tests=value;}
 #endif
 std::uint32_t Api400NextRandomU32(lua_State*L){return Native<std::uint32_t(*)()>(L,0)();}
-void RegisterApi400ProjectileParams(lua_State*L){luaL_newmetatable(L,kMetatable);lua_pushcfunction(L,Index);lua_setfield(L,-2,"__index");lua_pushcfunction(L,NewIndex);lua_setfield(L,-2,"__newindex");lua_pop(L,1);PublishNativeClass(L,"ProjectileParams",kMetatable);lua_getglobal(L,"ProjectileParams");lua_getmetatable(L,-1);lua_pushcfunction(L,Create);lua_setfield(L,-2,"__call");lua_pop(L,2);}
+void RegisterApi400ProjectileParams(lua_State*L){luaL_newmetatable(L,kMetatable);if(!RegisterNativeObjectIdentity(L,-1,ParamsIdentity))luaL_error(L,"ProjectileParams native identity resolver conflicts");lua_pushcfunction(L,Index);lua_setfield(L,-2,"__index");lua_pushcfunction(L,NewIndex);lua_setfield(L,-2,"__newindex");lua_pop(L,1);PublishNativeClass(L,"ProjectileParams",kMetatable);lua_getglobal(L,"ProjectileParams");lua_getmetatable(L,-1);lua_pushcfunction(L,Create);lua_setfield(L,-2,"__call");lua_pop(L,2);}
 int Api400EntityNPCFireProjectiles(lua_State*L){auto*self=Npc(L);const auto*pos=RequireVectorArgument(L,2);const auto*velocity=RequireVectorArgument(L,3);const auto mode=Int(L,4);const auto*params=Check(L,5);Native<std::uintptr_t(*)(void*,const Vec*,const Vec*,std::int32_t,const Params*)>(L,1)(self,pos,velocity,mode,params);return 0;}
 int Api400EntityNPCFireBossProjectiles(lua_State*L){auto*self=Npc(L);const auto count=Int(L,2);const auto*target=RequireVectorArgument(L,3);const float trajectory=static_cast<float>(luaL_checknumber(L,4));const auto*params=Check(L,5);const auto entity=Native<std::uintptr_t(*)(void*,std::int32_t,const Vec*,float,const Params*)>(L,2)(self,count,target,trajectory,params);if(entity)PushEntityCallbackArgument(L,entity);else lua_pushnil(L);return 1;}
 }

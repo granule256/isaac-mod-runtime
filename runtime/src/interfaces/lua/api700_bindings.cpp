@@ -14,6 +14,7 @@ extern "C" {
 }
 namespace isaac::runtime{
 namespace {constexpr LuaHandlerBinding kBindings[]={
+{0x040117B0,&Api700RoomGetEnemyDamageInflicted},
 {0x020117A9,&Api700GameSpawnEntityDesc},
 {0x0E0117D0,&Api700GridPoopReduceSpawnRate},
 

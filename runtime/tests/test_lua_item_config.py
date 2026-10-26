@@ -444,7 +444,7 @@ void FillItems() {
 }
 
 // 换局：`ItemConfig::Init` 重排向量 —— 收藏品向量指到另一块数组、1 号条目换了一个对象。
-// 旧的句柄缓存的是旧 begin，所以必须自证过期（而不是"地址还读得到就继续用"）。
+// 父ItemConfig单例继续读取新vector；旧Item条目必须自证过期，不能借父对象存活放过旧条目。
 void RepointCollectibleVector() {
     std::vector<std::uint64_t> elements(kItemConfigCollectibleCount, 0);
     elements[1] = ItemAddress(kBrimstone);
@@ -868,13 +868,13 @@ local function verifyValid()
 end
 
 -- 第二帧：向量已经被重新指向另一块数组（等价于换局后的 `ItemConfig::Init`）。
--- 旧句柄必须自证过期；同一帧里新取的句柄必须立刻读到新数据。
+-- 父单例继续可用、旧Item条目失效；新取条目立刻来自新vector。
 local function verifyExpired()
   check(savedConfig ~= nil and savedItem ~= nil, 'the first frame must have produced handles')
-  check(savedConfig:GetCollectible(1) == nil,
-        'a stale ItemConfig handle must not answer entries')
-  check(savedConfig:IsCollectible(1) == false,
-        'a stale ItemConfig handle must not answer IsCollectible')
+  check(savedConfig:GetCollectible(1).Name == 'Brimstone',
+        'the cached ItemConfig singleton must read its rebuilt internal vector')
+  check(savedConfig:IsCollectible(1) == true,
+        'the cached ItemConfig singleton must survive internal vector rebuilding')
   check(savedItem.ID == nil, 'a stale item handle must not answer ID')
   check(savedItem.Name == nil, 'a stale item handle must not answer Name')
   check(savedItem.Description == nil, 'a stale item handle must not answer Description')
@@ -1143,10 +1143,10 @@ class LuaItemConfigTests(unittest.TestCase):
         self.assertIn("PHASE1_OK", result.stdout)
 
     def test_stale_handles_degrade_and_new_handles_re_read_the_engine(self):
-        """每次访问都重新校验：向量被重排后，旧句柄一律 nil，新句柄立刻读到新数据。
+        """父单例与Item条目区分：vector重排后父对象继续可用、旧条目nil、新条目来自新vector。
 
         harness 在两帧之间把收藏品向量重新指向另一块数组（`ItemConfig::Init` 的等价形态）。
-        旧 `ItemConfig` 句柄缓存的 begin 与现场不一致 → `GetCollectible` 返回 nil；
+        原 `ItemConfig` 父单例不因内部begin/count变化失效，立即读取新vector；
         旧条目句柄的"向量 begin + 下标"不再匹配 → 字段返回 nil；
         同一帧新取的句柄必须读到新向量里的 "Brimstone"。
         """

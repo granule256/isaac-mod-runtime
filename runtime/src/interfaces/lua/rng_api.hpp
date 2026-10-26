@@ -10,6 +10,8 @@ namespace LuaRuntime { struct RngHandle; }
 
 namespace isaac::runtime {
 
+// 与公开RNG方法共用来源/读写检查；用于只读身份查询时不抛错、不推进随机数。
+[[nodiscard]] void* TryResolveRngObject(LuaRuntime::RngHandle* handle,bool writable) noexcept;
 // 在交给原生方法前统一复核引用身份与读写权限，失效抛Lua错误。
 [[nodiscard]] void* ResolveRngObject(lua_State* state, LuaRuntime::RngHandle* handle, bool writable);
 

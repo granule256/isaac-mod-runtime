@@ -89,6 +89,11 @@ int MatchOwner(lua_State* state) {
 bool BuiltinCallbackEnabled(std::uint32_t id) noexcept {
     return id<=kCallbackMaximumId&&(g_BuiltinCallbackStates[id>>5]&(std::uint32_t{1}<<(id&31)))!=0;
 }
+void ResetCallbackRuntimeState() noexcept {
+    g_BuiltinCallbackStates={};
+    g_CallbackDiagnosticViewIncomplete=0;
+    g_CallbackDiagnosticViewOverflow=0;
+}
 int GetBuiltInCallbackState(lua_State* state) {
     const auto id=static_cast<std::uint32_t>(luaL_checkinteger(state,1));
     lua_pushboolean(state,BuiltinCallbackEnabled(id));return 1;
@@ -103,7 +108,7 @@ int SetBuiltInCallbackState(lua_State* state) {
     return 0;
 }
 void RegisterCallbackBootstrap(lua_State* state,lua_CFunction invoke) {
-    g_BuiltinCallbackStates={};g_CallbackDiagnosticViewIncomplete=0;g_CallbackDiagnosticViewOverflow=0;
+    ResetCallbackRuntimeState();
     auto* stored=static_cast<TableState*>(lua_newuserdata(state,sizeof(TableState)));
     *stored={};stored->runRef=LUA_NOREF;stored->tableRef=LUA_NOREF;stored->ownerRunRef=LUA_NOREF;
     lua_setfield(state,LUA_REGISTRYINDEX,kStateKey);

@@ -86,7 +86,7 @@ DRIVER = textwrap.dedent(
 
     // 假的目录端口：返回事先排好序（升序）的目录名，形状与真适配器一致。
     struct FakeDirectories final : IModDirectoryPort {
-        const char* names[8]{};
+        const char* names[257]{};
         std::size_t count{0};
         Status ListSubdirectories(std::string_view, ModDirectoryEntry* out, std::size_t capacity,
                                   std::size_t* count) noexcept override {
@@ -135,8 +135,8 @@ DRIVER = textwrap.dedent(
     struct FakeLua final : ILuaEnginePort {
         int loads{0};
         int failAtLoad{-1};                 // 第几次（0 起）加载返回失败；-1 = 都不失败
-        char roots[8][128]{};
-        char chunks[8][192]{};
+        char roots[256][128]{};
+        char chunks[256][192]{};
         Status Initialize() noexcept override { return Status::Ok(); }
         bool IsReady() const noexcept override { return true; }
         Status RunChunk(const LuaChunk&) noexcept override {
@@ -146,7 +146,7 @@ DRIVER = textwrap.dedent(
                                std::uint32_t* failureDetail) noexcept override {
             const int index = loads;
             ++loads;
-            if (index < 8) {
+            if (index < 256) {
                 if (load.modRoot != nullptr) {
                     std::strncpy(roots[index], load.modRoot, sizeof(roots[index]) - 1);
                 }
@@ -168,6 +168,44 @@ DRIVER = textwrap.dedent(
     } // namespace
 
     int main() {
+        Check(kModManifestCapacity == 256, "capacity is 256");
+        // 固定256容量：真实解析、发现、路径和加载都覆盖高索引。
+        {
+            std::string json = "{\"schema_version\":1,\"mods\":[";
+            std::string names[257];
+            FakeDirectories directories{};
+            for (std::size_t i=0;i<256;++i) {
+                names[i] = "M" + std::to_string(1000+i);
+                directories.names[i] = names[i].c_str();
+                if (i) json += ",";
+                json += "{\"directory\":\"" + names[i] + "\",\"enabled\":true}";
+            }
+            json += "]}";
+            auto parsed = Parser().ParseAll(json.c_str(),json.size());
+            Check(parsed.failure == ManifestParseFailure::None && parsed.manifest.count==256,"parse_full_256");
+            for (std::size_t i : {31u,32u,63u,64u,255u})
+                Check(std::strcmp(parsed.manifest.entries[i].directory.data(),names[i].c_str())==0,
+                      "full_256_keeps_boundary_names");
+            directories.count=256;
+            ModDiscoveryService discovery{directories};
+            ResolvedManifestModBatch batch{};
+            Check(discovery.Discover(&batch).ok() && batch.count==256,"discover_full_256");
+            for (std::size_t i : {31u,32u,63u,64u,255u}) {
+                const std::string expected="rom:/isaac_mods/mods/"+names[i];
+                Check(std::strcmp(batch.mods[i].modRoot,expected.c_str())==0,"roots_full_256");
+            }
+            FakeContent content{};FakeLua lua{};ModLoadService loader{content,lua};
+            ModLoadBatchOutcome outcome{};ModLoadFailure failure{};std::uint8_t entry[64]{};
+            Check(loader.LoadAll(batch,entry,sizeof(entry),&outcome,&failure).ok() &&
+                  outcome.count==256 && lua.loads==256 && !outcome.anyFailure,
+                  "load_all_256_scripts");
+            for(std::size_t i:{31u,32u,63u,64u,255u})
+                Check(std::strcmp(lua.roots[i],batch.mods[i].modRoot)==0,"loaded_high_index_root");
+            directories.count=257;
+            names[256]="overflow";directories.names[256]=names[256].c_str();
+            Check(discovery.Discover(&batch).code()==StatusCode::CapacityExceeded,
+                  "discover_257_rejected");
+        }
         // --- 1) 真实 JSON 后端：两个启用、一个关闭 -------------------------
         const std::size_t twoLength = std::strlen(kTwoEnabled);
         ManifestParseAllOutcome all = Parser().ParseAll(kTwoEnabled, twoLength);
@@ -279,7 +317,7 @@ DRIVER = textwrap.dedent(
             ManifestService service{big, Parser()};
             // 缓冲要装得下"容量 + 1"条清单（32 条 ≈ 1.5 KiB）：太小的话失败会退化成
             // `ManifestRead`（读不下），测不到我们想测的"解析阶段超限"。
-            static std::uint8_t buffer[8192]{};
+            static std::uint8_t buffer[kRomfsModManifestMaximumLength]{};
             static ResolvedManifestModBatch tooManyBatch{};
             ModLoadFailure tooManyFailure{};
             const Status status = service.ResolveAll(buffer, sizeof(buffer), &tooManyBatch,
@@ -334,11 +372,8 @@ DRIVER = textwrap.dedent(
             }
         }
 
-        // 扫描目录这条路（没有清单时的兜底）：**模组配置菜单必须排最前**（2026-10-01）。
-        // 喂的是"真机卡上那组目录名"——纯字母序会把 `mod_config_menu_cn` 排到第 4 位，
-        // 而 GoodTrip / TheSpecialist 是在**加载那一刻**靠全局 `ModConfigMenu` 决定要不要注册
-        // 自己的设置页的（`if ModConfigMenu then include(...) end`）⇒ 菜单排在它们后面，
-        // 那两项的设置页在模组菜单里**永远不出现**。
+        // 2026-10-23：发现服务仅按目录确定顺序；显示名统一排序由生产后续阶段完成。
+        // MCM不再靠目录名获得特权，其metadata的!!前缀由通用比较器处理。
         {
             FakeDirectories scanDirs{};
             scanDirs.names[0] = "external item descriptions_836319872";
@@ -352,22 +387,21 @@ DRIVER = textwrap.dedent(
             ResolvedManifestModBatch scanned{};
             Check(scanDiscovery.Discover(&scanned).ok(), "scan_discover_ok");
             Check(scanned.count == 6, "scan_keeps_every_mod");
-            Check(std::strcmp(scanned.mods[0].modRoot,
+            Check(std::strcmp(scanned.mods[3].modRoot,
                               "rom:/isaac_mods/mods/mod_config_menu_cn") == 0,
-                  "scan_config_menu_first");
-            // 其余之间的相对顺序不变（菜单被提到最前之后仍是名字升序）。
-            Check(std::strcmp(scanned.mods[1].modRoot,
+                  "scan_config_menu_no_directory_priority");
+            // 此层仅目录名升序。
+            Check(std::strcmp(scanned.mods[0].modRoot,
                               "rom:/isaac_mods/mods/external item descriptions_836319872") == 0,
                   "scan_rest_alphabetical_first");
-            Check(std::strcmp(scanned.mods[2].modRoot,
+            Check(std::strcmp(scanned.mods[1].modRoot,
                               "rom:/isaac_mods/mods/goodtripfixed") == 0,
                   "scan_rest_alphabetical_second");
             Check(std::strcmp(scanned.mods[5].modRoot,
                               "rom:/isaac_mods/mods/visible tinted rocks_3002235272") == 0,
                   "scan_rest_alphabetical_last");
 
-            // 英文版那份菜单用的是另一个目录名，同样要被提到最前
-            // （识别口径 = 名字里含 `config_menu`，不写死整名）。
+            // 英文版目录也不获得额外优先级。
             FakeDirectories englishDirs{};
             englishDirs.names[0] = "ModA";
             englishDirs.names[1] = "isaac-mod-config-menu";
@@ -375,9 +409,9 @@ DRIVER = textwrap.dedent(
             ModDiscoveryService englishDiscovery{englishDirs};
             ResolvedManifestModBatch englishScanned{};
             Check(englishDiscovery.Discover(&englishScanned).ok(), "scan_english_discover_ok");
-            Check(std::strcmp(englishScanned.mods[0].modRoot,
+            Check(std::strcmp(englishScanned.mods[1].modRoot,
                               "rom:/isaac_mods/mods/isaac-mod-config-menu") == 0,
-                  "scan_english_config_menu_first");
+                  "scan_english_no_directory_priority");
         }
 
         if (failures == 0) { std::printf("MULTI_MOD_MANIFEST_CHECKS_PASSED\n"); }

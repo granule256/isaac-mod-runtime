@@ -25,6 +25,7 @@ enum class ManifestParseFailure : std::uint32_t {
     // 单列一条的理由：这与"字节坏了"完全不同 —— 清单是合法的，只是我们装不下，
     // 混进 `InvalidJson` 会让真机诊断指向错误的方向（去查清单格式而不是数量）。
     TooManyMods,
+    OutOfMemory,
 };
 
 struct ManifestParseOutcome {

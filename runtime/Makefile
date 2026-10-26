@@ -646,9 +646,13 @@ all: $(DEPLOY_NPDM)
 ifeq ($(LAYERED_RUNTIME),1)
 all: $(DEPLOY_NATIVE_HEAP_IPS)
 endif
+# 生产已用EntryRelay，旧IPS会先改写入口而使必要挂钩EntryMismatch。
+# 诊断构建仍按其原后端生成旧中继，不能混进正式部署包。
+ifneq ($(strip $(DIAGNOSTIC_STAGE)),)
 ifneq ($(filter 102 104 108 109 110 112 127 128,$(DIAGNOSTIC_STAGE)),)
 else
 all: $(DEPLOY_RELAY_IPS)
+endif
 endif
 # 批次 071：『模组』那一行的美术（`.anm2` + 同名 `.pcx`）**必须在部署包里**。
 # 与 `$(DEPLOY_NPDM)` 同一条依赖线（都挂在 `$(BUILD)` 之后 —— `post-build.sh` 会先
@@ -697,7 +701,8 @@ default-pc-mods: $(BUILD)
 $(DEPLOY_NPDM) $(DEPLOY_RELAY_IPS): default-pc-mods
 endif
 
-all: $(DEPLOY_RENDER_RELAY_IPS) $(DEPLOY_RENDER_PRESENT_RELAY_IPS) $(DEPLOY_PRE_GET_COLLECTIBLE_RELAY_IPS) $(DEPLOY_REBUILD_MOUNT_POINTS_RELAY_IPS)
+# 2026-10-23更正上面的历史要求：生产四路已由EntryRelay/GotSlot安装，
+# 因此不再把旧入口IPS列为all依赖；显式诊断目标和生成规则仍保留。
 endif
 
 ifneq ($(filter 8 9,$(DIAGNOSTIC_STAGE)),)

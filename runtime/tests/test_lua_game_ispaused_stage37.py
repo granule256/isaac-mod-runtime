@@ -148,7 +148,8 @@ int main(int argc, char** argv) {
         LuaRuntime::SetGameBindings(0x1111, 0x2222);
         if (LuaRuntime::Initialize() != LuaRuntime::LuaInitResult::Success) return 5;
         LuaRuntime::DispatchPostUpdate();
-        const auto expected = g_Observation == GameIsPausedObservation::PausedTrue ? 2u : 1u;
+        // 固定PC暂停时不执行1号；暂停布尔查询在下面的render场景独立覆盖。
+        const auto expected = g_Observation == GameIsPausedObservation::PausedTrue ? 0u : 1u;
         return g_Observed && LuaRuntime::PostUpdateCount() == expected &&
                !LuaRuntime::TakeCallbackError() ? 0 : 6;
     }
@@ -169,7 +170,7 @@ int main(int argc, char** argv) {
         script = "local game=Game(); game:IsPaused()";
     } else {
         script = "local game=Game(); local mod=RegisterMod('Probe',1); "
-                 "mod:AddCallback(ModCallbacks.MC_POST_UPDATE,function() "
+                 "mod:AddCallback(ModCallbacks.MC_POST_RENDER,function() "
                  "local paused=game:IsPaused(); if type(paused)~='boolean' or not paused then error('not boolean') end "
                  "RuntimeTest.MarkPostUpdate() end)";
     }
@@ -184,7 +185,8 @@ int main(int argc, char** argv) {
     if (result != LuaRuntime::LuaInitResult::Success) return 2;
     if (std::strcmp(scenario, "create") == 0) return 0;
 
-    LuaRuntime::DispatchPostUpdate();
+    // 暂停时仍会渲染；验证IsPaused本身，而非依赖PC禁止的暂停更新。
+    LuaRuntime::DispatchPostRender(0x3333);
     if (std::strcmp(scenario, "bound") == 0) {
         return g_Observed && LuaRuntime::PostUpdateCount() == 1 && !LuaRuntime::TakeCallbackError() ? 0 : 3;
     }

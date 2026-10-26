@@ -65,8 +65,8 @@
 // 安全门禁（都在安装前完成，全部失败都**不写任何字节**）：
 //   * 目标入口现场 16 字节必须与调用方给的期望 16 字节 `memcmp` 完全相同（版本/布局不符
 //     直接拒绝，绝不半改）；
-//   * 这 16 字节里不得含 PC 相对 / 相对定址指令：`adr`/`adrp`/`ldr(literal)`/`b`/`bl`/
-//     `b.cond`/`cbz`/`cbnz`/`tbz`/`tbnz`。它们会被原样拷进槽里执行，PC 变了地址就算错。
+//   * 含PC相对指令的序言原则上拒绝；唯一例外是DecodeInputActionThunk完整识别的
+//     四指令Manager输入函数，BuildSlotImage为其生成绝对地址等价回放，其余仍拒绝。
 //
 // 本头文件刻意只依赖 `<cstddef>`/`<cstdint>`（不碰 libnx/exlaunch），因此判定表、编码器
 // 与镜像生成都是**纯函数**，可以在宿主机上直接编译执行（`runtime/tests/test_entry_relay_*`）。
@@ -257,6 +257,49 @@ constexpr void StoreLittleEndianDoubleWord(std::uint8_t* out, std::uint64_t valu
     }
 }
 
+// 三个Manager输入入口的完整函数只有此精确形态；不能原样复制其中的ADRP/B。
+// 只重定位这四条，不把其它PC相对序言列入可回放集合。
+struct InputActionThunkAddresses {
+    std::uintptr_t managerSlot{};
+    std::uintptr_t tail{};
+};
+
+constexpr std::uintptr_t AddInputThunkDelta(std::uintptr_t address, std::int64_t delta) {
+    if (delta < 0) {
+        const auto distance = static_cast<std::uintptr_t>(-delta);
+        return address >= distance ? address - distance : 0;
+    }
+    const auto distance = static_cast<std::uintptr_t>(delta);
+    return address <= UINTPTR_MAX - distance ? address + distance : 0;
+}
+
+constexpr InputActionThunkAddresses DecodeInputActionThunk(
+    std::uintptr_t target, const std::uint8_t* entry) {
+    if (entry == nullptr || target == 0 || target > UINTPTR_MAX - kOriginalEntryBytes)
+        return {};
+    const auto adrp = LoadLittleEndianWord(entry, 0);
+    const auto load = LoadLittleEndianWord(entry, 1);
+    const auto branch = LoadLittleEndianWord(entry, 3);
+    if ((adrp & 0x9F00001FU) != 0x90000000U ||
+        (load & 0xFFC003FFU) != 0xF9400000U ||
+        LoadLittleEndianWord(entry, 2) != 0xAA1F03E3U ||
+        (branch & 0xFC000000U) != 0x14000000U) return {};
+    const auto sign = [](std::uint32_t value, unsigned bits) constexpr -> std::int64_t {
+        return (value & (1U << (bits - 1U))) != 0
+            ? static_cast<std::int64_t>(value) - (std::int64_t{1} << bits) : value;
+    };
+    const auto pageDelta = sign(((adrp >> 5U) & 0x7FFFFU) << 2U |
+                               ((adrp >> 29U) & 3U), 21) * 4096;
+    const auto page = AddInputThunkDelta(target & ~std::uintptr_t{0xFFF}, pageDelta);
+    if (page == 0) return {};
+    const auto manager = AddInputThunkDelta(page, ((load >> 10U) & 0xFFFU) * 8U);
+    const auto tail = AddInputThunkDelta(target + 12, sign(branch & 0x03FFFFFFU, 26) * 4);
+    if (manager == 0 || tail == 0 ||
+        (manager >= target && manager < target + kOriginalEntryBytes) ||
+        (tail >= target && tail < target + kOriginalEntryBytes)) return {};
+    return {manager, tail};
+}
+
 // 生成一个槽的完整 0x40 字节：
 //   * 回调地址写进 +0x18（桩里的 ldar 读的就是它）；
 //   * 原入口 16 字节原样拷进 +0x20 作为回退入口；
@@ -276,6 +319,18 @@ constexpr void BuildSlotImage(std::uint8_t* slot, std::uintptr_t target,
     StoreLittleEndianWord(slot + kSlotFallbackJumpOffset + 0x4, kFallbackBrX16Word);
     StoreLittleEndianDoubleWord(slot + kSlotFallbackTargetOffset,
                                static_cast<std::uint64_t>(target) + kOriginalEntryBytes);
+    const auto input = DecodeInputActionThunk(target, originalEntry16);
+    if (input.managerSlot != 0) {
+        // 保留区放全局地址；每次回放仍现读Manager，不缓存其值。0x40槽无需扩容。
+        StoreLittleEndianDoubleWord(slot + kSlotReservedOffset, input.managerSlot);
+        StoreLittleEndianWord(slot + 0x20, EncodeLdrLiteral(0, -16)); // ldr x0, slot+0x10
+        StoreLittleEndianWord(slot + 0x24, 0xF9400000U);             // ldr x0, [x0]
+        StoreLittleEndianWord(slot + 0x28, 0xAA1F03E3U);             // mov x3, xzr
+        StoreLittleEndianWord(slot + 0x2C, EncodeLdrLiteral(16, 12)); // ldr x16, slot+0x38
+        StoreLittleEndianWord(slot + 0x30, EncodeBr(16));            // br x16
+        StoreLittleEndianWord(slot + 0x34, 0xD503201FU);             // nop
+        StoreLittleEndianDoubleWord(slot + kSlotFallbackTargetOffset, input.tail);
+    }
 }
 
 // 生成目标入口的 16 字节改写：`ldr x16, #8`（literal 在 +8）；`br x16`；槽地址。
@@ -359,7 +414,7 @@ constexpr bool BytesEqual(const std::uint8_t* left, const std::uint8_t* right, s
 // 判定顺序（也是失败码的优先级）：
 //   1. 地址非法（空指针 / 未 4 字节对齐 / 入口 16 字节跨 4 KiB 页）→ InvalidAddress
 //   2. 现场 16 字节与期望不符 → EntryMismatch（此时**一个字节都不许写**）
-//   3. 入口含 PC 相对指令 → PcRelativeInstruction
+//   3. 入口含不可精确重定位的PC相对指令 → PcRelativeInstruction
 //   4. 槽位已用满 → ArenaExhausted
 //   5. 通过 → None
 constexpr EntryRelayFailure EvaluateEntryRelayPreconditions(std::uintptr_t target,
@@ -376,7 +431,8 @@ constexpr EntryRelayFailure EvaluateEntryRelayPreconditions(std::uintptr_t targe
                     kOriginalEntryBytes)) {
         return EntryRelayFailure::EntryMismatch;
     }
-    if (HasPcRelativeInstruction(currentEntry16, kOriginalEntryBytes)) {
+    if (HasPcRelativeInstruction(currentEntry16, kOriginalEntryBytes) &&
+        DecodeInputActionThunk(target, currentEntry16).managerSlot == 0) {
         return EntryRelayFailure::PcRelativeInstruction;
     }
     if (nextSlotIndex >= kMaxRelays) {

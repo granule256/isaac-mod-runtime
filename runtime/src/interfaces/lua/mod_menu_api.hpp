@@ -3,6 +3,7 @@
 #include "application/mod/manifest_service.hpp"
 
 #include <cstddef>
+#include "domain/mod/mod_bits.hpp"
 
 struct lua_State;
 
@@ -21,8 +22,8 @@ class ModToggleService;
 //   RuntimeMods.Save()                     -> boolean（写进游戏存档分区）
 //   RuntimeMods.Reload()                   -> boolean（从存档重新读）
 //
-// `Active` = "本次启动真的加载了它"（开机扫描时按开关过滤过）。它存在的意义是让菜单能如实
-// 告诉玩家"这一项要重启游戏才生效"：`Enabled ~= Active` 就是需要重启的那种情况。
+// `Active` = 最近一轮加载选择的模组（含纯资源模组）。菜单内Enabled表示待应用选择；
+// 退出菜单的同步重载把内容、脚本与Active一起切换，不再要求重启进程。
 //
 //   RuntimeMods.Report(code)               -> 无返回值；菜单上报"走到哪一步了"
 //
@@ -37,7 +38,11 @@ class ModToggleService;
 int RegisterModMenuApi(lua_State* state) noexcept;
 
 // hook_manager 侧：告诉菜单"发现了哪些模组"（过滤**之前**调用）。
-void ModMenuPublishDiscovered(const ResolvedManifestModBatch& batch) noexcept;
+// displayNames 指向稳定名称区，必须存活到下次发布；为空时使用目录名。
+void ModMenuPublishDiscovered(const ResolvedManifestModBatch& batch,
+                              const char* const* displayNames = nullptr) noexcept;
+[[nodiscard]] const char* ModMenuDiscoveredDisplayName(std::size_t index) noexcept;
+[[nodiscard]] std::uint32_t ModMenuDiscoveryGeneration() noexcept;
 
 // hook_manager 侧：标记"这一批本次真的加载了"（过滤**之后**调用）。
 void ModMenuMarkActive(const ResolvedManifestModBatch& batch) noexcept;
@@ -106,6 +111,8 @@ struct ModMenuDiscoveredReading {
     std::uint32_t count;        //: 清单条数（与 `ModMenuDiscoveredCount()` 同一个值）
     std::uint32_t enabledMask;  //: bit i = 第 i 条**现在开着**（开关服务 `IsEnabled`）
     std::uint32_t activeMask;   //: bit i = 第 i 条**本局开机时真的加载了**
+    ModBits enabledBits; // 完整256条；上述Mask只表示低32条，保留旧诊断ABI。
+    ModBits activeBits;
 };
 
 [[nodiscard]] ModMenuDiscoveredReading ModMenuDiscoveredForReading() noexcept;

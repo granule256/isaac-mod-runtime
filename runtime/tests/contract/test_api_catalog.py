@@ -32,6 +32,7 @@ FAMILY_API_SOURCES = (
     SRC / "interfaces" / "lua" / "game_api.cpp",
     SRC / "interfaces" / "lua" / "isaac_api.cpp",
     SRC / "interfaces" / "lua" / "remaining_api.cpp",
+    SRC / "interfaces" / "lua" / "os_api.cpp",
     SRC / "interfaces" / "lua" / "music_api.cpp",
     SRC / "interfaces" / "lua" / "rng_api.cpp",
     SRC / "interfaces" / "lua" / "input_api.cpp",
@@ -214,6 +215,12 @@ def registered_function_names() -> set[str]:
     registered_ids = set()
     for source_path in FAMILY_API_SOURCES:
         body = source_path.read_text(encoding="utf-8")
+        # Lua标准库裁剪表用luaL_Reg+luaL_newlib发布，既无逐个setfield也无项目ApiId。
+        # 只提取真正传给newlib的表，避免把未公开的上游loslib函数当作生产接口。
+        for table in re.findall(r"luaL_newlib\(state,\s*(\w+)\)", body):
+            match = re.search(r"luaL_Reg\s+" + re.escape(table) + r"\s*\[\]\s*(?:=\s*)?\{(.*?)\n\s*\};", body, re.S)
+            if match:
+                names.update(re.findall(r'\{\s*"([^"\n]+)"\s*,\s*\w+\s*\}', match.group(1)))
         # 两种绑定形态都要认：
         #   * 手写处理器：`{0x…, &Handler}`
         #   * **字段读取型数据行**（`field_api.hpp`）：`{0x…, k...Offset, 0, FieldKind::…, …}`
@@ -1017,7 +1024,8 @@ class ApiCatalogContractTests(unittest.TestCase):
         # 2026-10-13追加真实健康/武器/颜色/HUD绑定56项：539→595。
         # 2026-10-14：100个真实方法绑定；595→695。
         # 2026-10-16：新增Card:IsCard与ItemPool:IdentifyPill两条实际绑定。
-        self.assertEqual(checked, 983, "家族绑定行数应与已登记 API 数一致")
+        # 原983行基础追加Knife专属IsFlying及Isaac.GetRandomPosition各1条。
+        self.assertEqual(checked, 985, "家族绑定行数应与已登记 API 数一致")
 
     def test_options_fields_are_registered_as_values(self):
         """`Options` 的两个字段是**值**而不是方法：Catalog 里有条目、绑定表里没有绑定行。

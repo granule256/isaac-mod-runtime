@@ -378,7 +378,7 @@ class ModContentNamesBatch404Tests(unittest.TestCase):
         self.assertIn("isaac::runtime::IngestModContentXml(file, directory, text, textLength)", text)
         body_at = text.index("bool LoadEngineModContent(")
         loop_at = text.index("ModMenuDiscoveredCount()", body_at)
-        call_at = text.index("FeedModContentNames(directory, path, baseLength, sizeof(path))", body_at)
+        call_at = text.index("FeedModContentNames(directory,path,baseLength,sizeof(path))", body_at)
         end_at = text.index("RunPostLoadModsOnceIfDue(manager", body_at)
         self.assertGreater(call_at, loop_at, "追加层调用必须在喂入循环里（发现结果之后）")
         self.assertLess(call_at, end_at, "追加层调用必须在 PostLoadMods 收尾之前")

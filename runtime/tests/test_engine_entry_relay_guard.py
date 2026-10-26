@@ -27,6 +27,9 @@ int main(){
 }
 '''
 class EngineEntryGuardTests(unittest.TestCase):
+ def test_stage_transition_api_recognizes_its_installed_relay(self):
+  source=(ROOT/'runtime/src/interfaces/lua/api100_native.cpp').read_text()
+  self.assertRegex(source,r'entry.offset==kApi200GameStartStageTransitionOffset\)\s*fallback=EntryRelayFallbackEntry\(HookId::GameStartStageTransition\)')
  def test_relay_identity_and_original_fingerprint(self):
   with tempfile.TemporaryDirectory() as td:
    p=Path(td)/'probe.cpp';p.write_text(DRIVER);b=Path(td)/'probe'

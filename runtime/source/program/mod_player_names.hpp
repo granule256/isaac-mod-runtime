@@ -91,6 +91,8 @@ struct ModPlayerNameStats {
 void NoteModPlayerNameReadFailure() noexcept;
 
 //: 清空追加层与全部计数（宿主门禁 / 重载用；生产路径不调用）。
+// 正常重载清空上一轮追加索引，测试接口复用同一实现。
+void ClearModPlayerNames() noexcept;
 void ResetModPlayerNamesForTests() noexcept;
 
 } // namespace isaac::runtime

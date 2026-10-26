@@ -16,7 +16,7 @@ namespace isaac::runtime {
 //     确认放代码洞的那份补丁确实是我们要的那一份（形态不符就拒绝安装，宁可少一个事件，
 //     也不跳进一段来路不明的代码）。
 //
-// 目前只有 `GameStart` 走这条路。
+// GameStart和弹幕初始化/正常更新完成均走回调槽；各自安装器核准确原生边界。
 class RelaySlotHookAdapter final : public IHookPort {
 public:
     [[nodiscard]] Status Install(HookId id, const HookTarget& target) noexcept override;
