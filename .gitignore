@@ -35,3 +35,41 @@ The Binding of Isaac Rebirth
 The Binding of Isaac Rebirth pc
 The Binding of Isaac_ Afterbirth+ 1.7.9b \[010021C000B6A800\]\[v524288\]\[UPD\]
 reference-pc
+
+# ============================================================================
+# 2026-10-26 分层（用户要求）：仓库里只留**核心代码**，其余全部移出跟踪。
+#
+#   核心（跟踪 + 可推远端）：runtime/ tools/ tests/ README.md LICENSE CONTRIBUTING.md
+#                            AGENTS.md（本地规范，含本机信息 ⇒ 只跟踪、不推远端）
+#   其余（不跟踪，只留在磁盘）：历史记录与文档、边缘产物与证据、发布包、记忆
+#
+# ⇒ 下面这些目录**不再进 git**。文件本身仍在磁盘上，一个都没删。
+# ============================================================================
+
+# 边缘产物：构建候选、读数、日志、证据（6 万+ 文件，占仓库体积 90% 以上）
+dist/
+
+# 历史记录与文档：交接、改动日志、诊断、归档的记忆全文
+docs/
+
+# 分析资料（PC 版反汇编、IsaacDocs 快照、上游仓库副本）
+analysis/
+
+# 发布包（对外发布走 GitHub Release 资产，不进 git）
+releases/
+
+# 本地记忆与工作流状态（含本机路径与账号信息）
+.workbuddy/
+.superpowers/
+
+# 崩溃现场与临时输出
+fatal_reports/
+outputs/
+
+# 根目录的第三方包与杂项（2026-10-26）：解压版上游仓库、游戏数据包、构建命令备忘、用户表格
+IsaacCompendium_NS_1.3.1b.zip
+isaacmods-main.zip
+repentance-plus-switch-main.zip
+build-command.txt
+switch/
+模组恢复与Bug反馈收集表.xlsx
