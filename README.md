@@ -4,58 +4,72 @@
 能在**另一套主机平台**上运行。做法是在游戏进程里注入一个运行时模块，装上派发挂点、
 实现一套 Lua API，再按清单把模组加载起来。
 
-> ⚠️ **开发测试版（work-in-progress / experimental），不保证可用。**
+> ⚠️ **预发布版（beta），不保证可用。**
 > 只在少数场景验证过；可能启动失败、运行中崩溃、功能静默失效，也可能影响存档与设备。
 > 请只在你自己的、已备份、可承受风险的机器上使用，后果自负。
 >
 > 本仓库**不包含任何模组本体**（例如 EID 是第三方作品，请自行获取并遵守其许可），
 > 也不包含游戏数据、密钥或设备凭据。
 
-## 项目结构
+## 当前版本
 
-核心源码在 `runtime/`（`runtime/source` 与 `runtime/src` 是两个源码根）；顶层 `tools/`、`tests/`
-是开发用的辅助脚本，不参与编译。
+`v1.0.0-beta.1`（内部构建 `20261026341000`）。预发布，尚未正式发布。
 
 ## 适用环境
 
 | 项目 | 要求 |
 | --- | --- |
 | 主机 | 已安装 **Atmosphère** 自制固件 |
-| 游戏 | **The Binding of Isaac: Repentance** 1.7.9b |
+| 游戏 | **The Binding of Isaac: Repentance** 1.7.9b（构建号 `91C73FDD575061318D68886316AFEAC72388B2AB`） |
 | 其他 | 运行时**会核对游戏构建号**，版本不符不会加载 |
 
-## 它做什么 / 不做什么
+## 它做什么
 
-**做**：
-- 在游戏进程里装上派发挂点（每帧更新、渲染、取道具前、资源挂载点重建），并自己派发"游戏开局"事件；
-- 实现 PC 版 Lua API 的一个**子集**（`Isaac` / `Game` / `Level` / `Entity` / `EntityPlayer` /
-  `ItemConfig` / `Sprite` / `Font` / `RNG` / `Vector` / `Color` 等），并带一张**可枚举的 API Catalog**；
-- 按 `manifest.json` 加载一个模组：读清单 → 读入口脚本 → 建 Lua 状态 → 注册回调 → 挂载模组资源。
+- 在游戏进程里装上派发挂点（每帧更新、渲染、取道具前、资源挂载点重建、玩家初始化），并自己派发"游戏开局"事件；
+- 实现 PC 版 Lua API 的一个**子集**，带一张**可枚举的 API Catalog**（`Isaac` / `Game` / `Level` /
+  `Room` / `Entity` 各子类 / `EntityPlayer` / `ItemConfig` / `Sprite` / `Font` / `RNG` / `Vector` /
+  `Color` / `Input` / `SFXManager` / `MusicManager` / `PersistentGameData` 等）；
+- 按 `manifest.json` 加载一个模组：读清单 → 读入口脚本 → 建 Lua 状态 → 注册回调 → 挂载模组资源；
+- 模组资源里的 `.png` 在内存里转成引擎认识的 PCX（含预乘 alpha 处理）。
 
-**不保证**：
-- **语义与 PC 完全一致**。按三个维度验收，任何一维不满足都会被标记，但"未标记"不等于"一定正确"
-  （基准见 `CONTRIBUTING.md`）：① **存在**（PC 有的接口我们有没有）② **语义**（返回值是否与 PC 一致）
-  ③ **时机**（回调/事件的派发时机是否与 PC 一致）。
-- 兼容所有模组：目前只在少数模组上做过较多验证，且仍有已知缺口。
+**不保证**语义与 PC 完全一致。按三个维度验收，任何一维不满足都会被标记，但"未标记"不等于"一定正确"
+（基准见 `CONTRIBUTING.md`）：① **存在** ② **语义**（返回值是否与 PC 一致）③ **时机**（回调派发时机是否与 PC 一致）。
 
-## 已知问题（节选）
+## 验证范围
 
-1. **启动期概率崩溃**：当"运行时的启动期工作"与"游戏装载自身模块"重叠时可能中止。
-   当前规避办法是把启动期工作推迟若干秒（见 `runtime/source/runtime_entry.cpp` 的模块 worker）。
-2. **部分 Lua 接口缺失或语义未核对**：缺失接口在模组里表现为"调用 nil"；若发生在没有 `pcall`
+**部分功能验证过**的模组（不代表完整游玩验收）：
+
+- 界面类：**Mod Config Menu 中文版**、**EID**（物品描述）、**MinimapAPI**（小地图）、**StageAPI**
+- 玩法类：**GoodTrip**（传送）、**Planetarium Chance**、**What's My DPS**、**No Donation Machine Jam**
+- 大型/角色类：**RepentancePlus 社区版**、**Trinity**、**Auri**（自定义角色，含贪婪模式）
+- 其它：**Custom-Bossbar** / **Enhanced-Boss-Bars**、**Mini pause menu+**、**TimeMachine**、**MusicModCallback**
+
+其余模组未系统验证。单个 API 通过、加载零报错都不代表整个模组已恢复。
+
+## 已知问题
+
+1. **局内帧率约 30~40（满帧 60）**——当前最影响手感的问题。模组回调每帧约 5.9 ms，加上引擎侧开销
+   超过 16.7 ms 的帧预算，引擎只能隔帧跑逻辑。尚未解决。
+2. **启动期概率崩溃**：启动期工作与"游戏装载自身模块"重叠时可能中止。当前规避办法是把启动期工作
+   推迟若干秒（见 `runtime/source/runtime_entry.cpp` 的模块 worker）。
+3. **部分 Lua 接口缺失或语义未核对**：缺失接口在模组里表现为"调用 nil"；若发生在没有 `pcall`
    保护的条件回调里，会让整条物品描述消失。仓库内附静态核对工具：`tools/eid_api_gap_report.py`。
 
 ## 构建
 
-需要 Docker 与 `devkitpro/devkita64` 镜像：
+需要 Docker、`devkitpro/devkita64` 镜像，以及**自行准备的原版游戏模块文件**（NRO 与 npdm）作为构建输入：
 
 ```bash
 docker run --rm -v "$PWD":/work -w /work devkitpro/devkita64:latest bash -lc \
-  '. /opt/devkitpro/devkita64.sh && make -C runtime -j6 LAYERED_RUNTIME=1 PROBE_BREAK=0 \
-   OUT=deploy BUILD=build runtime_module'
+  '. /opt/devkitpro/devkita64.sh && make -C runtime -j4 SKIP_DEFAULT_PC_MODS=1 \
+   OUT=deploy "ORIGINAL_NRO=<原版 NRO 路径>" "ORIGINAL_NPDM=<原版 npdm 路径>" \
+   TEST_BUILD_ID=<构建号>'
 ```
 
-产物在 `deploy/` 下。
+产物是一棵可直接覆盖到存储卡的目录树，共 28 个文件：`exefs/`（运行时模块 + npdm）、
+`romfs/rp_patch/`（菜单行资源）、`nro_patches/`（补丁与内存预算表）。
+
+可选参数（分层构建、产物目录、启动延迟、清单行导出等）见 `runtime/Makefile` 与 `runtime/config.mk`。
 
 ## 安装
 
@@ -65,13 +79,19 @@ docker run --rm -v "$PWD":/work -w /work devkitpro/devkita64:latest bash -lc \
 
 ```
 runtime/
-  source/            运行时本体（入口、挂点管理、Lua 运行时、引擎绑定）
-  src/               分层架构：domain / application / infrastructure / interfaces
-  exelaunch/         兼容层（第三方派生，见文件头许可）
+  source/          运行时本体（入口、挂点管理、Lua 运行时、引擎绑定、平台兼容层）
+  src/             分层架构：domain / application / infrastructure / interfaces
+  exelaunch/       兼容层（第三方派生，见文件头许可）
+  misc/            构建片段与打包规则
+  diagnostic/      诊断探针
+  probes/          实验性探针构建
+  mod-patches/     模组补丁（不进发布包）
+  pc-mods/         PC 版模组副本（开发参考）
+  tools/           运行时侧工具
+  tests/           单元 / 集成 / 契约测试
   source/third_party/lua-5.3.3   Lua 5.3.3 源码（MIT）
-  tests/             单元 / 集成 / 契约测试
-tools/               离线与设备侧工具：读数、发布包部署、API 缺口核对
-tests/               跨模块集成与契约测试
+tools/             离线工具：读数、发布包部署、API 缺口核对
+tests/             跨模块集成与契约测试
 ```
 
 设备访问凭据不写在仓库里：所有工具从命令行参数、环境变量（`ISAAC_DEVICE_*`），
