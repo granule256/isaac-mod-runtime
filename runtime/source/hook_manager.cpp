@@ -1,7 +1,9 @@
 #include "use_item_internal_hook.hpp"
 #include "interfaces/lua/rplus_options.hpp"
 #include "application/shader/shader_pipeline.hpp"
+#include "application/graphics/procedural_texel_readback.hpp"
 #include "hook_manager.hpp"
+#include "notice_integrity_native.hpp"
 #include "mod_reload_cycle.hpp"
 #include "interfaces/lua/runtime_perf.hpp"
 #include "domain/runtime/render_frame_coordinator.hpp"
@@ -1892,6 +1894,18 @@ bool LoadDefaultManifestModThroughService(u32* failureDetail) {
     g_CardSwitchProbeAllowed.store(1, std::memory_order_release);
     g_SaveFileAdapter.AllowFromGameThread();
     isaac::runtime::SetSessionSaveFilePort(&g_SaveFileAdapter);
+    if (!isaac::runtime::notice::integrity::RuntimeAllowed()) {
+        const auto integrityModule = FindTargetModule();
+        if (!integrityModule || !isaac::runtime::notice::integrity::Ensure(*integrityModule)) {
+            ++g_NoticeIntegrityState[13];
+            auto& blocked = ManifestLoadStateRef();
+            blocked.result = false;
+            blocked.finished = true;
+            ManifestLoadStepRef() = ManifestLoadStep::Done;
+            if (failureDetail) *failureDetail = 0x4E01;
+            return false;
+        }
+    }
     // 这三个都很轻（各只有一个引用 + 几个函数指针），每帧重建没关系。
     isaac::runtime::GameFileReaderAdapter content{g_DefaultManifestBindings};
     isaac::runtime::EmbeddedLuaAdapter lua{g_DefaultManifestBindings};
@@ -2276,6 +2290,12 @@ bool PrimeDefaultCallbacks(uintptr_t manager) {
 // "引擎清表之后、`Game::Init` 之前"那一刀（见开工单"第 1 期"）。
 EarlyModMountOutcome MountModsBeforeHeavyWorkImpl(const TargetModule& module) noexcept {
     EarlyModMountOutcome outcome{};
+    if (!isaac::runtime::notice::integrity::Ensure(module)) {
+        ++g_NoticeIntegrityState[13];
+        outcome.attempted = true;
+        outcome.mountsFailed = 1;
+        return outcome;
+    }
     // 清单与入口脚本都从这份绑定读（与 `TryInstallDefaultManifestMod` 同一份、同样逐字节核对）。
     // ★ 这一步只是**核对 + 发布**（纯内存读 + `svcQueryMemory`），没有文件 I/O。
     GameFileReader::Bindings bindings{};
@@ -6685,6 +6705,8 @@ void PublishManagerEngineBindings(const TargetModule& module) {
     // 游戏本体模块基址（批次 2）：`Isaac.GetPlayer` 的指针链与 `Entity_Player` 的 vptr 判据都用它。
     // 发布点与 `SetGameBindings` 同一个：这里已经拿到并且校验过 `TargetModule::base`。
     LuaRuntime::SetEngineModuleBase(module.base);
+    // Install before Continue/loot generation; native Present then fills real CPU pixels.
+    static_cast<void>(isaac::runtime::InstallProceduralTexelReadbackHook(module.base));
     LuaRuntime::SetGameIsGreedModeBinding(isGreedMode);
     LuaRuntime::SetLevelIsAscentBinding(isAscent);
     // 批次 8（2026-09-15）：与上面那两处同样的"可选能力"处理 —— 守卫不符只留 0，

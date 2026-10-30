@@ -1,4 +1,5 @@
 #include "mod_resource_redirect.hpp"
+#include "notice_integrity_native.hpp"
 
 #include <array>
 #include <atomic>
@@ -151,6 +152,8 @@ char* TryRedirectModResource(const char* requestedPath, void* contentManager,
         release == nullptr) {
         return nullptr;
     }
+    if (!notice::integrity::RuntimeAllowed() || notice::integrity::IsOwnedNoticePath(requestedPath))
+        return nullptr;
     // ★ 与发布侧那一句配对（见 `PublishModResourceRedirectList`）：先读计数，
     //   拿到非零之后再 acquire —— 保证后面读到的 `g_ModRoots` 一定是填好的字节。
     const std::size_t modCount = g_ModRootCount;

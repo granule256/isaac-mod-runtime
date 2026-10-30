@@ -1,0 +1,63 @@
+{
+  "version": "v1.0.0-beta.4",
+  "title": "模组兼容层",
+  "subtitle": "ISAAC SWITCH  /  {version}",
+  "sections": [
+    {
+      "kind": "intro",
+      "paragraphs": [
+        "让 Switch 运行原版 PC 模组，",
+        "尽可能还原 PC 的模组体验。"
+      ]
+    },
+    {
+      "kind": "warning",
+      "paragraphs": [
+        "注意：部分模组可能存在 Bug",
+        "可能出现功能异常、崩溃或存档问题。"
+      ]
+    },
+    {
+      "kind": "free",
+      "paragraphs": [
+        "完全免费 · 永不售卖"
+      ]
+    },
+    {
+      "kind": "disclaimer",
+      "paragraphs": [
+        "免责声明",
+        "非官方项目，与游戏开发商及平台方无关。",
+        "请自行备份存档，并自行评估使用风险。"
+      ]
+    },
+    {
+      "kind": "instructions",
+      "page_break_before": true,
+      "paragraphs": [
+        "使用说明",
+        "摇杆或方向键左右翻页，也可使用 L / R。",
+        "首次或更新后，先翻完全部页面，再长按 B 关闭。",
+        "同版本后续启动默认收起。",
+        "标题右下角选择兼容层说明按 A 重开，可在任意页点按 B 关闭。"
+      ]
+    },
+    {
+      "kind": "disclaimer",
+      "page_break_before": true,
+      "paragraphs": [
+        "详细免责声明",
+        "本项目是非官方兼容层，与游戏开发商、发行商及平台方无关。",
+        "不提供游戏本体或第三方模组，相关权利归原作者所有。",
+        "部分模组功能尚未完整验证，使用前请备份存档，自行评估并承担使用风险。",
+        "兼容层完全免费，不以任何形式售卖。"
+      ]
+    }
+  ],
+  "ui": {
+    "entry": "兼容层说明",
+    "footer_locked": "请先读完 | L/R 翻页",
+    "footer_auto": "长按 B 关闭 | L/R 翻页",
+    "footer_manual": "B 关闭 | L/R 翻页"
+  }
+}

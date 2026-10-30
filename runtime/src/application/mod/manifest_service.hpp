@@ -39,7 +39,10 @@ inline constexpr std::size_t kRomfsModManifestMaximumLength = 524288;
 // 取值 1 MiB：是 EID 最大 Lua 文件的 4 倍，只花 .bss（磁盘上的模块映像不变）。
 // 这个数字与 `runtime/source/runtime_constants.hpp` 的同名常量必须一致，
 // `hook_manager.cpp` 里有 `static_assert` 兜住（历史上这里就是靠"两处常量各自演化"埋过坑）。
-inline constexpr std::size_t kRomfsModScriptMaximumLength = 1048576;
+// 2026-10-29更正容量：Watch out, laser!作者固定提交cffda577的原样TSTL入口
+// 长2,698,817B，超出旧1MiB。3MiB覆盖该真实负载并继续保留硬上限；
+// 入口/require各一份全局复用缓冲，总BSS仅增加4MiB，不是逐模组常驻分配。
+inline constexpr std::size_t kRomfsModScriptMaximumLength = 3145728;
 
 // Capacity of one assembled path. `manifest_parser` owns the directory/entry
 // capacities; these add room for the "rom:/isaac_mods/mods/" prefix and the

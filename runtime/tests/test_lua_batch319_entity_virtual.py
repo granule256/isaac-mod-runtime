@@ -64,6 +64,7 @@ HARNESS = r'''
 #include "game_observer.hpp"
 #include "runtime_constants.hpp"
 #include "interfaces/lua/engine_method_api.hpp"
+#include "interfaces/lua/rplus_extended_fields_guards.hpp"
 
 #include <cstdint>
 #include <cstdio>
@@ -139,6 +140,13 @@ void PublishFakeWorld(bool clearUpdateSlot, bool clearIsBossSlot) {
     g_GameBytes.assign(kGamePlayerArrayEndOffset + sizeof(std::uint64_t), 0);
     g_OwnerSlotBytes.assign(sizeof(std::uint64_t), 0);
     g_EngineBase = AddressOf(g_ModuleBytes);
+
+    // Parent now uses the production extended-field layout guard. Supply the
+    // fixed-NRO fingerprints, as the other native Parent fixtures already do.
+    namespace E = isaac::runtime::extended_fields;
+    std::memcpy(g_ModuleBytes.data()+E::kEntity0Entry,E::kEntity0Guard.data(),E::kEntity0Guard.size());
+    std::memcpy(g_ModuleBytes.data()+E::kEntity1Entry,E::kEntity1Guard.data(),E::kEntity1Guard.size());
+    std::memcpy(g_ModuleBytes.data()+E::kEntity2Entry,E::kEntity2Guard.data(),E::kEntity2Guard.size());
 
     SetVtableSlot(kVtableAOffset, kEntityVtableUpdateSlot,
                   clearUpdateSlot ? 0 : UPDATE_A_VALUE);

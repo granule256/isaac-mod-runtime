@@ -21,6 +21,11 @@ namespace isaac::runtime {
 // 固定PC全局入口与Room方法共用原生随机位置调用，margin为0。
 int IsaacGetRandomPosition(lua_State* state);
 
+// PC Isaac.CountEnemies/CountBosses 和 Room:GetAlive*Count 使用同一对原生计数。
+// 受保护读取两个 int32，按原生32位回绕相加后夹到非负；无有效房间时返回0。
+[[nodiscard]] std::int32_t ReadRoomAliveCount(std::uintptr_t room,
+                                            std::uintptr_t pairOffset) noexcept;
+
 [[nodiscard]] std::size_t AttachLevelMethods(lua_State* state) noexcept;
 //: 批次 348（2026-10-04）：`Level` 元表的 `__index`。**必须是个函数**（PC 的类元表 `__index` 就是函数）
 //: —— minimapi 的 `scripts/minimapapi/apioverride.lua` 会把 `getmetatable(Level).__class.__index`

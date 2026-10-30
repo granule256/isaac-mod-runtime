@@ -20,6 +20,7 @@
 #include "application/mod/content_mount_service.hpp"  // 批次 360：自愈补挂要问"挂了几个模组"
 #include "image_mount_query_watch.hpp"  // 批次 352：非 `.pcx` 查询的"按路径分桶"纯逻辑
 #include "mod_resource_redirect.hpp"    // 批次 378：PC 的资源层重定向（模组清单顺序、dlc3 优先）
+#include "notice_integrity_native.hpp"
 #include "infrastructure/content/png_to_pcx_bridge.hpp"
 #include "infrastructure/paths/pc_path_semantics.hpp"  // 批次 411：PC 的路径分隔符语义（`\` → `/`）
 #include "infrastructure/relay/entry_relay_binding.hpp"
@@ -825,6 +826,7 @@ extern "C" bool EntryRelayImagePcxLoadCallback(void* self, const char* path) {
     if (pcxOriginalOk) {
         return true;
     }
+    if (isaac::runtime::notice::integrity::IsOwnedNoticePath(path)) return false;
     // 兜底前置：路径必须是以 `.pcx` 结尾的字符串，且引擎入口/zlib 都已发布成功。
     if (path == nullptr || g_engineBindings == nullptr || g_fileBindings == nullptr ||
         EngineBindings()->inMemoryLoad == nullptr ||
@@ -1285,6 +1287,8 @@ extern "C" isaac::runtime::relay::SmartPointerShim EntryRelayImageManagerLoadFil
     // ★★★ 批次 412：**在消费它的这一层归一化**（理由见上面那段注释）——
     //   形参改名 `rawPath`，下面整段沿用 `path`（函数体其余部分一个字没动）。
     const char* path = NormalizePathSeparatorsForEngine(rawPath);
+    if (isaac::runtime::notice::integrity::IsOwnedNoticePath(path))
+        return original ? original(self, path, descriptor, flag) : relay::SmartPointerShim{};
     ++g_imagePcxDiag.hookCalls;
     if (path != nullptr) {
         std::strncpy(g_imagePcxDiag.lastRequestPath, path,
@@ -1464,6 +1468,7 @@ extern "C" char* EntryRelayContentGetMountedFilePathCallback(void* self, const c
     if (original == nullptr) {
         return nullptr;
     }
+    if (isaac::runtime::notice::integrity::IsOwnedNoticePath(path)) return original(self, path);
     // ★★★ 批次 412（2026-10-08）：**归一化不放在这里** —— 411 就放在这里，真机读数那一格**恒 0**。
     //
     // 为什么（411 的实测教训）：`.anm2` 自己确实经过这个入口（`lastAnm2Path` 有值），

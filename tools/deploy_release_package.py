@@ -32,10 +32,9 @@ ROOT = Path(__file__).resolve().parents[1]
 
 HOST = '192.168.124.11'
 PORT = 5000
-import sys as _sys
-_sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(ROOT))
 from tools.device_access import resolve_device as _resolve_device
-HOST, PORT, USER, PASSWORD = _resolve_device()
+USER = PASSWORD = ''
 SETTLE_SECONDS = 1.5
 RETRY_WAIT_SECONDS = 5.0
 _LS_RE = re.compile(r'^([dl-])[rwx-]{9}\s+\d+\s+\S+\s+\S+\s+(\d+)\s+\S+\s+\S+\s+\S+\s+(.+)$')
@@ -132,6 +131,11 @@ def main() -> int:
                     help='除 contents 之外还要一起备份/比对的远端目录（可重复）')
     ap.add_argument('--apply', action='store_true', help='真的写卡（默认只下载+比对+报告）')
     args = ap.parse_args()
+
+    # Importing helpers and displaying --help are offline operations. Resolve
+    # device configuration only after the user invokes an actual deployment.
+    global HOST, PORT, USER, PASSWORD
+    HOST, PORT, USER, PASSWORD = _resolve_device()
 
     package = ROOT / args.package
     backup = ROOT / args.backup

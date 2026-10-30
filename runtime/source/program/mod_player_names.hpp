@@ -51,6 +51,7 @@ inline constexpr char kModPlayersFileName[] = "players.xml";
 struct ModPlayerName {
     const char* name;
     std::size_t length;
+    bool tainted;  // 非空 bSkinParent：按自己的 name 查询，不能隐式改用父角色名。
 };
 
 //: 追加层的可读诊断计数（读数 / 门禁按它判"坏在哪一层"）。
@@ -80,9 +81,10 @@ struct ModPlayerNameStats {
 [[nodiscard]] std::uint32_t IngestModPlayersXml(const char* modKey, const char* xml,
                                                 std::size_t length) noexcept;
 
-//: 只按**非堕落**查（模组角色没有堕落版本）；命中返回 id，未命中返回 `-1`。
+//: 按名字及普通/堕落分类查；同名同分类取后加载者（PC 0x80BEB0 逆序扫描）。
 //: ★ 调用方必须**先查静态表**（本体优先，id 0..40 逐值不变），静态表未命中才落到这里。
-[[nodiscard]] std::int32_t LookupModPlayerTypeName(const char* name, std::size_t length) noexcept;
+[[nodiscard]] std::int32_t LookupModPlayerTypeName(const char* name, std::size_t length,
+                                                bool tainted = false) noexcept;
 
 //: 追加层的诊断计数。
 [[nodiscard]] const ModPlayerNameStats& ModPlayerNameStatistics() noexcept;

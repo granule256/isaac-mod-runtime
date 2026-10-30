@@ -1,17 +1,11 @@
-"""宿主执行真实三条贴图包装，检查怀表/左手图片对象与持有路径生命周期。
+"""Synthetic image bytes exercise object identity and owned-path lifetimes.
 
-PCX夹具来源（逐字节冻结）：主目录游戏dump
-The Binding of Isaac_ Afterbirth+ 1.7.9b [010021C000B6A800][v524288][UPD]/Program #0/1/resources/
-gfx/items/collectibles/collectibles_232_stopwatch.pcx -> watch232.pcx
-SHA256 87784d5360a80ec86e9420cdf9afa48070cea91f5b361666d366e7e73d38fa61
- gfx/items/trinkets/trinket_061_thelefthand.pcx -> lefthand61.pcx
-SHA256 2fd945f7242c04b6bbc6c7a12b0c5aae6b68687692d38e98db3fcb6cd3211f0c
-PNG由测试生成不同纯色，转码参考字节由真实PngToPcx取得。
-限制：原生FileManager/ImageManager/ImagePcx/ImageBase是按已知调用链写的测试替身；
-并非执行Switch原生机器码。比较PCX字节身份，不验证GPU上传或ANM2动画。
-释放使用毒化隔离分配器（不重用地址），可安全检查失效路径而不读取已释放内存。
+The native image functions are test doubles. Images are generated below rather
+than distributed from original game resources; this is a host ownership test,
+not a GPU or original-art fidelity test.
 """
 import re
+import struct
 import subprocess
 import tempfile
 import unittest
@@ -187,7 +181,16 @@ class SharedItemImageObjectsTests(unittest.TestCase):
         cmd=['c++','-std=c++20','-O0','-I',str(ROOT/'runtime/source'),'-I',str(ROOT/'runtime/src'),str(driver),str(ROOT/'runtime/source/mod_resource_redirect.cpp'),str(ROOT/'runtime/src/infrastructure/content/png_to_pcx_bridge.cpp'),str(ROOT/'runtime/src/application/mod/content_mount_service.cpp'),str(ROOT/'runtime/source/mod_image_resources.cpp'),'-lz','-o',str(cls.binary)]
         result=subprocess.run(cmd,text=True,capture_output=True)
         assert result.returncode==0,result.stdout+result.stderr
-        cls.inputs=list((Path(__file__).parent/'fixtures/shared_item_images'/name) for name in ('watch232.pcx','lefthand61.pcx'))
+        cls.inputs=[]
+        for i,color in enumerate(((17,31,47,255),(61,73,89,255))):
+            header=bytearray(128)
+            header[:4]=bytes((10,5,1,8))
+            struct.pack_into('<4H',header,4,0,0,1,1)
+            header[65]=4
+            struct.pack_into('<H',header,66,2)
+            struct.pack_into('<H',header,68,1)
+            pixels=bytes(value for _ in range(2) for channel in color for value in (0xc2,channel))
+            path=cls.work/f'original{i}.pcx';path.write_bytes(header+pixels);cls.inputs.append(path)
         for i,color in enumerate(((221,31,47,255),(29,173,81,255))):
             path=cls.work/f'overlay{i}.png';path.write_bytes(png_rgba(color));cls.inputs.append(path)
 

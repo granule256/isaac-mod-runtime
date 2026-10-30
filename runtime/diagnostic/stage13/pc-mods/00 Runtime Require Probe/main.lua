@@ -1,6 +1,0 @@
-local mod = require("src.mod")
-assert(require("src.mod") == mod)
-mod:AddCallback(ModCallbacks.MC_POST_UPDATE, function(self)
-    assert(self == mod)
-    RuntimeTest.MarkPostUpdate()
-end)

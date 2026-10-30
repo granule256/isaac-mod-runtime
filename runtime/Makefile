@@ -11,12 +11,24 @@ include config.mk
 
 # Define common variables.
 NAME := $(shell basename "$(CURDIR)")
+# Standalone probe payloads are local inputs, never bundled with remote source.
+DIAGNOSTIC_ROOT ?=
+ifneq ($(filter 10 11 12 13 134,$(DIAGNOSTIC_STAGE)),)
+ifeq ($(strip $(DIAGNOSTIC_ROOT)),)
+$(error This probe requires DIAGNOSTIC_ROOT=/absolute/path/to/local/diagnostic)
+endif
+endif
+# Escape spaces only for Make prerequisites; recipes use the original quoted path.
+DIAGNOSTIC_EMPTY :=
+DIAGNOSTIC_SPACE := $(DIAGNOSTIC_EMPTY) $(DIAGNOSTIC_EMPTY)
+DIAGNOSTIC_ROOT_PREREQUISITE = $(subst $(DIAGNOSTIC_SPACE),\ ,$(DIAGNOSTIC_ROOT))
 DIAGNOSTIC_STAGE ?=
 STARTUP_PROBE_STAGE ?=
 STARTUP_PROBE_LAYOUT ?=
 SALTYNX_PLUGIN ?= 0
 SALTYNX_DIAGNOSTIC_BRIDGE ?= 0
-SKIP_DEFAULT_PC_MODS ?= 0
+# Production source builds do not bundle local example/author mod inputs.
+SKIP_DEFAULT_PC_MODS ?= 1
 PERSISTENCE_TRACE ?= 0
 PERSISTENCE_EVENT_DIAGNOSTIC ?= 0
 # 1 links the layered production Runtime (`runtime/src`) and routes the module
@@ -119,7 +131,7 @@ SALTYNX_STAGE146_CFILES :=
 SALTYNX_STAGE146_SFILES := saltynx_external_plugin_crt0.s
 SALTYNX_STAGE146_HOST_PLUGIN_ROOT_NAME := src/host_plugin
 ifeq ($(DIAGNOSTIC_STAGE),134)
-SALTYNX_STAGE134_READ_INPUT := diagnostic/stage134/isaac-runtime-read.bin
+SALTYNX_STAGE134_READ_INPUT := $(DIAGNOSTIC_ROOT)/stage134/isaac-runtime-read.bin
 endif
 else
 ifneq ($(strip $(STARTUP_PROBE_STAGE)),)
@@ -466,13 +478,13 @@ DEPLOY_ROMFS_SENTINEL := $(OUT)/atmosphere/contents/010021C000B6A000/romfs/isaac
 ROMFS_LUA_PROBE_SOURCE :=
 DEPLOY_ROMFS_LUA_PROBE := $(OUT)/atmosphere/contents/010021C000B6A000/romfs/runtime_probe.lua
 ifneq ($(filter 10,$(DIAGNOSTIC_STAGE)),)
-ROMFS_SENTINEL_SOURCE := diagnostic/stage10/isaac_mod_probe.lua
+ROMFS_SENTINEL_SOURCE := $(DIAGNOSTIC_ROOT_PREREQUISITE)/stage10/isaac_mod_probe.lua
 endif
 ifneq ($(filter 11,$(DIAGNOSTIC_STAGE)),)
-ROMFS_SENTINEL_SOURCE := diagnostic/stage11/isaac_mod_probe.lua
+ROMFS_SENTINEL_SOURCE := $(DIAGNOSTIC_ROOT_PREREQUISITE)/stage11/isaac_mod_probe.lua
 endif
 ifneq ($(filter 12,$(DIAGNOSTIC_STAGE)),)
-ROMFS_LUA_PROBE_SOURCE := diagnostic/stage12/runtime_probe.lua
+ROMFS_LUA_PROBE_SOURCE := $(DIAGNOSTIC_ROOT_PREREQUISITE)/stage12/runtime_probe.lua
 endif
 PYTHON ?= python3
 
@@ -539,6 +551,26 @@ mod-row-art: $(EXL_BUILD_DIR)
 	@cd .. && $(PYTHON) tools/emit_mod_row_art.py --tree runtime/$(OUT) \
 	  --languages $(MOD_ROW_LANGUAGES) --also-english-root \
 	  --menu-row-layer --dump-root "$(MOD_ROW_DUMP_ROOT)"
+
+# Render each locale once using the original paper/font before compilation.
+# Pin the cache manifest in the generated header; after post-build recreates OUT,
+# install only cached bytes that match that precompile root.
+ifeq ($(strip $(DIAGNOSTIC_STAGE)$(STARTUP_PROBE_STAGE)),)
+ifeq ($(SALTYNX_PLUGIN),0)
+.PHONY: title-notice-prepare title-notice-art
+title-notice-prepare:
+	@mkdir -p "$(EXL_BUILD_DIR)"
+	@cd .. && $(PYTHON) tools/build_title_notice.py --tree runtime/$(OUT) \
+	  --header runtime/$(EXL_BUILD_DIR)/title_notice_generated.hpp \
+	  --dump-root "$(MOD_ROW_DUMP_ROOT)" --prepare-cache runtime/$(EXL_BUILD_DIR)/notice_assets
+$(EXL_BUILD_DIR): title-notice-prepare
+title-notice-art: $(EXL_BUILD_DIR)
+	@cd .. && $(PYTHON) tools/build_title_notice.py --tree runtime/$(OUT) \
+	  --header runtime/$(EXL_BUILD_DIR)/title_notice_generated.hpp \
+	  --install-cache runtime/$(EXL_BUILD_DIR)/notice_assets
+all: title-notice-art
+endif
+endif
 
 .PHONY: runtime_module host_plugin probe
 
@@ -667,7 +699,7 @@ ifneq ($(filter 13,$(DIAGNOSTIC_STAGE)),)
 stage13-pc-mods: $(BUILD)
 	@mkdir -p "$(OUT)"
 	@cd .. && $(PYTHON) -m tools.inspect_pc_mod \
-	  --mods-root runtime/diagnostic/stage13/pc-mods \
+	  --mods-root "$(DIAGNOSTIC_ROOT)/stage13/pc-mods" \
 	  --romfs-output runtime/$(OUT)
 
 $(DEPLOY_NPDM) $(DEPLOY_RELAY_IPS): stage13-pc-mods

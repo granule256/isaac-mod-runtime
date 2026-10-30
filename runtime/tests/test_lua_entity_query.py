@@ -108,9 +108,11 @@ GameRoomObservation ReadCurrentGameRoomType(uintptr_t, std::uint32_t*) {
     return GameRoomObservation::RoomUnreadable;
 }
 namespace GameFileReader {
+#if !defined(EXL_DIAGNOSTIC_STAGE) || EXL_DIAGNOSTIC_STAGE == 13
 TextReadResult ReadTextFile(const Bindings&, const char*, u8*, std::size_t, std::size_t*) {
     return TextReadResult::OpenFailed;
 }
+#endif
 }
 
 namespace {
@@ -186,8 +188,9 @@ std::uintptr_t GenericEntityVtable() {
 void CreateBlocks() {
     g_ModuleBytes.assign(kGameOwnerGlobalSlotOffset + sizeof(std::uint64_t), 0);
     g_GameBytes.assign(kGamePlayerArrayCapacityOffset + sizeof(std::uint64_t), 0);
-    g_RoomBytes.assign(kRoomEntityListOffset + 0x100, 0);
-    g_RoomBytesSecond.assign(kRoomEntityListOffset + 0x100, 0);
+    // 还需覆盖原生计数对的末端（0x1A68）；原容器末端0x1A50不足以存放它们。
+    g_RoomBytes.assign(kRoomAliveBossesCountOffset + 2 * sizeof(std::int32_t), 0);
+    g_RoomBytesSecond.assign(kRoomAliveBossesCountOffset + 2 * sizeof(std::int32_t), 0);
     g_OwnerSlotBytes.assign(sizeof(std::uint64_t), 0);
     g_Entities.assign(kEntitySlotCount, {});
     for (std::size_t index = 0; index < kEntitySlotCount; ++index) {
@@ -357,6 +360,11 @@ void FillEntities() {
 
 // `Room + 0x1950` 的内嵌 `EntityList`：活表、EFFECT 表与三个容量指纹。
 void PublishEntityList(std::vector<unsigned char>& room, bool validFingerprint) {
+    // 原生活敌人/Boss计数独立于实体查询容器；3/1来自夹具设定，不从宽NPC区间推导。
+    WriteAt<std::int32_t>(room, kRoomAliveEnemiesCountOffset, 3);
+    WriteAt<std::int32_t>(room, kRoomAliveEnemiesCountOffset + 4, 0);
+    WriteAt<std::int32_t>(room, kRoomAliveBossesCountOffset, 1);
+    WriteAt<std::int32_t>(room, kRoomAliveBossesCountOffset + 4, 0);
     WriteAt<std::uint32_t>(room, kRoomEntityListOffset + kEntityListGeneralCapacityOffset,
                            validFingerprint ? kEntityListGeneralCapacity : 0U);
     WriteAt<std::uint32_t>(room, kRoomEntityListOffset + kEntityListLiveCapacityOffset,
@@ -739,20 +747,9 @@ end
 
 -- ===== CountEnemies / CountBosses =====
 local function verifyCounts()
-  -- `IsEnemy = (u32)(Type - 10) < 0x3DE`：活表里 Type 20/22/24 三个命中。
-  --   * `kNoQuery`（Type 22）**照样计数**：`FLAG_NO_QUERY` 只作用于查询结果，没有证据
-  --     说明引擎的 `CountType` 会跳过它；
-  --   * `kCharmed`（Type 3 && Variant 0xEF）**不**计数：`collide()` 把它算进 ENEMY，但任务
-  --     给定的 CountEnemies 判据只有那条类型区间比较（两条已知偏差都写在 `isaac_api.cpp`）。
-  --   * 坏 vptr 的 Type 20 实体不计数（vptr 闸门先否决）。
-  check(Isaac.CountEnemies() == 3, 'CountEnemies must count 3, got ' .. tostring(Isaac.CountEnemies()))
-  -- `CountBosses`：batch 026 起是真实现。判据 = `Entity + 0xCC9` 那个 boss 标记字节，
-  -- 且**先要求"这是敌人"**（基类 `Entity::IsBoss()` 恒 false，别的类上那个偏移是无关数据）。
-  -- 造的两个实体见 harness：`kEnemyA`（Type 20）置了标记 ⇒ 计入；
-  -- `kCharmed`（Type 3 && Variant 0xEF）**也**置了标记，但它不是敌人 ⇒ 不计入。
-  check(Isaac.CountBosses() == 1,
-        'CountBosses must count 1 (only the enemy-typed flagged entity), got '
-        .. tostring(Isaac.CountBosses()))
+  -- PC的两个入口读房间原生计数，夹具独立设置为3/1，不靠枚举实体类型重算。
+  check(Isaac.CountEnemies() == 3, 'native room enemy count must be 3')
+  check(Isaac.CountBosses() == 1, 'native room boss count must be 1')
 end
 
 -- ===== 实体字段 / FrameCount / GetPtrHash / GetData / ToPickup =====
@@ -1049,7 +1046,7 @@ local function verifySecondFrame()
     check(stale == nil, 'a corrupted entity must disappear from FindByType')
     checkSet(Isaac.FindInRadius(Vector(80, 280), 100, ENEMY), { 'sizeOnly', 'charmed' },
              'ENEMY after corruption')
-    check(Isaac.CountEnemies() == 2, 'CountEnemies must drop the corrupted entity')
+    check(Isaac.CountEnemies() == 3, 'entity-handle corruption must not rewrite native counters')
     return
   end
   if SCENARIO == 'corrupt_entity' then
@@ -1094,8 +1091,8 @@ local function run()
     -- 容器指纹不匹配 → 一切查询返回空，**不报错**；`GetData` 退化成"按指针 + 生成帧"作键。
     checkArray(Isaac.FindInRadius(Vector(80, 280), 100, ALL_PARTITIONS), 0, 'fingerprint radius')
     checkArray(Isaac.FindByType(20, -1, -1), 0, 'fingerprint type')
-    check(Isaac.CountEnemies() == 0, 'fingerprint enemies')
-  check(Isaac.CountBosses() == 0, 'fingerprint bosses')
+    check(Isaac.CountEnemies() == 3, 'native counters do not need the entity-list fingerprint')
+  check(Isaac.CountBosses() == 1, 'native boss counters do not need the entity-list fingerprint')
     check(Isaac.GetPlayer(0) ~= nil, 'GetPlayer does not need the EntityList')
     local player = Isaac.GetPlayer(0)
     check(type(player:GetData()) == 'table', 'GetData must degrade to a table, not nil')
@@ -1116,8 +1113,8 @@ local function run()
     checkSet(Isaac.FindInRadius(Vector(80, 280), 100, PLAYER), { 'player' }, 'overflow player')
     checkArray(Isaac.FindByType(20, -1, -1, false, false), 0, 'overflow live type')
     checkSet(Isaac.FindByType(1000, 7, -1), { 'effect' }, 'overflow effect type')
-    check(Isaac.CountEnemies() == 0, 'overflow enemies')
-  check(Isaac.CountBosses() == 0, 'overflow bosses')
+    check(Isaac.CountEnemies() == 3, 'invalid list size does not change native enemy counters')
+  check(Isaac.CountBosses() == 1, 'invalid list size does not change native boss counters')
     if frame == 1 then PHASE1_OK = 1 end
     if frame == 2 then PHASE2_OK = 1 end
     SCENARIO_OK = 1
@@ -1243,7 +1240,7 @@ class LuaEntityQueryTests(unittest.TestCase):
         self.assertIn("ENTITY_QUERY_DEGRADED scenario=room_change", result.stdout)
 
     def test_entity_handles_are_revalidated_on_every_access(self):
-        """vptr 被改坏之后：`FindByType`/`FindInRadius`/`CountEnemies` 都不再包含那个实体。"""
+        """vptr 被改坏后实体查询跳过它，原生房间计数保持独立。"""
         result = self.run_scenario("corrupt_entity")
         self.assertIn("ENTITY_QUERY_DEGRADED scenario=corrupt_entity", result.stdout)
 

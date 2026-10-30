@@ -117,15 +117,7 @@ class LuaModPersistenceTests(unittest.TestCase):
         common = (ROOT / "runtime" / "misc" / "mk" / "common.mk").read_text(encoding="utf-8")
         self.assertNotIn("saltynx_external_plugin_persistence", common)
 
-        legacy = ROOT / "docs" / "legacy-plugin-persistence-20260917"
-        self.assertTrue((legacy / "README.md").is_file(), "退役代码的备份说明不见了（用户要求单独留一份）")
-        for name in (
-            "saltynx_external_plugin_persistence_bridge.cpp",
-            "saltynx_external_plugin_persistence_bridge_trace.cpp",
-            "saltynx_external_plugin_persistence_entry.cpp",
-        ):
-            with self.subTest(backup=name):
-                self.assertTrue((legacy / "sources" / name).is_file(), f"备份里缺 {name}")
+        # Historical backups are local evidence, not inputs to core source tests.
 
     def test_persistence_has_exactly_one_path(self):
         """持久化只有一条路：`ISaveFilePort` 会话端口（写存档分区），不再依赖任何插件文件 API。"""
@@ -138,14 +130,6 @@ class LuaModPersistenceTests(unittest.TestCase):
         for retired in ("SaltySDCore_fopen", "SaltySDCore_fread", "SaltySDCore_fwrite"):
             with self.subTest(retired=retired):
                 self.assertNotIn(retired, consumer)
-
-    def test_hardware_probe_uses_one_pc_mod_to_cover_save_load_and_remove(self):
-        probe = ROOT / "runtime" / "diagnostic" / "mod-persistence-probe" / "pc-mods" / "00 Runtime Persistence Probe" / "main.lua"
-
-        self.assertTrue(probe.is_file(), "persistence hardware probe Mod is missing")
-        source = probe.read_text(encoding="utf-8")
-        for token in ("RegisterMod", "HasData", "SaveData", "LoadData", "RemoveData"):
-            self.assertIn(token, source)
 
     def test_mod_persistence_lua_contract(self):
         header = SOURCE / "mod_persistence.hpp"

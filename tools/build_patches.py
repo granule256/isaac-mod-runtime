@@ -864,7 +864,7 @@ def build_game_change_room_relay_patch(nro: bytes) -> bytes:
 
 
 def build_game_start_lifecycle_relay_patch(nro: bytes) -> bytes:
-    """Install the isolated Stage108 Game-start post-call diagnostic relays."""
+    """Install only the Game-start compatibility relays."""
     require_expected_module(nro)
     require_expected_source_sha256(nro)
     require_original_bytes(nro, GAME_START_SAVED_CALL_OFFSET, GAME_START_SAVED_CALL_ORIGINAL,

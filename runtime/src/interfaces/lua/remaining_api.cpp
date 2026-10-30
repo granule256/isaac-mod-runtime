@@ -127,6 +127,19 @@ int ItemPoolGetPillEffect(lua_State* state);
 int ItemPoolGetPoolForRoom(lua_State* state);
 int LevelGetLastRoomDesc(lua_State* state);
 
+std::int32_t ReadRoomAliveCount(std::uintptr_t room, std::uintptr_t pairOffset) noexcept {
+    std::int32_t counts[2] = {};
+    if (room == 0 || pairOffset > UINTPTR_MAX - sizeof(counts) ||
+        room > UINTPTR_MAX - pairOffset - sizeof(counts) ||
+        !engine_memory::ReadAt(room + pairOffset, &counts, &engine_memory::EngineMemoryReadable)) {
+        return 0;
+    }
+    // x86 add / AArch64 add wN 先回绕32位，再用有符号比较夹0；不触发C++有符号溢出。
+    const std::uint32_t sum = static_cast<std::uint32_t>(counts[0]) +
+                              static_cast<std::uint32_t>(counts[1]);
+    return sum <= 0x7FFFFFFFU ? static_cast<std::int32_t>(sum) : 0;
+}
+
 namespace {
 
 using LuaRuntime::GameOwnerSlot;
@@ -1315,24 +1328,7 @@ int RoomGetGridIndex(lua_State* state) {
 //   ⇒ 模组调 `GetAliveBossesCount()` 会拿到**敌人**数。批次 311 修正：
 //   **敌人 = `kRoomAliveEnemiesCountOffset`(0x1A58)、Boss = `kRoomAliveBossesCountOffset`(0x1A60)**。
 int PushRoomAliveCount(lua_State* state, std::uintptr_t pairOffset) {
-    const std::uintptr_t room = CurrentRoomAddress();
-    std::int32_t first = 0;
-    std::int32_t second = 0;
-    //: ★ 本 TU 没有 `ReadEngine`（那是 `game_api.cpp` / `isaac_api.cpp` / `sprite_api.cpp` 各自的
-    //:   文件局部助手）⇒ 按本文件既有写法用 `engine_memory::ReadAt`。
-    if (room == 0 ||
-        !isaac::runtime::engine_memory::ReadAt(room + pairOffset, &first,
-                                               &IsEngineMemoryReadable) ||
-        !isaac::runtime::engine_memory::ReadAt(room + pairOffset + sizeof(std::int32_t), &second,
-                                               &IsEngineMemoryReadable)) {
-        lua_pushinteger(state, 0);
-        return 1;
-    }
-    //: 用 64 位做加法：两个 `int32` 相加**可能溢出**（C++ 里有符号溢出是 UB），
-    //: 而 PC 的 `add ecx,edx` 是**回绕**的 —— 这里先算宽、再按 PC 的 `cmovg` 语义夹下限。
-    const std::int64_t total = static_cast<std::int64_t>(first) + static_cast<std::int64_t>(second);
-    const std::int32_t clamped = total > 0 ? static_cast<std::int32_t>(total & 0x7FFFFFFFLL) : 0;
-    lua_pushinteger(state, clamped);
+    lua_pushinteger(state, ReadRoomAliveCount(CurrentRoomAddress(), pairOffset));
     return 1;
 }
 

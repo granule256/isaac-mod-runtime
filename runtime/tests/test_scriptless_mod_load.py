@@ -519,7 +519,10 @@ class ManifestCapacityContractTests(unittest.TestCase):
         self.assertIsNotNone(legacy)
         self.assertIsNotNone(layered)
         self.assertEqual(legacy.group(1), layered.group(1))
-        self.assertEqual(layered.group(1), "1048576")
+        # 2026-10-29：WOL 作者原样 TSTL 入口为 2,698,817 字节；
+        # 两份共享缓冲的总增量控制在 4MiB 内，不能按模组数扩容。
+        self.assertGreaterEqual(int(layered.group(1)), 2698817)
+        self.assertLessEqual(int(layered.group(1)), 3145728)
 
     def test_script_capacity_fits_the_real_mod_sources(self):
         """真实 PC Mod 的 Lua 源码必须装得进脚本缓冲区（EID 的 `main.lua` 与语言文件）。"""

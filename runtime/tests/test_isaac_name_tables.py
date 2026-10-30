@@ -206,14 +206,18 @@ class IsaacNameTableGateTests(unittest.TestCase):
                                      f"{kind}:{name} 的堕落编号变了（契约钉的是 {alternate}）")
 
     def test_lookup_signature_is_wired(self):
-        """表有用武之地：源码里真的调了 `LookupIsaacName`，5 条 API 各一处。"""
+        """静态名字查询仍接线；药丸走当前独立的名字服务。"""
         api = (ROOT / "runtime" / "src" / "interfaces" / "lua" / "isaac_api.cpp").read_text(
             encoding="utf-8")
-        for kind in ("Collectible", "Card", "PillEffect", "PlayerType", "Challenge"):
+        for kind in ("Collectible", "Card", "PlayerType", "Challenge"):
             with self.subTest(kind):
-                self.assertIn(f"IsaacNameKind::{kind}", api,
+                self.assertTrue(f"IsaacNameKind::{kind}" in api,
                               f"isaac_api.cpp 里没有用到 IsaacNameKind::{kind}")
         self.assertIn("LookupIsaacName", api)
+        self.assertIn("return RuntimeGetPillEffectByName(state);", api)
+        service = (ROOT / "runtime/src/interfaces/lua/rplus_content_names.cpp").read_text()
+        self.assertIn("int RuntimeGetPillEffectByName(lua_State* state)", service)
+        self.assertIn("Lookup(state,Family::Pill)", service)
 
     def test_header_declares_the_alternate_id(self):
         header = HEADER.read_text(encoding="utf-8")

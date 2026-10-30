@@ -195,13 +195,18 @@ int main() {
     def test_accepts_manifest_generated_by_existing_pc_tool(self):
         with tempfile.TemporaryDirectory(prefix="isaac-stage13-manifest-tool-") as temporary:
             output = Path(temporary) / "romfs-output"
+            mods_root = Path(temporary) / "mods"
+            fixture = mods_root / "00 Runtime Require Probe"
+            fixture.mkdir(parents=True)
+            (fixture / "metadata.xml").write_text("<metadata><name>Require Fixture</name></metadata>")
+            (fixture / "main.lua").write_text("return {}\n")
             generated = subprocess.run(
                 [
                     sys.executable,
                     "-m",
                     "tools.inspect_pc_mod",
                     "--mods-root",
-                    "runtime/diagnostic/stage13/pc-mods",
+                    str(mods_root),
                     "--romfs-output",
                     str(output),
                 ],

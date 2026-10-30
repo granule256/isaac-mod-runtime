@@ -58,7 +58,9 @@ class SourceProgramWrapperTests(unittest.TestCase):
     def test_every_top_level_source_is_actually_built(self):
         """顶层每个 `source/*.cpp` 都要有办法进构建 —— 否则它**永远不会被编译**。"""
         common = COMMON_MK.read_text(encoding="utf-8")
-        explicit = set(re.findall(r"^CPPFILES\s*\+=\s*(\S+\.cpp)", common, re.MULTILINE))
+        # One Make assignment may register several source files on the same line.
+        assignments = re.findall(r"^CPPFILES\s*\+=\s*([^\n#]+)", common, re.MULTILINE)
+        explicit = {word for row in assignments for word in row.split() if word.endswith('.cpp')}
         missing = []
         for name in self.top_level():
             if (PROGRAM / name).is_file():

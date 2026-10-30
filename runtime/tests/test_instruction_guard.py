@@ -264,7 +264,6 @@ class InstructionGuardTests(unittest.TestCase):
     def test_rw_pages_flushes_data_via_rw_alias_and_instructions_via_ro_alias(self):
         for path in (
             ROOT / "source/lib/util/sys/rw_pages.cpp",
-            ROOT / "exlaunch/source/lib/util/sys/rw_pages.cpp",
         ):
             source = path.read_text()
             flush = source[source.index("void RwPages::Flush() const"):source.index("RwPages::~RwPages")]

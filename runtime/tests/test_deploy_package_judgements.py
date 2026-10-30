@@ -17,12 +17,14 @@
 """
 
 import json
+import os
 import struct
 import shutil
 import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 try:
@@ -54,8 +56,10 @@ class DeployPackageJudgementTests(unittest.TestCase):
         patch = (self.root / "runtime" / "atmosphere" / "nro_patches"
                  / "isaac-repentance-lifecycle-relay")
         patch.mkdir(parents=True)
-        (patch / "BUILDID0000000000000000000000000000000000000000000000000000000000.ips").write_bytes(
-            b"fake-lifecycle-ips")
+        from tools.build_patches import EXPECTED_MODULE_ID, GAME_START_LIFECYCLE_RELAY_RECORDS
+        from tools.nro_ips import encode_ips
+        (patch / (EXPECTED_MODULE_ID.hex().upper() + '.ips')).write_bytes(
+            encode_ips(GAME_START_LIFECYCLE_RELAY_RECORDS))
         cold = self.root / "runtime" / "atmosphere" / "nro_patches" / "isaac-repentance-static-callbacks"
         cold.mkdir(parents=True)
         (cold / "BUILDID0000000000000000000000000000000000000000000000000000000000.ips").write_bytes(b"fake-cold-ips")
@@ -114,6 +118,23 @@ class DeployPackageJudgementTests(unittest.TestCase):
         # `resources-dlc3` 层要**原样**带进包（层名不能改，改了覆盖语义就变）
         self.assertTrue((self.root / "package" / "atmosphere" / "contents" / CONTENT_ID
                          / "romfs/isaac_mods/mods/BetaMod/resources-dlc3/gfx/b.png").is_file())
+
+    def test_cli_preserves_original_and_requires_external_patch_inputs(self):
+        author = b"-- synthetic user input\r\nreturn true\r\n"
+        mod = self.root / "WhatsMyDPS"
+        mod.mkdir()
+        (mod / "main.lua").write_bytes(author)
+        destination = (self.root / "package/atmosphere/contents" / CONTENT_ID
+                       / "romfs/isaac_mods/mods/WhatsMyDPS/main.lua")
+        result = self.run_tool(mod)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(destination.read_bytes(), author)
+        with patch.dict(os.environ, {"ISAAC_MOD_PATCH_ROOT": str(self.root / "missing-patches")}):
+            result = self.run_tool(mod, extra=("--apply-mod-patches",))
+        self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+        self.assertIn("ISAAC_MOD_PATCH_ROOT", result.stderr)
+        self.assertEqual(destination.read_bytes(), author)
+        self.assertEqual((mod / "main.lua").read_bytes(), author)
 
     def test_palette_png_refuses_even_when_dropping_pcx(self):
         """调色板 PNG 转不了 ⇒ **丢掉 `.pcx` 也必须中止**（否则真机上那张图静默空白）。"""
@@ -199,6 +220,67 @@ class DeployPackageJudgementTests(unittest.TestCase):
         mod = self.make_mod("FontMod", 3, png_relative="resources/font/palette_font.png")
         result = self.run_tool(mod, extra=("--drop-mod-pcx",))
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def game_patch_bundle(self):
+        from runtime.game_patches.build import build_bundle
+        import os
+        source = Path(os.environ.get('ISAAC_SOURCE_ROOT', ROOT))
+        nro = next(source.glob('The Binding*Afterbirth*/*/1/.nro/Repentance.nro')).read_bytes()
+        output = self.root / 'game-patches'
+        build_bundle(nro, output)
+        return output
+
+    def test_explicit_game_patch_input_is_copied_separately_from_relays(self):
+        bundle = self.game_patch_bundle()
+        mod = self.make_mod('AlphaMod', 6, png_relative='resources/gfx/a.png')
+        result = self.run_tool(mod, extra=('--drop-mod-pcx', '--game-patches', str(bundle)))
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        patches = self.root / 'package/atmosphere/nro_patches'
+        self.assertTrue((patches / 'isaac-repentance-loop-time-carry').is_dir())
+        self.assertTrue((patches / 'isaac-repentance-lifecycle-relay').is_dir())
+        self.assertTrue((self.root / 'package/game-patches.json').is_file())
+
+    def test_game_patch_selection_is_independent_of_relay_selection(self):
+        bundle = self.game_patch_bundle()
+        mod = self.make_mod('AlphaMod', 6, png_relative='resources/gfx/a.png')
+        result = self.run_tool(mod, extra=('--drop-mod-pcx', '--no-relay-patches',
+                                           '--game-patches', str(bundle)))
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        patches = self.root / 'package/atmosphere/nro_patches'
+        self.assertEqual([p.name for p in patches.iterdir()], ['isaac-repentance-loop-time-carry'])
+
+    def test_bad_game_patch_input_is_rejected_before_replacing_an_output(self):
+        bundle = self.game_patch_bundle()
+        next(bundle.rglob('*.ips')).write_bytes(b'bad patch')
+        output = self.root / 'package'
+        output.mkdir()
+        marker = output / 'previous.txt'
+        marker.write_text('preserve existing output')
+        mod = self.make_mod('AlphaMod', 6, png_relative='resources/gfx/a.png')
+        result = self.run_tool(mod, extra=('--drop-mod-pcx', '--game-patches', str(bundle)))
+        self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+        self.assertIn('cannot verify original-game patch bundle', result.stderr)
+        self.assertEqual(marker.read_text(), 'preserve existing output')
+
+    def test_mixed_legacy_runtime_is_rejected_before_replacing_output(self):
+        from tools.build_patches import GAME_START_LIFECYCLE_RELAY_RECORDS
+        from tools.nro_ips import encode_ips
+        bundle = self.game_patch_bundle()
+        lifecycle = next((self.root / 'runtime/atmosphere/nro_patches/isaac-repentance-lifecycle-relay').glob('*.ips'))
+        lifecycle.write_bytes(encode_ips(GAME_START_LIFECYCLE_RELAY_RECORDS +
+                                        [(0x4C08F4, bytes.fromhex('29496a1e'))]))
+        mod = self.make_mod('AlphaMod', 6, png_relative='resources/gfx/a.png')
+        output = self.root / 'package'
+        for select_game_patches in (False, True):
+            with self.subTest(game_patches=select_game_patches):
+                output.mkdir(exist_ok=True)
+                marker = output / 'previous.txt'
+                marker.write_text('preserve existing output')
+                options = ('--game-patches', str(bundle)) if select_game_patches else ()
+                result = self.run_tool(mod, extra=('--drop-mod-pcx', *options))
+                self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+                self.assertIn('重新构建', result.stderr)
+                self.assertEqual(marker.read_text(), 'preserve existing output')
 
 
 if __name__ == "__main__":

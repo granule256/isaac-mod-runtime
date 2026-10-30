@@ -269,12 +269,17 @@ class PcModManifestTests(unittest.TestCase):
         payload = json.loads(manifest_path.read_text(encoding="utf-8"))
         self.assertEqual([mod["directory"] for mod in payload["mods"]], ["alpha", "zeta"])
 
-    def test_stage13_probe_fixture_generates_manifest(self):
+    def test_nested_module_fixture_generates_manifest(self):
         project_root = Path(__file__).resolve().parents[1]
-        mods_root = project_root / "runtime/diagnostic/stage13/pc-mods"
 
-        with tempfile.TemporaryDirectory(prefix="isaac-stage13-probe-") as temporary:
-            output_root = Path(temporary)
+        with tempfile.TemporaryDirectory(prefix="isaac-manifest-modules-") as temporary:
+            mods_root = Path(temporary) / "input"
+            fixture = mods_root / "00 Runtime Require Probe"
+            write_file(fixture / "metadata.xml", "<metadata><name>Require Fixture</name></metadata>")
+            write_file(fixture / "main.lua", 'return require("src.mod")\n')
+            write_file(fixture / "src/mod.lua", 'return require("src.metadata")\n')
+            write_file(fixture / "src/metadata.lua", 'return { name = "Fixture" }\n')
+            output_root = Path(temporary) / "output"
             subprocess.run(
                 [
                     sys.executable,
@@ -303,42 +308,6 @@ class PcModManifestTests(unittest.TestCase):
                 "mods/00 Runtime Require Probe/src/metadata.lua",
             ):
                 self.assertTrue((romfs / path).is_file())
-
-    def test_stage13_probe_uses_nested_require_table_before_returning_mod(self):
-        project_root = Path(__file__).resolve().parents[1]
-        source = (
-            project_root
-            / "runtime/diagnostic/stage13/pc-mods/00 Runtime Require Probe/src/mod.lua"
-        ).read_text(encoding="utf-8")
-
-        self.assertEqual(
-            source,
-            'local metadata = require("src.metadata")\n'
-            'return RegisterMod(metadata.name, 1)\n',
-        )
-
-        metadata = (
-            project_root
-            / "runtime/diagnostic/stage13/pc-mods/00 Runtime Require Probe/src/metadata.lua"
-        ).read_text(encoding="utf-8")
-        self.assertEqual(metadata, 'return { name = "Runtime Require Probe" }\n')
-
-        entry = (
-            project_root
-            / "runtime/diagnostic/stage13/pc-mods/00 Runtime Require Probe/main.lua"
-        ).read_text(encoding="utf-8")
-        self.assertEqual(
-            entry,
-            'local mod = require("src.mod")\n'
-            'assert(require("src.mod") == mod)\n'
-            'mod:AddCallback(ModCallbacks.MC_POST_UPDATE, function(self)\n'
-            '    assert(self == mod)\n'
-            '    RuntimeTest.MarkPostUpdate()\n'
-            'end)\n',
-        )
-        self.assertNotIn('RegisterMod("Runtime Require Probe", 1)', entry)
-        self.assertIn("mod:AddCallback", entry)
-        self.assertNotIn("RuntimeRequireProbeMod", entry)
 
     def test_cli_rejects_mixed_single_mod_and_mods_root_modes_without_output(self):
         mods_root = Path(self.temp_dir.name) / "mods"

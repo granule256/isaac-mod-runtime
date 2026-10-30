@@ -64,7 +64,7 @@ CATALOG = ROOT / "runtime" / "src" / "interfaces" / "lua" / "api_catalog.cpp"
 DESCRIPTOR = ROOT / "runtime" / "src" / "interfaces" / "lua" / "api_descriptor.hpp"
 LEDGER = ROOT / "tools" / "api_definition_of_done.json"
 
-#: ★ 账本数字（改动时必须同步并在这上面补一行说明，见 CONTRIBUTING.md 第二节）。
+#: ★ 账本数字（改动时必须同步并在这上面补一行说明，见 README.md 的提交与验证规范）。
 #:
 #: 基线条数：2026-09-21 建立本门禁时冻结 **252** 条（当时 `api_catalog.cpp` 的全部目录行）。
 #: 这个数字**只该保持不变** —— 基线是"历史快照"，新 API 不许塞进来（要塞就是躲门禁）。

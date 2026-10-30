@@ -37,7 +37,7 @@ DISPOSITIONS = ("planned", "blocked", "wontfix")
 #: 范围声明里允许的取值（口径写在 `tools/mod_corpus_scope.json` 的 `statuses` 段）。
 SCOPE_STATUSES = ("target", "deferred")
 
-#: 账本数字（改动时必须同步在这里 +1 并写明原因，见 CONTRIBUTING.md 第二节）。
+#: 账本数字（改动时必须同步在这里 +1 并写明原因，见 README.md 的提交与验证规范）。
 #: 2026-09-16 初版 39 条；同日 `Quality` / `CraftingQuality` 实现后删两条（37）；
 #: 同日第二批 `AchievementID` / `Tags` / `MaxCharges` / `ChargeType` 实现后再删四条（33）；
 #: 同日第三批（**引擎写通道**）`Sprite.Color` / `Sprite.FlipX` 两个**写**属性落地、

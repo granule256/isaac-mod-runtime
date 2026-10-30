@@ -16,6 +16,8 @@ DRIVER=r"""
 #include <zlib.h>
 #include <new>
 using namespace isaac::runtime;
+// Host-only state storage for the production startup guard's diagnostic branch.
+extern "C" { std::uint32_t g_NoticeIntegrityState[16]{}; }
 std::map<std::string,std::vector<unsigned char>> files;
 bool installed=false, rejectBindings=false, rejectInstall=false;
 int installs=0, feeds=0;

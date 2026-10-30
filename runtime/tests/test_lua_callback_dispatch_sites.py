@@ -85,6 +85,14 @@ def actual_dispatch_sites(text: str) -> set[str]:
     if "isaac::runtime::UnloadTrackedMods" in text and "PushModUnloader(state)" in (SOURCE.parent/"src/interfaces/lua/mod_lifecycle_api.cpp").read_text():
         unload=(SOURCE.parent/"src/infrastructure/gotslot/mod_unload_pointer_hook.cpp").read_text()
         if "LuaRuntime::UnloadManifestMods()" in unload:dispatched.add("PreModUnload")
+    # Projectile init/update share an id-parameter helper, reached from the
+    # verified native tail relay rather than the Manager entity scan.
+    if re.search(r"dispatcher\.DispatchFiltered\(id,", text):
+        relay = (SOURCE / "hook_manager.cpp").read_text(encoding="utf-8")
+        for callback in ("PostProjectileInit", "PostProjectileUpdate"):
+            if ("&LuaRuntime::Dispatch"+callback in relay and
+                "DispatchProjectileNativeEvent(isaac::runtime::kCallback"+callback+",projectile)" in text):
+                dispatched.add(callback)
     return dispatched
 
 

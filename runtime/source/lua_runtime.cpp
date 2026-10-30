@@ -11,6 +11,7 @@
 #include "card_rng_scope.hpp"
 #include "interfaces/lua/entity_lifetime.hpp"
 #include "lua_runtime.hpp"
+#include "notice_integrity_native.hpp"
 #include "native_player_init.hpp"
 #include "interfaces/lua/os_api.hpp"
 #include "infrastructure/memory/engine_field_access.hpp"
@@ -2592,6 +2593,7 @@ int LuaPanicForensics(lua_State* state) {
 // 建立流程的唯一实现：建 Lua 状态并运行 PrepareRuntime；不装额外菜单模组。
 // 成功时把 `g_LuaState`/`g_Ready` 设好（模组随后往同一个状态里追加）。
 LuaInitResult EnsureRuntimeWithMenuInternal() {
+    if (!isaac::runtime::notice::integrity::RuntimeAllowed()) return LuaInitResult::RuntimePreparationFailed;
     if (g_ShuttingDownForModReload) return LuaInitResult::ScriptRunFailed;
     if(g_LuaState && !g_Ready.load(std::memory_order_acquire) && isaac::runtime::HasPressurePlateAnimationPins())
         return LuaInitResult::ScriptRunFailed; // 上次关闭清理失败，保留强持状态，不覆盖丢失它。
@@ -2710,12 +2712,14 @@ LuaInitResult InitializeScript(const char* script, std::size_t length, const cha
 // 对外入口（`lua_runtime.hpp` 声明的那一个）：匿名命名空间里的实现不导出符号，所以这层是必须的。
 // 幂等：已经有状态就直接成功。
 LuaInitResult EnsureRuntimeWithMenu() noexcept {
+    if (!isaac::runtime::notice::integrity::RuntimeAllowed()) return LuaInitResult::RuntimePreparationFailed;
     if (g_LuaState != nullptr && g_Ready.load(std::memory_order_acquire)) {
         return LuaInitResult::Success;
     }
     return EnsureRuntimeWithMenuInternal();
 }
 bool ConsoleConfigMenuVisible() noexcept {
+    if (!isaac::runtime::notice::integrity::RuntimeAllowed()) return false;
     if (!g_LuaState || !g_Ready.load(std::memory_order_acquire)) return false;
     lua_getglobal(g_LuaState,"ModConfigMenu");
     if (!lua_istable(g_LuaState,-1)) {lua_pop(g_LuaState,1);return false;}
@@ -3712,6 +3716,7 @@ LuaInitResult InitializeFromBuffer(const char* script, std::size_t length, const
 LuaInitResult InitializeManifestMod(const char* entry, std::size_t entryLength,
                                     const char* chunkName, const char* modRoot,
                                     const GameFileReader::Bindings& bindings) {
+    if (!isaac::runtime::notice::integrity::RuntimeAllowed()) return LuaInitResult::RuntimePreparationFailed;
     if (g_ShuttingDownForModReload) return LuaInitResult::ScriptRunFailed;
     g_RequireFailureDetail.store(0, std::memory_order_release);
     g_RequireErrorTail.store(0, std::memory_order_release);
@@ -4234,6 +4239,8 @@ int InvokeObservedProtected(lua_State* state) {
     lua_call(state,count-1,1);return 1;
 }
 int InvokeObservedCallback(lua_State* state) {
+    if (!isaac::runtime::notice::integrity::RuntimeAllowed())
+        return luaL_error(state, "compatibility layer disabled: notice resources do not match this build");
     const auto previousOwner=g_ErrorContextOwner,previousId=g_ErrorContextCallbackId;
     g_ErrorContextOwner=0;
     int integral = 0;
@@ -4448,6 +4455,8 @@ private:
     isaac::runtime::Status InvokeCore(const isaac::runtime::CallbackDescriptor& descriptor,
                                       bool collecting,
                                       isaac::runtime::CallbackReturn* result) noexcept {
+        if (!isaac::runtime::notice::integrity::RuntimeAllowed())
+            return isaac::runtime::Status{isaac::runtime::StatusCode::InvalidState};
         if (g_LuaState == nullptr) {
             return isaac::runtime::Status{isaac::runtime::StatusCode::InvalidState};
         }
@@ -5615,6 +5624,45 @@ void DispatchPostProjectileUpdate(std::uintptr_t projectile) {
     DispatchProjectileNativeEvent(isaac::runtime::kCallbackPostProjectileUpdate,projectile);
 }
 
+void DispatchPostManualEntityUpdate(std::uintptr_t entity) {
+    if (!IsReady() || g_LuaState == nullptr ||
+        !isaac::runtime::ShouldDispatchManagedCallbacks()) return;
+    std::int64_t filter{};
+    isaac::runtime::CallbackId id{};
+    switch (isaac::runtime::ClassifyCallbackEntity(entity, &filter)) {
+        case isaac::runtime::CallbackEntityClass::Player:
+            id = isaac::runtime::kCallbackPostPlayerUpdate; break;
+        case isaac::runtime::CallbackEntityClass::Npc:
+            id = isaac::runtime::kCallbackNpcUpdate; break;
+        case isaac::runtime::CallbackEntityClass::Familiar:
+            id = isaac::runtime::kCallbackFamiliarUpdate; break;
+        case isaac::runtime::CallbackEntityClass::Pickup:
+            id = isaac::runtime::kCallbackPostPickupUpdate; break;
+        case isaac::runtime::CallbackEntityClass::Tear:
+            id = isaac::runtime::kCallbackPostTearUpdate; break;
+        case isaac::runtime::CallbackEntityClass::Laser:
+            id = isaac::runtime::kCallbackPostLaserUpdate; break;
+        case isaac::runtime::CallbackEntityClass::Knife:
+            id = isaac::runtime::kCallbackPostKnifeUpdate; break;
+        case isaac::runtime::CallbackEntityClass::Effect:
+            id = isaac::runtime::kCallbackPostEffectUpdate; break;
+        case isaac::runtime::CallbackEntityClass::Bomb:
+            id = isaac::runtime::kCallbackPostBombUpdate; break;
+        // Projectile.Update has a native completion relay. Slot6 has no standard
+        // post-update callback. Neither may be fed into another entity family.
+        case isaac::runtime::CallbackEntityClass::Projectile:
+        case isaac::runtime::CallbackEntityClass::None:
+            return;
+    }
+    if (!isaac::runtime::BuiltinCallbackEnabled(id)) return;
+    // Per explicit call, independent of simulation-frame dedup. Bounded recursive
+    // updates in an author's callback are real updates too; do not suppress them.
+    const ManagedEngineDispatchScope dispatchScope;
+    auto invoker = LuaCallbackInvoker::ForEntity(entity);
+    isaac::runtime::CallbackDispatcher dispatcher{g_CallbackRegistry, invoker};
+    static_cast<void>(dispatcher.DispatchFiltered(id, isaac::runtime::ThreadAffinity::Any, filter));
+}
+
 void DispatchPostNpcRender(std::uintptr_t npc, const void* renderOffset) {
     if (!IsReady() || g_LuaState == nullptr || !isaac::runtime::ShouldDispatchManagedCallbacks() ||
         !isaac::runtime::BuiltinCallbackEnabled(isaac::runtime::kCallbackPostNpcRender)) return;
@@ -6041,7 +6089,7 @@ void NoteCurrentLocationForStartRoom() noexcept {
 }
 
 bool IsReady() {
-    return g_Ready.load(std::memory_order_acquire);
+    return isaac::runtime::notice::integrity::RuntimeAllowed() && g_Ready.load(std::memory_order_acquire);
 }
 
 u32 PostUpdateCount() {
