@@ -164,6 +164,27 @@ int main(int argc, char** argv) {
         static_cast<void>(result);
         return 0;
     }
+    if (std::strcmp(scenario, "lua_tainted") == 0) {
+        Ingest("AuriLike", "<players><player name=\"Mage Auri\"/>"
+             "<player name=\"Dark Mage Auri\" bSkinParent=\"Mage Auri\"/>"
+             "<player name=\"Pair\"/><player name=\"Pair\" bSkinParent=\"Pair\"/>"
+             "<player name=\"EmptyParent\" bSkinParent=\"\"/>"
+             "<player name=\"TextOnly\" skin=\"bSkinParent='Mage Auri'\"/></players>");
+        Ingest("Later", "<players><player name=\"Pair\"/>"
+             "<player name=\"Pair\" bSkinParent=\"Pair\"/>"
+             "<player name=\"Isaac\"/></players>");
+        const char* script = R"lua(
+            local function q(n,t) return Isaac.GetPlayerTypeByName(n,t) end
+            print('TAINTED distinct='..q('Mage Auri')..','..q('Dark Mage Auri',true)
+                ..','..q('Dark Mage Auri')..','..q('Mage Auri',true))
+            print('TAINTED same='..q('Pair')..','..q('Pair',true)..','..q('Pair',0))
+            print('TAINTED normal='..q('EmptyParent')..','..q('EmptyParent',true)
+                ..','..q('TextOnly')..','..q('TextOnly',true))
+            print('TAINTED body='..q('Isaac')..','..q('Isaac',true)..','..q('Absent',true))
+        )lua";
+        (void)LuaRuntime::InitializeFromBuffer(script, std::strlen(script), "@tainted.lua");
+        return 0;
+    }
     return 91;
 }
 '''
@@ -219,10 +240,20 @@ class ModPlayerNamesBatch401Tests(unittest.TestCase):
         """⑤ 端到端：真 Lua 下 `Isaac.GetPlayerTypeByName("Mary") == 41`。
 
         ★ 同时钉住"本体 41 条逐值不变"（Isaac=0 / Magdalene=1 / 堕落 Isaac=21），
-        以及"模组角色没有堕落版本"（Mary + Tainted ⇒ -1）、"未知名字 ⇒ -1"。
+        以及“未声明堕落版的角色”（Mary + Tainted ⇒ -1）、“未知名字 ⇒ -1”。
         """
         out = self.run_scenario("lua")
         self.assertIn("B401 lua=41,42,43,0,1,21,-1,-1", out)
+
+    def test_custom_normal_and_tainted_names_are_separate_in_real_lua(self):
+        out = self.run_scenario("lua_tainted")
+        self.assertIn("TAINTED distinct=41,42,-1,-1", out)
+        self.assertIn("TAINTED normal=45,-1,46,-1", out)
+        self.assertIn("TAINTED body=0,21,-1", out)
+
+    def test_latest_matching_player_wins_without_aliasing_its_parent(self):
+        out = self.run_scenario("lua_tainted")
+        self.assertIn("TAINTED same=47,48,48", out)
 
     # ---------------------------------------------------------------- 本体表不许被改
 
@@ -259,7 +290,7 @@ class ModPlayerNamesBatch401Tests(unittest.TestCase):
     # ---------------------------------------------------------------- 静态接线
 
     def test_lookup_consults_the_append_layer_only_as_a_fallback(self):
-        """静态表**先查**（本体优先），只有未命中且非堕落查询时才落到追加层。"""
+        """静态表先查，未命中时追加层同时区分普通/堕落查询。"""
         body = ISAAC_API.read_text(encoding="utf-8")
         self.assertIn("LookupModPlayerTypeName", body)
         # 先做静态查询、再做追加层查询（顺序不能反：否则本体 id 可能被模组同名角色盖掉）。
@@ -267,7 +298,7 @@ class ModPlayerNamesBatch401Tests(unittest.TestCase):
         dynamic_at = body.index("LookupModPlayerTypeName")
         self.assertLess(static_at, dynamic_at,
                         "静态表必须在追加层**之前**查（本体优先）")
-        self.assertIn("id < 0 && !tainted", body, "只在静态未命中且非堕落时才查追加层")
+        self.assertIn("LookupModPlayerTypeName(name, length, tainted)", body)
 
     def test_append_layer_is_wired_into_the_feed_loop(self):
         """② 追加层挂在**喂入循环**上（`LoadEngineModContent`），不是在别处自己排序。

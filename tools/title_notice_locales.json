@@ -1,0 +1,436 @@
+{
+  "en": {
+    "title": "Mod Compatibility",
+    "subtitle": "ISAAC SWITCH  /  {version}",
+    "ui": {
+      "entry": "MOD INFO",
+      "footer_locked": "Read all pages | L/R: pages",
+      "footer_auto": "Hold B: close | L/R: pages",
+      "footer_manual": "B: close | L/R: pages"
+    },
+    "sections": [
+      {
+        "kind": "intro",
+        "paragraphs": [
+          "Run original PC mods on Switch.",
+          "Aiming to recreate the PC mod experience."
+        ]
+      },
+      {
+        "kind": "warning",
+        "paragraphs": [
+          "Some mods may contain bugs.",
+          "Errors, crashes or save issues may occur."
+        ]
+      },
+      {
+        "kind": "free",
+        "paragraphs": [
+          "Always free - never sold"
+        ]
+      },
+      {
+        "kind": "disclaimer",
+        "paragraphs": [
+          "Disclaimer",
+          "Unofficial; not affiliated with the game or platform.",
+          "Back up saves and assess the risks."
+        ]
+      },
+      {
+        "kind": "instructions",
+        "page_break_before": true,
+        "paragraphs": [
+          "How to use",
+          "Move the stick or D-pad left/right, or use L / R to turn pages.",
+          "On first launch or after an update, read every page, then hold B to close.",
+          "Later launches of the same version start with this notice closed.",
+          "Select MOD INFO at the bottom right of the title screen and press A to reopen. Then tap B on any page to close."
+        ]
+      },
+      {
+        "kind": "disclaimer",
+        "page_break_before": true,
+        "paragraphs": [
+          "Full disclaimer",
+          "This unofficial compatibility layer has no link to the game’s developers, publishers or platform owners.",
+          "No game or third-party mods are included. All related rights belong to their original authors.",
+          "Some mod features are not fully tested. Back up saves before use; assess and accept all risks.",
+          "The layer is completely free, never sold in any form."
+        ]
+      }
+    ]
+  },
+  "de": {
+    "title": "Mod-Kompatibilität",
+    "subtitle": "ISAAC SWITCH  /  {version}",
+    "ui": {
+      "entry": "Mod-Info",
+      "footer_locked": "Alles lesen | L/R: blättern",
+      "footer_auto": "B halten: zu | L/R: blättern",
+      "footer_manual": "B: zu | L/R: blättern"
+    },
+    "sections": [
+      {
+        "kind": "intro",
+        "paragraphs": [
+          "Originale PC-Mods auf der Switch.",
+          "Für ein möglichst PC-nahes Mod-Erlebnis."
+        ]
+      },
+      {
+        "kind": "warning",
+        "paragraphs": [
+          "Manche Mods können Fehler enthalten.",
+          "Funktionsfehler, Abstürze oder Spielstandprobleme möglich."
+        ]
+      },
+      {
+        "kind": "free",
+        "paragraphs": [
+          "Immer kostenlos - nie zum Verkauf"
+        ]
+      },
+      {
+        "kind": "disclaimer",
+        "paragraphs": [
+          "Haftungsausschluss",
+          "Inoffiziell; nicht mit Spiel oder Plattform verbunden.",
+          "Spielstände sichern und Risiken selbst prüfen."
+        ]
+      },
+      {
+        "kind": "instructions",
+        "page_break_before": true,
+        "paragraphs": [
+          "Bedienung",
+          "Mit Stick oder Steuerkreuz links/rechts oder mit L / R blättern.",
+          "Beim ersten Start oder nach einem Update alle Seiten lesen, dann B zum Schließen halten.",
+          "Weitere Starts derselben Version beginnen mit geschlossener Mitteilung.",
+          "Unten rechts im Titelbild Mod-Info wählen und A zum Öffnen drücken. Danach auf jeder Seite B zum Schließen antippen."
+        ]
+      },
+      {
+        "kind": "disclaimer",
+        "page_break_before": true,
+        "paragraphs": [
+          "Ausführlicher Haftungsausschluss",
+          "Diese inoffizielle Kompatibilitätsschicht ist unabhängig von Spielentwicklern, Herausgebern und Plattformanbietern.",
+          "Weder Spiel noch fremde Mods enthalten. Die jeweiligen Rechte liegen bei ihren ursprünglichen Autoren.",
+          "Manche Mod-Funktionen sind nicht voll geprüft. Spielstände vorher sichern; Risiken selbst prüfen und verantworten.",
+          "Völlig kostenlos. Kein Verkauf in irgendeiner Form."
+        ]
+      }
+    ]
+  },
+  "es": {
+    "title": "Compatibilidad de mods",
+    "subtitle": "ISAAC SWITCH  /  {version}",
+    "ui": {
+      "entry": "Info mods",
+      "footer_locked": "Lee todo | L/R: páginas",
+      "footer_auto": "Mantén B: salir | L/R: páginas",
+      "footer_manual": "B: salir | L/R: páginas"
+    },
+    "sections": [
+      {
+        "kind": "intro",
+        "paragraphs": [
+          "Mods originales de PC en Switch.",
+          "Para recrear la experiencia de mods de PC."
+        ]
+      },
+      {
+        "kind": "warning",
+        "paragraphs": [
+          "Algunos mods pueden tener errores.",
+          "Puede haber fallos, cierres o problemas al guardar."
+        ]
+      },
+      {
+        "kind": "free",
+        "paragraphs": [
+          "Siempre gratis - nunca a la venta"
+        ]
+      },
+      {
+        "kind": "disclaimer",
+        "paragraphs": [
+          "Aviso legal",
+          "Proyecto no oficial, sin vínculo con el juego ni la plataforma.",
+          "Haz copias de tus partidas y evalúa los riesgos."
+        ]
+      },
+      {
+        "kind": "instructions",
+        "page_break_before": true,
+        "paragraphs": [
+          "Instrucciones",
+          "Usa izquierda/derecha en palanca o cruceta, o L / R para pasar páginas.",
+          "Primer inicio o tras actualizar: lee cada página y mantén B para cerrar.",
+          "La misma versión se inicia cerrada las siguientes veces.",
+          "Para reabrir, elige Info mods abajo a la derecha del título y pulsa A. Luego pulsa B en cualquier página para cerrar."
+        ]
+      },
+      {
+        "kind": "disclaimer",
+        "page_break_before": true,
+        "paragraphs": [
+          "Aviso legal completo",
+          "Esta capa no oficial no tiene vínculo con los desarrolladores, editores del juego ni responsables de la plataforma.",
+          "No incluye el juego ni mods de terceros. Sus derechos pertenecen a los autores originales.",
+          "Hay funciones de mods sin verificar por completo. Haz copias de tus partidas antes de usarla; evalúa los riesgos y asúmelos.",
+          "La capa es totalmente gratis y nunca se vende de ninguna forma."
+        ]
+      }
+    ]
+  },
+  "fr": {
+    "title": "Compatibilité des mods",
+    "subtitle": "ISAAC SWITCH  /  {version}",
+    "ui": {
+      "entry": "Infos mods",
+      "footer_locked": "Tout lire | L/R : pages",
+      "footer_auto": "Maintenir B : fermer | L/R : pages",
+      "footer_manual": "B : fermer | L/R : pages"
+    },
+    "sections": [
+      {
+        "kind": "intro",
+        "paragraphs": [
+          "Les mods PC originaux sur Switch.",
+          "Pour retrouver au mieux l’expérience PC."
+        ]
+      },
+      {
+        "kind": "warning",
+        "paragraphs": [
+          "Certains mods peuvent avoir des bugs.",
+          "Risques de pannes, plantages ou soucis de sauvegarde."
+        ]
+      },
+      {
+        "kind": "free",
+        "paragraphs": [
+          "Toujours gratuit - jamais vendu"
+        ]
+      },
+      {
+        "kind": "disclaimer",
+        "paragraphs": [
+          "Avertissement",
+          "Projet non officiel, sans lien avec le jeu ou la plateforme.",
+          "Sauvegardez vos parties et évaluez les risques."
+        ]
+      },
+      {
+        "kind": "instructions",
+        "page_break_before": true,
+        "paragraphs": [
+          "Utilisation",
+          "Stick ou croix gauche/droite, ou L / R : changer de page.",
+          "Premier lancement ou après mise à jour : lisez tout, puis maintenez B pour fermer.",
+          "Aux lancements suivants de cette version, l’avis est fermé.",
+          "Pour rouvrir : Infos mods en bas à droite du titre, puis A. Ensuite, appuyez sur B à toute page pour fermer."
+        ]
+      },
+      {
+        "kind": "disclaimer",
+        "page_break_before": true,
+        "paragraphs": [
+          "Avertissement détaillé",
+          "Cette couche non officielle est sans lien avec les développeurs, éditeurs du jeu ou responsables de la plateforme.",
+          "Ni le jeu ni des mods tiers ne sont fournis. Leurs droits appartiennent aux auteurs d’origine.",
+          "Des fonctions de mods restent à vérifier entièrement. Avant usage, sauvegardez vos parties, évaluez les risques et assumez-les.",
+          "Couche 100 % gratuite, jamais vendue sous aucune forme."
+        ]
+      }
+    ]
+  },
+  "jp": {
+    "title": "MOD互換レイヤー",
+    "subtitle": "ISAAC SWITCH  /  {version}",
+    "ui": {
+      "entry": "互換レイヤー",
+      "footer_locked": "全ページを読む | L/R: ページ",
+      "footer_auto": "B長押し: 閉じる | L/R: ページ",
+      "footer_manual": "B: 閉じる | L/R: ページ"
+    },
+    "sections": [
+      {
+        "kind": "intro",
+        "paragraphs": [
+          "SwitchでオリジナルのPC用MODを動かし、",
+          "PCのMOD環境をできる限り再現します。"
+        ]
+      },
+      {
+        "kind": "warning",
+        "paragraphs": [
+          "注意: 一部のMODには不具合の可能性があります。",
+          "動作異常、クラッシュ、セーブの問題が起こる場合があります。"
+        ]
+      },
+      {
+        "kind": "free",
+        "paragraphs": [
+          "完全無料・販売は一切しません"
+        ]
+      },
+      {
+        "kind": "disclaimer",
+        "paragraphs": [
+          "免責事項",
+          "非公式で、ゲーム開発元やプラットフォームとは無関係です。",
+          "セーブをバックアップし、リスクをご自身で判断してください。"
+        ]
+      },
+      {
+        "kind": "instructions",
+        "page_break_before": true,
+        "paragraphs": [
+          "使い方",
+          "スティックや方向ボタンの左右、または L / R でページをめくります。",
+          "初回起動時や更新後は全ページを読んでから、B長押しで閉じてください。",
+          "同じバージョンの次回以降の起動時は閉じた状態になります。",
+          "タイトル画面の右下で互換レイヤーを選び、Aで再び開けます。その後はどのページでもBを短く押すと閉じます。"
+        ]
+      },
+      {
+        "kind": "disclaimer",
+        "page_break_before": true,
+        "paragraphs": [
+          "詳しい免責事項",
+          "本プロジェクトは非公式の互換レイヤーであり、ゲームの開発元、販売元、プラットフォーム運営元とは無関係です。",
+          "ゲーム本体や第三者のMODは提供しません。関連する権利はそれぞれの原作者に帰属します。",
+          "一部のMOD機能はまだ完全には検証されていません。使用前にセーブをバックアップし、リスクを判断のうえ、ご自身の責任でご利用ください。",
+          "互換レイヤーは完全無料で、いかなる形でも販売しません。"
+        ]
+      }
+    ]
+  },
+  "kr": {
+    "title": "모드 호환 계층",
+    "subtitle": "ISAAC SWITCH  /  {version}",
+    "ui": {
+      "entry": "호환 계층",
+      "footer_locked": "모두 읽기 | L/R: 페이지",
+      "footer_auto": "B 길게: 닫기 | L/R: 페이지",
+      "footer_manual": "B: 닫기 | L/R: 페이지"
+    },
+    "sections": [
+      {
+        "kind": "intro",
+        "paragraphs": [
+          "Switch에서 원본 PC 모드를 실행하여",
+          "PC의 모드 환경을 최대한 재현합니다."
+        ]
+      },
+      {
+        "kind": "warning",
+        "paragraphs": [
+          "주의: 일부 모드에는 버그가 있을 수 있습니다.",
+          "기능 이상, 충돌, 저장 데이터 문제가 생길 수 있습니다."
+        ]
+      },
+      {
+        "kind": "free",
+        "paragraphs": [
+          "완전 무료 · 판매하지 않습니다"
+        ]
+      },
+      {
+        "kind": "disclaimer",
+        "paragraphs": [
+          "면책 안내",
+          "비공식이며 게임 개발사나 플랫폼과 무관합니다.",
+          "저장 데이터를 백업하고 사용 위험을 직접 판단하세요."
+        ]
+      },
+      {
+        "kind": "instructions",
+        "page_break_before": true,
+        "paragraphs": [
+          "사용 방법",
+          "스틱이나 방향 버튼의 좌우 또는 L / R로 페이지를 넘깁니다.",
+          "처음 실행하거나 업데이트한 뒤에는 모든 페이지를 읽고 B를 길게 눌러 닫으세요.",
+          "같은 버전의 다음 실행부터는 닫힌 상태로 시작합니다.",
+          "타이틀 화면 오른쪽 아래에서 호환 계층을 선택하고 A를 눌러 다시 엽니다. 이후에는 어느 페이지에서나 B를 짧게 눌러 닫을 수 있습니다."
+        ]
+      },
+      {
+        "kind": "disclaimer",
+        "page_break_before": true,
+        "paragraphs": [
+          "상세 면책 안내",
+          "본 프로젝트는 비공식 호환 계층이며 게임 개발사, 배급사 및 플랫폼 운영사와 관계가 없습니다.",
+          "게임 본체나 제삼자의 모드는 제공하지 않습니다. 관련 권리는 원저작자에게 있습니다.",
+          "일부 모드 기능은 아직 완전히 검증되지 않았습니다. 사용 전에 저장 데이터를 백업하고, 위험을 직접 판단하여 책임지고 사용해 주세요.",
+          "호환 계층은 완전 무료이며 어떤 형태로도 판매하지 않습니다."
+        ]
+      }
+    ]
+  },
+  "ru": {
+    "title": "Совместимость модов",
+    "subtitle": "ISAAC SWITCH  /  {version}",
+    "ui": {
+      "entry": "О модах",
+      "footer_locked": "Все страницы | L/R: листать",
+      "footer_auto": "Держать B: выход | L/R: листать",
+      "footer_manual": "B: выход | L/R: листать"
+    },
+    "sections": [
+      {
+        "kind": "intro",
+        "paragraphs": [
+          "Оригинальные моды для ПК на Switch.",
+          "Чтобы воссоздать опыт модов на ПК."
+        ]
+      },
+      {
+        "kind": "warning",
+        "paragraphs": [
+          "Некоторые моды могут содержать ошибки.",
+          "Возможны сбои, вылеты и проблемы с сохранениями."
+        ]
+      },
+      {
+        "kind": "free",
+        "paragraphs": [
+          "Всегда бесплатно - никогда не продаётся"
+        ]
+      },
+      {
+        "kind": "disclaimer",
+        "paragraphs": [
+          "Отказ от ответственности",
+          "Неофициально; без связи с игрой и платформой.",
+          "Копируйте сохранения и оценивайте риски."
+        ]
+      },
+      {
+        "kind": "instructions",
+        "page_break_before": true,
+        "paragraphs": [
+          "Как пользоваться",
+          "Листайте влево/вправо стиком, крестовиной или L / R.",
+          "Первый запуск или обновление: прочтите все страницы, затем держите B для закрытия.",
+          "При следующих запусках той же версии уведомление закрыто.",
+          "Чтобы открыть, выберите «О модах» справа внизу титульного экрана и нажмите A. Затем на любой странице нажмите B для закрытия."
+        ]
+      },
+      {
+        "kind": "disclaimer",
+        "page_break_before": true,
+        "paragraphs": [
+          "Полный отказ от ответственности",
+          "Этот неофициальный слой не связан с разработчиками, издателями игры или владельцами платформы.",
+          "Игра и сторонние моды не предоставляются. Все права на них принадлежат первоначальным авторам.",
+          "Не все функции модов полностью проверены. Перед использованием копируйте сохранения, оценивайте риски и принимайте ответственность за них.",
+          "Слой полностью бесплатен и не продаётся ни в какой форме."
+        ]
+      }
+    ]
+  }
+}

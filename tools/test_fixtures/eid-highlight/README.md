@@ -1,1 +1,0 @@
-这两份片段逐字节摘自仓库的 EID 2026-09-15 发布原件，保留 CRLF，用于真正执行高亮与物品渲染分支；不改 EID 参数或颜色。render-indicator.lua保留playerRGB行及renderIndicator全文；render-entity.lua保留RenderEntity全文。上游：https://github.com/wofsauge/External-Item-Descriptions ，本轮上游main.lua仍有同一repDiv/highlight/border分支；本fixture以项目现存原件为准。

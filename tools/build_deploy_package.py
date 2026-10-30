@@ -13,6 +13,9 @@
 3. 生成 `SHA256SUMS.txt`（`hash  相对路径`，与上一版发布包同格式）；
 4. 打成 `<输出>.zip`（zip 里以输出目录名为根，便于直接解压到 SD 卡根）。
 
+命令行默认原样保留模组脚本与配置：先安装完整原模组，再单独覆盖补丁包。
+仅显式传 `--apply-mod-patches` 才在整包中合入已核对的历史替换文件。
+
 ## ★ 运行时那份 **romfs 覆盖层** 也必须进包（2026-09-23 修正）
 
 构建会往部署树里写 `atmosphere/contents/<id>/romfs/rp_patch/…`（`runtime/Makefile` 的
@@ -59,6 +62,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -66,7 +70,10 @@ import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "tools"))
+
+from mod_lua_performance_patches import approved_patch as approved_lua_performance_patch
 
 CONTENT_ID = "010021C000B6A000"
 MODS_RELATIVE = Path("atmosphere/contents") / CONTENT_ID / "romfs/isaac_mods/mods"
@@ -169,6 +176,11 @@ def is_junk(path: Path) -> bool:
     return path.name in JUNK_NAMES or path.name.startswith("._")
 
 
+def _mod_patch_root() -> Path:
+    """Optional, explicitly supplied local data; never part of core source."""
+    return Path(os.environ.get("ISAAC_MOD_PATCH_ROOT", ROOT / "runtime/mod-patches"))
+
+
 def _approved_entry_patch(source: Path) -> Path:
     """只替换逐字核过的DPS旧入口；新作者版本保持原样，不改源目录。"""
     if source.stat().st_size != 6514:
@@ -177,7 +189,7 @@ def _approved_entry_patch(source: Path) -> Path:
         "01bf6f70012f1c3ec25303a2eb058aae130a4614259cdea33b22c7cad445c3ec"
     ):
         return source
-    patch = ROOT / "runtime/mod-patches/whatsmydps/main.lua"
+    patch = _mod_patch_root() / "whatsmydps/main.lua"
     if hashlib.sha256(patch.read_bytes()).hexdigest() != (
         "8a2bbc484b89de6b5923b000fa54d9ca381a599d1b33d504da3b8a3af1a5f158"
     ):
@@ -191,7 +203,7 @@ def _approved_rplus_entry_patch(source: Path) -> Path:
         "c9553b4c90b6292eb65aa53bb0f5136d21934d376df2172a65d2c18ad6128591"
     ):
         return source
-    patch = ROOT / "runtime/mod-patches/repentanceplus/main.lua"
+    patch = _mod_patch_root() / "repentanceplus/main.lua"
     if hashlib.sha256(patch.read_bytes()).hexdigest() != (
         "ac6e41fd54f9689ab710a72fdb8185e9b31da510758ab4ca99df88e11a7ca98d"
     ):
@@ -205,7 +217,7 @@ def _approved_dss_patch(source: Path) -> Path:
         "69d7a3a59a33c1e40f8dbc68e5cf83cec83bd1a8a5035f8cb23de7bf5e8f69d2"
     ):
         return source
-    patch = ROOT / "runtime/mod-patches/repentanceplus/scripts/dssmenucore.lua"
+    patch = _mod_patch_root() / "repentanceplus/scripts/dssmenucore.lua"
     if hashlib.sha256(patch.read_bytes()).hexdigest() != (
         "47be21f322dd1e63053cf7e58f20cf39e5c7c9389ff212c52f014c315086613b"
     ):
@@ -214,14 +226,15 @@ def _approved_dss_patch(source: Path) -> Path:
 
 
 def _approved_stageapi_grid_patch(source: Path) -> Path:
-    """复用已核StageAPI版本的同格类型读取；未审版本不改。"""
-    if source.stat().st_size != 79237 or hashlib.sha256(source.read_bytes()).hexdigest() != (
-        "b4d5bf2d661e917bb689e2444d61e2cde64bf754050d91d89707e18efe0ab4c6"
-    ):
+    """保留类型读取修正，并减少私有坑/门列表的临时分配。"""
+    if hashlib.sha256(source.read_bytes()).hexdigest() not in {
+        "b4d5bf2d661e917bb689e2444d61e2cde64bf754050d91d89707e18efe0ab4c6",
+        "6afdd9711dcb00dc6107d49a65fd425e956bf55f789addc9fd30f1dc459c4f97",
+    }:
         return source
-    patch = ROOT / "runtime/mod-patches/StageAPI/scripts/stageapi/core/callbacks.lua"
+    patch = _mod_patch_root() / "StageAPI/scripts/stageapi/core/callbacks.lua"
     if hashlib.sha256(patch.read_bytes()).hexdigest() != (
-        "6afdd9711dcb00dc6107d49a65fd425e956bf55f789addc9fd30f1dc459c4f97"
+        "a14999454fabe556815cb6012bd5d20ba247d978a1dc178b322baf0980e83fd0"
     ):
         raise ValueError("StageAPI网格补丁已变化，需要重新审查并更新打包身份")
     return patch
@@ -233,7 +246,7 @@ def _approved_stageapi_shared_patch(source: Path) -> Path:
         "df39061cf095dd860dcc15864f87d8fa27343b899d8e227f4e1809c77b148ffb"
     ):
         return source
-    patch = ROOT / "runtime/mod-patches/StageAPI/scripts/stageapi/shared.lua"
+    patch = _mod_patch_root() / "StageAPI/scripts/stageapi/shared.lua"
     if hashlib.sha256(patch.read_bytes()).hexdigest() != (
         "9b64b5c30980dd6b53c2858483e0bea5bbe9fdcd868b9b016f023e6f1348aba5"
     ):
@@ -247,7 +260,7 @@ def _approved_challenge_goal_patch(source: Path) -> Path:
         "620e1c909b91e6347684cfeb4245ff3edeac4130b44f59fec7f978f3826fee5e"
     ):
         return source
-    patch = ROOT / "runtime/mod-patches/ChallengeAPI/scripts/challengeapi/hud/challenge_goal.lua"
+    patch = _mod_patch_root() / "ChallengeAPI/scripts/challengeapi/hud/challenge_goal.lua"
     if hashlib.sha256(patch.read_bytes()).hexdigest() != (
         "8a7357580a27b1a7b58b0256120eb81d75e79afd48fec88cf4eed9fef405c787"
     ):
@@ -255,8 +268,25 @@ def _approved_challenge_goal_patch(source: Path) -> Path:
     return patch
 
 
-def copy_tree(source: Path, target: Path, *, drop_pcx: bool = False) -> int:
+def _approved_eid_config_original(source: Path) -> Path:
+    """恢复已知历史手工配置，避免重打旧来源时再次带入27项覆盖。"""
+    if hashlib.sha256(source.read_bytes()).hexdigest() != (
+        "c13c8b228fc135db024f2e20661f2ed721aa1d933b39fcfa2f9501b17ea66685"
+    ):
+        return source
+    original = _mod_patch_root() / "EID/eid_config.lua"
+    if hashlib.sha256(original.read_bytes()).hexdigest() != (
+        "14cd00a145ac026f981096e072c845a48c8d35575a30ab4518af10b1d8f749db"
+    ):
+        raise ValueError("EID作者原版配置已变化，需要重新核对原件")
+    return original
+
+
+def copy_tree(source: Path, target: Path, *, drop_pcx: bool = False,
+              apply_patches: bool = False) -> int:
     """拷贝模组树。`drop_pcx=True` 时**跳过** `.pcx`（2026-09-21 起可选）。
+
+    默认原样复制输入脚本和配置；历史补丁只能明确选择并提供本地输入。
 
     为什么可以丢：运行时的贴图桥会在引擎读 `.pcx` 时按需把同名 `.png` 转成 PCX
     （`KAGE::Graphics::ImagePcx::Load` 兜底 + `GetMountedFilePath` 补位），
@@ -271,15 +301,20 @@ def copy_tree(source: Path, target: Path, *, drop_pcx: bool = False) -> int:
         relative = item.relative_to(source)
         destination = target / relative
         destination.parent.mkdir(parents=True, exist_ok=True)
-        copied_source = _approved_rplus_entry_patch(_approved_entry_patch(item)) if relative == Path("main.lua") else item
-        if relative == Path("scripts/dssmenucore.lua"):
-            copied_source = _approved_dss_patch(item)
-        elif relative == Path("scripts/stageapi/core/callbacks.lua"):
-            copied_source = _approved_stageapi_grid_patch(item)
-        elif relative == Path("scripts/stageapi/shared.lua"):
-            copied_source = _approved_stageapi_shared_patch(item)
-        elif relative == Path("scripts/challengeapi/hud/challenge_goal.lua"):
-            copied_source = _approved_challenge_goal_patch(item)
+        copied_source = item
+        if apply_patches:
+            copied_source = _approved_rplus_entry_patch(_approved_entry_patch(item)) if relative == Path("main.lua") else item
+            if relative == Path("scripts/dssmenucore.lua"):
+                copied_source = _approved_dss_patch(item)
+            elif relative == Path("scripts/stageapi/core/callbacks.lua"):
+                copied_source = _approved_stageapi_grid_patch(item)
+            elif relative == Path("scripts/stageapi/shared.lua"):
+                copied_source = _approved_stageapi_shared_patch(item)
+            elif relative == Path("scripts/challengeapi/hud/challenge_goal.lua"):
+                copied_source = _approved_challenge_goal_patch(item)
+            elif relative == Path("eid_config.lua"):
+                copied_source = _approved_eid_config_original(item)
+            copied_source = approved_lua_performance_patch(copied_source, relative, _mod_patch_root())
         shutil.copy2(copied_source, destination)
         count += 1
     return count
@@ -371,20 +406,60 @@ def verify_native_heap_budget(runtime: Path) -> None:
         raise ValueError("原生预算IPS不对应本包NSO的实际映射占用，必须重新构建配套预算")
 
 
+def verified_compatibility_patch_files(runtime: Path) -> dict[Path, bytes]:
+    """Validate compatibility artifacts and keep the exact bytes for copying."""
+    from tools.build_patches import EXPECTED_MODULE_ID, GAME_START_LIFECYCLE_RELAY_RECORDS
+    from tools.nro_ips import decode_ips
+    snapshots = {}
+    for name in REQUIRED_RELAY_PATCHES:
+        relative = Path('atmosphere/nro_patches') / name
+        directory = runtime / relative
+        if not directory.is_dir():
+            raise ValueError(f'缺少必需的中继补丁目录：{directory}，请重新构建兼容层')
+        files = {item.name: item.read_bytes() for item in sorted(directory.iterdir()) if item.is_file()}
+        if name == 'isaac-repentance-lifecycle-relay':
+            filename = EXPECTED_MODULE_ID.hex().upper() + '.ips'
+            try:
+                ips = [key for key in files if key.endswith('.ips')]
+                if ips != [filename] or decode_ips(files[filename]) != GAME_START_LIFECYCLE_RELAY_RECORDS:
+                    raise ValueError('unexpected lifecycle IPS records or module ID')
+            except (KeyError, ValueError) as error:
+                raise ValueError('生命周期兼容补丁包含旧混合或未知记录，请重新构建兼容层；'
+                                 '原游戏优化须通过 --game-patches 单独选择') from error
+        snapshots.update({relative / filename: blob for filename, blob in files.items()})
+    return snapshots
+
+
 def build(args: argparse.Namespace) -> int:
+    if getattr(args, "apply_mod_patches", False) and not _mod_patch_root().is_dir():
+        print("可选模组补丁不属于源码包；请通过 ISAAC_MOD_PATCH_ROOT 提供本地补丁目录。",
+              file=sys.stderr)
+        return 2
+    # Original-game optimizations are independently built inputs. Resolve them
+    # only when explicitly selected, before touching an existing output tree.
+    game_patch_files = {}
+    if getattr(args, "game_patches", None):
+        from runtime.game_patches.build import verified_bundle_files
+        try:
+            game_patch_files = verified_bundle_files(Path(args.game_patches))
+        except ValueError as error:
+            print(str(error), file=sys.stderr)
+            return 2
+    runtime = Path(args.runtime)
+    compatibility_files = {}
+    if args.relay_patches:
+        try:
+            verify_native_heap_budget(runtime)
+            compatibility_files = verified_compatibility_patch_files(runtime)
+        except (OSError, ValueError) as error:
+            print(str(error), file=sys.stderr)
+            return 2
     output = Path(args.output) if args.output else Path("dist") / args.name
     if output.exists():
         shutil.rmtree(output)
     output.mkdir(parents=True)
 
     # 1) 运行时
-    runtime = Path(args.runtime)
-    if args.relay_patches:
-        try:
-            verify_native_heap_budget(runtime)
-        except ValueError as error:
-            print(str(error), file=sys.stderr)
-            return 2
     exefs = output / EXEFS_RELATIVE
     exefs.mkdir(parents=True, exist_ok=True)
     for name in RUNTIME_FILES:
@@ -410,22 +485,18 @@ def build(args: argparse.Namespace) -> int:
     overlay_files = copy_tree(overlay_source, output / RUNTIME_OVERLAY_RELATIVE)
     print(f"覆盖层  romfs/rp_patch/  {overlay_files} 个文件（引擎画那一行要用的菜单动画与贴图）")
 
-    # 1b) **必需**的中继补丁（默认带；`--no-relay-patches` 只给"故意要一份不含补丁的包"用）
-    if args.relay_patches:
-        for name in REQUIRED_RELAY_PATCHES:
-            patch_dir = runtime / "atmosphere/nro_patches" / name
-            if not patch_dir.is_dir():
-                print(f"缺少必需的中继补丁目录：{patch_dir}", file=sys.stderr)
-                print("  （先构建一次运行时；补丁是构建产物，见 runtime/.gdbsym-artifacts/deploy/…）",
-                      file=sys.stderr)
-                return 2
-            target_dir = output / "atmosphere/nro_patches" / name
-            target_dir.mkdir(parents=True, exist_ok=True)
-            for item in sorted(patch_dir.iterdir()):
-                if item.is_file():
-                    shutil.copy2(item, target_dir / item.name)
-                    print(f"补丁    {name}/{item.name}  {item.stat().st_size} 字节  "
-                          f"{sha256(item)[:16]}…")
+    # 1b) Copy the same compatibility bytes checked before replacing output.
+    for relative, blob in compatibility_files.items():
+        target = output / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(blob)
+        print(f"兼容补丁  {relative}  {len(blob)} 字节")
+    # Original-game patches are not controlled by the compatibility relay flag.
+    for relative, blob in game_patch_files.items():
+        target = output / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(blob)
+        print(f"游戏补丁  {relative}  {len(blob)} 字节")
     # 2) 模组
     total = 0
     mod_sources: list[Path] = []
@@ -435,7 +506,8 @@ def build(args: argparse.Namespace) -> int:
             print(f"模组目录不存在：{source}", file=sys.stderr)
             return 2
         target = output / MODS_RELATIVE / source.name
-        count = copy_tree(source, target, drop_pcx=args.drop_mod_pcx)
+        count = copy_tree(source, target, drop_pcx=args.drop_mod_pcx,
+                          apply_patches=args.apply_mod_patches)
         total += count
         mod_sources.append(source)
         # ★ 不管有没有丢 `.pcx`，都要体检"PNG 转不转得了"（2026-09-21）：
@@ -562,6 +634,10 @@ def main() -> int:
     parser.add_argument("--runtime", default="runtime/.gdbsym-artifacts/deploy",
                         help="运行时构建产物目录（含 atmosphere/contents/<id>/exefs/）")
     parser.add_argument("--mod", action="append", default=[], help="要打包的模组目录（可多次）")
+    parser.add_argument("--apply-mod-patches", action="store_true",
+                        help="显式合入已核对的历史模组补丁；默认保留原模组，补丁另行覆盖安装")
+    parser.add_argument("--game-patches", default=None, metavar="DIR",
+                        help="显式组合独立构建的原游戏优化补丁；不传则只带兼容层补丁")
     parser.add_argument("--instructions", default=None, metavar="FILE",
                         help="安装说明（拷进包根当 安装说明.md；不传则包内没有说明书并会提醒）")
     parser.add_argument("--no-relay-patches", dest="relay_patches", action="store_false",

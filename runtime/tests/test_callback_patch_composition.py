@@ -2,6 +2,7 @@
 import unittest
 from pathlib import Path
 from tools import build_patches as p,cold_static_callbacks as c
+from runtime.game_patches.catalog import PATCHES as GAME_PATCHES
 ROOT=Path(__file__).resolve().parents[2]
 class CallbackPatchCompositionTests(unittest.TestCase):
  def records(self,blob):
@@ -11,7 +12,8 @@ class CallbackPatchCompositionTests(unittest.TestCase):
   return out
  def test_all_production_records_and_runtime_veneers_are_disjoint(self):
   n=next(Path('/Users/kelinls/code/github/isaac mod').glob('The Binding of Isaac_ Afterbirth+*/Program #0/1/.nro/Repentance.nro')).read_bytes()
-  ranges=[('lifecycle',a,len(b))for a,b in p.GAME_START_LIFECYCLE_RELAY_RECORDS]
+  ranges=[('lifecycle',a,len(b))for a,b in self.records(p.build_game_start_lifecycle_relay_patch(n))]
+  ranges += [(patch.id,a,len(b))for patch in GAME_PATCHES for a,b in patch.records]
   ranges += [('cold',a,len(b))for a,b in self.records(c.build_static_callback_patch(n))]
   import re
   constants=(ROOT/'runtime/source/runtime_constants.hpp').read_text()

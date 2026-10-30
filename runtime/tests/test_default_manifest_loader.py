@@ -54,6 +54,7 @@ class DefaultManifestLoaderTests(unittest.TestCase):
             hook.index("} // namespace"),
         )
 
+    @unittest.skipUnless(RUNTIME_MOD.is_dir(), "optional local author input is not part of core source")
     def test_default_package_contains_unmodified_mute_on_pause_sources(self):
         for relative, expected_sha256 in MUTE_ON_PAUSE_SHA256.items():
             with self.subTest(relative=relative):
@@ -62,6 +63,7 @@ class DefaultManifestLoaderTests(unittest.TestCase):
                     expected_sha256,
                 )
 
+    @unittest.skipUnless(RUNTIME_MOD.is_dir(), "optional local author input is not part of core source")
     def test_default_make_build_generates_manifest_and_both_manager_relays(self):
         with tempfile.TemporaryDirectory(prefix="isaac-default-manifest-build-") as temporary:
             output = Path(temporary) / "romfs-output"

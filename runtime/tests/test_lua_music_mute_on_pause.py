@@ -335,9 +335,11 @@ int main(int argc, char** argv) {
     def test_register_mod_supports_custom_method_fields(self):
         self.run_harness("mod_fields")
 
+    @unittest.skipUnless((ROOT / "runtime/pc-mods/MuteOnPause").is_dir(), "optional local author input")
     def test_unmodified_mute_on_pause_holds_music_while_pause_state_stays_true(self):
         self.run_harness("real_hold", str(ROOT / "runtime" / "pc-mods" / "MuteOnPause"))
 
+    @unittest.skipUnless((ROOT / "runtime/pc-mods/MuteOnPause").is_dir(), "optional local author input")
     def test_unmodified_mute_on_pause_resumes_after_a_false_render_state(self):
         self.run_harness("real_resume", str(ROOT / "runtime" / "pc-mods" / "MuteOnPause"))
 

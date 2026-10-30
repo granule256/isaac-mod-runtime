@@ -34,6 +34,8 @@
 //     （`GameFileReader::ReadTextFile` 的实参）—— 它既不碰引擎内存、也不产生"能调的地址"。
 
 #include "mod_menu_native.hpp"
+#include "title_notice_native.hpp"
+#include "notice_integrity_native.hpp"
 #include "mod_reload_native.hpp"
 #include "native_game_resource_reload.hpp"
 #include "mod_resource_redirect.hpp"
@@ -2596,6 +2598,7 @@ bool g_ModMenuReloadFailed{};
 bool g_ModContentCycleExplicit{};
 bool LoadEngineModContent(const TargetModule& module, std::uint32_t trigger,
                           std::size_t selected = SIZE_MAX, bool finalize = true) {
+    if (!isaac::runtime::notice::integrity::RuntimeAllowed()) return false;
     if (g_ModContentCycleComplete) return true;
     if (!g_ModContentCycleExplicit || !isaac::runtime::ModMenuDiscoveryDone()) return false;
     PrepareSourceContext(module);
@@ -3434,6 +3437,9 @@ extern "C" void EntryRelayMenuManagerSetStateCallback(void* self, std::int32_t s
     if (original == nullptr) {
         return;
     }
+    if (g_Menu.menuState == 1 && state == 2 && isaac::runtime::notice::BlocksTitleConfirm()) {
+        return;
+    }
     // 挡下来要同时满足三条：
     //   ① 当前就在"选择界面"（状态 3）；
     //   ② **我们的光标正停在自己那一格**（格子号 3）—— "统计数据/选项"那两行在我们这边是
@@ -3468,6 +3474,7 @@ bool SortAndPublishDiscoveredMods(const TargetModule& module,
 
 void ModMenuNativeInstall(const TargetModule& module) noexcept {
     g_ModMenuState.armed = 1;
+    isaac::runtime::notice::ConfigureComposite(module.base, module.textSize);
     // 三个入口中继是**挂点登记表**装的（`HookInstallService` 按 `kHookCatalog` 逐个装）⇒
     // 这里只把"装没装上"记进状态面 [1]。判据用挂点记下的回退入口是否非空：
     // 装上了就一定有回退入口（入口被改写成跳转，原函数只能从槽里取）。
@@ -4058,6 +4065,21 @@ void ModMenuNativeUpdate() noexcept {
         g_ModMenuState.failure = kFailureModuleNotFound;
         return;
     }
+    if (isaac::runtime::notice::integrity::Blocked()) {
+        std::uintptr_t menu{}, manager{};
+        if (!ReadSingleton(*module, kMenuManagerSlotOffset, &menu) || !menu) {
+            isaac::runtime::notice::Update(0, 0.0F, 0.0F, nullptr);
+            return;
+        }
+        g_Menu.menuManager = menu;
+        g_Menu.menuState = ReadMenuState(menu);
+        if (ReadSingleton(*module, kManagerSlotOffset, &manager)) g_Menu.manager = manager;
+        RefreshScreenSize(*module);
+        ResolveLanguage();
+        isaac::runtime::notice::Update(g_Menu.menuState, g_Menu.screenWidth, g_Menu.screenHeight,
+                                       nullptr, g_Menu.language, EngineFontObject());
+        return;
+    }
     // ★★ 这两件事必须在**任何游戏状态下**都执行 —— 尤其"在一局里"（那时菜单管理器不存在，
     //    下面那道早退会命中）。理由见 `UpdateAchievementDisallow` 上方那段。
     UpdateAchievementDisallow(*module);
@@ -4084,6 +4106,7 @@ void ModMenuNativeUpdate() noexcept {
     // `g_MenuManager` 是这一切的前置条件（它随菜单生命周期出现/消失）。
     std::uintptr_t menuManager = 0;
     if (!ReadSingleton(*module, kMenuManagerSlotOffset, &menuManager) || menuManager == 0) {
+        isaac::runtime::notice::Update(0, 0.0F, 0.0F, nullptr);
         g_SlotInit = 0;        // 离开菜单 ⇒ 下次进来重新取初值
         g_RestoreOurs = 0;     // 连菜单都离开了 ⇒ "回到我们那一格"这件事作废
         g_Menu.menuManager = 0;
@@ -4113,6 +4136,8 @@ void ModMenuNativeUpdate() noexcept {
     // 这个 thunk 是运行时自己解析好、记下来的（不是"模块基址 + 偏移"）⇒ 只需转换一次签名：
     // 走引擎调用层的 `AsFunction`（批次 108），调用点里不留 `reinterpret_cast`。
     const auto query = engine_call::AsFunction<ActionQueryFn>(thunk);
+    isaac::runtime::notice::Update(g_Menu.menuState, g_Menu.screenWidth, g_Menu.screenHeight,
+                                   query, g_Menu.language, EngineFontObject());
 
     // 页面的一次性 `ctor` + `Init`：**在菜单一出现时就做**（探针的"自动驱动"同一形状）。
     // 为什么要提前做而不是等用户按确认：条目表要**等发现结果**（最多 900 帧），而 `Init` 必须

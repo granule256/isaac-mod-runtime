@@ -26,6 +26,7 @@ constexpr std::uint32_t kMaxPlayersPerMod = 256;  // 一个模组最多解析这
 struct Entry {
     std::uint32_t nameOffset;  //: 在名字池里的字节下标
     std::int32_t id;
+    bool tainted;
 };
 
 // 全部状态（文件作用域 POD）：零初始化，或带常量初始化 ⇒ 不会有 `__cxa_guard_*`。
@@ -166,6 +167,7 @@ bool StoreName(const ModPlayerName& name, std::int32_t id) noexcept {
     g_NameUsed += static_cast<std::uint32_t>(name.length) + 1;
     g_Entries[g_EntryCount].nameOffset = offset;
     g_Entries[g_EntryCount].id = id;
+    g_Entries[g_EntryCount].tainted = name.tainted;
     ++g_EntryCount;
     return true;
 }
@@ -226,6 +228,11 @@ std::uint32_t ParseModPlayersXml(const char* xml, std::size_t length, ModPlayerN
             if (out != nullptr && stored < capacity) {
                 out[stored].name = value;
                 out[stored].length = valueLength;
+                const char* parent = nullptr;
+                std::size_t parentLength = 0;
+                out[stored].tainted =
+                    ExtractAttribute(xml, tag + 1, tagEnd, "bSkinParent", 11,
+                                     &parent, &parentLength) && parentLength > 0;
             }
             ++stored;  // ★ 计数**不受 capacity 限制**：调用方要按"引擎会追加几格"推进 id
         } else {
@@ -295,14 +302,19 @@ std::uint32_t IngestModPlayersXml(const char* modKey, const char* xml,
     return appended;
 }
 
-std::int32_t LookupModPlayerTypeName(const char* name, std::size_t length) noexcept {
+std::int32_t LookupModPlayerTypeName(const char* name, std::size_t length,
+                                   bool tainted) noexcept {
     if (name == nullptr || length == 0) {
         return -1;
     }
-    for (std::uint32_t i = 0; i < g_EntryCount; ++i) {
-        const char* const candidate = g_NamePool + g_Entries[i].nameOffset;
+    for (std::uint32_t i = g_EntryCount; i > 0; --i) {
+        const auto& entry = g_Entries[i - 1];
+        if (entry.tainted != tainted) {
+            continue;
+        }
+        const char* const candidate = g_NamePool + entry.nameOffset;
         if (std::strlen(candidate) == length && std::memcmp(candidate, name, length) == 0) {
-            return g_Entries[i].id;
+            return entry.id;
         }
     }
     return -1;  // 未命中：与静态表同口径（PC 契约这几条找不到都是 -1）

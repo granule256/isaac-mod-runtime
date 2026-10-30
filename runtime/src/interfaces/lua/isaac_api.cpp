@@ -1269,13 +1269,13 @@ int IsaacGetPlayerTypeByName(lua_State* state) {
     std::size_t length = 0;
     const char* name = luaL_checklstring(state, 1, &length);
     const bool tainted = lua_toboolean(state, 2) != 0;
-    // ★ 批次 401：**先查静态表（本体优先）**，只有静态表未命中、且不是堕落查询时，才落到
+    // ★ 批次 401 / 2026-10-29：**先查静态表（本体优先）**，静态表未命中才落到
     //   "模组角色追加层"。这样本体 41 个 id（0..40）逐值不变（要求②），
     //   追加的名字只可能出现在 41 之后（`kModPlayerTypeIdBase`）。
     //   追加层由装载期 `IngestModPlayersXml` 按**引擎喂入顺序**填（见 `mod_player_names.hpp`）。
     std::int32_t id = LookupIsaacName(IsaacNameKind::PlayerType, name, length, tainted);
-    if (id < 0 && !tainted) {
-        id = LookupModPlayerTypeName(name, length);  // 未命中仍是 -1（与契约同口径）
+    if (id < 0) {
+        id = LookupModPlayerTypeName(name, length, tainted);  // 未命中仍是 -1（与契约同口径）
     }
     lua_pushinteger(state, id);
     return 1;
@@ -2087,8 +2087,7 @@ std::uint32_t ClassifyEntity(const EntitySnapshot& snapshot) noexcept {
     return 0;
 }
 
-// `IsEnemy = (u32)(Type - 10) < 0x3DE`：`Isaac.CountEnemies()` 的判据（任务给定的那一条，
-// 也正是 `collide()` 里的同一条比较）。
+// NPC类型区间：用于实体分类；活敌人/战斗计数须读房间原生计数，不能套用此区间。
 bool IsEnemyType(std::uint32_t type) noexcept {
     return type - kEntityEnemyTypeBase < kEntityEnemyTypeSpan;
 }
@@ -7089,12 +7088,8 @@ int IsaacFindByType(lua_State* state) {
     return 1;
 }
 
-// `Isaac.CountEnemies()`（`Isaac.md:66`）：活表里 `IsEnemy = (u32)(Type - 10) < 0x3DE` 的实体数。
-//
-// 已知偏差（写在这里而不是藏起来）：引擎 `EntityList::collide()` 的 ENEMY 分区还包含
-// "被魅惑的跟班"（`Type 3 && Variant 0xEF`）与炸弹（`Type 4`），而任务给定的 `CountEnemies`
-// 判据只有那条类型区间比较 —— 本实现照抄后者。`FLAG_NO_QUERY` 也**不**参与计数
-// （没有证据说明引擎的 `CountType` 会跳过它）。
+// PC CountEnemies @0x80D300 与 Room:GetAliveEnemiesCount 都读房间的活敌人计数对。
+// 不能按NPC类型区间扫描：商店老板/火堆也在该区间，会误触EID HideInBattle。
 int IsaacCountEnemies(lua_State* state) {
     RecordApiSequence(20U);
     std::int64_t count = 0;
@@ -7107,54 +7102,15 @@ int IsaacCountEnemies(lua_State* state) {
                                      std::memory_order_relaxed);
         }
     } recorder{&count};
-    const std::uintptr_t room = ResolveRoom();
-    if (room != 0 && EntityListFingerprintMatches(room + kRoomEntityListOffset)) {
-        ForEachEntityInTable(room + kRoomEntityListOffset, kLiveEntityTable,
-                             [&count](std::uintptr_t entity) {
-                                 EntitySnapshot snapshot{};
-                                 if (CaptureEntity(entity, &snapshot) &&
-                                     IsEnemyType(snapshot.type)) {
-                                     ++count;
-                                 }
-                             });
-    }
+    count = ReadRoomAliveCount(ResolveRoom(), kRoomAliveEnemiesCountOffset);
     lua_pushinteger(state, static_cast<lua_Integer>(count));
     return 1;
 }
 
-// `Isaac.CountBosses()`（`Isaac.md:60`："Returns the number of bosses in the current room."）。
-//
-// **判据（批次 026 取证，三条互证；完整出处写在 `runtime_constants.hpp` 那个常量的注释里）**：
-// `Entity_NPC::IsBoss()` @ `0x124B20` 的整个函数体就是 `ldrb w0, [x0, #0xcc9]; ret`
-// ⇒ PC 那条访问器读的就是 `Entity + 0xCC9` 这个字节；基类 `Entity::IsBoss()` @ `0x67580`
-// 恒返回 false ⇒ 该字段只对 NPC 有意义，所以这里**先要求"这是敌人"再读它**
-// （别的类上那个偏移是无关数据）。旁证：全镜像对 `[x?, #0xcc9]` 的字节访问共 15 处，
-// 其中一处写入把 NPC 配置里的字节拷进实体、一处读取在 NPC 寻路重置后按它分支。
-//
-// 遍历与降级口径与 `Isaac.CountEnemies()` 完全同形：只扫房间的**活表**（boss 是敌人，
-// 不进效果表、也不在玩家向量里），读不到就当"不是 boss"（宁可少数，也不猜）。
+// PC CountBosses @0x80D330 与 Room:GetAliveBossesCount 读同一对原生Boss计数。
 int IsaacCountBosses(lua_State* state) {
     RecordApiSequence(21U);
-    std::int64_t count = 0;
-    const std::uintptr_t room = ResolveRoom();
-    if (room != 0 && EntityListFingerprintMatches(room + kRoomEntityListOffset)) {
-        ForEachEntityInTable(room + kRoomEntityListOffset, kLiveEntityTable,
-                             [&count](std::uintptr_t entity) {
-                                 EntitySnapshot snapshot{};
-                                 if (!CaptureEntity(entity, &snapshot) ||
-                                     !IsEnemyType(snapshot.type)) {
-                                     return;
-                                 }
-                                 std::uint8_t bossFlag = 0;
-                                 if (!ReadEngine(entity + kEntityBossFlagOffset, &bossFlag)) {
-                                     return;
-                                 }
-                                 if (bossFlag != 0) {
-                                     ++count;
-                                 }
-                             });
-    }
-    lua_pushinteger(state, static_cast<lua_Integer>(count));
+    lua_pushinteger(state, ReadRoomAliveCount(ResolveRoom(), kRoomAliveBossesCountOffset));
     return 1;
 }
 
@@ -9272,6 +9228,12 @@ int EngineMethodHandler(lua_State* state) {
     if (callable) {
         ::EngineCallTrampoline(engineMethod, integers, floats, &integerResult,
                                              &floatResult);
+        // PC Entity.Update includes its entity-family post-update callback.
+        // Normal native frame dispatch remains independent; rejected calls do
+        // not dispatch, and the projectile family keeps its existing tail relay.
+        if (row->id == 0x0E01006BU) {
+            LuaRuntime::DispatchPostManualEntityUpdate(static_cast<std::uintptr_t>(integers[0]));
+        }
     }
     // PC 的返回是 int 时拿不到就压 0、是 boolean 就压 false、是 float 就压 0.0（**不压 nil**）：
     // 模组普遍拿返回值做算术或比较，nil 会变成 "attempt to compare nil with number" 把回调打断。

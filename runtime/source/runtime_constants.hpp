@@ -5040,7 +5040,10 @@ inline constexpr std::size_t kRomfsModManifestMaximumLength = 524288;
 // 表现为"加载不报错、回调注册表为空、屏幕上什么都没有"。1 MiB 是最大 Lua 文件的 4 倍，
 // 只花 .bss。同名常量在 `manifest_service.hpp` 里也有一份，两者必须相等（见 `hook_manager.cpp`
 // 的 `static_assert`）。
-inline constexpr std::size_t kRomfsModScriptMaximumLength = 1048576;
+// 2026-10-29：作者WOL固定提交cffda577原样IsaacScript构建入口为2,698,817B，
+// 1MiB会直接EntryRead失败。上调至3MiB；生产入口与require各复用一份缓冲，
+// 合计BSS增加4MiB，不随模组数增加，也没有新增每帧工作/分配/IO。
+inline constexpr std::size_t kRomfsModScriptMaximumLength = 3145728;
 #endif
 
 // KAGE content mount points: how a Mod's own `resources/` directory reaches the

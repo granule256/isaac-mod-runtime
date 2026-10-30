@@ -962,7 +962,7 @@ void CheckMouseButtonArguments(lua_State* state, const char* apiName) {
 //
 // 为什么改成触摸屏：PC 模组里"鼠标悬停某处才显示信息"的交互在真机上是**死的**
 //（EID 的 `EID:handleHoverHUD()`，`main.lua:1050`），而 `hid` 服务权限本来就在模块清单里
-//（`runtime/exlaunch/config.json`）⇒ 缺的不是权限，是没做。
+//（`runtime/config.json`）⇒ 缺的不是权限，是没做。
 int InputGetMousePosition(lua_State* state) {
     if (lua_gettop(state) != 0 && lua_gettop(state) != 1) {
         return luaL_error(state, "Input.GetMousePosition takes an optional boolean");
