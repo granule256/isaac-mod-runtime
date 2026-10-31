@@ -12,29 +12,42 @@
       {
         "kind": "intro",
         "paragraphs": [
-          "Run original PC mods on Switch.",
-          "Aiming to recreate the PC mod experience."
-        ]
-      },
-      {
-        "kind": "warning",
-        "paragraphs": [
-          "Some mods may contain bugs.",
-          "Errors, crashes or save issues may occur."
+          "A PC mod compatibility layer for The Binding of Isaac on Switch.",
+          "Repentance mod support is largely complete. The next focus is finding and fixing remaining bugs.",
+          "It adds the mod menu, achievement disabling on new saves, the console, and the APIs and callbacks mods need."
         ]
       },
       {
         "kind": "free",
         "paragraphs": [
-          "Always free - never sold"
+          "Completely free, never sold. Source code will be released."
+        ]
+      },
+      {
+        "kind": "warning",
+        "page_break_before": true,
+        "paragraphs": [
+          "Compatibility and performance",
+          "Some API behavior or callback timing may differ from PC, causing mod errors or crashes.",
+          "Many optimizations are in place, but some mods remain demanding. Adjust overclocking to your mod setup and actual performance."
         ]
       },
       {
         "kind": "disclaimer",
         "paragraphs": [
-          "Disclaimer",
-          "Unofficial; not affiliated with the game or platform.",
-          "Back up saves and assess the risks."
+          "Unofficial; no affiliation. No game or mods included; rights remain with authors. Back up saves and assess the risks."
+        ]
+      },
+      {
+        "kind": "downloads",
+        "page_break_before": true,
+        "paragraphs": [
+          "Downloads and feedback",
+          "Downloads: ToMod’s Isaac page / GBAtemp",
+          "Project: Isaac Switch Mod Runtime",
+          "QQ group: 1124953430",
+          "Discord: discord.gg/JMQc2jMsve",
+          "Include layer and mod versions, steps to reproduce, and video or logs when reporting a problem."
         ]
       },
       {
@@ -47,22 +60,11 @@
           "Later launches of the same version start with this notice closed.",
           "Select MOD INFO at the bottom right of the title screen and press A to reopen. Then tap B on any page to close."
         ]
-      },
-      {
-        "kind": "disclaimer",
-        "page_break_before": true,
-        "paragraphs": [
-          "Full disclaimer",
-          "This unofficial compatibility layer has no link to the game’s developers, publishers or platform owners.",
-          "No game or third-party mods are included. All related rights belong to their original authors.",
-          "Some mod features are not fully tested. Back up saves before use; assess and accept all risks.",
-          "The layer is completely free, never sold in any form."
-        ]
       }
     ],
     "support": {
       "title": "Thank you!",
-      "message": "Always free. Tips are optional. Thank you!",
+      "message": "Optional tips. Access stays the same.",
       "labels": [
         "WeChat",
         "Alipay",
@@ -84,29 +86,42 @@
       {
         "kind": "intro",
         "paragraphs": [
-          "Originale PC-Mods auf der Switch.",
-          "Für ein möglichst PC-nahes Mod-Erlebnis."
-        ]
-      },
-      {
-        "kind": "warning",
-        "paragraphs": [
-          "Manche Mods können Fehler enthalten.",
-          "Funktionsfehler, Abstürze oder Spielstandprobleme möglich."
+          "PC-Mod-Kompatibilität für The Binding of Isaac auf Switch.",
+          "Repentance-Mods werden weitgehend unterstützt. Jetzt geht es vor allem um mögliche Fehler.",
+          "Mit Mod-Menü, Erfolgssperre bei neuen Spielständen, Konsole sowie APIs und Callbacks für Mods."
         ]
       },
       {
         "kind": "free",
         "paragraphs": [
-          "Immer kostenlos - nie zum Verkauf"
+          "Kostenlos, kein Verkauf. Quellcode folgt."
+        ]
+      },
+      {
+        "kind": "warning",
+        "page_break_before": true,
+        "paragraphs": [
+          "Kompatibilität und Leistung",
+          "API-Verhalten und Callback-Zeitpunkte können vom PC abweichen. Das kann Fehler oder Abstürze verursachen.",
+          "Vieles wurde optimiert, manche Mods bleiben anspruchsvoll. Übertaktung an Mods und tatsächliche Leistung anpassen."
         ]
       },
       {
         "kind": "disclaimer",
         "paragraphs": [
-          "Haftungsausschluss",
-          "Inoffiziell; nicht mit Spiel oder Plattform verbunden.",
-          "Spielstände sichern und Risiken selbst prüfen."
+          "Inoffiziell, ohne Verbindung zu Spiel oder Plattform. Rechte bei den Autoren; Spiel und Mods nicht enthalten. Spielstände sichern und Risiken prüfen."
+        ]
+      },
+      {
+        "kind": "downloads",
+        "page_break_before": true,
+        "paragraphs": [
+          "Downloads und Feedback",
+          "Downloads: Isaac-Seite in ToMod / GBAtemp",
+          "Projekt: Isaac Switch Mod Runtime",
+          "QQ-Gruppe: 1124953430",
+          "Discord: discord.gg/JMQc2jMsve",
+          "Bei Fehlern Versionen der Schicht und Mods, Schritte zum Nachstellen sowie Videos oder Logs angeben."
         ]
       },
       {
@@ -115,26 +130,15 @@
         "paragraphs": [
           "Bedienung",
           "Mit Stick oder Steuerkreuz links/rechts oder mit L / R blättern.",
-          "Beim ersten Start oder nach einem Update alle Seiten lesen, dann B zum Schließen halten.",
-          "Weitere Starts derselben Version beginnen mit geschlossener Mitteilung.",
-          "Unten rechts im Titelbild Mod-Info wählen und A zum Öffnen drücken. Danach auf jeder Seite B zum Schließen antippen."
-        ]
-      },
-      {
-        "kind": "disclaimer",
-        "page_break_before": true,
-        "paragraphs": [
-          "Ausführlicher Haftungsausschluss",
-          "Diese inoffizielle Kompatibilitätsschicht ist unabhängig von Spielentwicklern, Herausgebern und Plattformanbietern.",
-          "Weder Spiel noch fremde Mods enthalten. Die jeweiligen Rechte liegen bei ihren ursprünglichen Autoren.",
-          "Manche Mod-Funktionen sind nicht voll geprüft. Spielstände vorher sichern; Risiken selbst prüfen und verantworten.",
-          "Völlig kostenlos. Kein Verkauf in irgendeiner Form."
+          "Beim ersten Start oder nach Updates alle Seiten lesen, dann B zum Schließen halten.",
+          "Bei gleicher Version bleibt der Hinweis ab dem zweiten Start geschlossen.",
+          "Unten rechts im Titelbild Mod-Info wählen, A zum Öffnen. Danach auf jeder Seite B zum Schließen."
         ]
       }
     ],
     "support": {
       "title": "Danke für eure Hilfe!",
-      "message": "Kostenlos. Freiwillige Spenden. Danke!",
+      "message": "Freiwillige Spenden. Zugang unverändert.",
       "labels": [
         "WeChat",
         "Alipay",
@@ -156,57 +160,59 @@
       {
         "kind": "intro",
         "paragraphs": [
-          "Mods originales de PC en Switch.",
-          "Para recrear la experiencia de mods de PC."
-        ]
-      },
-      {
-        "kind": "warning",
-        "paragraphs": [
-          "Algunos mods pueden tener errores.",
-          "Puede haber fallos, cierres o problemas al guardar."
+          "Capa de compatibilidad con mods de PC para The Binding of Isaac en Switch.",
+          "El soporte de mods de Repentance está casi completo. Ahora toca encontrar y corregir posibles errores.",
+          "Incluye menú de mods, logros desactivados en partidas nuevas, consola, API y callbacks para mods."
         ]
       },
       {
         "kind": "free",
         "paragraphs": [
-          "Siempre gratis - nunca a la venta"
+          "Siempre gratis, nunca a la venta. Código fuente próximamente."
+        ]
+      },
+      {
+        "kind": "warning",
+        "page_break_before": true,
+        "paragraphs": [
+          "Compatibilidad y rendimiento",
+          "El comportamiento de algunas API o el momento de los callbacks puede diferir del PC y causar errores o cierres.",
+          "Hay muchas optimizaciones, pero algunos mods siguen siendo exigentes. Ajusta el overclock a tus mods y al rendimiento real."
         ]
       },
       {
         "kind": "disclaimer",
         "paragraphs": [
-          "Aviso legal",
-          "Proyecto no oficial, sin vínculo con el juego ni la plataforma.",
-          "Haz copias de tus partidas y evalúa los riesgos."
+          "No oficial, sin afiliación. No incluye juego ni mods; los derechos son de sus autores. Haz copias de seguridad y valora los riesgos."
+        ]
+      },
+      {
+        "kind": "downloads",
+        "page_break_before": true,
+        "paragraphs": [
+          "Descargas y comentarios",
+          "Descargas: sección Isaac de ToMod / GBAtemp",
+          "Proyecto: Isaac Switch Mod Runtime",
+          "Grupo QQ: 1124953430",
+          "Discord: discord.gg/JMQc2jMsve",
+          "Indica las versiones de la capa y los mods, pasos para reproducir el fallo, vídeos o registros."
         ]
       },
       {
         "kind": "instructions",
         "page_break_before": true,
         "paragraphs": [
-          "Instrucciones",
-          "Usa izquierda/derecha en palanca o cruceta, o L / R para pasar páginas.",
-          "Primer inicio o tras actualizar: lee cada página y mantén B para cerrar.",
-          "La misma versión se inicia cerrada las siguientes veces.",
-          "Para reabrir, elige Info mods abajo a la derecha del título y pulsa A. Luego pulsa B en cualquier página para cerrar."
-        ]
-      },
-      {
-        "kind": "disclaimer",
-        "page_break_before": true,
-        "paragraphs": [
-          "Aviso legal completo",
-          "Esta capa no oficial no tiene vínculo con los desarrolladores, editores del juego ni responsables de la plataforma.",
-          "No incluye el juego ni mods de terceros. Sus derechos pertenecen a los autores originales.",
-          "Hay funciones de mods sin verificar por completo. Haz copias de tus partidas antes de usarla; evalúa los riesgos y asúmelos.",
-          "La capa es totalmente gratis y nunca se vende de ninguna forma."
+          "Controles",
+          "Usa stick o cruceta izquierda/derecha, o L / R, para pasar páginas.",
+          "En el primer inicio o tras actualizar, lee todas las páginas y mantén B para cerrar.",
+          "Los siguientes inicios de la misma versión no muestran el aviso.",
+          "Selecciona la información de mods abajo a la derecha del título y pulsa A. Luego B cierra cualquier página."
         ]
       }
     ],
     "support": {
       "title": "¡Gracias por tu apoyo!",
-      "message": "Siempre gratis. Donar es opcional. ¡Gracias!",
+      "message": "Apoyo opcional, sin ventajas de acceso.",
       "labels": [
         "WeChat",
         "Alipay",
@@ -228,57 +234,59 @@
       {
         "kind": "intro",
         "paragraphs": [
-          "Les mods PC originaux sur Switch.",
-          "Pour retrouver au mieux l’expérience PC."
-        ]
-      },
-      {
-        "kind": "warning",
-        "paragraphs": [
-          "Certains mods peuvent avoir des bugs.",
-          "Risques de pannes, plantages ou soucis de sauvegarde."
+          "Compatibilité avec les mods PC de The Binding of Isaac sur Switch.",
+          "Le support des mods Repentance est presque complet. La suite vise surtout les bugs restants.",
+          "Ajoute menu des mods, succès désactivés sur les nouvelles sauvegardes, console, API et callbacks."
         ]
       },
       {
         "kind": "free",
         "paragraphs": [
-          "Toujours gratuit - jamais vendu"
+          "Toujours gratuit, jamais vendu. Code source à venir."
+        ]
+      },
+      {
+        "kind": "warning",
+        "page_break_before": true,
+        "paragraphs": [
+          "Compatibilité et performances",
+          "Certaines API et le timing des callbacks peuvent différer du PC, causant erreurs ou plantages.",
+          "Malgré les optimisations, certains mods restent exigeants. Adaptez l’overclock aux mods et aux performances réelles."
         ]
       },
       {
         "kind": "disclaimer",
         "paragraphs": [
-          "Avertissement",
-          "Projet non officiel, sans lien avec le jeu ou la plateforme.",
-          "Sauvegardez vos parties et évaluez les risques."
+          "Non officiel, sans affiliation. Ni jeu ni mods tiers inclus ; droits réservés aux auteurs. Sauvegardez vos parties et évaluez les risques."
+        ]
+      },
+      {
+        "kind": "downloads",
+        "page_break_before": true,
+        "paragraphs": [
+          "Téléchargements et retours",
+          "Téléchargements : page Isaac de ToMod / GBAtemp",
+          "Projet : Isaac Switch Mod Runtime",
+          "Groupe QQ : 1124953430",
+          "Discord : discord.gg/JMQc2jMsve",
+          "Indiquez les versions de la couche et des mods, les étapes de reproduction, des vidéos ou des journaux."
         ]
       },
       {
         "kind": "instructions",
         "page_break_before": true,
         "paragraphs": [
-          "Utilisation",
-          "Stick ou croix gauche/droite, ou L / R : changer de page.",
-          "Premier lancement ou après mise à jour : lisez tout, puis maintenez B pour fermer.",
-          "Aux lancements suivants de cette version, l’avis est fermé.",
-          "Pour rouvrir : Infos mods en bas à droite du titre, puis A. Ensuite, appuyez sur B à toute page pour fermer."
-        ]
-      },
-      {
-        "kind": "disclaimer",
-        "page_break_before": true,
-        "paragraphs": [
-          "Avertissement détaillé",
-          "Cette couche non officielle est sans lien avec les développeurs, éditeurs du jeu ou responsables de la plateforme.",
-          "Ni le jeu ni des mods tiers ne sont fournis. Leurs droits appartiennent aux auteurs d’origine.",
-          "Des fonctions de mods restent à vérifier entièrement. Avant usage, sauvegardez vos parties, évaluez les risques et assumez-les.",
-          "Couche 100 % gratuite, jamais vendue sous aucune forme."
+          "Commandes",
+          "Pages : stick ou croix gauche/droite, ou L / R.",
+          "Au premier lancement ou après mise à jour, lisez tout puis maintenez B pour fermer.",
+          "Aux lancements suivants de la même version, cet avis reste fermé.",
+          "Sur l’écran titre, sélectionnez les infos mods en bas à droite et appuyez sur A. Ensuite, B ferme toute page."
         ]
       }
     ],
     "support": {
       "title": "Merci de votre soutien !",
-      "message": "Gratuit. Dons libres. Merci !",
+      "message": "Dons facultatifs, sans effet sur l’accès.",
       "labels": [
         "WeChat",
         "Alipay",
@@ -300,57 +308,59 @@
       {
         "kind": "intro",
         "paragraphs": [
-          "SwitchでオリジナルのPC用MODを動かし、",
-          "PCのMOD環境をできる限り再現します。"
-        ]
-      },
-      {
-        "kind": "warning",
-        "paragraphs": [
-          "注意: 一部のMODには不具合の可能性があります。",
-          "動作異常、クラッシュ、セーブの問題が起こる場合があります。"
+          "Switch版「The Binding of Isaac」でPC版MODを動かす互換レイヤーです。",
+          "RepentanceのMOD実行機能はほぼ揃いました。今後は主に、残っている可能性のある不具合を見つけて修正します。",
+          "MODメニュー、新規セーブでの実績無効化、コンソール、MODに必要なAPIとコールバックを補っています。"
         ]
       },
       {
         "kind": "free",
         "paragraphs": [
-          "完全無料・販売は一切しません"
+          "完全無料・販売しません。ソースコードも今後公開します。"
+        ]
+      },
+      {
+        "kind": "warning",
+        "page_break_before": true,
+        "paragraphs": [
+          "互換性と動作速度",
+          "APIの動作やコールバックのタイミングがPC版と異なり、MODの異常やクラッシュが起きる場合があります。",
+          "多くの最適化を行いましたが、負荷の高いMODもあります。MOD構成と実際の動作に応じて適度にオーバークロックしてください。"
         ]
       },
       {
         "kind": "disclaimer",
         "paragraphs": [
-          "免責事項",
-          "非公式で、ゲーム開発元やプラットフォームとは無関係です。",
-          "セーブをバックアップし、リスクをご自身で判断してください。"
+          "非公式であり、開発元・販売元・プラットフォーム運営元とは関係ありません。ゲームや第三者のMODは含まず、権利は各作者に帰属します。セーブをバックアップし、リスクをご判断ください。"
+        ]
+      },
+      {
+        "kind": "downloads",
+        "page_break_before": true,
+        "paragraphs": [
+          "ダウンロード・不具合報告",
+          "入手先：ToModのIsaacページ / GBAtemp",
+          "プロジェクト：Isaac Switch Mod Runtime",
+          "QQグループ：1124953430",
+          "Discord：discord.gg/JMQc2jMsve",
+          "報告には互換レイヤーとMODのバージョン、再現手順、動画やログを添えてください。"
         ]
       },
       {
         "kind": "instructions",
         "page_break_before": true,
         "paragraphs": [
-          "使い方",
-          "スティックや方向ボタンの左右、または L / R でページをめくります。",
-          "初回起動時や更新後は全ページを読んでから、B長押しで閉じてください。",
-          "同じバージョンの次回以降の起動時は閉じた状態になります。",
-          "タイトル画面の右下で互換レイヤーを選び、Aで再び開けます。その後はどのページでもBを短く押すと閉じます。"
-        ]
-      },
-      {
-        "kind": "disclaimer",
-        "page_break_before": true,
-        "paragraphs": [
-          "詳しい免責事項",
-          "本プロジェクトは非公式の互換レイヤーであり、ゲームの開発元、販売元、プラットフォーム運営元とは無関係です。",
-          "ゲーム本体や第三者のMODは提供しません。関連する権利はそれぞれの原作者に帰属します。",
-          "一部のMOD機能はまだ完全には検証されていません。使用前にセーブをバックアップし、リスクを判断のうえ、ご自身の責任でご利用ください。",
-          "互換レイヤーは完全無料で、いかなる形でも販売しません。"
+          "操作方法",
+          "スティック・方向ボタンの左右、またはL / Rでページを切り替えます。",
+          "初回や更新後は全ページを読み、Bを長押しして閉じてください。",
+          "同じバージョンの次回起動時からは、この説明は閉じた状態になります。",
+          "タイトル画面右下のMOD情報を選びAで再表示できます。手動で開いた場合は、どのページでもBを押して閉じられます。"
         ]
       }
     ],
     "support": {
       "title": "応援ありがとうございます",
-      "message": "無料です。ご支援は任意です。",
+      "message": "支援は任意で、利用には影響しません。",
       "labels": [
         "WeChat",
         "Alipay",
@@ -372,57 +382,59 @@
       {
         "kind": "intro",
         "paragraphs": [
-          "Switch에서 원본 PC 모드를 실행하여",
-          "PC의 모드 환경을 최대한 재현합니다."
-        ]
-      },
-      {
-        "kind": "warning",
-        "paragraphs": [
-          "주의: 일부 모드에는 버그가 있을 수 있습니다.",
-          "기능 이상, 충돌, 저장 데이터 문제가 생길 수 있습니다."
+          "Switch판 The Binding of Isaac에서 PC 모드를 실행하기 위한 호환 계층입니다.",
+          "Repentance 모드 실행 기능은 거의 갖춰졌습니다. 앞으로는 남아 있을 수 있는 버그를 찾고 수정하는 데 집중합니다.",
+          "모드 메뉴, 새 저장 파일의 도전 과제 비활성화, 콘솔과 모드에 필요한 API 및 콜백을 보완했습니다."
         ]
       },
       {
         "kind": "free",
         "paragraphs": [
-          "완전 무료 · 판매하지 않습니다"
+          "완전 무료이며 판매하지 않습니다. 소스 코드도 추후 공개합니다."
+        ]
+      },
+      {
+        "kind": "warning",
+        "page_break_before": true,
+        "paragraphs": [
+          "호환성 및 성능",
+          "일부 API 동작이나 콜백 시점이 PC와 달라 모드 오류나 충돌이 발생할 수 있습니다.",
+          "많은 최적화를 했지만 일부 모드는 여전히 부하가 큽니다. 모드 구성과 실제 성능에 맞춰 적절히 오버클록해 주세요."
         ]
       },
       {
         "kind": "disclaimer",
         "paragraphs": [
-          "면책 안내",
-          "비공식이며 게임 개발사나 플랫폼과 무관합니다.",
-          "저장 데이터를 백업하고 사용 위험을 직접 판단하세요."
+          "비공식이며 개발사, 배급사 및 플랫폼 운영사와 관계없습니다. 게임이나 타사 모드는 포함되지 않으며 권리는 각 원작자에게 있습니다. 저장 파일을 백업하고 위험을 판단해 주세요."
+        ]
+      },
+      {
+        "kind": "downloads",
+        "page_break_before": true,
+        "paragraphs": [
+          "다운로드 및 문제 제보",
+          "다운로드: ToMod의 Isaac 페이지 / GBAtemp",
+          "프로젝트: Isaac Switch Mod Runtime",
+          "QQ 그룹: 1124953430",
+          "Discord: discord.gg/JMQc2jMsve",
+          "제보 시 호환 계층과 모드 버전, 재현 절차, 영상이나 로그를 첨부해 주세요."
         ]
       },
       {
         "kind": "instructions",
         "page_break_before": true,
         "paragraphs": [
-          "사용 방법",
-          "스틱이나 방향 버튼의 좌우 또는 L / R로 페이지를 넘깁니다.",
-          "처음 실행하거나 업데이트한 뒤에는 모든 페이지를 읽고 B를 길게 눌러 닫으세요.",
-          "같은 버전의 다음 실행부터는 닫힌 상태로 시작합니다.",
-          "타이틀 화면 오른쪽 아래에서 호환 계층을 선택하고 A를 눌러 다시 엽니다. 이후에는 어느 페이지에서나 B를 짧게 눌러 닫을 수 있습니다."
-        ]
-      },
-      {
-        "kind": "disclaimer",
-        "page_break_before": true,
-        "paragraphs": [
-          "상세 면책 안내",
-          "본 프로젝트는 비공식 호환 계층이며 게임 개발사, 배급사 및 플랫폼 운영사와 관계가 없습니다.",
-          "게임 본체나 제삼자의 모드는 제공하지 않습니다. 관련 권리는 원저작자에게 있습니다.",
-          "일부 모드 기능은 아직 완전히 검증되지 않았습니다. 사용 전에 저장 데이터를 백업하고, 위험을 직접 판단하여 책임지고 사용해 주세요.",
-          "호환 계층은 완전 무료이며 어떤 형태로도 판매하지 않습니다."
+          "조작 방법",
+          "스틱 또는 방향 버튼의 좌우, 혹은 L / R로 페이지를 넘깁니다.",
+          "최초 실행이나 업데이트 후에는 모든 페이지를 읽은 뒤 B를 길게 눌러 닫습니다.",
+          "같은 버전의 다음 실행부터는 안내가 닫힌 상태로 시작합니다.",
+          "타이틀 화면 오른쪽 아래의 모드 정보를 선택하고 A를 눌러 다시 엽니다. 직접 열었을 때는 어느 페이지에서든 B로 닫을 수 있습니다."
         ]
       }
     ],
     "support": {
       "title": "응원해 주셔서 감사합니다",
-      "message": "무료입니다. 후원은 자유입니다.",
+      "message": "후원은 자율이며 이용에 영향이 없습니다.",
       "labels": [
         "WeChat",
         "Alipay",
@@ -444,57 +456,59 @@
       {
         "kind": "intro",
         "paragraphs": [
-          "Оригинальные моды для ПК на Switch.",
-          "Чтобы воссоздать опыт модов на ПК."
-        ]
-      },
-      {
-        "kind": "warning",
-        "paragraphs": [
-          "Некоторые моды могут содержать ошибки.",
-          "Возможны сбои, вылеты и проблемы с сохранениями."
+          "Совместимость с ПК-модами The Binding of Isaac на Switch.",
+          "Поддержка модов Repentance почти завершена. Главное теперь — найти и исправить возможные ошибки.",
+          "Добавлены меню модов, запрет достижений на новых сохранениях, консоль, API и обратные вызовы для модов."
         ]
       },
       {
         "kind": "free",
         "paragraphs": [
-          "Всегда бесплатно - никогда не продаётся"
+          "Бесплатно, не продаётся. Исходный код будет открыт."
+        ]
+      },
+      {
+        "kind": "warning",
+        "page_break_before": true,
+        "paragraphs": [
+          "Совместимость и скорость",
+          "Поведение API и время обратных вызовов могут отличаться от ПК и вызывать ошибки или вылеты.",
+          "Оптимизаций много, но часть модов ещё требовательна. Подбирайте разгон под моды и реальную скорость."
         ]
       },
       {
         "kind": "disclaimer",
         "paragraphs": [
-          "Отказ от ответственности",
-          "Неофициально; без связи с игрой и платформой.",
-          "Копируйте сохранения и оценивайте риски."
+          "Неофициально, без связи с правообладателями. Игра и моды не включены; права у авторов. Сделайте копии сохранений и оцените риски."
+        ]
+      },
+      {
+        "kind": "downloads",
+        "page_break_before": true,
+        "paragraphs": [
+          "Загрузка и обратная связь",
+          "Загрузка: страница Isaac в ToMod / GBAtemp",
+          "Проект: Isaac Switch Mod Runtime",
+          "Группа QQ: 1124953430",
+          "Discord: discord.gg/JMQc2jMsve",
+          "Укажите версии слоя и модов, шаги воспроизведения, приложите видео или журналы."
         ]
       },
       {
         "kind": "instructions",
         "page_break_before": true,
         "paragraphs": [
-          "Как пользоваться",
-          "Листайте влево/вправо стиком, крестовиной или L / R.",
-          "Первый запуск или обновление: прочтите все страницы, затем держите B для закрытия.",
-          "При следующих запусках той же версии уведомление закрыто.",
-          "Чтобы открыть, выберите «О модах» справа внизу титульного экрана и нажмите A. Затем на любой странице нажмите B для закрытия."
-        ]
-      },
-      {
-        "kind": "disclaimer",
-        "page_break_before": true,
-        "paragraphs": [
-          "Полный отказ от ответственности",
-          "Этот неофициальный слой не связан с разработчиками, издателями игры или владельцами платформы.",
-          "Игра и сторонние моды не предоставляются. Все права на них принадлежат первоначальным авторам.",
-          "Не все функции модов полностью проверены. Перед использованием копируйте сохранения, оценивайте риски и принимайте ответственность за них.",
-          "Слой полностью бесплатен и не продаётся ни в какой форме."
+          "Управление",
+          "Листайте стиком или крестовиной влево/вправо, либо L / R.",
+          "При первом запуске или после обновления прочтите всё, затем удерживайте B для закрытия.",
+          "При следующих запусках той же версии окно закрыто.",
+          "На титульном экране выберите сведения о модах справа внизу и нажмите A. Затем B закрывает любую страницу."
         ]
       }
     ],
     "support": {
       "title": "Спасибо за поддержку!",
-      "message": "Бесплатно. Пожертвования добровольны.",
+      "message": "Поддержка добровольна. Доступ тот же.",
       "labels": [
         "WeChat",
         "Alipay",
