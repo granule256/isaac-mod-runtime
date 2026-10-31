@@ -3095,11 +3095,6 @@ inline constexpr std::array<u8, 16> kFontCtorExpectedBytes = {
 };
 // The destructor's guard window deliberately spans into `Unload()`, because `~Font()` is a
 // single `b Unload` tail-jump followed by Unload's prologue.
-inline constexpr uintptr_t kFontDestructorOffset = 0x4CE764;
-inline constexpr std::array<u8, 16> kFontDestructorExpectedBytes = {
-    0xF7, 0xB1, 0x06, 0x14, 0xFD, 0x7B, 0xBC, 0xA9,
-    0xF8, 0x5F, 0x01, 0xA9, 0xFD, 0x03, 0x00, 0x91,
-};
 inline constexpr uintptr_t kFontLoadOffset = 0x4CDEB8;
 inline constexpr std::array<u8, 16> kFontLoadExpectedBytes = {
     0xFD, 0x7B, 0xBA, 0xA9, 0xFC, 0x6F, 0x01, 0xA9,
@@ -3120,30 +3115,10 @@ inline constexpr std::array<u8, 16> kFontGetStringWidthExpectedBytes = {
     0x2C, 0x00, 0x40, 0x39, 0xCC, 0x08, 0x00, 0x34,
     0xC9, 0x09, 0x80, 0x52, 0x49, 0x00, 0xA0, 0x72,
 };
-inline constexpr uintptr_t kFontGetStringWidthUTF8Offset = 0x4CEE8C;
-inline constexpr std::array<u8, 16> kFontGetStringWidthUTF8ExpectedBytes = {
-    0xFD, 0x7B, 0xBD, 0xA9, 0xF5, 0x0B, 0x00, 0xF9,
-    0xFD, 0x03, 0x00, 0x91, 0xF4, 0x4F, 0x02, 0xA9,
-};
 inline constexpr uintptr_t kFontGetLineHeightOffset = 0x4CEEE0;
 inline constexpr std::array<u8, 16> kFontGetLineHeightExpectedBytes = {
     0x00, 0x28, 0x40, 0x79, 0xC0, 0x03, 0x5F, 0xD6,
     0x00, 0x2C, 0x40, 0x79, 0xC0, 0x03, 0x5F, 0xD6,
-};
-inline constexpr uintptr_t kFontGetBaselineHeightOffset = 0x4CEEE8;
-inline constexpr std::array<u8, 16> kFontGetBaselineHeightExpectedBytes = {
-    0x00, 0x2C, 0x40, 0x79, 0xC0, 0x03, 0x5F, 0xD6,
-    0xFF, 0x43, 0x01, 0xD1, 0xE9, 0x23, 0x01, 0x6D,
-};
-inline constexpr uintptr_t kFontGetCharacterWidthOffset = 0x4CE914;
-inline constexpr std::array<u8, 16> kFontGetCharacterWidthExpectedBytes = {
-    0x08, 0x84, 0x21, 0x8B, 0x08, 0xA1, 0x40, 0x79,
-    0xE9, 0xFF, 0x9F, 0x52, 0x1F, 0x01, 0x09, 0x6B,
-};
-inline constexpr uintptr_t kFontSetMissingCharacterOffset = 0x4CFB74;
-inline constexpr std::array<u8, 16> kFontSetMissingCharacterExpectedBytes = {
-    0xC8, 0x09, 0x80, 0x52, 0x48, 0x00, 0xA0, 0x72,
-    0x01, 0x68, 0x28, 0x78, 0xC0, 0x03, 0x5F, 0xD6,
 };
 
 // `Font::DrawString(text, x, y, Color const&, boxWidth, center)`: a thin wrapper that copies
@@ -3153,25 +3128,10 @@ inline constexpr std::array<u8, 16> kFontSetMissingCharacterExpectedBytes = {
 // RGBA block of its own. No explicit batch handling exists here: KAGE's graphics manager owns
 // the batching, so the open question for hardware is whether drawing from the Runtime's render
 // callback lands inside a live batch.
-inline constexpr uintptr_t kFontDrawStringOffset = 0x4CEEF0;
-inline constexpr std::array<u8, 16> kFontDrawStringExpectedBytes = {
-    0xFF, 0x43, 0x01, 0xD1, 0xE9, 0x23, 0x01, 0x6D,
-    0xFD, 0x7B, 0x02, 0xA9, 0xFD, 0x83, 0x00, 0x91,
-};
 // 三个绘制变体（同一类，紧邻 `DrawString`）：坐标走 s0/s1，缩放的
 // `ScaleX`/`ScaleY` 走 s2/s3，颜色仍走整数寄存器 x2（不可见引用），w3 = boxWidth、w4 = center。
 // 已逐条反汇编核对：`DrawStringScaledUTF8` 先 `mov v8..v11` 收下 v0..v3、`mov w20/w19` 收下 w3/w4、
 // `mov x21, x2` 收下颜色指针，与 `DrawString` 的形态完全一致（EID 用的就是 ScaledUTF8）。
-inline constexpr uintptr_t kFontDrawStringScaledOffset = 0x4CEF6C;
-inline constexpr std::array<u8, 16> kFontDrawStringScaledExpectedBytes = {
-    0xFF, 0x43, 0x03, 0xD1, 0xEC, 0x2B, 0x00, 0xFD,
-    0xEB, 0x2B, 0x06, 0x6D, 0xE9, 0x23, 0x07, 0x6D,
-};
-inline constexpr uintptr_t kFontDrawStringUTF8Offset = 0x4CF2A4;
-inline constexpr std::array<u8, 16> kFontDrawStringUTF8ExpectedBytes = {
-    0xFF, 0x83, 0x01, 0xD1, 0xE9, 0x23, 0x01, 0x6D,
-    0xFD, 0x7B, 0x02, 0xA9, 0xFD, 0x83, 0x00, 0x91,
-};
 inline constexpr uintptr_t kFontDrawStringScaledUTF8Offset = 0x4CFAB8;
 inline constexpr std::array<u8, 16> kFontDrawStringScaledUTF8ExpectedBytes = {
     0xFF, 0xC3, 0x01, 0xD1, 0xEB, 0x2B, 0x01, 0x6D,
@@ -3222,7 +3182,7 @@ inline constexpr std::size_t kEntityRefStorageSize = 0x40;
 inline constexpr uintptr_t kEntitySpriteOffset = 0x50;
 
 // `ANM2+0x38`：指向**当前动画名**的 libc++ `std::string`（24 字节 SSO 对象；没有动画时为 0）。
-// 证据 = 引擎自己的 `ANM2::IsPlaying(char const*)`（`0xa454`）就是这么读的：
+// 证据 = 引擎自己的 `ANM2::IsPlaying(char const*)`（`private:kSpriteIsPlayingOffset`）就是这么读的：
 //   `f9401c08 ldr x8, [x0, #0x38]`（为 0 → 返回 false）
 //   `39415009 ldrb w9, [x0, #0x54]`（在播标志，为 0 → false）
 //   `39400109 ldrb w9, [x8]` → `37000129 tbnz w9, #0x1, …`
@@ -3336,17 +3296,7 @@ inline constexpr std::array<u8, 16> kSpriteDestructorExpectedBytes = {
     0xFD, 0x03, 0x00, 0x91, 0xF3, 0x03, 0x00, 0xAA,
 };
 // `void Play(char const*, bool)`
-inline constexpr uintptr_t kSpritePlayOffset = 0xA1F4;
-inline constexpr std::array<u8, 16> kSpritePlayExpectedBytes = {
-    0xFD, 0x7B, 0xBD, 0xA9, 0xF6, 0x57, 0x01, 0xA9,
-    0xFD, 0x03, 0x00, 0x91, 0xF4, 0x4F, 0x02, 0xA9,
-};
 // `bool SetAnimation(char const*, bool)`
-inline constexpr uintptr_t kSpriteSetAnimationOffset = 0xA2E8;
-inline constexpr std::array<u8, 16> kSpriteSetAnimationExpectedBytes = {
-    0xFD, 0x7B, 0xBC, 0xA9, 0xF8, 0x5F, 0x01, 0xA9,
-    0xFD, 0x03, 0x00, 0x91, 0xF6, 0x57, 0x02, 0xA9,
-};
 // `void SetFrame(char const*, int)`
 inline constexpr uintptr_t kSpriteSetFrameNamedOffset = 0xA65C;
 inline constexpr std::array<u8, 16> kSpriteSetFrameNamedExpectedBytes = {
@@ -3354,29 +3304,9 @@ inline constexpr std::array<u8, 16> kSpriteSetFrameNamedExpectedBytes = {
     0xFD, 0x03, 0x00, 0x91, 0xF6, 0x57, 0x02, 0xA9,
 };
 // `void SetFrame(int)`
-inline constexpr uintptr_t kSpriteSetFrameOffset = 0xA8CC;
-inline constexpr std::array<u8, 16> kSpriteSetFrameExpectedBytes = {
-    0x08, 0x1C, 0x40, 0xF9, 0x88, 0x00, 0x00, 0xB4,
-    0x20, 0x00, 0x22, 0x1E, 0x00, 0xC0, 0x00, 0x91,
-};
 // `int GetFrame() const`
-inline constexpr uintptr_t kSpriteGetFrameOffset = 0xA924;
-inline constexpr std::array<u8, 16> kSpriteGetFrameExpectedBytes = {
-    0x08, 0x1C, 0x40, 0xF9, 0x88, 0x00, 0x00, 0xB4,
-    0x00, 0x50, 0x40, 0xBD, 0x00, 0x00, 0x30, 0x1E,
-};
 // `void SetLayerFrame(int, int)`
-inline constexpr uintptr_t kSpriteSetLayerFrameOffset = 0xA958;
-inline constexpr std::array<u8, 16> kSpriteSetLayerFrameExpectedBytes = {
-    0x08, 0x1C, 0x40, 0xF9, 0x68, 0x00, 0x00, 0xB4,
-    0x00, 0xC0, 0x00, 0x91, 0xA3, 0x96, 0x19, 0x14,
-};
 // `int GetLayerFrame(int)`
-inline constexpr uintptr_t kSpriteGetLayerFrameOffset = 0xA96C;
-inline constexpr std::array<u8, 16> kSpriteGetLayerFrameExpectedBytes = {
-    0xFD, 0x7B, 0xBE, 0xA9, 0xF4, 0x4F, 0x01, 0xA9,
-    0xFD, 0x03, 0x00, 0x91, 0x08, 0x1C, 0x40, 0xF9,
-};
 // `KColor GetTexel(Vector2, Vector2, float, int) const` —— **EID 用来判"这个底座是不是
 // 赎罪线红问号底座"的唯一依据**（`main.lua:230-232` 逐点比色）。旧实现是"恒返回不透明白色"
 // 的占位，导致两个 sprite 处处相等 → 每个底座都被判成问号底座 → EID 只画问号、不写描述。
@@ -3401,7 +3331,7 @@ inline constexpr std::array<u8, 16> kSpriteResetExpectedBytes = {
     0xFD, 0x03, 0x00, 0x91, 0xF6, 0x57, 0x02, 0xA9,
 }; // ANM2::Reset @0x65B8，与原NRO动态符号及入口16B独立核同。
 
-//: `Sprite` 里的 **ANM2 指针**：`Sprite+0x30`（`ANM2::GetLayerFrame @0xA96C` 就是 `ldr x9,[x19,#0x30]`
+//: `Sprite` 里的 **ANM2 指针**：`Sprite+0x30`（`ANM2::GetLayerFrame @private:kSpriteGetLayerFrameOffset` 就是 `ldr x9,[x19,#0x30]`
 //: 之后 `ldr w9,[x9,#0xb0]`）。★ 别与 `Sprite+0x38` 混 —— 那个是当前动画名的 `std::string`。
 inline constexpr uintptr_t kSpriteAnm2Offset = 0x30;
 // 2026-10-15订正：ANM2+0x18存原XML DefaultAnimation的libc++字符串。
@@ -3411,14 +3341,14 @@ inline constexpr uintptr_t kSpriteDefaultAnimationNameOffset = 0x18;
 //: ANM2 里的**层数**（`ANM2+0xB0`，`ANM2::GetLayerFrame` 用它做 layer 越界判定）。
 inline constexpr uintptr_t kAnim2LayerCountOffset = 0xB0;
 //: ANM2 里的**动画表**：数组基址 `+0x98`、个数 `+0xA0`、每项步长 `0x150`
-//: （`ANM2::SetAnimation @0xA2E8`：`ldr w23,[x0,#0xa0]` / `ldr x21,[x0,#0x98]` / `add x21,x21,#0x150`）。
+//: （`ANM2::SetAnimation @private:kSpriteSetAnimationOffset`：`ldr w23,[x0,#0xa0]` / `ldr x21,[x0,#0x98]` / `add x21,x21,#0x150`）。
 inline constexpr uintptr_t kAnim2AnimationArrayOffset = 0x98;
 inline constexpr uintptr_t kAnim2AnimationCountOffset = 0xA0;
 inline constexpr std::size_t kAnim2AnimationStride = 0x150;
 // ★ 读引擎字符串**复用既有那套常量**（`kLibcxxStringDataOffset` / `kLibcxxStringShortDataOffset` /
 //   `kLibcxxStringLongFlag`，见本文件后面 `Sprite:GetAnimation` 那一族用的同一套）——
 //   同一件事只留一个真值源。这里的取证只是给那套常量补一条**独立的**证据：
-//   `ANM2::SetAnimation @0xA2E8` 里 `ldrb w8,[x21] ; tbnz w8,#0x0 → 用 [x21+0x10] 当数据指针 ; 否则用 x21+1`。
+//   `ANM2::SetAnimation @private:kSpriteSetAnimationOffset` 里 `ldrb w8,[x21] ; tbnz w8,#0x0 → 用 [x21+0x10] 当数据指针 ; 否则用 x21+1`。
 
 // --- 批次 214：`Seeds`（`Game:GetSeeds()`）----------------------------------------------------
 //
@@ -3482,17 +3412,7 @@ inline constexpr std::array<u8, 16> kSpriteUpdateExpectedBytes = {
     0xFD, 0x23, 0x00, 0x91, 0xF3, 0x0F, 0x00, 0xF9,
 };
 // `bool IsPlaying(char const*) const`
-inline constexpr uintptr_t kSpriteIsPlayingOffset = 0xA454;
-inline constexpr std::array<u8, 16> kSpriteIsPlayingExpectedBytes = {
-    0xFD, 0x7B, 0xBF, 0xA9, 0xFD, 0x03, 0x00, 0x91,
-    0x08, 0x1C, 0x40, 0xF9, 0x28, 0x01, 0x00, 0xB4,
-};
 // `bool IsFinished(char const*) const`
-inline constexpr uintptr_t kSpriteIsFinishedOffset = 0xA528;
-inline constexpr std::array<u8, 16> kSpriteIsFinishedExpectedBytes = {
-    0xFD, 0x7B, 0xBF, 0xA9, 0xFD, 0x03, 0x00, 0x91,
-    0x08, 0x1C, 0x40, 0xF9, 0x68, 0x01, 0x00, 0xB4,
-};
 // `void Render(Vector2 const&, Vector2 const&, Vector2 const&)`
 inline constexpr uintptr_t kSpriteRenderOffset = 0x9BD4;
 inline constexpr std::array<u8, 16> kSpriteRenderExpectedBytes = {
@@ -3500,17 +3420,7 @@ inline constexpr std::array<u8, 16> kSpriteRenderExpectedBytes = {
     0xFD, 0x03, 0x00, 0x91, 0xF6, 0x57, 0x02, 0xA9,
 };
 // `void RenderLayer(int, Vector2 const&, Vector2 const&, Vector2 const&)`
-inline constexpr uintptr_t kSpriteRenderLayerOffset = 0x9D70;
-inline constexpr std::array<u8, 16> kSpriteRenderLayerExpectedBytes = {
-    0xFD, 0x7B, 0xBC, 0xA9, 0xF7, 0x0B, 0x00, 0xF9,
-    0xFD, 0x03, 0x00, 0x91, 0xF6, 0x57, 0x02, 0xA9,
-};
 // `void PlayRandom(unsigned int)`
-inline constexpr uintptr_t kSpritePlayRandomOffset = 0xA198;
-inline constexpr std::array<u8, 16> kSpritePlayRandomExpectedBytes = {
-    0x08, 0xA0, 0x40, 0xB9, 0x88, 0x01, 0x00, 0x34,
-    0x29, 0x08, 0xC8, 0x1A, 0x0A, 0x2A, 0x80, 0x52,
-};
 
 // 第二步：`Load`/`ReplaceSpritesheet` 需要 libc++ 的 `std::string`（24 字节 SSO），本模块编的是
 // libstdc++（32 字节），所以不能直接传自己的 string。做法是借游戏自己导入的
@@ -3527,17 +3437,7 @@ inline constexpr std::array<u8, 16> kSpriteLoadExpectedBytes = {
     0xFD, 0x03, 0x00, 0x91, 0xFA, 0x67, 0x02, 0xA9,
 };
 // `LoadGraphics()`（thunk：`mov w1,wzr; b load_graphics(false)`）
-inline constexpr uintptr_t kSpriteLoadGraphicsOffset = 0xCB6C;
-inline constexpr std::array<u8, 16> kSpriteLoadGraphicsExpectedBytes = {
-    0xE1, 0x03, 0x1F, 0x2A, 0x60, 0x8E, 0x19, 0x14,
-    0xFD, 0x7B, 0xBE, 0xA9, 0xF4, 0x4F, 0x01, 0xA9,
-};
 // `void ReplaceSpritesheet(int, std::string const&)`
-inline constexpr uintptr_t kSpriteReplaceSpritesheetOffset = 0xD270;
-inline constexpr std::array<u8, 16> kSpriteReplaceSpritesheetExpectedBytes = {
-    0xFD, 0x7B, 0xBD, 0xA9, 0xF5, 0x0B, 0x00, 0xF9,
-    0xFD, 0x03, 0x00, 0x91, 0xF4, 0x4F, 0x02, 0xA9,
-};
 // 游戏导入的 libc++ `basic_string::assign(char const*)` PLT 桩（字符串桥用）
 inline constexpr uintptr_t kLibcxxStringAssignOffset = 0x66FB80;
 inline constexpr std::array<u8, 16> kLibcxxStringAssignExpectedBytes = {
@@ -3566,7 +3466,7 @@ inline constexpr std::array<u8, 16> kGameOperatorDeleteExpectedBytes = {
 // 数据指针在对象**偏移 16**；首字的**最低位为 1 表示 long**（短串则内联，位 14 实测）。
 inline constexpr std::size_t kLibcxxStringDataOffset = 16;
 // 短串（SSO）的内联数据从对象**偏移 1** 开始 —— 首字节存 `size << 1`（最低位是 long 标志）。
-// 证据同样是引擎自己的代码：`ANM2::IsPlaying`（`0xa454`）的 `91000500 add x0, x8, #0x1` 之后
+// 证据同样是引擎自己的代码：`ANM2::IsPlaying`（`private:kSpriteIsPlayingOffset`）的 `91000500 add x0, x8, #0x1` 之后
 // 直接 `strcmp`，也就是把 `对象+1` 当 C 串首地址用（与 libc++ 的 `__short::__data_` 一致）。
 inline constexpr std::size_t kLibcxxStringShortDataOffset = 1;
 // 长串标志位（首字最低位）。
@@ -6879,25 +6779,10 @@ inline constexpr std::array<u8, 16> kGridEntityInitExpectedBytes = {
 // 全落在 ANM2 的地址区间里）。这三条**只需要 `char const*`**（`PlayOverlay` 与
 // `SetOverlayFrame` 各有 `std::string const&` 重载，我们选 `char const*` 的那个，
 // 避开 libc++ `std::string` 的 ABI 桥 —— 与 `Sprite` 绑定表「第一步只收 char const*」同一条策略）。
-inline constexpr uintptr_t kSpritePlayOverlayOffset = 0xA9FC;
-inline constexpr std::array<u8, 16> kSpritePlayOverlayExpectedBytes = {
-    0xFD, 0x7B, 0xBD, 0xA9, 0xF6, 0x57, 0x01, 0xA9,
-    0xFD, 0x03, 0x00, 0x91, 0xF4, 0x4F, 0x02, 0xA9,
-};
-inline constexpr uintptr_t kSpriteSetLastFrameOffset = 0xA908;
-inline constexpr std::array<u8, 16> kSpriteSetLastFrameExpectedBytes = {
-    0x08, 0x1C, 0x40, 0xF9, 0xA8, 0x00, 0x00, 0xB4,
-    0x08, 0x45, 0x40, 0xB9, 0x00, 0xC0, 0x00, 0x91,
-};
 inline constexpr uintptr_t kSpriteSetOverlayFrameOffset = 0xAEF8;
 inline constexpr std::array<u8, 16> kSpriteSetOverlayFrameExpectedBytes = {
     0xFD, 0x7B, 0xBC, 0xA9, 0xF7, 0x0B, 0x00, 0xF9,
     0xFD, 0x03, 0x00, 0x91, 0xF6, 0x57, 0x02, 0xA9,
-};
-inline constexpr uintptr_t kSpriteStopOffset = 0xA8E4;
-inline constexpr std::array<u8, 16> kSpriteStopExpectedBytes = {
-    0x08, 0x1C, 0x40, 0xF9, 0x48, 0x00, 0x00, 0xB4,
-    0x1F, 0x50, 0x01, 0x39, 0xC0, 0x03, 0x5F, 0xD6,
 };
 
 // ---- 批次 283（2026-10-02）：`Sprite` 的四条「按名字查询」------------------------------------
@@ -6908,35 +6793,15 @@ inline constexpr std::array<u8, 16> kSpriteStopExpectedBytes = {
 //   `BuildNativeString` 桥（`sprite_api.cpp`）—— 那一步已经实测过 libc++ 的 24 字节 SSO 布局。
 //
 // ★★ 为什么必须给这四条各配一段"孪生函数"的说明：**光看前 16 字节守卫分不出它们是两个函数**。
-//   * `IsOverlayPlaying`@`0xABB8` 与 `IsOverlayFinished`@`0xAC88`：**前 0x1C 字节逐字节相同**。
+//   * `IsOverlayPlaying`@`private:kSpriteIsOverlayPlayingOffset` 与 `IsOverlayFinished`@`private:kSpriteIsOverlayFinishedOffset`：**前 0x1C 字节逐字节相同**。
 //     首个不同的指令落在"动画名为空"那一步的**取反**上（A 侧 `cbz w9` / B 侧 `cbnz w9`）
 //     ⇒ 语义互补（在播 / 已播完）正是这一对的定义 ⇒ 这条**可以当互证**。
-//   * `IsEventTriggered`@`0xB66C` 与 `WasEventTriggered`@`0xB7C0`：**前 0x54 字节逐字节相同**。
+//   * `IsEventTriggered`@`private:kSpriteIsEventTriggeredOffset` 与 `WasEventTriggered`@`private:kSpriteWasEventTriggeredOffset`：**前 0x54 字节逐字节相同**。
 //     首个不同字节是那个 `bl` 的**位移**（A 侧 `0x94199138` / B 侧 `0x941990E3`），
 //     而两者算出来的**目标地址是同一个**（`0x6FFBA0`）⇒ 那只是"调用点地址不同"，
 //     **不是语义差异**。★ 实质差异在更后面（各自查自己的事件表）⇒ 所以这一对
 //     **不能**靠"前段字节相同"去判断"是不是同一个函数"，定案依据只能是 **dynsym 的 mangled 名字**
 //     （两者各有独立符号，逐字在名字表里）。
-inline constexpr uintptr_t kSpriteIsOverlayPlayingOffset = 0xABB8;
-inline constexpr std::array<u8, 16> kSpriteIsOverlayPlayingExpectedBytes = {
-    0xFD, 0x7B, 0xBF, 0xA9, 0xFD, 0x03, 0x00, 0x91,
-    0x28, 0x00, 0x40, 0x39, 0x1F, 0x01, 0x00, 0x72,
-};
-inline constexpr uintptr_t kSpriteIsOverlayFinishedOffset = 0xAC88;
-inline constexpr std::array<u8, 16> kSpriteIsOverlayFinishedExpectedBytes = {
-    0xFD, 0x7B, 0xBF, 0xA9, 0xFD, 0x03, 0x00, 0x91,
-    0x28, 0x00, 0x40, 0x39, 0x1F, 0x01, 0x00, 0x72,
-};
-inline constexpr uintptr_t kSpriteIsEventTriggeredOffset = 0xB66C;
-inline constexpr std::array<u8, 16> kSpriteIsEventTriggeredExpectedBytes = {
-    0xFD, 0x7B, 0xBC, 0xA9, 0xF7, 0x0B, 0x00, 0xF9,
-    0xFD, 0x03, 0x00, 0x91, 0xF6, 0x57, 0x02, 0xA9,
-};
-inline constexpr uintptr_t kSpriteWasEventTriggeredOffset = 0xB7C0;
-inline constexpr std::array<u8, 16> kSpriteWasEventTriggeredExpectedBytes = {
-    0xFD, 0x7B, 0xBC, 0xA9, 0xF7, 0x0B, 0x00, 0xF9,
-    0xFD, 0x03, 0x00, 0x91, 0xF6, 0x57, 0x02, 0xA9,
-};
 
 // ---- 批次 281（2026-10-02）：`EntityTear:ChangeVariant`（视图化的第一条方法）--------------
 // `Entity_Tear::ChangeVariant(int)` @ `0x3412D8`（arity **1** = 契约 `ChangeVariant(TearVariant)`
@@ -8553,7 +8418,7 @@ inline constexpr uintptr_t kEntityGetColorOffset = 0x138;
 //   ★ L 组与 N 组两轮独立核对过：只有 `(eCollectibleType, …)` 那条重载的函数体把 `w1`
 //     喂给 `ItemConfig::GetCollectible` ⇒ 就是它。
 // ★★ **缺省字符串必须传字面串，不能传 `nullptr`**（L 组从引擎侧反推、N 组复核）：
-//   两个指针随后分别喂 `ANM2::Play(char const*, bool) @ 0xA1F4`，那里对名字做 `strcmp`
+//   两个指针随后分别喂 `ANM2::Play(char const*, bool) @ private:kSpritePlayOffset`，那里对名字做 `strcmp`
 //   且**没有 null 检查**（`0xA224 mov x1, x20` → `bl strcmp`）⇒ 传 null 会读 NULL 段、当场崩。
 //   ⇒ 缺省（或缺 `nil`）时必须传 `"Pickup"` / `"PlayerPickupSparkle"`（大小写敏感、逐字一致）。
 //   ★ 负数 `CollectibleType` **不特殊处理**：引擎入口 `0x2DD1D0 tbnz w23,#0x1f` 就是 PC 那条
@@ -8771,6 +8636,15 @@ inline constexpr std::array<u8, 16> kHudRenderStubExpectedBytes = {
     0x50, 0x21, 0x00, 0xB0, 0x11, 0x82, 0x41, 0xF9,
     0x10, 0x02, 0x0C, 0x91, 0x20, 0x02, 0x1F, 0xD6};
 inline constexpr uintptr_t kHudRenderGotSlotOffset = 0xAA3300;
+// HUD::Render asks Game::AchievementUnlocksDisallowed at this one callsite.
+// Preserve that native query for all other callers (rewards, records, entities).
+inline constexpr uintptr_t kHudAchievementQueryCallOffset = 0x3AD040;
+inline constexpr std::array<u8,16> kHudAchievementQueryCallExpectedBytes = {0x28,0x14,0x0B,0x94,0xE8,0x03,0x00,0x2A,0x60,0x02,0x40,0xF9,0x09,0x05,0x80,0x52};
+inline constexpr uintptr_t kGameAchievementQueryOffset = 0x34EAA8;
+inline constexpr std::array<u8,16> kGameAchievementQueryExpectedBytes = {0xFD,0x7B,0xBE,0xA9,0xF3,0x0B,0x00,0xF9,0xFD,0x03,0x00,0x91,0x08,0xA8,0x8B,0x52};
+inline constexpr uintptr_t kGameAchievementQueryStubOffset = 0x6720E0;
+inline constexpr std::array<u8,16> kGameAchievementQueryStubExpectedBytes = {0x70,0x21,0x00,0x90,0x11,0xEE,0x47,0xF9,0x10,0x62,0x3F,0x91,0x20,0x02,0x1F,0xD6};
+inline constexpr uintptr_t kGameAchievementQueryGotSlotOffset = 0xA9EFD8;
 inline constexpr uintptr_t kPltResolverOffset = 0x66FAA0;
 
 // 2026-10-09：生成回调在天然替换和实体工厂之前；保留栈上的forceSpawn。

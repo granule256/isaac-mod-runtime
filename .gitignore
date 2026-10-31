@@ -74,52 +74,10 @@ build-command.txt
 switch/
 模组恢复与Bug反馈收集表.xlsx
 
-# Local mod payloads, corpus comparisons and media tooling are not remote core source.
-/runtime/mod-patches/
-/runtime/pc-mods/
-/runtime/diagnostic/stage149/
-/runtime/diagnostic/stage134/
-/runtime/tests/fixtures/mod_lua_performance/
-/runtime/tests/fixtures/mod_mcm_logic/
-/runtime/tests/fixtures/mod_reload_optimizations/
-/runtime/tests/fixtures/mod_config_restore/
-/runtime/tests/fixtures/stageapi_shared_init/
-/runtime/tests/fixtures/minimapapi_frame_events/
-/tools/video_intro_20261024/
-/tools/test_fixtures/eid-highlight/
-/runtime/tests/test_challenge_goal_hud_offset.py
-/runtime/tests/test_cycling_items_resume.py
-/runtime/tests/test_dss_clip_reuse.py
-/runtime/tests/test_dss_packaging.py
-/runtime/tests/test_eid_highlight_color_offset.py
-/runtime/tests/test_eid_sprite_properties.py
-/runtime/tests/test_mcm_logic_frames.py
-/runtime/tests/test_minimap_frame_event_order.py
-/runtime/tests/test_mod_lua_performance.py
-/runtime/tests/test_mod_lua_performance_packaging.py
-/runtime/tests/test_mod_reload_optimizations.py
-/runtime/tests/test_original_mod_config_packaging.py
-/runtime/tests/test_planetarium_full_init.py
-/runtime/tests/test_planetarium_resume.py
-/runtime/tests/test_rplus_reading_packaging.py
-/runtime/tests/test_rplus_reading_page.py
-/runtime/tests/test_stageapi_grid_packaging.py
-/runtime/tests/test_stageapi_grid_read_reuse.py
-/runtime/tests/test_stageapi_shared_initialization.py
-/runtime/tests/test_wmd_font_cache.py
-/runtime/tests/test_wmd_packaging.py
-/runtime/tests/fixtures/shared_item_images/
-/tools/video_intro_*/
+# Local original payment-code images; production uses only the three cropped UI inputs.
+/qrcode.png
+/微信图片_20261030153531_192_7.jpg
+/微信图片_20261030153531_193_7.jpg
 
-# 2026-10-30: remote source policy. Local originals stay on disk.
-/runtime/diagnostic/
-/runtime/exlaunch/
-/runtime/tests/evidence/
-/runtime/tests/fixtures/minimap_native_longpress/
-/runtime/tests/test_minimap_native_longpress.py
-/runtime/tests/test_speed_monitor.py
-/runtime/tests/test_startup_diagnostic.py
-/runtime/tests/test_game_file_reader_stage10.py
-/CONTRIBUTING.md
-**/[Rr][Ee][Aa][Dd][Mm][Ee]*
-!/README.md
+# Local collaboration instructions are linked from data and must never be published.
+/AGENTS.md

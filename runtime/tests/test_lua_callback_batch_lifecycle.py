@@ -9,6 +9,7 @@ ROOT=Path(__file__).resolve().parents[2]
 SOURCE=ROOT/'runtime/source'
 BRIDGE=r'''
 namespace LuaRuntime {
+std::uint64_t BudgetTestClock(void* context) {return ++*static_cast<std::uint64_t*>(context);}
 struct DiagnosticAlloc {lua_Alloc original;void* context;};
 void* FailDiagnosticAllocation(void* pointer,void* block,size_t oldSize,size_t newSize) {
  auto* a=static_cast<DiagnosticAlloc*>(pointer);if(newSize>oldSize)return nullptr;
@@ -29,13 +30,21 @@ extern "C" bool ProbeBatchLife(int mode) {
   lua_gc(g_LuaState,LUA_GCCOLLECT,0);lua_gc(g_LuaState,LUA_GCCOLLECT,0);
   return lua_gettop(g_LuaState)==top;
  }
- if(mode==2){
+ if(mode==2||mode==7){
+  std::uint64_t clock=0;
+  if(mode==7)lua_gc_setframebudget(g_LuaState,BudgetTestClock,&clock,3,0);
   for(int i=0;i<256;++i){
+   if(mode==7)lua_gc_beginframe(g_LuaState,i);
    lua_pushnil(g_LuaState);invoker.tableStackIndex=top+1;
    auto r=dispatcher.DispatchModifying(71,isaac::runtime::ThreadAffinity::Any,isaac::runtime::CallbackRegistry::kNoCallbackFilter);
    if(r.invoked!=1||r.failed||!r.hasTable||invoker.tableOwner!=0x10002||!lua_istable(g_LuaState,top+1))return false;
    lua_getfield(g_LuaState,top+1,"Type");const bool valid=lua_tointeger(g_LuaState,-1)==5;
    lua_settop(g_LuaState,top);if(!valid)return false;
+  }
+  if(mode==7){
+   lua_GCBudgetInfo info{};lua_gc_budgetinfo(g_LuaState,&info);
+   if(info.frames!=256||!info.slices||!info.steps)return false;
+   lua_gc_setframebudget(g_LuaState,nullptr,nullptr,0,0);
   }
   lua_gc(g_LuaState,LUA_GCCOLLECT,0);lua_gc(g_LuaState,LUA_GCCOLLECT,0);return true;
  }
@@ -105,13 +114,14 @@ int main(int argc,char** argv){
  if(mode==0)script=R"lua(local a=RegisterMod('one',1);local b=RegisterMod('two',1);_probe={count=0};a:AddCallback(1,function() error('wrong owner') end);b:AddCallback(1,function(self) assert(self==b);_probe.count=_probe.count+1 end))lua";
  if(mode==1)script=R"lua(local m=RegisterMod('void',1);_probe={count=0};m:AddCallback(1,function() return setmetatable({},{__gc=function() _probe.count=_probe.count+1 end}) end))lua";
  if(mode==2)script=R"lua(local m=RegisterMod('table',1);m:AddCallback(1,function() end);_probe={count=0};m:AddCallback(71,function() return setmetatable({Type=5},{__gc=function() _probe.count=_probe.count+1 end}) end))lua";
+ if(mode==7)script=R"lua(local m=RegisterMod('paced-table',1);m:AddCallback(1,function() end);_probe={count=0};m:AddCallback(71,function() local trash={};for i=1,50 do trash[i]={i} end;return setmetatable({Type=5},{__gc=function() _probe.count=_probe.count+1 end}) end))lua";
  if(mode==3)script=R"lua(local a=RegisterMod('one',1);local b=RegisterMod('two',1);a:AddCallback(1,function() end);local inner=false;a:AddCallback(71,function() if inner then return end;inner=true;local t=Isaac.RunCallback(71);assert(t.Type==9);inner=false;return {Type=5} end);b:AddCallback(71,function() return {Type=9} end))lua";
  if(mode==4)script=R"lua(local m=RegisterMod('diag-oom',1);_probe={count=0};for i=1,100 do local token=setmetatable({},{__gc=function() _probe.count=_probe.count+1 end});local fn=function() return token end;m:AddCallback(1,fn);m:RemoveCallback(1,fn) end)lua";
  if(mode==5)script=R"lua(local m=RegisterMod('matcher-oom',1);_probe={count=0};m:AddCallback(1,function() _probe.count=_probe.count+1 end);setmetatable(Isaac.GetCallbacks(1),{__matchParams=function() local allocated=string.rep('x',1000000);assert(#allocated==1000000);return true end}))lua";
  if(mode==6)script=R"lua(local m=RegisterMod('float-id',1);_probe={count=0};m:AddCallback(1.0,function() _probe.count=_probe.count+1 end);Isaac.RunCallback(1.0))lua";
  if(!script||LuaRuntime::InitializeFromBuffer(script,std::strlen(script),"@batch-life.lua")!=LuaRuntime::LuaInitResult::Success)return 1;
  if(!ProbeBatchLife(mode))return 2;if(LuaRuntime::TakeCallbackError())return 3;
- double count=0;if(mode<3||mode>=4){if(LuaRuntime::ReadLuaTableNumber("_probe","count",&count)!=0)return 4;const double expected=mode==0||mode==5?1:mode==1?2048:mode==2?256:mode==6?2:100;if(count!=expected)return 5;}
+ double count=0;if(mode<3||mode>=4){if(LuaRuntime::ReadLuaTableNumber("_probe","count",&count)!=0)return 4;const double expected=mode==0||mode==5?1:mode==1?2048:mode==2||mode==7?256:mode==6?2:100;if(count!=expected)return 5;}
  return 0;
 }
 '''
@@ -135,4 +145,5 @@ class CallbackBatchLifecycleTests(unittest.TestCase):
  def test_diagnostic_refresh_needs_no_new_refs_when_allocator_rejects_growth(self):self.run_mode(4)
  def test_matcher_oom_restores_scope_and_recovers_next_dispatch(self):self.run_mode(5)
  def test_integral_float_id_preserves_registration_and_perf_metadata(self):self.run_mode(6)
+ def test_paced_gc_keeps_native_callback_return_rooted(self):self.run_mode(7)
 if __name__=='__main__':unittest.main()

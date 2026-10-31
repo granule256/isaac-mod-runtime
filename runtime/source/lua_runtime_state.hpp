@@ -37,6 +37,9 @@ struct ModHandle;
 
 namespace LuaRuntime {
 
+// Called once at the top-level native Manager iteration. Does no Lua work.
+void BeginGcFrame(std::uint64_t serial) noexcept;
+
 // 仅在原生控制台同步命令的作用域内捕获，普通Lua print保持原stdout路径。
 [[nodiscard]] bool ConsoleCommandOutputActive() noexcept;
 [[nodiscard]] bool ConsoleConfigMenuVisible() noexcept;

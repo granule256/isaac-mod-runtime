@@ -214,6 +214,21 @@ export DEPSDIR	:=	$(TOPDIR)/$(BUILD)
 
 CFILES		:=	$(foreach dir,$(SOURCES),$(notdir $(wildcard $(dir)/*.c)))
 CPPFILES	:=	$(foreach dir,$(SOURCES),$(notdir $(wildcard $(dir)/*.cpp)))
+# The guard owns these implementations in one translation unit. A public
+# checkout can link the matching precompiled archive without their sources.
+CPPFILES := $(filter-out notice_integrity_native.cpp title_notice_native.cpp,$(CPPFILES))
+NOTICE_GUARD_LINK_INPUT :=
+ifneq ($(strip $(NOTICE_GUARD_ARCHIVE)),)
+NOTICE_GUARD_LINK_INPUT := $(if $(filter /%,$(NOTICE_GUARD_ARCHIVE)),$(NOTICE_GUARD_ARCHIVE),$(abspath $(TOPDIR)/$(NOTICE_GUARD_ARCHIVE)))
+ifeq ($(wildcard $(NOTICE_GUARD_LINK_INPUT)),)
+$(error NOTICE_GUARD_ARCHIVE does not exist: $(NOTICE_GUARD_LINK_INPUT))
+endif
+CPPFILES := $(filter-out notice_guard_core.cpp hook_manager.cpp mod_menu_native.cpp image_pcx_bridge_hook.cpp mod_resource_redirect.cpp mod_image_resources.cpp,$(CPPFILES))
+else
+ifeq ($(wildcard $(ROOT_SOURCE)/notice_guard/notice_guard_core.cpp),)
+$(error Notice guard implementation is absent; provide NOTICE_GUARD_ARCHIVE)
+endif
+endif
 SFILES		:=	$(foreach dir,$(SOURCES),$(notdir $(wildcard $(dir)/*.s)))
 BINFILES	:=	$(foreach dir,$(DATA),$(notdir $(wildcard $(dir)/*.*)))
 
@@ -301,9 +316,13 @@ else
 endif
 #---------------------------------------------------------------------------------
 
+ifneq ($(strip $(NOTICE_GUARD_ARCHIVE)),)
+# Apply after explicit root-unit additions as well as wildcard discovery.
+CPPFILES := $(filter-out notice_guard_core.cpp hook_manager.cpp mod_menu_native.cpp image_pcx_bridge_hook.cpp mod_resource_redirect.cpp mod_image_resources.cpp anm2_load_override_hook.cpp,$(CPPFILES))
+endif
 export OFILES_BIN	:=	$(addsuffix .o,$(BINFILES))
 export OFILES_SRC	:=	$(CPPFILES:.cpp=.o) $(CFILES:.c=.o) $(SFILES:.s=.o)
-export OFILES 	:=	$(OFILES_BIN) $(OFILES_SRC)
+export OFILES 	:=	$(OFILES_BIN) $(OFILES_SRC) $(NOTICE_GUARD_LINK_INPUT)
 export HFILES_BIN	:=	$(addsuffix .h,$(subst .,_,$(BINFILES)))
 
 export INCLUDE	:=	$(foreach dir,$(INCLUDES),-I$(TOPDIR)/$(dir)) \
@@ -327,6 +346,28 @@ else
 endif
 
 .PHONY: $(BUILD) clean all
+
+# Build just the guard dependency, without linking the complete runtime. Keep
+# the original object and debug data locally; only the copy in the archive is stripped.
+.PHONY: notice-guard-archive
+notice-guard-archive: title-notice-prepare
+	@mkdir -p "$(BUILD)" "$(EXL_ARTIFACT_DIR)"
+	@$(MAKE) --no-print-directory -C $(BUILD) -f ../$(MK_PATH)/common.mk notice_guard_core.o hook_manager.o mod_menu_native.o image_pcx_bridge_hook.o mod_resource_redirect.o mod_image_resources.o anm2_load_override_hook.o
+	@$(AR) p "$(LIBNX)/lib/libnx.a" sha256.o > "$(EXL_ARTIFACT_DIR)/notice_guard_sha256.o"
+	@guard_libc_path="$$($(CC) -print-file-name=libc.a)"; \
+	  for guard_memory in memcpy memset memcmp; do \
+	    $(AR) p "$$guard_libc_path" "libc_a-$$guard_memory.o" > "$(EXL_ARTIFACT_DIR)/notice_guard_$$guard_memory.o" || exit 1; \
+	  done
+	@$(CXX) -nostdlib -r "$(BUILD)/notice_guard_core.o" "$(BUILD)/hook_manager.o" "$(BUILD)/mod_menu_native.o" \
+	  "$(BUILD)/image_pcx_bridge_hook.o" "$(BUILD)/mod_resource_redirect.o" "$(BUILD)/mod_image_resources.o" \
+	  "$(BUILD)/anm2_load_override_hook.o" \
+	  "$(EXL_ARTIFACT_DIR)/notice_guard_sha256.o" \
+	  "$(EXL_ARTIFACT_DIR)/notice_guard_memcpy.o" "$(EXL_ARTIFACT_DIR)/notice_guard_memset.o" \
+	  "$(EXL_ARTIFACT_DIR)/notice_guard_memcmp.o" -o "$(EXL_ARTIFACT_DIR)/notice_guard_core.bound.o"
+	@$(PYTHON) ../tools/seal_notice_guard.py --objcopy "$(OBJCOPY)" \
+	  --input "$(EXL_ARTIFACT_DIR)/notice_guard_core.bound.o" \
+	  --output "$(EXL_ARTIFACT_DIR)/notice_guard_core.release.o"
+	@$(AR) rcs "$(EXL_ARTIFACT_DIR)/libnotice_guard.a" "$(EXL_ARTIFACT_DIR)/notice_guard_core.release.o"
 
 #---------------------------------------------------------------------------------
 all: $(BUILD)
@@ -399,7 +440,7 @@ export INCLUDE := $(foreach dir,$(INCLUDES),-I$(TOPDIR)/$(dir)) \
 	$(foreach root,$(EXTRA_SOURCE_ROOTS),-I$(root))
 .PHONY:	all 
 
-DEPENDS	:=	$(OFILES:.o=.d)
+DEPENDS	:=	$(patsubst %.o,%.d,$(filter %.o,$(OFILES)))
 
 #---------------------------------------------------------------------------------
 # main targets
@@ -408,6 +449,14 @@ DEPENDS	:=	$(OFILES:.o=.d)
 all	:	$(OUTPUT).nso
 
 $(OUTPUT).nso	:	$(OUTPUT).elf $(OUTPUT).npdm
+	@if [ -z "$(strip $(DIAGNOSTIC_STAGE)$(STARTUP_PROBE_STAGE))" ] && [ "$(SALTYNX_PLUGIN)" != "1" ]; then \
+	  $(PYTHON) $(TOPDIR)/../tools/seal_notice_code.py --elf $(OUTPUT).elf && \
+	  $(PYTHON) $(TOPDIR)/../tools/seal_notice_code.py --elf $(OUTPUT).elf --verify || exit 1; \
+	fi
+	@elf2nso $(OUTPUT).elf $@
+	@echo built ... $(notdir $@)
+
+$(OUTPUT).nso: $(TOPDIR)/../tools/seal_notice_code.py
 
 $(OUTPUT).elf: $(TOPDIR)/misc/specs/$(SPECS_NAME) $(TOPDIR)/misc/link.ld $(TOPDIR)/misc/link_startup_probe_compat.ld $(OFILES)
 

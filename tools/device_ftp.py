@@ -33,7 +33,7 @@
     * **任一步失败都是非零退出**（`with_retry` 抛 `SystemExit`、读回不一致返回 1）——
       但**别把命令接 `| tail`**：管道会把退出码换成 `tail` 的，看起来像"成功了"。
 
-选项：`--host`（默认 192.168.124.11）、`--port`（默认 5000）、`--user/--password`（账号密码见 tools/device_access.py 的说明）
+选项：`--host`（显式参数或本地配置）、`--port`（默认 5000）、`--user/--password`（账号密码见 tools/device_access.py 的说明）
 """
 
 from __future__ import annotations
@@ -46,13 +46,14 @@ import sys
 import time
 from pathlib import Path
 
-DEFAULT_HOST = '192.168.124.11'
+DEFAULT_HOST = None
 DEFAULT_PORT = 5000
 import pathlib as _pathlib
 import sys as _sys
 _sys.path.insert(0, str(_pathlib.Path(__file__).resolve().parents[1]))
 from tools.device_access import resolve_device as _resolve_device
 _H, _P, _U, _W = _resolve_device(required=False)
+DEFAULT_HOST = _H
 DEFAULT_USER = _U
 DEFAULT_PASSWORD = _W
 SETTLE_SECONDS = 1.5

@@ -42,7 +42,7 @@ int main(int argc,char**argv){
  if(mode=="pickup"){type=5;event=35;filter=2;parent=true;}
  if(mode=="slot"){type=6;event=0;filter=6;parent=true;}
  if(mode=="laser"){type=7;event=48;filter=2;parent=true;}
- if(mode=="knife"){type=8;event=51;filter=2;parent=true;}
+ if(mode=="knife"){type=8;event=51;filter=4;parent=true;}
  if(mode=="projectile"){type=9;event=44;filter=2;parent=true;}
  if(mode=="effect"){type=1000;event=55;filter=2;parent=true;}
  if(parent){
@@ -52,6 +52,7 @@ int main(int argc,char**argv){
   WriteAt<std::uintptr_t>(g_ParentBytes,0,g_EngineBase+vt);
   WriteAt<std::uint32_t>(g_ParentBytes,kEntityTypeOffset,type);
   WriteAt<std::uint32_t>(g_ParentBytes,kEntityVariantOffset,2);
+  WriteAt<std::uint32_t>(g_ParentBytes,kEntitySubTypeOffset,4);
   SetVtableSlot(vt,4,0x5E6F0004);
  }
  std::string script="local m=RegisterMod('explicit update',1);local p=Isaac.GetPlayer(0);local e=";

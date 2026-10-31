@@ -7,3 +7,12 @@ Archive SHA-256: `5113c06884f7de453ce57702abaac1d618307f33f6789fa870e87a59d772ac
 This directory contains the unmodified `src/` directory from that archive and
 the Lua 5.3.3 license text. The Runtime build excludes the Lua command-line
 programs and the `io`, `os`, `package`, and `debug` libraries.
+
+## Local changes (2026-10-30)
+
+The archive hash above identifies the original upstream source. The current
+working tree additionally contains the local shared-frame automatic GC budget
+patch: lapi.c, lgc.c, lgc.h, lgcbudget.h, lstate.c and lstate.h. It preserves
+explicit collection and emergency recovery paths. The upstream copyright and
+license notices remain unchanged. See commit d1d6a5139 and the standalone
+gc_frame_budget_harness.c regression for the local implementation.

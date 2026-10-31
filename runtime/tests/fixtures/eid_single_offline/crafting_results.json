@@ -1,0 +1,18 @@
+{
+  "vi": "(Scroll: Hold {{CONFIG_BoC_Toggle}} + {{ButtonY}} {{ButtonA}}, Lock: {{ButtonX}}, Refresh: {{ButtonB}}, Reset Bag: Hold {{ButtonRB}}, Search: {1})",
+  "tr_tr": "Sonuçlar:#(Kaydır: TAB(basılı tut) + Ateş △/▽)",
+  "pl": "Wyniki:#(Przewiń: Trzymaj TAB + Strzał △/▽)",
+  "pt_br": "(Rolar: Segurar {{CONFIG_BoC_Toggle}} + {{ButtonY}} {{ButtonA}}, Travar: {{ButtonX}}, Atualizar: {{ButtonB}}, Redefinir a Bolsa: Hold {{ButtonRB}})",
+  "ru": "(Листать: зажать {{CONFIG_BoC_Toggle}} + {{ButtonY}} {{ButtonA}},#Заблокировать: {{ButtonX}}, Обновить: {{ButtonB}})",
+  "fr": "Défiler : {{CONFIG_BoC_Toggle}} + {{ButtonY}}{{ButtonA}}#Verrouiller : {{CONFIG_BoC_Toggle}} + {{ButtonX}}#Rafraîchir : {{CONFIG_BoC_Toggle}} + {{ButtonB}}#Réinitialiser : Maintenir {{ButtonRB}}#Rechercher : {{ButtonEnter}}",
+  "spa": "(Desplazar: mantén {{CONFIG_BoC_Toggle}} + {{ButtonY}} {{ButtonA}},#Bloquear: {{ButtonX}}, Refrescar: {{ButtonB}})",
+  "uk_ua": "(Гортати: Утримуйте {{CONFIG_BoC_Toggle}} + {{ButtonY}} {{ButtonA}}, Закріпити: {{ButtonX}}, Оновити: {{ButtonB}}, Скинути: Утримуйте {{ButtonRB}})",
+  "zh_cn": "(滚动: 按住{{CONFIG_BoC_Toggle}}+{{ButtonY}} {{ButtonA}}, 锁定: {{ButtonX}}, 刷新: {{ButtonB}}, 重置宝袋: 按住{{ButtonRB}}, 搜索: {1})",
+  "en_us": "(Scroll: Hold {{CONFIG_BoC_Toggle}} + {{ButtonY}} {{ButtonA}}, Lock: {{ButtonX}}, Refresh: {{ButtonB}}, Reset Bag: Hold {{ButtonRB}}, Search: {1})",
+  "de": "(Scrollen: Halte {{CONFIG_BoC_Toggle}} + {{ButtonY}} {{ButtonA}}, Sperren: {{ButtonX}}, Aktualisieren: {{ButtonB}}, Tasche zurücksetzen: Halte {{ButtonRB}}, Suche: {1})",
+  "it": "(Scorri: Tieni premuto {{CONFIG_BoC_Toggle}} + {{ButtonY}} {{ButtonA}}, Blocca: {{ButtonX}}, Aggiorna: {{ButtonB}}, Reset del Sacco: Tieni premuto {{ButtonRB}}, Cerca: {1})",
+  "cs_cz": "(Scrollovat: Podrž {{CONFIG_BoC_Toggle}} + {{ButtonY}} {{ButtonA}}, Zamknout: {{ButtonX}}, Obnovit: {{ButtonB}}, Resetovat Pytlík: Podrž {{ButtonRB}}, Najít: {1})",
+  "ko_kr": "목록 스크롤: {{CONFIG_BoC_Toggle}}+{{ButtonY}}or{{ButtonA}}#목록 고정:{{ButtonX}}#목록 새로고침:{{ButtonB}}#초기화:{{ButtonRB}}꾹 누르기, 찾기:{1})",
+  "ro_ro": "(Derulare: Ține {{CONFIG_BoC_Toggle}} + {{ButtonY}} {{ButtonA}}, Blocare: {{ButtonX}}, Reîmprospătare: {{ButtonB}}, Resetare Sac: Ține {{ButtonRB}}, Căutare: {1})",
+  "ja_jp": "レシピ操作：マップ表示中、#{{Blank}} 　{{ButtonY}} {{ButtonA}} でスクロール#{{Blank}} 　{{ButtonX}} でレシピ固定#{{Blank}} 　{{ButtonB}} でレシピ更新#{{Blank}} 　{1}で検索"
+}

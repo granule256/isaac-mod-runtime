@@ -1,5 +1,4 @@
 #pragma once
-#include <atomic>
 #include <cstdint>
 
 struct TargetModule;
@@ -8,13 +7,8 @@ namespace isaac::runtime::notice::integrity {
 // Only the game thread performs reads. Consumers use one published state load.
 inline constexpr unsigned kUnchecked = 0, kChecking = 1, kValid = 2, kBlocked = 3;
 #if defined(__SWITCH__) && !defined(EXL_DIAGNOSTIC_STAGE) && !defined(EXL_STARTUP_PROBE_STAGE)
-extern std::atomic<unsigned> g_ValidationState;
-inline bool RuntimeAllowed() noexcept {
-    return g_ValidationState.load(std::memory_order_acquire) == kValid;
-}
-inline bool Blocked() noexcept {
-    return g_ValidationState.load(std::memory_order_acquire) == kBlocked;
-}
+bool RuntimeAllowed() noexcept;
+bool Blocked() noexcept;
 bool Ensure(const TargetModule&) noexcept;
 bool VerifyLocale(unsigned language) noexcept;
 #else

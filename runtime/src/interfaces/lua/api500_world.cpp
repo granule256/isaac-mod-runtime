@@ -447,6 +447,27 @@ int Api500GridNewIndex(lua_State* L) {
     if(!field){if(TryWriteApi600GridField(L,p,name))return 0;return luaL_error(L,"GridEntity has no writable field named %s",name);}
     Store(L,p,*field);return 0;
 }
+namespace {
+const unsigned char kGridDescCacheKey{}, kGridDescCacheBaseKey{};
+void PushGridDescCache(lua_State* L) {
+    const auto base = LuaRuntime::EngineModuleBase();
+    lua_rawgetp(L, LUA_REGISTRYINDEX, &kGridDescCacheBaseKey);
+    const bool sameBase = engine_memory::AddressOf(lua_touserdata(L, -1)) == base;
+    lua_pop(L, 1);
+    lua_rawgetp(L, LUA_REGISTRYINDEX, &kGridDescCacheKey);
+    if (sameBase && lua_istable(L, -1)) return;
+    lua_pop(L, 1);
+    // Borrowed views own no native memory. Weak values let the owner/view cycle
+    // die normally; neither this map nor its lightuserdata keys pin a grid.
+    lua_newtable(L);
+    lua_createtable(L, 0, 1);
+    lua_pushliteral(L, "v"); lua_setfield(L, -2, "__mode");
+    lua_setmetatable(L, -2);
+    lua_pushvalue(L, -1); lua_rawsetp(L, LUA_REGISTRYINDEX, &kGridDescCacheKey);
+    lua_pushlightuserdata(L, engine_memory::AsObject(base));
+    lua_rawsetp(L, LUA_REGISTRYINDEX, &kGridDescCacheBaseKey);
+}
+}
 bool PushApi500GridDesc(lua_State* L,std::uintptr_t p) {
     if(!p)return false;
     if(!IsLiveGridEntityPointer(p))luaL_error(L,"GridEntityDesc owner is no longer available");
@@ -454,11 +475,25 @@ bool PushApi500GridDesc(lua_State* L,std::uintptr_t p) {
     lua_getuservalue(L,1);
     if(luaL_testudata(L,-1,kDescMeta))return true;
     lua_pop(L,1);
+    PushGridDescCache(L);
+    const int cache = lua_gettop(L);
+    lua_rawgetp(L, cache, engine_memory::AsObject(p));
+    const auto* cached = static_cast<const View*>(luaL_testudata(L, -1, kDescMeta));
+    // Private entries retain an immutable owner. Current p was checked above;
+    // field/identity access still performs the complete TryDesc validation.
+    if (cached && cached->object == p && cached->base == LuaRuntime::EngineModuleBase()) {
+        lua_remove(L, cache);
+        lua_pushvalue(L, -1); lua_setuservalue(L, 1);
+        return true;
+    }
+    lua_pop(L, 1);
     auto* view=static_cast<View*>(lua_newuserdata(L,sizeof(View)));
     *view={p,LuaRuntime::EngineModuleBase(),0};
     lua_pushvalue(L,1);lua_setuservalue(L,-2);
     Metatable(L,kDescMeta,"GridEntityDesc",DescIndex,DescWrite);
     lua_pushvalue(L,-1);lua_setuservalue(L,1);
+    lua_pushvalue(L, -1); lua_rawsetp(L, cache, engine_memory::AsObject(p));
+    lua_remove(L, cache);
     return true;
 }
 void PushApi500RoomConfig(lua_State* L,std::uintptr_t p,std::uintptr_t owner) {

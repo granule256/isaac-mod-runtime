@@ -26,7 +26,8 @@ struct Entry { std::uint64_t size; Digest digest; char path[kPathBytes]; };
 struct Manifest { unsigned count; Entry entries[kMaxEntries]; };
 enum class Failure {
     None, InvalidPort, ManifestMissing, ManifestRead, ManifestDigest,
-    ManifestFormat, ResourceMissing, ResourceSize, ResourceRead, ResourceDigest
+    ManifestFormat, ResourceMissing, ResourceSize, ResourceRead, ResourceDigest,
+    CodeIntegrity
 };
 struct Verdict { Failure failure; unsigned entryIndex; std::uint64_t bytesRead; };
 // Calls are serialized on the game thread. Both operations share fixed static

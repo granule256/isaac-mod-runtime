@@ -30,6 +30,7 @@ def layered_lua_runtime_sources(source_root: Path) -> list[Path]:
     unit_root = runtime_root / "src"
     return [
         source_root / "lua_runtime.cpp",
+        notice_guard_host_input(source_root),
         source_root / "console_callback_hook.cpp",
         unit_root / "interfaces" / "lua" / "entity_lifetime.cpp",
         # 批次 207（2026-09-29）：`Isaac.GetEntityTypeByName`/`GetEntityVariantByName` 查的
@@ -146,6 +147,18 @@ def layered_lua_runtime_sources(source_root: Path) -> list[Path]:
         # 只需在那个文件里补一行默认，**不必再动任何测试文件**（见该文件头部说明）。
         source_root.parent / "tests" / "shared_lua_stubs.cpp",
     ]
+
+
+def notice_guard_host_input(source_root: Path) -> Path:
+    """Private implementation locally, matching host archive in public checkouts."""
+    import os
+    source = source_root / 'notice_guard/notice_guard_core.cpp'
+    if source.is_file():
+        return source
+    value = os.environ.get('NOTICE_GUARD_HOST_ARCHIVE')
+    if value and Path(value).is_file() and Path(value).suffix == '.a':
+        return Path(value).resolve()
+    raise RuntimeError('Notice guard source is private; provide NOTICE_GUARD_HOST_ARCHIVE for Lua integration tests')
 
 
 #: 宿主 harness 的"真实能力"假实现（**共享夹具**，2026-09-18 夜起）。
@@ -518,7 +531,7 @@ def build_lua_harness(*, source_root: Path, workdir: Path, harness_source: str,
     fingerprint = runtime_header_fingerprint(source_root)
     flags = HARNESS_COMPILE_FLAGS
 
-    objects = [cached_compile(path, tool="c++", flags=flags, includes=includes,
+    objects = [path if path.suffix == '.a' else cached_compile(path, tool="c++", flags=flags, includes=includes,
                               header_fingerprint=fingerprint)
                for path in (harness, *extra_sources, *layered_lua_runtime_sources(source_root))]
     objects += lua_harness_objects(source_root, workdir)

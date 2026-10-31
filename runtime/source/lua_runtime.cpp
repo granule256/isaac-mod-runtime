@@ -12,6 +12,7 @@
 #include "interfaces/lua/entity_lifetime.hpp"
 #include "lua_runtime.hpp"
 #include "notice_integrity_native.hpp"
+#include "notice_runtime_bindings.hpp"
 #include "native_player_init.hpp"
 #include "interfaces/lua/os_api.hpp"
 #include "infrastructure/memory/engine_field_access.hpp"
@@ -26,6 +27,9 @@
 #include "game_observer.hpp"
 #include "lua_object_handles.hpp"
 #include "lua_runtime_state.hpp"
+extern "C" {
+#include "lgcbudget.h"
+}
 #include "hook_manager.hpp"
 #include "mod_persistence.hpp"
 #include "fatal_forensics.hpp"
@@ -184,6 +188,9 @@ __attribute__((visibility("hidden"))) std::uint64_t g_RuntimePerfProfileSamples{
 __attribute__((visibility("hidden"))) std::uint64_t g_RuntimePerfProfileOverflow{0};
 // 批次 092：量具自校准（读一次 `cntpct_el0` 要多少 tick）。
 __attribute__((visibility("hidden"))) std::uint64_t g_RuntimePerfTickCostTicks{0};
+// Written only by this TU at native frame boundaries; external tools read the
+// completed frame and cumulative scheduler counters without a hot data GOT.
+__attribute__((visibility("hidden"))) lua_GCBudgetInfo g_RuntimeGcBudgetSnapshot{};
 // 批次 095：**地板基准** —— "一次纯 Lua→C 调用"本身要多少 tick（不含任何处理器工作）。
 // 有了它才能回答"我们还能把 1.40 µs 压到多低"：压到地板以下是不可能的。
 __attribute__((visibility("hidden"))) std::uint64_t g_RuntimePerfEmptyCallTicks{0};
@@ -2107,165 +2114,6 @@ void RegisterRngApi(lua_State* state) {
     lua_setglobal(state, "RNG");
 }
 
-// `KColor` is the colour value type the render-facing APIs take. Its metatable needs an
-// `__index` function rather than a method table, because PC Mods read the components
-// (`c.R`, `c.G`, ...) instead of calling accessors.
-void RegisterColorApi(lua_State* state) {
-    luaL_newmetatable(state, LuaRuntime::kColorMetatable);
-    lua_newtable(state);static_cast<void>(isaac::runtime::AttachColorMethods(state));
-    lua_setfield(state,-2,"__methods");
-    lua_pushcfunction(state, isaac::runtime::ColorIndex);
-    lua_setfield(state, -2, "__index");
-    // 真实 Mod 会写颜色字段：EID 的彩虹/闪烁/淡出效果就是 `color.Alpha = ...` 与
-    // `color = func(color)`，所以 KColor 必须可写，否则那些效果会在赋值处报错。
-    lua_pushcfunction(state, isaac::runtime::ColorNewIndex);
-    lua_setfield(state, -2, "__newindex");
-    lua_pushcfunction(state, isaac::runtime::ColorMultiply);
-    lua_setfield(state, -2, "__mul");
-    lua_pop(state, 1);
-
-    // 全局 `KColor` 是可调用的**类表**：`__call` 是构造器，`__index` 提供文档化的常量
-    // （`KColor.White` 等）。与 `Vector` 同一形态，理由相同：常量必须挂在类上。
-    lua_newtable(state);
-    lua_newtable(state);
-    isaac::runtime::PushHandler(state, isaac::runtime::CreateColorHandle, 0,
-                                     isaac::runtime::kPerfInternalIdColorIndex);
-    lua_setfield(state, -2, "__call");
-    lua_pushcfunction(state, isaac::runtime::KColorClassIndex);
-    lua_setfield(state, -2, "__index");
-    lua_setmetatable(state, -2);
-    lua_setglobal(state, "KColor");
-
-    // 全局 `Color`（批次 3）：PC 的 `Color` 与 `KColor` 是**同一个类**（`KColor` 是别名之一），
-    // 所以这里把上面那张类表**原样**再挂一个全局名 —— 两者恒等（`Color == KColor`），
-    // 构造器（含七参 `Color(r,g,b,a,ro,go,bo)` 重载）与常量完全共用，不需要第二份实现。
-    // EID 的 `EID:renderIcon`（`features/eid_api.lua:1369`）与 `EID:renderIndicator`
-    // （`main.lua:960`）用的就是 `Color(...)`，而 `EID:getTextColor()` 那一路用的是 `KColor(...)`。
-    lua_getglobal(state, "KColor");
-    lua_setglobal(state, "Color");
-}
-
-// `Vector` = `KAGE::Math::Vector2`（8 字节 `{float X, float Y}` 值类型，无虚表）。比 `KColor`
-// 多一层：它既要 userdata 元表（字段 + 方法 + 运算符），又要一个**可调用的类表**来承载
-// `Vector.Zero`/`Vector.One`/`Vector.FromAngle`。方法表仍来自家族 TU 的 `AttachVectorMethods`。
-// `Sprite` = `IsaacRepentance::ANM2`。与 `Font` 同一形态：元表带 `__gc`（我们分配的对象必须
-// 由我们释放），方法表来自家族 TU。第一步只注册不收 `std::string` 的那一半。
-//
-// 批次 3 起 `__index` 是**函数**（`SpriteIndex`）：`Sprite` 多了三个可写属性
-// （`Scale`/`Color`/`FlipX`，EID 在绘制路径上直接赋值），而 `__index` 必须是函数才能同时
-// 服务字段与方法。方法表因此挪到元表的 `__methods` 上（与 `Vector` 同一形态）；
-// `__newindex` 只处理那三个字段，其它字段名报错。
-void RegisterSpriteApi(lua_State* state) {
-    luaL_newmetatable(state, LuaRuntime::kSpriteMetatable);
-    lua_pushcfunction(state, isaac::runtime::DestroySpriteHandle);
-    lua_setfield(state, -2, "__gc");
-    lua_pushcfunction(state, isaac::runtime::SpriteIndex);
-    lua_setfield(state, -2, "__index");
-    lua_pushcfunction(state, isaac::runtime::SpriteNewIndex);
-    lua_setfield(state, -2, "__newindex");
-    lua_newtable(state);
-    static_cast<void>(isaac::runtime::AttachSpriteMethods(state));
-    lua_setfield(state, -2, "__methods");
-    lua_pop(state, 1);
-
-    lua_pushcfunction(state, isaac::runtime::CreateSpriteHandle);
-    lua_setglobal(state, "Sprite");
-}
-
-// 批次 065：`EntityRef` —— PC 的值类型，GoodTrip 的诅咒房过路费要它
-// （`player:TakeDamage(n, flags, EntityRef(player), 0)`）。它底下是**引擎自己的
-// `Entity::EntityRef` 结构体**（引擎按引用读），所以句柄就是一块缓冲区，布局证据见
-// `interfaces/lua/entity_ref_api.hpp`。`__index` 暴露 `Type`/`Variant`/`Entity` 三个字段。
-void RegisterEntityRefApi(lua_State* state) {
-    luaL_newmetatable(state, LuaRuntime::kEntityRefMetatable);
-    lua_pushliteral(state,"EntityRef");lua_setfield(state,-2,"__type");
-    lua_pushvalue(state,-1);lua_setfield(state,-2,"__class");
-    lua_pushcfunction(state, isaac::runtime::EntityRefNewIndex);
-    lua_setfield(state, -2, "__newindex");
-    lua_pushcfunction(state, isaac::runtime::EntityRefIndex);
-    lua_setfield(state, -2, "__index");
-    lua_pop(state, 1);
-
-    isaac::runtime::PushHandler(state, isaac::runtime::CreateEntityRefHandle, 0,
-                                     isaac::runtime::kPerfInternalIdEntityRefCall);
-    lua_setglobal(state, "EntityRef");
-}
-
-void RegisterVectorApi(lua_State* state) {
-    isaac::runtime::RegisterVectorReferenceMetatable(state);
-    luaL_newmetatable(state, LuaRuntime::kVectorMetatable);
-    // `__index` 必须是函数：它同时服务 `v.X`/`v.Y` 字段与方法查找（方法表挂在元表的
-    // `__methods` 上，见 `interfaces/lua/vector_api.cpp`）。
-    isaac::runtime::PushHandler(state, isaac::runtime::VectorIndex, 0,
-                                     isaac::runtime::kPerfInternalIdVectorIndex);
-    lua_setfield(state, -2, "__index");
-    // `X`/`Y` 在 PC 里是可写变量，Mod 会直接赋值。
-    isaac::runtime::PushHandler(state, isaac::runtime::VectorNewIndex, 0,
-                                     isaac::runtime::kPerfInternalIdVectorNewIndex);
-    lua_setfield(state, -2, "__newindex");
-    isaac::runtime::PushHandler(state, isaac::runtime::VectorAdd, 0,
-                                     isaac::runtime::kPerfInternalIdVectorAdd);
-    lua_setfield(state, -2, "__add");
-    isaac::runtime::PushHandler(state, isaac::runtime::VectorSub, 0,
-                                     isaac::runtime::kPerfInternalIdVectorSub);
-    lua_setfield(state, -2, "__sub");
-    isaac::runtime::PushHandler(state, isaac::runtime::VectorMul, 0,
-                                     isaac::runtime::kPerfInternalIdVectorMul);
-    lua_setfield(state, -2, "__mul");
-    isaac::runtime::PushHandler(state, isaac::runtime::VectorDiv, 0,
-                                     isaac::runtime::kPerfInternalIdVectorDiv);
-    lua_setfield(state, -2, "__div");
-    isaac::runtime::PushHandler(state, isaac::runtime::VectorUnaryMinus, 0,
-                                     isaac::runtime::kPerfInternalIdVectorUnaryMinus);
-    lua_setfield(state, -2, "__unm");
-    isaac::runtime::PushHandler(state, isaac::runtime::VectorEqual, 0,
-                                     isaac::runtime::kPerfInternalIdVectorEqual);
-    lua_setfield(state, -2, "__eq");
-    isaac::runtime::PushHandler(state, isaac::runtime::VectorToString, 0,
-                                     isaac::runtime::kPerfInternalIdVectorToString);
-    lua_setfield(state, -2, "__tostring");
-    lua_newtable(state);
-    static_cast<void>(isaac::runtime::AttachVectorMethods(state));
-    lua_setfield(state, -2, "__methods");
-    lua_pop(state, 1);
-
-    lua_newtable(state);
-    lua_newtable(state);
-    isaac::runtime::PushHandler(state, isaac::runtime::CreateVectorHandle, 0,
-                                     isaac::runtime::kPerfInternalIdVectorCall);
-    lua_setfield(state, -2, "__call");
-    lua_pushcfunction(state, isaac::runtime::VectorClassIndex);
-    lua_setfield(state, -2, "__index");
-    // ★★ 批次 350（2026-10-04）：`getmetatable(Vector).__class` = **实例用的那个元表**
-    //   （`kVectorMetatable`）。与批次 284 给 `Level` 补的是**同一条 PC 形状**。
-    //   ★ 为什么必须有：minimapi 的 `InstanceOf(obj, class)`（`main.lua:629-638`）做的是
-    //     `getmetatable(class).__class == getmetatable(obj)`，而 `Vector` 是它**唯一的**检查对象
-    //     （`main.lua:1181` 的 `RemoveRoom` 与 `:1211` 的 `GetRoomAtPosition` 两条 `assert`）。
-    //     这个字段缺了 ⇒ 恒 false ⇒ 真机报
-    //     `minimapi/…/main.lua:1211: bad argument #1 to 'GetRoomAtPosition', expected Vector`
-    //     （读数 `dist/gdb-report-20261004-185047.txt`）—— 整条回调被打断。
-    luaL_getmetatable(state, LuaRuntime::kVectorMetatable);
-    lua_setfield(state, -2, "__class");
-    lua_setmetatable(state, -2);
-    lua_setglobal(state, "Vector");
-}
-
-void RegisterFontApi(lua_State* state) {
-    luaL_newmetatable(state, kFontMetatable);
-    // Font is the first family that owns its native object, so its metatable needs a `__gc`:
-    // it pairs `~Font()` (which only releases the Font's internal buffers) with the release of
-    // the block this module allocated for it. The family unit owns both halves.
-    lua_pushcfunction(state, isaac::runtime::DestroyFontHandle);
-    lua_setfield(state, -2, "__gc");
-    lua_newtable(state);
-    static_cast<void>(isaac::runtime::AttachFontMethods(state));
-    lua_setfield(state, -2, "__index");
-    lua_pop(state, 1);
-
-    lua_pushcfunction(state, isaac::runtime::CreateFontHandle);
-    lua_setglobal(state, "Font");
-}
-
 #if defined(__GNUC__) && !defined(__clang__)
 #pragma GCC pop_options
 #endif
@@ -2399,14 +2247,10 @@ void RegisterModApi(lua_State* state) {
     RegisterGameApi(state);
     RegisterMusicApi(state);
     RegisterRngApi(state);
-    RegisterFontApi(state);
+    isaac::runtime::notice::InstallRuntimeTypes(state);
     // 模组开关菜单的控制面（`RuntimeMods`，运行时自己的接口，不是 PC API）：
     // 菜单脚本要用它读清单、改开关、落盘。见 `interfaces/lua/mod_menu_api.hpp`。
     static_cast<void>(isaac::runtime::RegisterModMenuApi(state));
-    RegisterColorApi(state);
-    RegisterVectorApi(state);
-    RegisterSpriteApi(state);
-    RegisterEntityRefApi(state);
     RegisterNeutralInputApi(state);
     RegisterPcLuaEnumTables(state);
     // `Isaac` 门面与 `Options` 表必须早于 Mod 脚本存在：EID 加载的第一句就是
@@ -3898,6 +3742,22 @@ void SetFrameManagerProvider(uintptr_t (*provider)()) noexcept {
     g_FrameManagerProvider.store(provider, std::memory_order_release);
 }
 
+namespace {
+std::uint64_t GcBudgetClock(void*) {
+    return isaac::runtime::RuntimePerfTick();
+}
+}
+
+void BeginGcFrame(std::uint64_t serial) noexcept {
+    if (!IsReady() || !g_LuaState || !g_ProfileSessionStarted ||
+        isaac::runtime::RuntimePerfTick() == 0) return;
+    // Bootstrap stays on Lua's original scheduler. Gameplay shares one soft
+    // millisecond across ALL callbacks/coroutines in this native 60 Hz frame.
+    lua_gc_setframebudget(g_LuaState, GcBudgetClock, nullptr, 19200, 64U * 1024U * 1024U);
+    lua_gc_budgetinfo(g_LuaState, &g_RuntimeGcBudgetSnapshot);
+    lua_gc_beginframe(g_LuaState, serial);
+}
+
 const char* MusicResolveFailureReason() noexcept {
     switch (g_MusicResolveFailure.load(std::memory_order_acquire)) {
         case 1:
@@ -4449,6 +4309,9 @@ private:
             lua_pop(state, 1);
             lua_pushinteger(state, integer);
         }
+        // The returned value remains rooted. Finalizer errors stay inside the
+        // caller's existing lua_pcall; the native frame hook never executes GC.
+        lua_gc_advance(state);
         return collecting ? 1 : 0;
     }
 
@@ -5326,13 +5189,15 @@ void DispatchPostUpdate() {
         g_LastManagedUpdate = snapshot;
         g_HasManagedUpdate = true;
     }
+    // 新房间的初始化必须先于它的第一次POST_UPDATE；否则模组仍拿上一房间的
+    // 追踪状态处理新房间。复用本帧已有扫描，且在认领simulation帧后才允许Lua重入。
+    DispatchFrameEvents();
     if (isaac::runtime::BuiltinCallbackEnabled(isaac::runtime::kCallbackPostUpdate)) {
         LuaCallbackInvoker invoker{0, false, true};
         isaac::runtime::CallbackDispatcher dispatcher{g_CallbackRegistry, invoker};
         static_cast<void>(dispatcher.Dispatch(isaac::runtime::kCallbackPostUpdate,
                                               isaac::runtime::ThreadAffinity::Any));
     }
-    DispatchFrameEvents();
 }
 
 void DispatchNativePlayerInit(std::uintptr_t player) noexcept {
@@ -5348,6 +5213,22 @@ void DispatchNativePlayerInit(std::uintptr_t player) noexcept {
     isaac::runtime::CallbackDispatcher dispatcher{g_CallbackRegistry, invoker};
     static_cast<void>(dispatcher.DispatchFiltered(isaac::runtime::kCallbackPostPlayerInit,
                                                    isaac::runtime::ThreadAffinity::Any, variant));
+}
+
+// load_room can finish on a transition frame that renders before the next
+// simulation update. Publish its room/level events before either HUD consumer,
+// or mods write the destination's pickups into their cached previous room.
+bool PrepareRoomEventsForRender() {
+    if (g_PendingGameStarted.load(std::memory_order_acquire) != 0 ||
+        g_FrameEventState.roomKnown == 0 ||
+        isaac::runtime::NativeRoomLoadGeneration() == g_FrameEventState.roomLoadGeneration) {
+        return true;
+    }
+    const ManagedEngineDispatchScope dispatchScope;
+    DispatchFrameEvents(true); // Room lifecycle only; never synthesize entity updates in render.
+    // A failed read, incomplete new level, or another load inside a callback
+    // must retry before any renderer consumes the still-stale room cache.
+    return isaac::runtime::NativeRoomLoadGeneration() == g_FrameEventState.roomLoadGeneration;
 }
 
 void DispatchPostRender(uintptr_t manager) {
@@ -5367,6 +5248,7 @@ void DispatchPostRender(uintptr_t manager) {
     if (!wantsPostRender && !AnyEntityRenderFamilyRegistered(registered)) {
         return;
     }
+    if (!PrepareRoomEventsForRender()) return;
     // 帧归因探针的帧边界就定在这里：这条路径已经要求房间与玩家都成立，所以只有"在局内、
     // EID 正在工作"的帧才进样本（生产构建里这几个调用是空操作）。它现在也覆盖实体渲染族
     // 的那些帧 —— 覆盖面变大是这条路径的题意（"本帧走过托管派发"），不是口径变了。
@@ -6913,6 +6795,7 @@ int ShaderValuesProtected(lua_State* state) {
 bool FillShaderParameters(const isaac::runtime::ShaderProgramView& program,float* vertices,std::uintptr_t manager) noexcept {
     if(!g_LuaState||!IsReady()||!isaac::runtime::BuiltinCallbackEnabled(21))return true;
     if(!vertices||!lua_checkstack(g_LuaState,12))return false;
+    if(!PrepareRoomEventsForRender())return false;
     const int top=lua_gettop(g_LuaState);ShaderArguments arguments{&program,vertices};
     const auto oldScope=g_InManagedCallbackDispatch.load(std::memory_order_acquire);
     const auto oldManager=g_CurrentCallbackManager.load(std::memory_order_acquire);

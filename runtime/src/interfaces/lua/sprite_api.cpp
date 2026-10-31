@@ -179,7 +179,7 @@ void RecordSpriteGetTexelForProbe(float red, float green, bool enginePath) noexc
 
 // 读 `ANM2+0x38` 指向的"当前动画名"。返回 false 表示"没有当前动画或读不到"（调用方回空串）。
 //
-// 读法与引擎自己的 `ANM2::IsPlaying(char const*)`（`0xa454`）逐条一致：对象指针为 0 → 无动画；
+// 读法与引擎自己的 `ANM2::IsPlaying(char const*)`（`private:kSpriteIsPlayingOffset`）逐条一致：对象指针为 0 → 无动画；
 // 首字节最低位 = long 标志 → 长串取 `+0x10` 的数据指针、短串取 `+1` 的内联数据。
 // 批次 214：把"读一个 libc++ `std::string`（含 SSO）"抽成可复用的一处实现 ——
 // 中文版 MCM 要的 `Sprite:GetDefaultAnimationName()` 得读 **ANM2 动画表里某条记录的名字**，
@@ -843,7 +843,7 @@ int SpriteSetAnimation(lua_State* state) {
 // 语料 **12 处**（IsaacOnTwitchReloaded 的进度条用它轮流播 overlay 动画；两种形状都出现：
 // `PlayOverlay("Anim0", false)` 与 `PlayOverlay("Anim" .. sector, true)`）。
 //
-// 引擎入口 `ANM2::PlayOverlay(char const*, bool)` @ `0xA9FC`。★ 同一族还有一个
+// 引擎入口 `ANM2::PlayOverlay(char const*, bool)` @ `private:kSpritePlayOverlayOffset`。★ 同一族还有一个
 // `PlayOverlay(std::string const&, bool)` @ `0xA9E4` —— 我们**选 `char const*` 那个**，
 // 与这张绑定表既有的策略一致（第一步只收 `char const*`/数值，避开 libc++ `std::string` 的 ABI 桥）。
 int SpritePlayOverlay(lua_State* state) {
@@ -865,7 +865,7 @@ int SpritePlayOverlay(lua_State* state) {
 }
 
 // `Sprite:SetLastFrame()` —— 同页契约 `:376`，语料 6 处（把当前动画钉在最后一帧，常见于"播完就停"）。
-// 引擎入口 `ANM2::SetLastFrame()` @ `0xA908`（无参）。
+// 引擎入口 `ANM2::SetLastFrame()` @ `private:kSpriteSetLastFrameOffset`（无参）。
 int SpriteSetLastFrame(lua_State* state) {
     void* sprite = nullptr;
     if (const int error = ResolveSprite(state, "Sprite:SetLastFrame", &sprite); error != 0) {
@@ -1024,7 +1024,7 @@ int SpriteUpdate(lua_State* state) {
 
 // PC 文档里 `IsPlaying` / `IsFinished` 的形参个数是 **[0, 1]**（见
 // `analysis/lua-api-inventory/inventory.json`：`符号形参 1 / 文档形参 [0, 1]`），动画名可省。
-// 引擎的 `ANM2::IsPlaying(char const*)` / `IsFinished(char const*)`（`0xA454` / `0xA528`）
+// 引擎的 `ANM2::IsPlaying(char const*)` / `IsFinished(char const*)`（`private:kSpriteIsPlayingOffset` / `private:kSpriteIsFinishedOffset`）
 // 对**空字符串**的语义正是"只问当前动画"：
 //   `IsPlaying`：当前动画为空 → false；`[+0x54]`（在播标志）为 0 → false；`*name == 0` → true。
 // 所以省掉动画名时传空串，和 PC 行为一致。2026-09-13 真机上测试 Mod 调 `sprite:IsPlaying()`
@@ -1476,7 +1476,7 @@ int SpriteGetDefaultAnimation(lua_State* state) {
 }
 
 // `Sprite:Stop()` —— PC 契约 `Sprite.md:406`，语料 1 处。
-// 引擎入口 `ANM2::Stop()` @ `0xA8E4`（无参）。同族的 overlay 停下是另一个入口
+// 引擎入口 `ANM2::Stop()` @ `private:kSpriteStopOffset`（无参）。同族的 overlay 停下是另一个入口
 // （`ANM2::StopOverlay()` @ `0xABA8`，本批不收 —— 它不在待办清单里）。
 int SpriteStop(lua_State* state) {
     void* sprite = nullptr;
@@ -1526,7 +1526,7 @@ int SpriteReset(lua_State* state) {
 }
 
 // `Sprite:GetLayerCount()` —— 引擎自己判 layer 越界时读的那一格（`ANM2+0xB0`）：
-// `ANM2::GetLayerFrame @0xA96C` 就是 `ldr x9,[x19,#0x30]`（Sprite 里的 ANM2 指针）
+// `ANM2::GetLayerFrame @private:kSpriteGetLayerFrameOffset` 就是 `ldr x9,[x19,#0x30]`（Sprite 里的 ANM2 指针）
 // 再 `ldr w9,[x9,#0xb0]` 与 layer 比较。没有 ANM2（没 Load 过）⇒ 0。
 int SpriteGetLayerCount(lua_State* state) {
     void* sprite = nullptr;

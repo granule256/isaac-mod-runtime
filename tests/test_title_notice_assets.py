@@ -82,6 +82,30 @@ class TitleNoticeAssetsTests(unittest.TestCase):
         pages = b.paginate(content, self.font("abc"))
         self.assertEqual([[line.text for line in page] for page in pages], [["a"], ["bb"], ["ccc"]])
 
+    def test_support_is_a_separate_last_page_even_when_body_grows(self):
+        b = self.api()
+        for size in (0, 1, 25, 200):
+            content = self.content()
+            content['sections'] = [{'paragraphs': ['a\n' * size]}]
+            content['support'] = {'title': 'Support', 'message': 'Free; optional support.',
+                                  'labels': ['WeChat', 'Alipay', 'Ko-fi'],
+                                  'github': 'https://github.com/granule256/isaac-mod-runtime'}
+            font = self.font(json.dumps(content) + 'GitHub:')
+            pages = b.paginate(content, font)
+            self.assertTrue(all(l.kind == 'support' for l in pages[-1]))
+            self.assertTrue(all(l.kind != 'support' for p in pages[:-1] for l in p))
+            self.assertIn('isaac-mod-runtime', ''.join(l.text for l in pages[-1]))
+            self.assertEqual(len(pages), len(b.paginate({**content, 'support': None}, font)) + 1)
+
+    def test_support_counts_toward_page_limit(self):
+        b = self.api()
+        content = self.content()
+        content['sections'] = [{'page_break_before': True, 'paragraphs': ['a']} for _ in range(32)]
+        content['support'] = {'title': 'a', 'message': 'a', 'labels': ['a'] * 3,
+                              'github': 'https://github.com/granule256/isaac-mod-runtime'}
+        with self.assertRaisesRegex(ValueError, '32 pages'):
+            b.paginate(content, self.font(json.dumps(content)))
+
     def test_resource_graph_animation_contract_and_header_are_consistent(self):
         b = self.api()
         content = self.content()

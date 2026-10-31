@@ -59,7 +59,7 @@ DATA_ROW_SURFACE: dict[str, str] = {
     "EntityPlayer:AddEternalHearts": "Void1",
     "EntityPlayer:AddHearts": "VoidIntBoolOpt1",
     "EntityPlayer:AddNullCostume": "VoidNullId1",
-    "EntityPlayer:AddTrinket": "Void2",
+    "EntityPlayer:AddTrinket": "VoidIntBoolDefaultTrueOpt1",
     "EntityPlayer:AnimateHappy": "Void0",
     "EntityPlayer:AnimateSad": "Void0",
     "EntityPlayer:CanPickRedHearts": "Bool0",

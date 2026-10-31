@@ -48,7 +48,7 @@ class StarterrEnumTests(unittest.TestCase):
         self.assertNotIn("RegisterStarterrEnumTables", runtime)
         self.assertNotIn("EXL_ENABLE_STARTERR_RNG", runtime)
         default_mod_root = ROOT / "runtime" / "pc-mods"
-        self.assertIn("SKIP_DEFAULT_PC_MODS ?= 1", (ROOT / "runtime/Makefile").read_text())
+        self.assertTrue((default_mod_root / "MuteOnPause").is_dir())
         self.assertFalse((default_mod_root / "Starterr_3208060487").exists())
 
 

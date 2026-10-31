@@ -20,7 +20,7 @@ class NoticeManifestTests(unittest.TestCase):
             manifest = cache / b.RESOURCE_ROOT / 'resources/gfx/ui/main menu/isaac-switch/nnotice.manifest'
             raw = manifest.read_bytes()
             self.assertEqual(len(raw.splitlines()), 32)
-            self.assertEqual(raw.splitlines()[:2], [b'ISAAC-NOTICE/1', b'v1.0.0-beta.4'])
+            self.assertEqual(raw.splitlines()[:2], [b'ISAAC-NOTICE/1', catalogs['zh']['version'].encode('ascii')])
             paths = [line.split(b'\t')[2] for line in raw.splitlines()[2:]]
             self.assertEqual(paths, sorted(set(paths)))
             self.assertEqual(len(paths), 30)

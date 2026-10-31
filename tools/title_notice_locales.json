@@ -59,7 +59,17 @@
           "The layer is completely free, never sold in any form."
         ]
       }
-    ]
+    ],
+    "support": {
+      "title": "Thank you!",
+      "message": "Always free. Tips are optional. Thank you!",
+      "labels": [
+        "WeChat",
+        "Alipay",
+        "Ko-fi"
+      ],
+      "github": "https://github.com/granule256/isaac-mod-runtime"
+    }
   },
   "de": {
     "title": "Mod-Kompatibilität",
@@ -121,7 +131,17 @@
           "Völlig kostenlos. Kein Verkauf in irgendeiner Form."
         ]
       }
-    ]
+    ],
+    "support": {
+      "title": "Danke für eure Hilfe!",
+      "message": "Kostenlos. Freiwillige Spenden. Danke!",
+      "labels": [
+        "WeChat",
+        "Alipay",
+        "Ko-fi"
+      ],
+      "github": "https://github.com/granule256/isaac-mod-runtime"
+    }
   },
   "es": {
     "title": "Compatibilidad de mods",
@@ -183,7 +203,17 @@
           "La capa es totalmente gratis y nunca se vende de ninguna forma."
         ]
       }
-    ]
+    ],
+    "support": {
+      "title": "¡Gracias por tu apoyo!",
+      "message": "Siempre gratis. Donar es opcional. ¡Gracias!",
+      "labels": [
+        "WeChat",
+        "Alipay",
+        "Ko-fi"
+      ],
+      "github": "https://github.com/granule256/isaac-mod-runtime"
+    }
   },
   "fr": {
     "title": "Compatibilité des mods",
@@ -245,7 +275,17 @@
           "Couche 100 % gratuite, jamais vendue sous aucune forme."
         ]
       }
-    ]
+    ],
+    "support": {
+      "title": "Merci de votre soutien !",
+      "message": "Gratuit. Dons libres. Merci !",
+      "labels": [
+        "WeChat",
+        "Alipay",
+        "Ko-fi"
+      ],
+      "github": "https://github.com/granule256/isaac-mod-runtime"
+    }
   },
   "jp": {
     "title": "MOD互換レイヤー",
@@ -307,7 +347,17 @@
           "互換レイヤーは完全無料で、いかなる形でも販売しません。"
         ]
       }
-    ]
+    ],
+    "support": {
+      "title": "応援ありがとうございます",
+      "message": "無料です。ご支援は任意です。",
+      "labels": [
+        "WeChat",
+        "Alipay",
+        "Ko-fi"
+      ],
+      "github": "https://github.com/granule256/isaac-mod-runtime"
+    }
   },
   "kr": {
     "title": "모드 호환 계층",
@@ -369,7 +419,17 @@
           "호환 계층은 완전 무료이며 어떤 형태로도 판매하지 않습니다."
         ]
       }
-    ]
+    ],
+    "support": {
+      "title": "응원해 주셔서 감사합니다",
+      "message": "무료입니다. 후원은 자유입니다.",
+      "labels": [
+        "WeChat",
+        "Alipay",
+        "Ko-fi"
+      ],
+      "github": "https://github.com/granule256/isaac-mod-runtime"
+    }
   },
   "ru": {
     "title": "Совместимость модов",
@@ -431,6 +491,16 @@
           "Слой полностью бесплатен и не продаётся ни в какой форме."
         ]
       }
-    ]
+    ],
+    "support": {
+      "title": "Спасибо за поддержку!",
+      "message": "Бесплатно. Пожертвования добровольны.",
+      "labels": [
+        "WeChat",
+        "Alipay",
+        "Ko-fi"
+      ],
+      "github": "https://github.com/granule256/isaac-mod-runtime"
+    }
   }
 }

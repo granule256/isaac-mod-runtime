@@ -62,7 +62,6 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
-import os
 import shutil
 import subprocess
 import sys
@@ -176,11 +175,6 @@ def is_junk(path: Path) -> bool:
     return path.name in JUNK_NAMES or path.name.startswith("._")
 
 
-def _mod_patch_root() -> Path:
-    """Optional, explicitly supplied local data; never part of core source."""
-    return Path(os.environ.get("ISAAC_MOD_PATCH_ROOT", ROOT / "runtime/mod-patches"))
-
-
 def _approved_entry_patch(source: Path) -> Path:
     """只替换逐字核过的DPS旧入口；新作者版本保持原样，不改源目录。"""
     if source.stat().st_size != 6514:
@@ -189,7 +183,7 @@ def _approved_entry_patch(source: Path) -> Path:
         "01bf6f70012f1c3ec25303a2eb058aae130a4614259cdea33b22c7cad445c3ec"
     ):
         return source
-    patch = _mod_patch_root() / "whatsmydps/main.lua"
+    patch = ROOT / "runtime/mod-patches/whatsmydps/main.lua"
     if hashlib.sha256(patch.read_bytes()).hexdigest() != (
         "8a2bbc484b89de6b5923b000fa54d9ca381a599d1b33d504da3b8a3af1a5f158"
     ):
@@ -203,7 +197,7 @@ def _approved_rplus_entry_patch(source: Path) -> Path:
         "c9553b4c90b6292eb65aa53bb0f5136d21934d376df2172a65d2c18ad6128591"
     ):
         return source
-    patch = _mod_patch_root() / "repentanceplus/main.lua"
+    patch = ROOT / "runtime/mod-patches/repentanceplus/main.lua"
     if hashlib.sha256(patch.read_bytes()).hexdigest() != (
         "ac6e41fd54f9689ab710a72fdb8185e9b31da510758ab4ca99df88e11a7ca98d"
     ):
@@ -217,7 +211,7 @@ def _approved_dss_patch(source: Path) -> Path:
         "69d7a3a59a33c1e40f8dbc68e5cf83cec83bd1a8a5035f8cb23de7bf5e8f69d2"
     ):
         return source
-    patch = _mod_patch_root() / "repentanceplus/scripts/dssmenucore.lua"
+    patch = ROOT / "runtime/mod-patches/repentanceplus/scripts/dssmenucore.lua"
     if hashlib.sha256(patch.read_bytes()).hexdigest() != (
         "47be21f322dd1e63053cf7e58f20cf39e5c7c9389ff212c52f014c315086613b"
     ):
@@ -232,7 +226,7 @@ def _approved_stageapi_grid_patch(source: Path) -> Path:
         "6afdd9711dcb00dc6107d49a65fd425e956bf55f789addc9fd30f1dc459c4f97",
     }:
         return source
-    patch = _mod_patch_root() / "StageAPI/scripts/stageapi/core/callbacks.lua"
+    patch = ROOT / "runtime/mod-patches/StageAPI/scripts/stageapi/core/callbacks.lua"
     if hashlib.sha256(patch.read_bytes()).hexdigest() != (
         "a14999454fabe556815cb6012bd5d20ba247d978a1dc178b322baf0980e83fd0"
     ):
@@ -246,7 +240,7 @@ def _approved_stageapi_shared_patch(source: Path) -> Path:
         "df39061cf095dd860dcc15864f87d8fa27343b899d8e227f4e1809c77b148ffb"
     ):
         return source
-    patch = _mod_patch_root() / "StageAPI/scripts/stageapi/shared.lua"
+    patch = ROOT / "runtime/mod-patches/StageAPI/scripts/stageapi/shared.lua"
     if hashlib.sha256(patch.read_bytes()).hexdigest() != (
         "9b64b5c30980dd6b53c2858483e0bea5bbe9fdcd868b9b016f023e6f1348aba5"
     ):
@@ -260,7 +254,7 @@ def _approved_challenge_goal_patch(source: Path) -> Path:
         "620e1c909b91e6347684cfeb4245ff3edeac4130b44f59fec7f978f3826fee5e"
     ):
         return source
-    patch = _mod_patch_root() / "ChallengeAPI/scripts/challengeapi/hud/challenge_goal.lua"
+    patch = ROOT / "runtime/mod-patches/ChallengeAPI/scripts/challengeapi/hud/challenge_goal.lua"
     if hashlib.sha256(patch.read_bytes()).hexdigest() != (
         "8a7357580a27b1a7b58b0256120eb81d75e79afd48fec88cf4eed9fef405c787"
     ):
@@ -274,7 +268,7 @@ def _approved_eid_config_original(source: Path) -> Path:
         "c13c8b228fc135db024f2e20661f2ed721aa1d933b39fcfa2f9501b17ea66685"
     ):
         return source
-    original = _mod_patch_root() / "EID/eid_config.lua"
+    original = ROOT / "runtime/mod-patches/EID/eid_config.lua"
     if hashlib.sha256(original.read_bytes()).hexdigest() != (
         "14cd00a145ac026f981096e072c845a48c8d35575a30ab4518af10b1d8f749db"
     ):
@@ -283,10 +277,11 @@ def _approved_eid_config_original(source: Path) -> Path:
 
 
 def copy_tree(source: Path, target: Path, *, drop_pcx: bool = False,
-              apply_patches: bool = False) -> int:
+              apply_patches: bool = True) -> int:
     """拷贝模组树。`drop_pcx=True` 时**跳过** `.pcx`（2026-09-21 起可选）。
 
-    默认原样复制输入脚本和配置；历史补丁只能明确选择并提供本地输入。
+    `apply_patches=False` 原样复制输入脚本和配置；默认 True 保留既有内部调用行为。
+    命令行默认传 False，补丁改由独立覆盖包安装。
 
     为什么可以丢：运行时的贴图桥会在引擎读 `.pcx` 时按需把同名 `.png` 转成 PCX
     （`KAGE::Graphics::ImagePcx::Load` 兜底 + `GetMountedFilePath` 补位），
@@ -314,7 +309,7 @@ def copy_tree(source: Path, target: Path, *, drop_pcx: bool = False,
                 copied_source = _approved_challenge_goal_patch(item)
             elif relative == Path("eid_config.lua"):
                 copied_source = _approved_eid_config_original(item)
-            copied_source = approved_lua_performance_patch(copied_source, relative, _mod_patch_root())
+            copied_source = approved_lua_performance_patch(copied_source, relative, ROOT)
         shutil.copy2(copied_source, destination)
         count += 1
     return count
@@ -431,10 +426,6 @@ def verified_compatibility_patch_files(runtime: Path) -> dict[Path, bytes]:
 
 
 def build(args: argparse.Namespace) -> int:
-    if getattr(args, "apply_mod_patches", False) and not _mod_patch_root().is_dir():
-        print("可选模组补丁不属于源码包；请通过 ISAAC_MOD_PATCH_ROOT 提供本地补丁目录。",
-              file=sys.stderr)
-        return 2
     # Original-game optimizations are independently built inputs. Resolve them
     # only when explicitly selected, before touching an existing output tree.
     game_patch_files = {}

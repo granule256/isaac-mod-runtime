@@ -2686,77 +2686,6 @@
   "kind": "function"
  },
  {
-  "constant": "kSpriteRenderLayerOffset",
-  "offset": "0x9d70",
-  "mangled": "_ZN15IsaacRepentance4ANM211RenderLayerEiRKN4KAGE4Math7Vector2ES5_S5_",
-  "demangled": "IsaacRepentance::ANM2::RenderLayer(int, KAGE::Math::Vector2 const&, KAGE::Math::Vector2 const&, KAGE::Math::Vector2 const&)",
-  "parameters": [
-   "int",
-   "KAGE::Math::Vector2 const&",
-   "KAGE::Math::Vector2 const&",
-   "KAGE::Math::Vector2 const&"
-  ],
-  "parameter_count": 4,
-  "kind": "function"
- },
- {
-  "constant": "kSpritePlayRandomOffset",
-  "offset": "0xa198",
-  "mangled": "_ZN15IsaacRepentance4ANM210PlayRandomEj",
-  "demangled": "IsaacRepentance::ANM2::PlayRandom(unsigned int)",
-  "parameters": [
-   "unsigned int"
-  ],
-  "parameter_count": 1,
-  "kind": "function"
- },
- {
-  "constant": "kSpritePlayOffset",
-  "offset": "0xa1f4",
-  "mangled": "_ZN15IsaacRepentance4ANM24PlayEPKcb",
-  "demangled": "IsaacRepentance::ANM2::Play(char const*, bool)",
-  "parameters": [
-   "char const*",
-   "bool"
-  ],
-  "parameter_count": 2,
-  "kind": "function"
- },
- {
-  "constant": "kSpriteSetAnimationOffset",
-  "offset": "0xa2e8",
-  "mangled": "_ZN15IsaacRepentance4ANM212SetAnimationEPKcb",
-  "demangled": "IsaacRepentance::ANM2::SetAnimation(char const*, bool)",
-  "parameters": [
-   "char const*",
-   "bool"
-  ],
-  "parameter_count": 2,
-  "kind": "function"
- },
- {
-  "constant": "kSpriteIsPlayingOffset",
-  "offset": "0xa454",
-  "mangled": "_ZNK15IsaacRepentance4ANM29IsPlayingEPKc",
-  "demangled": "IsaacRepentance::ANM2::IsPlaying(char const*) const",
-  "parameters": [
-   "char const*"
-  ],
-  "parameter_count": 1,
-  "kind": "function"
- },
- {
-  "constant": "kSpriteIsFinishedOffset",
-  "offset": "0xa528",
-  "mangled": "_ZNK15IsaacRepentance4ANM210IsFinishedEPKc",
-  "demangled": "IsaacRepentance::ANM2::IsFinished(char const*) const",
-  "parameters": [
-   "char const*"
-  ],
-  "parameter_count": 1,
-  "kind": "function"
- },
- {
   "constant": "kSpriteSetFrameNamedOffset",
   "offset": "0xa65c",
   "mangled": "_ZN15IsaacRepentance4ANM28SetFrameEPKci",
@@ -2766,101 +2695,6 @@
    "int"
   ],
   "parameter_count": 2,
-  "kind": "function"
- },
- {
-  "constant": "kSpriteSetFrameOffset",
-  "offset": "0xa8cc",
-  "mangled": "_ZN15IsaacRepentance4ANM28SetFrameEi",
-  "demangled": "IsaacRepentance::ANM2::SetFrame(int)",
-  "parameters": [
-   "int"
-  ],
-  "parameter_count": 1,
-  "kind": "function"
- },
- {
-  "constant": "kSpriteStopOffset",
-  "offset": "0xa8e4",
-  "mangled": "_ZN15IsaacRepentance4ANM24StopEv",
-  "demangled": "IsaacRepentance::ANM2::Stop()",
-  "parameters": [],
-  "parameter_count": 0,
-  "kind": "function"
- },
- {
-  "constant": "kSpriteSetLastFrameOffset",
-  "offset": "0xa908",
-  "mangled": "_ZN15IsaacRepentance4ANM212SetLastFrameEv",
-  "demangled": "IsaacRepentance::ANM2::SetLastFrame()",
-  "parameters": [],
-  "parameter_count": 0,
-  "kind": "function"
- },
- {
-  "constant": "kSpriteGetFrameOffset",
-  "offset": "0xa924",
-  "mangled": "_ZNK15IsaacRepentance4ANM28GetFrameEv",
-  "demangled": "IsaacRepentance::ANM2::GetFrame() const",
-  "parameters": [],
-  "parameter_count": 0,
-  "kind": "function"
- },
- {
-  "constant": "kSpriteSetLayerFrameOffset",
-  "offset": "0xa958",
-  "mangled": "_ZN15IsaacRepentance4ANM213SetLayerFrameEii",
-  "demangled": "IsaacRepentance::ANM2::SetLayerFrame(int, int)",
-  "parameters": [
-   "int",
-   "int"
-  ],
-  "parameter_count": 2,
-  "kind": "function"
- },
- {
-  "constant": "kSpriteGetLayerFrameOffset",
-  "offset": "0xa96c",
-  "mangled": "_ZN15IsaacRepentance4ANM213GetLayerFrameEi",
-  "demangled": "IsaacRepentance::ANM2::GetLayerFrame(int)",
-  "parameters": [
-   "int"
-  ],
-  "parameter_count": 1,
-  "kind": "function"
- },
- {
-  "constant": "kSpritePlayOverlayOffset",
-  "offset": "0xa9fc",
-  "mangled": "_ZN15IsaacRepentance4ANM211PlayOverlayEPKcb",
-  "demangled": "IsaacRepentance::ANM2::PlayOverlay(char const*, bool)",
-  "parameters": [
-   "char const*",
-   "bool"
-  ],
-  "parameter_count": 2,
-  "kind": "function"
- },
- {
-  "constant": "kSpriteIsOverlayPlayingOffset",
-  "offset": "0xabb8",
-  "mangled": "_ZNK15IsaacRepentance4ANM216IsOverlayPlayingERKNSt3__112basic_stringIcNS1_11char_traitsIcEENS1_9allocatorIcEEEE",
-  "demangled": "IsaacRepentance::ANM2::IsOverlayPlaying(std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char> > const&) const",
-  "parameters": [
-   "std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char> > const&"
-  ],
-  "parameter_count": 1,
-  "kind": "function"
- },
- {
-  "constant": "kSpriteIsOverlayFinishedOffset",
-  "offset": "0xac88",
-  "mangled": "_ZNK15IsaacRepentance4ANM217IsOverlayFinishedERKNSt3__112basic_stringIcNS1_11char_traitsIcEENS1_9allocatorIcEEEE",
-  "demangled": "IsaacRepentance::ANM2::IsOverlayFinished(std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char> > const&) const",
-  "parameters": [
-   "std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char> > const&"
-  ],
-  "parameter_count": 1,
   "kind": "function"
  },
  {
@@ -2894,28 +2728,6 @@
   "kind": "function"
  },
  {
-  "constant": "kSpriteIsEventTriggeredOffset",
-  "offset": "0xb66c",
-  "mangled": "_ZNK15IsaacRepentance4ANM216IsEventTriggeredERKNSt3__112basic_stringIcNS1_11char_traitsIcEENS1_9allocatorIcEEEE",
-  "demangled": "IsaacRepentance::ANM2::IsEventTriggered(std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char> > const&) const",
-  "parameters": [
-   "std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char> > const&"
-  ],
-  "parameter_count": 1,
-  "kind": "function"
- },
- {
-  "constant": "kSpriteWasEventTriggeredOffset",
-  "offset": "0xb7c0",
-  "mangled": "_ZNK15IsaacRepentance4ANM217WasEventTriggeredERKNSt3__112basic_stringIcNS1_11char_traitsIcEENS1_9allocatorIcEEEE",
-  "demangled": "IsaacRepentance::ANM2::WasEventTriggered(std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char> > const&) const",
-  "parameters": [
-   "std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char> > const&"
-  ],
-  "parameter_count": 1,
-  "kind": "function"
- },
- {
   "constant": "kSpriteGetTexelOffset",
   "offset": "0xc074",
   "mangled": "_ZNK15IsaacRepentance4ANM28GetTexelEN4KAGE4Math7Vector2ES3_fi",
@@ -2942,33 +2754,12 @@
   "kind": "function"
  },
  {
-  "constant": "kSpriteLoadGraphicsOffset",
-  "offset": "0xcb6c",
-  "mangled": "_ZN15IsaacRepentance4ANM212LoadGraphicsEv",
-  "demangled": "IsaacRepentance::ANM2::LoadGraphics()",
-  "parameters": [],
-  "parameter_count": 0,
-  "kind": "function"
- },
- {
   "constant": "kApi100SpriteReloadOffset",
   "offset": "0xcb74",
   "mangled": "_ZN15IsaacRepentance4ANM26ReloadEv",
   "demangled": "IsaacRepentance::ANM2::Reload()",
   "parameters": [],
   "parameter_count": 0,
-  "kind": "function"
- },
- {
-  "constant": "kSpriteReplaceSpritesheetOffset",
-  "offset": "0xd270",
-  "mangled": "_ZN15IsaacRepentance4ANM218ReplaceSpritesheetEiRKNSt3__112basic_stringIcNS1_11char_traitsIcEENS1_9allocatorIcEEEE",
-  "demangled": "IsaacRepentance::ANM2::ReplaceSpritesheet(int, std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char> > const&)",
-  "parameters": [
-   "int",
-   "std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char> > const&"
-  ],
-  "parameter_count": 2,
   "kind": "function"
  },
  {
@@ -8551,15 +8342,6 @@
   "kind": "function"
  },
  {
-  "constant": "kFontDestructorOffset",
-  "offset": "0x4ce764",
-  "mangled": "_ZN4KAGE8Graphics4FontD2Ev",
-  "demangled": "KAGE::Graphics::Font::~Font()",
-  "parameters": [],
-  "parameter_count": 0,
-  "kind": "function"
- },
- {
   "constant": "kFontUnloadOffset",
   "offset": "0x4ce768",
   "mangled": "_ZN4KAGE8Graphics4Font6UnloadEv",
@@ -8578,32 +8360,10 @@
   "kind": "function"
  },
  {
-  "constant": "kFontGetCharacterWidthOffset",
-  "offset": "0x4ce914",
-  "mangled": "_ZNK4KAGE8Graphics4Font17GetCharacterWidthEc",
-  "demangled": "KAGE::Graphics::Font::GetCharacterWidth(char) const",
-  "parameters": [
-   "char"
-  ],
-  "parameter_count": 1,
-  "kind": "function"
- },
- {
   "constant": "kFontGetStringWidthOffset",
   "offset": "0x4ce9bc",
   "mangled": "_ZNK4KAGE8Graphics4Font14GetStringWidthEPKc",
   "demangled": "KAGE::Graphics::Font::GetStringWidth(char const*) const",
-  "parameters": [
-   "char const*"
-  ],
-  "parameter_count": 1,
-  "kind": "function"
- },
- {
-  "constant": "kFontGetStringWidthUTF8Offset",
-  "offset": "0x4cee8c",
-  "mangled": "_ZNK4KAGE8Graphics4Font18GetStringWidthUTF8EPKc",
-  "demangled": "KAGE::Graphics::Font::GetStringWidthUTF8(char const*) const",
   "parameters": [
    "char const*"
   ],
@@ -8617,65 +8377,6 @@
   "demangled": "KAGE::Graphics::Font::GetLineHeight() const",
   "parameters": [],
   "parameter_count": 0,
-  "kind": "function"
- },
- {
-  "constant": "kFontGetBaselineHeightOffset",
-  "offset": "0x4ceee8",
-  "mangled": "_ZNK4KAGE8Graphics4Font17GetBaselineHeightEv",
-  "demangled": "KAGE::Graphics::Font::GetBaselineHeight() const",
-  "parameters": [],
-  "parameter_count": 0,
-  "kind": "function"
- },
- {
-  "constant": "kFontDrawStringOffset",
-  "offset": "0x4ceef0",
-  "mangled": "_ZNK4KAGE8Graphics4Font10DrawStringEPKcffNS0_5ColorEjb",
-  "demangled": "KAGE::Graphics::Font::DrawString(char const*, float, float, KAGE::Graphics::Color, unsigned int, bool) const",
-  "parameters": [
-   "char const*",
-   "float",
-   "float",
-   "KAGE::Graphics::Color",
-   "unsigned int",
-   "bool"
-  ],
-  "parameter_count": 6,
-  "kind": "function"
- },
- {
-  "constant": "kFontDrawStringScaledOffset",
-  "offset": "0x4cef6c",
-  "mangled": "_ZNK4KAGE8Graphics4Font16DrawStringScaledEPKcffffNS0_5ColorEjb",
-  "demangled": "KAGE::Graphics::Font::DrawStringScaled(char const*, float, float, float, float, KAGE::Graphics::Color, unsigned int, bool) const",
-  "parameters": [
-   "char const*",
-   "float",
-   "float",
-   "float",
-   "float",
-   "KAGE::Graphics::Color",
-   "unsigned int",
-   "bool"
-  ],
-  "parameter_count": 8,
-  "kind": "function"
- },
- {
-  "constant": "kFontDrawStringUTF8Offset",
-  "offset": "0x4cf2a4",
-  "mangled": "_ZNK4KAGE8Graphics4Font14DrawStringUTF8EPKcffNS0_5ColorEjb",
-  "demangled": "KAGE::Graphics::Font::DrawStringUTF8(char const*, float, float, KAGE::Graphics::Color, unsigned int, bool) const",
-  "parameters": [
-   "char const*",
-   "float",
-   "float",
-   "KAGE::Graphics::Color",
-   "unsigned int",
-   "bool"
-  ],
-  "parameter_count": 6,
   "kind": "function"
  },
  {
@@ -8694,17 +8395,6 @@
    "bool"
   ],
   "parameter_count": 8,
-  "kind": "function"
- },
- {
-  "constant": "kFontSetMissingCharacterOffset",
-  "offset": "0x4cfb74",
-  "mangled": "_ZN4KAGE8Graphics4Font19SetMissingCharacterEt",
-  "demangled": "KAGE::Graphics::Font::SetMissingCharacter(unsigned short)",
-  "parameters": [
-   "unsigned short"
-  ],
-  "parameter_count": 1,
   "kind": "function"
  },
  {

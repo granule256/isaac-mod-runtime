@@ -1233,7 +1233,11 @@ def print_layout_backlog(entries: list[dict]) -> None:
 def load_table() -> list[dict]:
     if not TABLE.exists():
         raise SystemExit(f"缺少签名表 {TABLE.relative_to(ROOT)}：先跑 tools/gen_engine_symbol_signatures.py")
-    return json.loads(TABLE.read_text(encoding="utf-8"))
+    rows = json.loads(TABLE.read_text(encoding="utf-8"))
+    private = ROOT / "runtime/source/notice_guard/engine_symbol_signatures.json"
+    if private.is_file():
+        rows += json.loads(private.read_text(encoding="utf-8"))
+    return rows
 
 
 #: 人工分诊台账：少数"我们故意少给参数"的调用点必须在这里写明理由与依据。
