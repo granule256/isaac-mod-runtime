@@ -1,5 +1,5 @@
 {
-  "version": "v1.0.0-rc.3",
+  "version": "v1.0.0-rc.4",
   "title": "模组兼容层",
   "subtitle": "ISAAC SWITCH  /  {version}",
   "sections": [
@@ -42,17 +42,6 @@
         "QQ 群：1124953430",
         "Discord：discord.gg/JMQc2jMsve",
         "反馈请附兼容层与模组版本、复现步骤，录像或日志更方便排查。"
-      ]
-    },
-    {
-      "kind": "instructions",
-      "page_break_before": true,
-      "paragraphs": [
-        "操作说明",
-        "摇杆或方向键左右翻页，也可使用 L / R。",
-        "首次或更新后，先翻完全部页面，再长按 B 关闭。",
-        "同版本后续启动默认收起。",
-        "标题右下角选择兼容层说明按 A 重开；手动打开后，可在任意页点按 B 关闭。"
       ]
     }
   ],
