@@ -49,17 +49,6 @@
           "Discord: discord.gg/JMQc2jMsve",
           "Include layer and mod versions, steps to reproduce, and video or logs when reporting a problem."
         ]
-      },
-      {
-        "kind": "instructions",
-        "page_break_before": true,
-        "paragraphs": [
-          "How to use",
-          "Move the stick or D-pad left/right, or use L / R to turn pages.",
-          "On first launch or after an update, read every page, then hold B to close.",
-          "Later launches of the same version start with this notice closed.",
-          "Select MOD INFO at the bottom right of the title screen and press A to reopen. Then tap B on any page to close."
-        ]
       }
     ],
     "support": {
@@ -122,17 +111,6 @@
           "QQ-Gruppe: 1124953430",
           "Discord: discord.gg/JMQc2jMsve",
           "Bei Fehlern Versionen der Schicht und Mods, Schritte zum Nachstellen sowie Videos oder Logs angeben."
-        ]
-      },
-      {
-        "kind": "instructions",
-        "page_break_before": true,
-        "paragraphs": [
-          "Bedienung",
-          "Mit Stick oder Steuerkreuz links/rechts oder mit L / R blättern.",
-          "Beim ersten Start oder nach Updates alle Seiten lesen, dann B zum Schließen halten.",
-          "Bei gleicher Version bleibt der Hinweis ab dem zweiten Start geschlossen.",
-          "Unten rechts im Titelbild Mod-Info wählen, A zum Öffnen. Danach auf jeder Seite B zum Schließen."
         ]
       }
     ],
@@ -197,17 +175,6 @@
           "Discord: discord.gg/JMQc2jMsve",
           "Indica las versiones de la capa y los mods, pasos para reproducir el fallo, vídeos o registros."
         ]
-      },
-      {
-        "kind": "instructions",
-        "page_break_before": true,
-        "paragraphs": [
-          "Controles",
-          "Usa stick o cruceta izquierda/derecha, o L / R, para pasar páginas.",
-          "En el primer inicio o tras actualizar, lee todas las páginas y mantén B para cerrar.",
-          "Los siguientes inicios de la misma versión no muestran el aviso.",
-          "Selecciona la información de mods abajo a la derecha del título y pulsa A. Luego B cierra cualquier página."
-        ]
       }
     ],
     "support": {
@@ -270,17 +237,6 @@
           "Groupe QQ : 1124953430",
           "Discord : discord.gg/JMQc2jMsve",
           "Indiquez les versions de la couche et des mods, les étapes de reproduction, des vidéos ou des journaux."
-        ]
-      },
-      {
-        "kind": "instructions",
-        "page_break_before": true,
-        "paragraphs": [
-          "Commandes",
-          "Pages : stick ou croix gauche/droite, ou L / R.",
-          "Au premier lancement ou après mise à jour, lisez tout puis maintenez B pour fermer.",
-          "Aux lancements suivants de la même version, cet avis reste fermé.",
-          "Sur l’écran titre, sélectionnez les infos mods en bas à droite et appuyez sur A. Ensuite, B ferme toute page."
         ]
       }
     ],
@@ -345,17 +301,6 @@
           "Discord：discord.gg/JMQc2jMsve",
           "報告には互換レイヤーとMODのバージョン、再現手順、動画やログを添えてください。"
         ]
-      },
-      {
-        "kind": "instructions",
-        "page_break_before": true,
-        "paragraphs": [
-          "操作方法",
-          "スティック・方向ボタンの左右、またはL / Rでページを切り替えます。",
-          "初回や更新後は全ページを読み、Bを長押しして閉じてください。",
-          "同じバージョンの次回起動時からは、この説明は閉じた状態になります。",
-          "タイトル画面右下のMOD情報を選びAで再表示できます。手動で開いた場合は、どのページでもBを押して閉じられます。"
-        ]
       }
     ],
     "support": {
@@ -419,17 +364,6 @@
           "Discord: discord.gg/JMQc2jMsve",
           "제보 시 호환 계층과 모드 버전, 재현 절차, 영상이나 로그를 첨부해 주세요."
         ]
-      },
-      {
-        "kind": "instructions",
-        "page_break_before": true,
-        "paragraphs": [
-          "조작 방법",
-          "스틱 또는 방향 버튼의 좌우, 혹은 L / R로 페이지를 넘깁니다.",
-          "최초 실행이나 업데이트 후에는 모든 페이지를 읽은 뒤 B를 길게 눌러 닫습니다.",
-          "같은 버전의 다음 실행부터는 안내가 닫힌 상태로 시작합니다.",
-          "타이틀 화면 오른쪽 아래의 모드 정보를 선택하고 A를 눌러 다시 엽니다. 직접 열었을 때는 어느 페이지에서든 B로 닫을 수 있습니다."
-        ]
       }
     ],
     "support": {
@@ -492,17 +426,6 @@
           "Группа QQ: 1124953430",
           "Discord: discord.gg/JMQc2jMsve",
           "Укажите версии слоя и модов, шаги воспроизведения, приложите видео или журналы."
-        ]
-      },
-      {
-        "kind": "instructions",
-        "page_break_before": true,
-        "paragraphs": [
-          "Управление",
-          "Листайте стиком или крестовиной влево/вправо, либо L / R.",
-          "При первом запуске или после обновления прочтите всё, затем удерживайте B для закрытия.",
-          "При следующих запусках той же версии окно закрыто.",
-          "На титульном экране выберите сведения о модах справа внизу и нажмите A. Затем B закрывает любую страницу."
         ]
       }
     ],

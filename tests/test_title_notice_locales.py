@@ -30,7 +30,7 @@ class TitleNoticeLocaleTests(unittest.TestCase):
         for code, content in self.catalogs.items():
             with self.subTest(code=code):
                 self.assertEqual([s['kind'] for s in content['sections']],
-                                 ['intro', 'free', 'warning', 'disclaimer', 'downloads', 'instructions'])
+                                 ['intro', 'free', 'warning', 'disclaimer', 'downloads'])
                 b.validate_labels(content, self.font)
                 pages = b.paginate(content, self.font)
                 self.assertLessEqual(len(pages), b.MAX_PAGES)
