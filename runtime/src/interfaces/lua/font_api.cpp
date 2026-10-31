@@ -626,7 +626,7 @@ int FontSetMissingCharacter(lua_State* state) {
 //       DrawStringUTF8        (Text, X, Y,               KColor, BoxWidth = 0, Center = false)
 //       DrawStringScaledUTF8  (Text, X, Y, ScaleX, ScaleY, KColor, BoxWidth = 0, Center = false)
 //
-// 四个原生入口紧挨在一起（`0x4CEEF0`/`0x4CEF6C`/`0x4CF2A4`/`0x4CFAB8`），反汇编核对过：
+// 四个原生入口紧挨在一起（`private:kFontDrawStringOffset`/`private:kFontDrawStringScaledOffset`/`private:kFontDrawStringUTF8Offset`/`0x4CFAB8`），反汇编核对过：
 // 坐标在 s0/s1、缩放在 s2/s3、颜色走整数寄存器 x2（不可见引用）、w3 = boxWidth、w4 = center。
 
 

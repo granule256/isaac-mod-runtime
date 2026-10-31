@@ -8,6 +8,7 @@
 #define lstate_h
 
 #include "lua.h"
+#include "lgcbudget.h"
 
 #include "lobject.h"
 #include "ltm.h"
@@ -150,6 +151,7 @@ typedef struct global_State {
   TString *tmname[TM_N];  /* array with tag-method names */
   struct Table *mt[LUA_NUMTAGS];  /* metatables for basic types */
   TString *strcache[STRCACHE_N][STRCACHE_M];  /* cache for strings in API */
+  lua_GCBudget gcbudget;  /* appended: existing field offsets stay unchanged */
 } global_State;
 
 

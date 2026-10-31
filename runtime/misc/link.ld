@@ -20,6 +20,20 @@ SECTIONS
   .text : {
     HIDDEN(__text_start__ = .);
     KEEP (*(.text.crt0))
+    /* Immutable notice implementation and the actual update/input call sites.
+     * Match both source objects and the sealed archive's combined member.
+     * JIT arenas belong to other objects and are deliberately outside this span. */
+    . = ALIGN(4);
+    HIDDEN(__notice_code_start__ = .);
+    *notice_guard_core*.o(.text .text.*)
+    *hook_manager.o(.text .text.*)
+    *mod_menu_native.o(.text .text.*)
+    *image_pcx_bridge_hook.o(.text .text.*)
+    *mod_resource_redirect.o(.text .text.*)
+    *mod_image_resources.o(.text .text.*)
+    *anm2_load_override_hook.o(.text .text.*)
+    . = ALIGN(4);
+    HIDDEN(__notice_code_end__ = .);
     *(.text .text.*)
     HIDDEN(__text_end__ = .);
   } :text
@@ -51,7 +65,7 @@ SECTIONS
    *      （docs/components/modules/loader.md）只要求"把 exefs 里的各个 NSO 连续装进进程"，
    *      没有体积上限；
    *   ② exlaunch 的 `FindModules()` 只按 `CodeStatic+Rx -> CodeStatic+R -> CodeMutable+Rw`
-   *      权限三元组匹配（`runtime/source/lib/util/sys/mem_layout.cpp`），
+   *      权限三元组匹配（`runtime/exlaunch/source/lib/util/sys/mem_layout.cpp`），
    *      唯一的容量限制是模块**个数**，没有体积上限；
    *   ③ 内存不是瓶颈：模块三段映射 Rx 480 KiB / R 224 KiB / **Rw 35.5 MiB**
    *      （其中 32 MiB 是我们自己的 `__fake_heap`），而游戏本体 `Repentance.nro` 是 11.2 MiB。
@@ -76,9 +90,27 @@ SECTIONS
   /* Make sure everything is aligned */
   . = ALIGN(8);
 
+  /* Final-link seal: offsets + SHA256, outside its own protected code.
+   * No pointers/relocations, compiler constants or writable authority here. */
+  .notice_seal (READONLY) : {
+    HIDDEN(__notice_seal__ = .);
+    QUAD(0); QUAD(0); QUAD(0); QUAD(0);
+    QUAD(0); QUAD(0); QUAD(0); QUAD(0);
+    QUAD(0); QUAD(0); QUAD(0); QUAD(0);
+  } :rodata
+
   /* App rodata */
   .layout_padding : { KEEP(*(.rodata.layout_padding)) } :rodata
   .rodata : {
+    HIDDEN(__notice_ro_start__ = .);
+    *notice_guard_core*.o(.rodata .rodata.*)
+    *hook_manager.o(.rodata .rodata.*)
+    *mod_menu_native.o(.rodata .rodata.*)
+    *image_pcx_bridge_hook.o(.rodata .rodata.*)
+    *mod_resource_redirect.o(.rodata .rodata.*)
+    *mod_image_resources.o(.rodata .rodata.*)
+    *anm2_load_override_hook.o(.rodata .rodata.*)
+    HIDDEN(__notice_ro_end__ = .);
     *(.rodata .rodata.*)
   } :rodata
 

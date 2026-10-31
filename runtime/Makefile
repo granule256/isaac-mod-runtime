@@ -11,24 +11,19 @@ include config.mk
 
 # Define common variables.
 NAME := $(shell basename "$(CURDIR)")
-# Standalone probe payloads are local inputs, never bundled with remote source.
+DIAGNOSTIC_STAGE ?=
 DIAGNOSTIC_ROOT ?=
+# Optional diagnostic payloads are local external inputs, never production sources.
 ifneq ($(filter 10 11 12 13 134,$(DIAGNOSTIC_STAGE)),)
 ifeq ($(strip $(DIAGNOSTIC_ROOT)),)
-$(error This probe requires DIAGNOSTIC_ROOT=/absolute/path/to/local/diagnostic)
+$(error DIAGNOSTIC_ROOT is required for the selected diagnostic payload)
 endif
 endif
-# Escape spaces only for Make prerequisites; recipes use the original quoted path.
-DIAGNOSTIC_EMPTY :=
-DIAGNOSTIC_SPACE := $(DIAGNOSTIC_EMPTY) $(DIAGNOSTIC_EMPTY)
-DIAGNOSTIC_ROOT_PREREQUISITE = $(subst $(DIAGNOSTIC_SPACE),\ ,$(DIAGNOSTIC_ROOT))
-DIAGNOSTIC_STAGE ?=
 STARTUP_PROBE_STAGE ?=
 STARTUP_PROBE_LAYOUT ?=
 SALTYNX_PLUGIN ?= 0
 SALTYNX_DIAGNOSTIC_BRIDGE ?= 0
-# Production source builds do not bundle local example/author mod inputs.
-SKIP_DEFAULT_PC_MODS ?= 1
+SKIP_DEFAULT_PC_MODS ?= 0
 PERSISTENCE_TRACE ?= 0
 PERSISTENCE_EVENT_DIAGNOSTIC ?= 0
 # 1 links the layered production Runtime (`runtime/src`) and routes the module
@@ -478,13 +473,13 @@ DEPLOY_ROMFS_SENTINEL := $(OUT)/atmosphere/contents/010021C000B6A000/romfs/isaac
 ROMFS_LUA_PROBE_SOURCE :=
 DEPLOY_ROMFS_LUA_PROBE := $(OUT)/atmosphere/contents/010021C000B6A000/romfs/runtime_probe.lua
 ifneq ($(filter 10,$(DIAGNOSTIC_STAGE)),)
-ROMFS_SENTINEL_SOURCE := $(DIAGNOSTIC_ROOT_PREREQUISITE)/stage10/isaac_mod_probe.lua
+ROMFS_SENTINEL_SOURCE := $(DIAGNOSTIC_ROOT)/stage10/isaac_mod_probe.lua
 endif
 ifneq ($(filter 11,$(DIAGNOSTIC_STAGE)),)
-ROMFS_SENTINEL_SOURCE := $(DIAGNOSTIC_ROOT_PREREQUISITE)/stage11/isaac_mod_probe.lua
+ROMFS_SENTINEL_SOURCE := $(DIAGNOSTIC_ROOT)/stage11/isaac_mod_probe.lua
 endif
 ifneq ($(filter 12,$(DIAGNOSTIC_STAGE)),)
-ROMFS_LUA_PROBE_SOURCE := $(DIAGNOSTIC_ROOT_PREREQUISITE)/stage12/runtime_probe.lua
+ROMFS_LUA_PROBE_SOURCE := $(DIAGNOSTIC_ROOT)/stage12/runtime_probe.lua
 endif
 PYTHON ?= python3
 
@@ -563,6 +558,10 @@ title-notice-prepare:
 	@cd .. && $(PYTHON) tools/build_title_notice.py --tree runtime/$(OUT) \
 	  --header runtime/$(EXL_BUILD_DIR)/title_notice_generated.hpp \
 	  --dump-root "$(MOD_ROW_DUMP_ROOT)" --prepare-cache runtime/$(EXL_BUILD_DIR)/notice_assets
+	@if [ -z "$(NOTICE_GUARD_ARCHIVE)" ] && [ -f source/notice_guard/pin_manifest.py ]; then \
+	  $(PYTHON) source/notice_guard/pin_manifest.py --header "$(EXL_BUILD_DIR)/title_notice_generated.hpp" \
+	    --output "$(EXL_BUILD_DIR)/notice_guard_anchor.hpp"; \
+	fi
 $(EXL_BUILD_DIR): title-notice-prepare
 title-notice-art: $(EXL_BUILD_DIR)
 	@cd .. && $(PYTHON) tools/build_title_notice.py --tree runtime/$(OUT) \

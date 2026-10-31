@@ -1,4 +1,4 @@
-"""生产实体入口须按PC类型/变体筛选，并先初始化再更新。"""
+"""生产实体入口须按PC类型/变体/刀子类型筛选，并先初始化再更新。"""
 import subprocess,tempfile,unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -17,10 +17,11 @@ int main(int argc,char**argv){
  const char*render[]={nullptr,"MC_POST_FAMILIAR_RENDER","MC_POST_TEAR_RENDER","MC_POST_PROJECTILE_RENDER","MC_POST_LASER_RENDER","MC_POST_KNIFE_RENDER","MC_POST_EFFECT_RENDER","MC_POST_BOMB_RENDER","MC_POST_PICKUP_RENDER","MC_POST_PLAYER_RENDER"};
  WriteAt<std::uint32_t>(g_PlayerBytes,kEntityTypeOffset,types[kind]);
  WriteAt<std::uint32_t>(g_PlayerBytes,kEntityVariantOffset,7);
+ WriteAt<std::uint32_t>(g_PlayerBytes,kEntitySubTypeOffset,4);
  if(kind==1)WriteWord(g_PlayerBytes,0,g_EngineBase+kEntityFamiliarVtableOffset);
  if(kind==8)WriteWord(g_PlayerBytes,0,g_EngineBase+kEntityPickupVtableOffset);
  LuaRuntime::SetEngineModuleBase(g_EngineBase);LuaRuntime::SetGameBindings(AddressOf(g_OwnerSlotBytes),0x2222);
- std::string script="local m=RegisterMod('family filters',1);_family={init=0,update=0,render=0,plain=0};local filter="+std::to_string(kind==0?13:7)+";";
+ std::string script="local m=RegisterMod('family filters',1);_family={init=0,update=0,render=0,plain=0};local filter="+std::to_string(kind==0?13:kind==5?4:7)+";";
  script+="local function reg(id,label) m:AddCallback(id,function(_,e) assert(e~=nil); _family[label]=_family[label]+1; if label=='init' then e:GetData().initialized=true elseif label=='update' then assert(e:GetData().initialized,'UPDATE before INIT') end end,filter);m:AddCallback(id,function()error('wrong family filter invoked')end,filter+100);m:AddCallback(id,function()_family.plain=_family.plain+1 end) end;";
  script+="reg(ModCallbacks."+std::string(init[kind])+",'init');reg(ModCallbacks."+std::string(update[kind])+",'update');";
  if(render[kind])script+="reg(ModCallbacks."+std::string(render[kind])+",'render');";

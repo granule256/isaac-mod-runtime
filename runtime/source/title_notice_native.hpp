@@ -9,6 +9,10 @@ void Update(std::uint32_t menuState, float width, float height, ActionQuery quer
             const char* language = nullptr, void* systemFont = nullptr) noexcept;
 void Render() noexcept;
 void ConfigureComposite(std::uintptr_t base, std::size_t textSize) noexcept;
+void ObserveMenu(std::uintptr_t menu, std::uint32_t state) noexcept;
+void UpdateFailurePresentation(std::uint32_t state, float width, float height,
+                               const char* language, void* systemFont) noexcept;
+bool CanLeaveTitle(std::uintptr_t menu) noexcept;
 bool BlocksTitleConfirm() noexcept;
 } // namespace isaac::runtime::notice
 

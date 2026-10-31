@@ -30,7 +30,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 
-HOST = '192.168.124.11'
+HOST = None
 PORT = 5000
 sys.path.insert(0, str(ROOT))
 from tools.device_access import resolve_device as _resolve_device

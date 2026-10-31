@@ -1075,7 +1075,9 @@ LUA_API int lua_gc (lua_State *L, int what, int data) {
       else {  /* add 'data' to total debt */
         debt = cast(l_mem, data) * 1024 + g->GCdebt;
         luaE_setdebt(g, debt);
-        luaC_checkGC(L);
+        /* Explicit STEP keeps its original semantics even with an exhausted
+           automatic frame quota (including nonzero and negative data). */
+        if (g->GCdebt > 0) luaC_step(L);
       }
       g->gcrunning = oldrunning;  /* restore previous state */
       if (debt > 0 && g->gcstate == GCSpause)  /* end of cycle? */

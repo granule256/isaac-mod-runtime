@@ -25,7 +25,8 @@ class TitleNoticeLocaleTests(unittest.TestCase):
 
     def test_catalog_sections_reconstruct_exactly_with_fixed_size_and_explicit_breaks(self):
         self.assertEqual(tuple(self.catalogs), b.LANGUAGES)
-        self.assertEqual({c['version'] for c in self.catalogs.values()}, {'v1.0.0-beta.4'})
+        version = json.loads((ROOT / 'tools/title_notice_content.json').read_text())['version']
+        self.assertEqual({c['version'] for c in self.catalogs.values()}, {version})
         for code, content in self.catalogs.items():
             with self.subTest(code=code):
                 self.assertEqual([s['kind'] for s in content['sections']],
@@ -33,6 +34,9 @@ class TitleNoticeLocaleTests(unittest.TestCase):
                 b.validate_labels(content, self.font)
                 pages = b.paginate(content, self.font)
                 self.assertLessEqual(len(pages), b.MAX_PAGES)
+                self.assertTrue(all(line.kind == 'support' for line in pages[-1]))
+                self.assertEqual(content['support']['github'],
+                                 'https://github.com/granule256/isaac-mod-runtime')
                 for si, section in enumerate(content['sections']):
                     for pi, paragraph in enumerate(section['paragraphs']):
                         self.assertEqual(''.join(l.text for p in pages for l in p
@@ -105,6 +109,24 @@ class TitleNoticeLocaleTests(unittest.TestCase):
             catalogs['en']['ui'][key] = text
             with tempfile.TemporaryDirectory() as tmp, self.assertRaisesRegex(ValueError, pattern):
                 b.build_localized_assets(Path(tmp) / 'tree', Path(tmp) / 'header.hpp', catalogs, self.font, header_only=True)
+
+    def test_final_page_preserves_all_three_code_bitmaps_exactly(self):
+        content = self.catalogs['zh']
+        result, pcx, _ = b.render_asset(content, self.font, paper_art=self.paper)
+        # Decode the emitted resource, including PCX compression, rather than
+        # checking draw calls; no interpolation or paper tint may alter codes.
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / 'notice.pcx'
+            path.write_bytes(pcx)
+            atlas = b.decode_pcx(str(path))
+        index = result['page_count'] - 1
+        x, y = (index % 2) * b.PAPER_WIDTH, (index // 2) * b.PAPER_HEIGHT
+        for name, left in zip(b.SUPPORT_CODES, b.SUPPORT_X):
+            width, height, rgba = b.decode_png((ROOT / 'tools/title_notice_support' / f'{name}.png').read_bytes())
+            for row in range(height):
+                start = ((y + 49 + row) * atlas.width + x + left) * 4
+                self.assertEqual(atlas.rgba[start:start + width * 4],
+                                 rgba[row * width * 4:(row + 1) * width * 4])
 
 
 if __name__ == '__main__':

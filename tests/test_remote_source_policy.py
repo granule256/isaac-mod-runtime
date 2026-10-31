@@ -39,7 +39,9 @@ class RemoteSourcePolicyTests(SourceRepositoryFixture, unittest.TestCase):
                      'runtime/source/rtld/LICENSE.txt',
                      'runtime/source/third_party/lua-5.3.3/SOURCE.md',
                      'tools/pc_enum_docs/RoomShape.md', 'tools/pc_contract_docs/Room.md',
-                     'tools/build.py', 'tests/test_build.py'):
+                     'tools/build.py', 'tests/test_build.py',
+                     'tools/title_notice_support/wechat.png', 'tools/title_notice_support/alipay.png',
+                     'tools/title_notice_support/kofi.png'):
             self.add(path)
         self.assertEqual(self.check().returncode, 0)
 
@@ -49,7 +51,18 @@ class RemoteSourcePolicyTests(SourceRepositoryFixture, unittest.TestCase):
                      'runtime/tests/evidence/result.log', 'runtime/tests/.temp-build/main.cpp',
                      'runtime/build/main.cpp', 'tools/video_intro_20300101/build.py',
                      'runtime/source/notes.md', 'runtime/unreviewed/new.cpp',
+                     'runtime/source/notice_guard/notice_guard_core.cpp',
+                     'runtime/source/notice_integrity_native.cpp',
+                     'runtime/source/title_notice_native.cpp',
+                     'runtime/source/hook_manager.cpp',
+                     'runtime/source/mod_menu_native.cpp',
+                     'runtime/source/image_pcx_bridge_hook.cpp',
+                     'runtime/source/mod_resource_redirect.cpp',
+                     'runtime/source/mod_image_resources.cpp',
+                     'runtime/source/anm2_load_override_hook.cpp',
+                     'runtime/tests/test_notice_guard_module.py',
                      'tools/payload.zip', 'tools/dump.bin', 'AGENTS.md',
+                     'tools/title_notice_support/unreviewed.png',
                      'outputs/report.csv', 'dist/result.json'):
             with self.subTest(path=path):
                 self.add(path)
@@ -64,6 +77,22 @@ class RemoteSourcePolicyTests(SourceRepositoryFixture, unittest.TestCase):
         result = self.check()
         self.assertEqual(result.returncode, 1)
         self.assertIn('tools/local.py', result.stdout)
+
+    def test_rejects_private_address_copies_in_staged_comments_and_metadata(self):
+        private = self.root / 'runtime/source/notice_guard/private_engine_addresses.hpp'
+        private.parent.mkdir(parents=True)
+        private.write_text('inline constexpr uintptr_t kHiddenEntryOffset = 0x789abcd;\n')
+        self.add('tools/ledger.json', '{"evidence": "entry at 0x0789ABCD"}\n')
+        result = self.check()
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertIn('tools/ledger.json', result.stdout)
+        # The audit must use index bytes, even if the working copy was cleaned.
+        (self.root / 'tools/ledger.json').write_text('{}\n')
+        self.assertEqual(self.check().returncode, 1)
+        self.add('tools/ledger.json', '{}\n')
+        self.assertEqual(self.check().returncode, 0)
+        self.add('tools/ledger.json', '{"entry": ' + str(0x789abcd) + '}\n')
+        self.assertEqual(self.check().returncode, 1)
 
     def test_ref_checks_committed_tree_instead_of_current_index(self):
         self.git('-c', 'user.name=Test', '-c', 'user.email=test@example.invalid',

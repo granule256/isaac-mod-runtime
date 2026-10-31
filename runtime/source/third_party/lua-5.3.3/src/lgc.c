@@ -1039,7 +1039,7 @@ static lu_mem sweepstep (lua_State *L, global_State *g,
 }
 
 
-static lu_mem singlestep (lua_State *L) {
+static lu_mem singlestep (lua_State *L, int paced) {
   global_State *g = G(L);
   switch (g->gcstate) {
     case GCSpause: {
@@ -1081,7 +1081,13 @@ static lu_mem singlestep (lua_State *L) {
     }
     case GCScallfin: {  /* call remaining finalizers */
       if (g->tobefnz && g->gckind != KGC_EMERGENCY) {
-        int n = runafewfinalizers(L);
+        int n;
+        if (paced) {
+          GCTM(L, 1);
+          g->gcfinnum = g->tobefnz ? 1 : 0;
+          n = 1;
+        }
+        else n = runafewfinalizers(L);
         return (n * GCFINALIZECOST);
       }
       else {  /* emergency mode or no more finalizers */
@@ -1101,7 +1107,7 @@ static lu_mem singlestep (lua_State *L) {
 void luaC_runtilstate (lua_State *L, int statesmask) {
   global_State *g = G(L);
   while (!testbit(statesmask, g->gcstate))
-    singlestep(L);
+    singlestep(L, 0);
 }
 
 
@@ -1131,7 +1137,7 @@ void luaC_step (lua_State *L) {
     return;
   }
   do {  /* repeat until pause or enough "credit" (negative debt) */
-    lu_mem work = singlestep(L);  /* perform one single step */
+    lu_mem work = singlestep(L, 0);  /* perform one single step */
     debt -= work;
   } while (debt > -GCSTEPSIZE && g->gcstate != GCSpause);
   if (g->gcstate == GCSpause)
@@ -1143,6 +1149,130 @@ void luaC_step (lua_State *L) {
   }
 }
 
+
+/* Keep negative credit when proactively continuing a low-allocation cycle.
+** All conversions saturate; repeated callbacks must not reset credit to zero. */
+static l_mem scaledebt (l_mem value, int numerator, int denominator) {
+  l_mem quotient = value / denominator;
+  /* Remainder and multiplier are bounded by INT_MAX. Their product fits
+     int64_t even on hosts with 32-bit ptrdiff_t. Divide before narrowing. */
+  l_mem remainder = cast(l_mem, cast(int64_t, value % denominator) *
+                                      numerator / denominator);
+  if (quotient > MAX_LMEM / numerator) return MAX_LMEM;
+  if (quotient < -MAX_LMEM / numerator) return -MAX_LMEM;
+  quotient *= numerator;
+  if (remainder > 0 && quotient > MAX_LMEM - remainder) return MAX_LMEM;
+  if (remainder < 0 && quotient < -MAX_LMEM - remainder) return -MAX_LMEM;
+  return quotient + remainder;
+}
+
+static l_mem budgetdebt (global_State *g) {
+  return g->GCdebt > 0 ? getdebt(g)
+      : scaledebt(g->GCdebt, g->gcstepmul, STEPMULADJ);
+}
+
+static l_mem subtractwork (l_mem debt, lu_mem work) {
+  if (work > cast(lu_mem, MAX_LMEM)) return -MAX_LMEM;
+  return debt < -MAX_LMEM + cast(l_mem, work) ? -MAX_LMEM
+                                             : debt - cast(l_mem, work);
+}
+
+static void savebudgetdebt (global_State *g, l_mem debt) {
+  luaE_setdebt(g, scaledebt(debt, STEPMULADJ, g->gcstepmul));
+}
+
+LUA_API void lua_gc_setframebudget (lua_State *L, lua_GCClock clock,
+    void *context, uint64_t budget, size_t highwater) {
+  lua_GCBudget *b = &G(L)->gcbudget;
+  if (b->clock == clock && b->context == context &&
+      b->info.budget == budget && b->info.highwater == highwater) return;
+  memset(b, 0, sizeof(*b));
+  b->clock = clock;
+  b->context = context;
+  b->info.budget = budget;
+  b->info.highwater = highwater;
+}
+
+LUA_API void lua_gc_beginframe (lua_State *L, uint64_t serial) {
+  lua_GCBudget *b = &G(L)->gcbudget;
+  if (!b->clock || !b->info.budget ||
+      (b->hasframe && b->info.frame == serial)) return;
+  if (b->hasframe && b->info.spent > b->info.budget) ++b->info.overruns;
+  b->hasframe = 1;
+  b->info.frame = serial;
+  b->info.spent = 0;
+  ++b->info.frames;
+}
+
+LUA_API void lua_gc_budgetinfo (lua_State *L, lua_GCBudgetInfo *info) {
+  *info = G(L)->gcbudget.info;
+  info->heap = gettotalbytes(G(L));
+  info->debt = G(L)->GCdebt;
+  info->state = G(L)->gcstate;
+}
+
+void luaC_autostep (lua_State *L, int continuation) {
+  global_State *g = G(L);
+  lua_GCBudget *b = &g->gcbudget;
+  uint64_t spent, started, elapsed = 0;
+  l_mem debt, originaldebt, originalwork;
+  int pressure;
+  if (!b->clock || !b->info.budget || !b->hasframe) {
+    if (!continuation) luaC_step(L);
+    return;
+  }
+  if (!g->gcrunning || (g->GCdebt <= 0 &&
+      (!continuation || g->gcstate == GCSpause))) return;
+  /* Host API setup (notably lua_pushcfunction) can check GC before pcall.
+     Keep paced finalizer errors inside the existing protected entry. */
+  if (L->errorJmp == NULL) return;
+  pressure = b->info.highwater && gettotalbytes(g) >= b->info.highwater;
+  if (b->info.spent == UINT64_MAX ||
+      (!pressure && b->info.spent >= b->info.budget)) {
+    ++b->info.deferred;
+    return;  /* no debt modification when no work was done */
+  }
+  spent = b->info.spent;
+  started = b->clock(b->context);
+  /* Reserve before running finalizers: a longjmp leaves this frame exhausted.
+     No busy flag/setjmp, and no new boundary around Lua's original errors. */
+  b->info.spent = UINT64_MAX;  /* also blocks recursive pressure slices */
+  ++b->info.slices;
+  if (pressure) ++b->info.pressure;
+  originaldebt = g->GCdebt;
+  originalwork = debt = budgetdebt(g);
+  do {
+    debt = subtractwork(debt, singlestep(L, 1));
+    ++b->info.steps;
+    elapsed = b->clock(b->context) - started;
+    if (g->gcstate == GCSpause) break;
+    if (pressure && gettotalbytes(g) < b->info.highwater) pressure = 0;
+    if (!pressure && (spent >= b->info.budget ||
+                     elapsed >= b->info.budget - spent)) break;
+  } while (continuation || debt > -GCSTEPSIZE);
+  if (g->gcstate == GCSpause) {
+    ++b->info.cycles;
+    setpause(g);
+  }
+  else {
+    if (debt == originalwork) luaE_setdebt(g, originaldebt);
+    else savebudgetdebt(g, debt);
+    if (g->tobefnz && (pressure || (spent < b->info.budget &&
+                                     elapsed < b->info.budget - spent))) {
+      GCTM(L, 1);
+      g->gcfinnum = g->tobefnz ? 1 : 0;
+    }
+  }
+  elapsed = b->clock(b->context) - started;
+  b->info.spent = elapsed > UINT64_MAX - spent ? UINT64_MAX : spent + elapsed;
+  b->info.ticks += elapsed;
+  if (elapsed > b->info.maxslice) b->info.maxslice = elapsed;
+  if (b->info.spent > b->info.maxframe) b->info.maxframe = b->info.spent;
+}
+
+LUA_API void lua_gc_advance (lua_State *L) {
+  luaC_autostep(L, 1);
+}
 
 /*
 ** Performs a full GC cycle; if 'isemergency', set a flag to avoid

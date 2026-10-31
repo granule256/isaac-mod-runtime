@@ -9,6 +9,9 @@ enum Key : unsigned {
     Up = 16U, Down = 32U, Previous = 64U, Next = 128U,
 };
 enum class Phase : unsigned { Hidden, Opening, Reading, FlipOut, FlipIn, Closing };
+// A pointer table would be relocated into mutable data outside the immutable
+// policy range. Keep phase-to-animation selection entirely in read-only bytes.
+inline constexpr char kPhaseAnimationNames[6][8]{"", "Open", "Idle", "FlipOut", "FlipIn", "Close"};
 inline constexpr unsigned kHoldTicks = 60;
 inline constexpr unsigned kOpenTicks = 20;
 inline constexpr unsigned kCloseTicks = 20;

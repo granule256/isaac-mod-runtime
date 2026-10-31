@@ -1245,7 +1245,7 @@ constexpr LuaApiDescriptor kDefaultApis[] = {
     {MakeId(ApiDomain::Sprite, 1, 0x0018), ApiDomain::Sprite, "Sprite", "SetOverlayFrame", kV1, 0,
      ThreadAffinity::ManagedCallback, ApiMaturity::Experimental},
     // ---- 批次 280（2026-10-02）：`GetDefaultAnimation`（契约说与 `…Name` 同一件事 ⇒ 共用一份读法）
-    // 与 `Stop`（`ANM2::Stop()` @ 0xA8E4）。域内序号 0x19、0x1A。
+    // 与 `Stop`（`ANM2::Stop()` @ private:kSpriteStopOffset）。域内序号 0x19、0x1A。
     {MakeId(ApiDomain::Sprite, 1, 0x0019), ApiDomain::Sprite, "Sprite", "GetDefaultAnimation", kV1,
      0, ThreadAffinity::ManagedCallback, ApiMaturity::Experimental},
     {MakeId(ApiDomain::Sprite, 1, 0x001A), ApiDomain::Sprite, "Sprite", "Stop", kV1, 0,

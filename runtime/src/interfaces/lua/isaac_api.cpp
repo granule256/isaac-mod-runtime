@@ -8697,6 +8697,11 @@ constexpr EngineCallShapeRow kEngineCallShapes[] = {
     {1, {EngineArgKind::Seed, EngineArgKind::Int, EngineArgKind::Int, EngineArgKind::Int,
          EngineArgKind::Int, EngineArgKind::Int, EngineArgKind::Int, EngineArgKind::Int},
      EngineReturnKind::Void, FieldReceipt::Seeds, IntArgumentGuard::None, 0, {0, 0, 0}},
+    // 38：AddTrinket的PC包装使用 value or value == nil；已有BoolDefaultTrue按同一真值补参。
+    // 尾参可省；reserved[1]使额外Lua参数像PC包装一样被忽略，不改变原生两参ABI。
+    {2, {EngineArgKind::Int, EngineArgKind::BoolDefaultTrue, EngineArgKind::Int, EngineArgKind::Int,
+         EngineArgKind::Int, EngineArgKind::Int, EngineArgKind::Int, EngineArgKind::Int},
+     EngineReturnKind::Void, FieldReceipt::EntityPlayer, IntArgumentGuard::None, 1, {0, 1, 0}},
 };
 
 //: ★★ 批次 338（2026-10-04）：跳板浮点槽的**两侧转换**（契约见 `engine_call_trampoline.hpp`）。
@@ -12217,8 +12222,9 @@ constexpr EngineMethodRow kEntityPlayerEngineRows[] = {
      EngineCallShape::VoidIntBoolOpt1, 2, 0xFF},
     // ---- 批次 238：`EntityPlayer:AddTrinket`（void AddTrinket ( [TrinketType](enums/TrinketType.md) Type, boolean FirstTimePickingUp = true )）
     // 符号 `_ZN15IsaacRepentance13Entity_Player10AddTrinketENS_12eTrinketTypeEb`；形状按符号参数表取（见 `runtime_constants.hpp` 的批次 238 段）。
+    // 2026-10-31更正：PC main.lua:853-857补省略/nil为true，第二参不能按必填整数解析。
     {0x0E010070, kEntityPlayerAddTrinketOffset, kEntityPlayerAddTrinketEntryWord, FieldReceipt::EntityPlayer,
-     EngineCallShape::Void2, 2, 0xFF},
+     EngineCallShape::VoidIntBoolDefaultTrueOpt1, 2, 0xFF},
     // ---- 批次 238：`EntityPlayer:EvaluateItems`（void EvaluateItems ( )）
     // 符号 `_ZN15IsaacRepentance13Entity_Player13EvaluateItemsEv`；形状按符号参数表取（见 `runtime_constants.hpp` 的批次 238 段）。
     {0x0E010071, kEntityPlayerEvaluateItemsOffset, kEntityPlayerEvaluateItemsEntryWord, FieldReceipt::EntityPlayer,
@@ -13482,7 +13488,7 @@ CallbackEntityClass ClassifyCallbackEntity(std::uintptr_t candidate,
     if (!CaptureEntity(candidate, &snapshot)) {
         return CallbackEntityClass::None;
     }
-    // 复用分类快照：NPC按Type、其它族按Variant过滤，不新增每回调内存查询。
+    // 复用分类快照：NPC按Type、刀按SubType、其它族按Variant过滤，不新增每回调内存查询。
     if (callbackFilter != nullptr) {
         *callbackFilter = snapshot.variant;
     }
@@ -13510,7 +13516,12 @@ CallbackEntityClass ClassifyCallbackEntity(std::uintptr_t candidate,
     if (snapshot.type == kEntityTypeTear) return CallbackEntityClass::Tear;
     if (snapshot.type == kEntityTypeProjectile) return CallbackEntityClass::Projectile;
     if (snapshot.type == kEntityTypeLaser) return CallbackEntityClass::Laser;
-    if (snapshot.type == kEntityTypeKnife) return CallbackEntityClass::Knife;
+    if (snapshot.type == kEntityTypeKnife) {
+        if (callbackFilter != nullptr) {
+            *callbackFilter = snapshot.subType;
+        }
+        return CallbackEntityClass::Knife;
+    }
     if (snapshot.type == kEntityTypeEffect) return CallbackEntityClass::Effect;
     if (snapshot.type == kEntityTypeBomb) return CallbackEntityClass::Bomb;
     // 敌人：引擎自己的判据（`IsEnemy = (u32)(Type - 10) < 0x3DE`）。

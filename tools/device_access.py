@@ -8,22 +8,24 @@
 2. 环境变量（`ISAAC_DEVICE_HOST/PORT/USER/PASSWORD`）
 3. 本机私有配置 `tools/device.local.json`（**已在 `.gitignore` 里，绝不进仓库**），格式：
    ```json
-   {"host": "192.168.124.11", "port": 5000, "user": "...", "password": "..."}
+   {"host": "192.0.2.1", "port": 5000, "user": "...", "password": "..."}
    ```
 4. 前三条都没有 ⇒ 直接报错并说明怎么配（**不再有内置默认账号密码**）。
 
-主机与端口本身不是机密，所以给了默认值；账号密码没有任何默认值。
+主机地址、账号密码不提供内置默认值；本地配置路径可由ISAAC_DEVICE_CONFIG指定。
 """
 
 from __future__ import annotations
 
 import json
+import os
 import pathlib
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-LOCAL_FILE = pathlib.Path(__file__).resolve().parent / 'device.local.json'
+LOCAL_FILE = pathlib.Path(os.environ.get('ISAAC_DEVICE_CONFIG',
+    pathlib.Path(__file__).resolve().parent / 'device.local.json'))
 
-DEFAULT_HOST = '192.168.124.11'   # 例：本项目的设备地址；不同网络请用 --host 或本地配置覆盖
+DEFAULT_HOST = None
 DEFAULT_PORT = 5000
 
 
@@ -50,7 +52,7 @@ def _from_local_file() -> dict:
 def resolve_device(host: str | None = None, port: int | str | None = None,
                    user: str | None = None, password: str | None = None,
                    *, required: bool = True) -> tuple[str, int, str, str]:
-    """按"参数 → 环境变量 → 本地配置 → 默认主机/端口"的顺序解析出设备访问参数。"""
+    """按"参数 → 环境变量 → 本地配置 → 默认端口"的顺序解析出设备访问参数。"""
     env = _from_env()
     local = _from_local_file()
 
@@ -64,6 +66,9 @@ def resolve_device(host: str | None = None, port: int | str | None = None,
     resolved_port = int(pick(port, 'ISAAC_DEVICE_PORT', 'port', DEFAULT_PORT))
     resolved_user = pick(user, 'ISAAC_DEVICE_USER', 'user')
     resolved_password = pick(password, 'ISAAC_DEVICE_PASSWORD', 'password')
+
+    if required and not resolved_host:
+        raise SystemExit('缺少设备地址。请提供 --host、ISAAC_DEVICE_HOST 或本地设备配置。')
 
     if required and (not resolved_user or not resolved_password):
         raise SystemExit(

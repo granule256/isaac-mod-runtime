@@ -20,6 +20,7 @@ sys.path.insert(0, str(REPO_ROOT))
 from tools.gamemenu_mod_row import Image, decode_pcx, encode_pcx, discover_dump_root
 from tools.title_notice_paper import PaperArt, load_paper_art
 from tools.notice_integrity_manifest import MANIFEST_PATH, write_manifest, install_cached_assets
+from tools.png_to_pcx import _decode as decode_png
 
 PAPER_WIDTH, PAPER_HEIGHT = 336, 216
 MAX_PAGES = 32
@@ -31,6 +32,8 @@ RESOURCE_ROOT = Path("atmosphere/contents/010021C000B6A000/romfs/rp_patch")
 INK = (49, 36, 32, 255)
 RED = (132, 28, 25, 255)
 MUTED = (103, 83, 76, 255)
+SUPPORT_CODES = ("wechat", "alipay", "kofi")
+SUPPORT_X = (25, 123, 221)
 
 
 @dataclass(frozen=True)
@@ -162,6 +165,28 @@ def paginate(content: dict, font: Font) -> list[list[TextLine]]:
                 x = (PAPER_WIDTH - font.width(text)) // 2 if kind == "free" else 28
                 pages[-1].append(TextLine(text, x, y, si, pi, kind))
                 y += step
+    # Append after ALL body pagination, so later sections cannot displace it.
+    if support := content.get("support"):
+        if len(pages) >= MAX_PAGES:
+            raise ValueError("title notice exceeds 32 pages; split or shorten the content")
+        if len(support["labels"]) != len(SUPPORT_CODES):
+            raise ValueError("notice support requires WeChat, Alipay and Ko-fi labels")
+        tail = []
+        for x, label in zip(SUPPORT_X, support["labels"]):
+            if not label or font.width(label) > 90:
+                raise ValueError("notice support label is empty or wider than 90px")
+            tail.append(TextLine(label, x + (90 - font.width(label)) // 2, 141,
+                                 len(content["sections"]), -1, "support"))
+        url = support["github"]
+        if not url.startswith("https://github.com/") or url.count("/") != 4:
+            raise ValueError("notice support requires a GitHub repository URL")
+        owner, repo = url.removeprefix("https://").rsplit("/", 1)
+        for text, top in [("GitHub: " + owner + "/", 157), (repo, 172)]:
+            if font.width(text) > 280 or font.line_height > 13:
+                raise ValueError("notice support link does not fit the final page")
+            tail.append(TextLine(text, (336 - font.width(text)) // 2, top,
+                                 len(content["sections"]), -1, "support"))
+        pages.append(tail)
     return pages
 
 
@@ -267,6 +292,9 @@ def validate_labels(content: dict, font: Font) -> None:
     """Apply the same required-label checks to header-only and rendered builds."""
     labels = [(content["title"], 300, "title"),
               (content.get("subtitle", "{version}").replace("{version}", content["version"]), 300, "subtitle")]
+    if support := content.get("support"):
+        labels.extend([(support["title"], 300, "support title"),
+                       (support["message"], 300, "support message")])
     ui = content.get("ui", DEFAULT_UI)
     labels.append((ui["entry"], 75, "entry"))
     labels.extend((ui[key], 260, key) for key in ("footer_locked", "footer_auto", "footer_manual"))
@@ -289,11 +317,23 @@ def render_asset(content: dict, font: Font, basename: str = "nnotice",
         (paper_art.paint if paper_art else paper)(atlas, x, y, PAPER_WIDTH, PAPER_HEIGHT)
         title = content["title"]
         subtitle = content.get("subtitle", "{version}").replace("{version}", content["version"])
+        support = content.get("support") if lines and lines[0].kind == "support" else None
+        if support:
+            title, subtitle = support["title"], support["message"]
         for text, top, color in [(title, 14, INK), (subtitle, 29, MUTED)]:
             if font.width(text) > 300:
                 raise ValueError("notice title/subtitle is wider than 300px")
             draw_text(atlas, font, text, x + (336 - font.width(text)) // 2, y + top, color)
         rectangle(atlas, x + 27, y + 44, 281, 1, MUTED)
+        if support:
+            for name, left in zip(SUPPORT_CODES, SUPPORT_X):
+                path = Path(__file__).with_name("title_notice_support") / f"{name}.png"
+                width, height, rgba = decode_png(path.read_bytes())
+                if (width, height) != (90, 90):
+                    raise ValueError(f"notice support {name} must be 90x90px")
+                for row in range(height):
+                    start = ((y + 49 + row) * atlas.width + x + left) * 4
+                    atlas.rgba[start:start + width * 4] = rgba[row * width * 4:(row + 1) * width * 4]
         for line in lines:
             if line.kind == "warning":
                 rectangle(atlas, x + 22, y + line.y - 1, 292, font.line_height + 2, (215, 193, 178, 255))
@@ -365,6 +405,10 @@ def load_catalogs(content_path: Path, locales_path: Path | None = None) -> dict[
             raise ValueError(f"notice {language} semantic sections differ from Chinese source")
         if set(content.get("ui", {})) != set(DEFAULT_UI):
             raise ValueError(f"notice {language} must translate every UI label")
+        if bool(content.get("support")) != bool(chinese.get("support")):
+            raise ValueError(f"notice {language} must translate the support page")
+        if content.get("support") and content["support"]["github"] != chinese["support"]["github"]:
+            raise ValueError(f"notice {language} must use the same GitHub repository")
         catalogs[language] = content
     return catalogs
 
@@ -372,6 +416,8 @@ def load_catalogs(content_path: Path, locales_path: Path | None = None) -> dict[
 def write_localized_header(header: Path, catalogs: dict, results: dict, manifest: bytes | None = None) -> None:
     rows = "".join(f'    {{"{code}", {results[code]["page_count"]}, "gfx/ui/main menu/isaac-switch/nnotice_{code}.anm2"}},\n'
                    for code in LANGUAGES)
+    views = "".join(f'    {{kLocaleAssetsStorage[{i}].language, kLocaleAssetsStorage[{i}].pageCount, '
+                    f'kLocaleAssetsStorage[{i}].assetPath}},\n' for i in range(len(LANGUAGES)))
     integrity = "// Metadata only: no integrity root; unsuitable for production compilation.\n"
     if manifest is not None:
         digest = ", ".join(f"0x{v:02x}" for v in hashlib.sha256(manifest).digest())
@@ -383,8 +429,12 @@ def write_localized_header(header: Path, catalogs: dict, results: dict, manifest
                       "#include <array>\n#include <cstdint>\n"
                       "namespace isaac::runtime::notice {\n" + integrity +
                       "struct LocaleAssets { const char* language; unsigned pageCount; const char* assetPath; };\n"
+                      "// Pointer-free production policy; remains in the protected read-only range.\n"
+                      "struct StoredLocaleAssets { char language[3]; unsigned pageCount; char assetPath[64]; };\n"
                       f"inline constexpr char kVersion[] = {json.dumps(catalogs['zh']['version'])};\n"
-                      f"inline constexpr LocaleAssets kLocaleAssets[8] = {{\n{rows}}};\n"
+                      f"inline constexpr StoredLocaleAssets kLocaleAssetsStorage[8] = {{\n{rows}}};\n"
+                      "// Preserve the metadata view for existing generated-header consumers.\n"
+                      f"inline constexpr LocaleAssets kLocaleAssets[8] = {{\n{views}}};\n"
                       "inline constexpr unsigned kLocaleCount = 8;\n"
                       f"inline constexpr unsigned kPageCount = {results['zh']['page_count']};\n"
                       'inline constexpr char kAssetPath[] = "gfx/ui/main menu/isaac-switch/nnotice_zh.anm2";\n'

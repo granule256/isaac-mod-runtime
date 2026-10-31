@@ -303,6 +303,8 @@ enum class EngineCallShape : std::uint8_t {
     VoidIntBool = 36,
     // Seeds:SetStartSeed 接文档字符串，也保留现有数字重载。
     VoidSeed1 = 37,
+    // PC main.lua:853-857：AddTrinket(id, value) 把省略/nil补true，false保持false，忽略额外参数。
+    VoidIntBoolDefaultTrueOpt1 = 38,
 };
 
 //: 参数校验语义（批次 141）：形状用它声明"某个整数参数在调进去之前必须先验一遍"。
