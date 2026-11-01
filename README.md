@@ -6,7 +6,7 @@
 
 <a id="中文"></a>
 
-面向 Nintendo Switch 版《以撒的结合：忏悔》的 PC Lua 模组兼容层，提供模组菜单、游戏 API、回调、资源加载与配置持久化，尽可能保留原模组的调用方式和行为。
+面向大气层 NX 环境下《以撒的结合：忏悔》的 PC Lua 模组兼容层，提供模组菜单、游戏 API、回调、资源加载与配置持久化，尽可能保留原模组的调用方式和行为。
 
 当前正式版为 **v1.0.0**，目标游戏版本为 **1.7.9b** 的指定构建。兼容层免费，赞赏自愿且不影响使用。为防止倒卖，公告部分的代码未开源。
 
@@ -30,7 +30,7 @@
 
 下载 [isaac-runtime-v1.0.0.zip](https://github.com/granule256/isaac-mod-runtime/releases/download/v1.0.0/isaac-runtime-v1.0.0.zip)。包内附英文 `INSTALL.txt`，不包含游戏、Atmosphère 或第三方模组。版本更新记录见 [Releases](https://github.com/granule256/isaac-mod-runtime/releases)。
 
-1. 准备已配置 Atmosphère 的 Switch 和受支持的游戏构建，备份存档并完全关闭游戏。
+1. 准备已配置大气层 NX 环境的设备和受支持的游戏构建，备份存档并完全关闭游戏。
 2. 解压安装包，将整个 `atmosphere/` 文件夹复制到 SD 卡根目录，合并目录并覆盖同名文件。核心、资源和补丁一起安装，避免混用版本。
 3. 启动游戏，确认兼容层说明显示 `v1.0.0`。
 4. 将每个模组的完整文件夹单独放入以下目录，避免多套一层文件夹：
@@ -88,7 +88,7 @@ QQ群：**1124953430** · [Discord](https://discord.gg/JMQc2jMsve)。也可通�
 
 [简体中文](#中文) | [English](#english)
 
-A community compatibility layer for running PC Lua mods in **The Binding of Isaac: Repentance on Nintendo Switch**. It provides a mod menu, game APIs, callbacks, resource loading and configuration persistence while aiming to preserve original mod calls and behavior.
+A community compatibility layer for running PC Lua mods in **The Binding of Isaac: Repentance under Atmosphère on NX**. It provides a mod menu, game APIs, callbacks, resource loading and configuration persistence while aiming to preserve original mod calls and behavior.
 
 The current stable version is **v1.0.0**, targeting the supported **1.7.9b** game build. The layer is free; donations are optional and do not affect access. To prevent resale, the notice-related code is not open source.
 
@@ -96,7 +96,7 @@ The current stable version is **v1.0.0**, targeting the supported **1.7.9b** gam
 
 - Adaptations for `Isaac`, `Game`, `Level`, `Room`, entities, item configuration, input and audio.
 - Support for sprites, fonts, layers, custom shader adaptations and multilingual title notices.
-- Automatic mod discovery, in-game mod switches and configuration persistence.
+- Automatic mod discovery, in-game mod toggles and configuration persistence.
 - One complete installation containing the core, supporting resources and all compatibility-layer patches.
 
 | Patch directory under `atmosphere/nro_patches/` | Purpose |
@@ -112,7 +112,7 @@ The timing fix does not imply a general rendering frame-rate improvement. Patche
 
 Download [isaac-runtime-v1.0.0.zip](https://github.com/granule256/isaac-mod-runtime/releases/download/v1.0.0/isaac-runtime-v1.0.0.zip). It includes an English `INSTALL.txt`; the game, Atmosphère and third-party mods are not bundled. See [Releases](https://github.com/granule256/isaac-mod-runtime/releases) for version changes.
 
-1. Use a Switch configured for Atmosphère and the supported game build. Back up your saves and fully close the game.
+1. Use an NX device configured for Atmosphère and the supported game build. Back up your saves and fully close the game.
 2. Extract the package and copy its entire `atmosphere/` folder to the SD card root. Merge folders and overwrite matching files. Install the core, resources and patches together and avoid mixing versions.
 3. Launch the game and check that the compatibility-layer notice displays `v1.0.0`.
 4. Place each complete mod folder in the following directory without an extra nested folder:
@@ -121,7 +121,7 @@ Download [isaac-runtime-v1.0.0.zip](https://github.com/granule256/isaac-mod-runt
    SD:/atmosphere/contents/010021C000B6A000/romfs/isaac_mods/mods/
    ```
 
-   Fully close the game before installing or changing mods, then restart it and manage mod switches from the in-game menu.
+   Fully close the game before installing or changing mods, then restart it and manage mod toggles from the in-game menu.
 
 The package includes `atmosphere/contents/010021C000B6A000/exefs/isaac_runtime_sha256.md`, recording the version, build, size and SHA-256 of `subsdk9` for file verification.
 
