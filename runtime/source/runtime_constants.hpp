@@ -5228,6 +5228,23 @@ inline constexpr std::array<u8, 16> kFilesysCommitSaveDataThunkExpectedBytes = {
 //   * `GetFileSize(s64* outSize, FileHandle)`、`FlushFile(FileHandle)`、`CloseFile(FileHandle)`
 //     （`File::Exists` 用过 `CloseFile`：`0x4CCD30`）。
 // 槽地址与跳板地址的对应关系来自 `tools/nro_symbols.py` 的 `parse_dynamic_relocations()`。
+// Directory imports use the game's existing filesystem session. Unlike the
+// content-manager wrapper, these return an error when a directory is absent.
+inline constexpr uintptr_t kFilesysOpenDirectoryThunkOffset = 0x67FFB0;
+inline constexpr std::array<u8, 16> kFilesysOpenDirectoryThunkExpectedBytes = {
+    0x30, 0x21, 0x00, 0xD0, 0x11, 0xA2, 0x47, 0xF9,
+    0x10, 0x02, 0x3D, 0x91, 0x20, 0x02, 0x1F, 0xD6,
+};
+inline constexpr uintptr_t kFilesysReadDirectoryThunkOffset = 0x67FFD0;
+inline constexpr std::array<u8, 16> kFilesysReadDirectoryThunkExpectedBytes = {
+    0x30, 0x21, 0x00, 0xD0, 0x11, 0xAA, 0x47, 0xF9,
+    0x10, 0x42, 0x3D, 0x91, 0x20, 0x02, 0x1F, 0xD6,
+};
+inline constexpr uintptr_t kFilesysCloseDirectoryThunkOffset = 0x67FFE0;
+inline constexpr std::array<u8, 16> kFilesysCloseDirectoryThunkExpectedBytes = {
+    0x30, 0x21, 0x00, 0xD0, 0x11, 0xAE, 0x47, 0xF9,
+    0x10, 0x62, 0x3D, 0x91, 0x20, 0x02, 0x1F, 0xD6,
+};
 inline constexpr uintptr_t kFilesysOpenFileThunkOffset = 0x680060;
 inline constexpr std::array<u8, 16> kFilesysOpenFileThunkExpectedBytes = {
     0x30, 0x21, 0x00, 0xB0, 0x11, 0xCE, 0x47, 0xF9,

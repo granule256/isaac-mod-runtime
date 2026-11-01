@@ -24,6 +24,8 @@ using DestroyFn = void (*)(void*);
 using OpenWriteFn = bool (*)(void*, const char*);
 using WriteFn = int (*)(void*, const void*, int, int);
 
+struct ScriptPathResolver;
+
 struct Bindings {
     ConstructFn construct{nullptr};
     OpenReadFn openRead{nullptr};
@@ -31,6 +33,7 @@ struct Bindings {
     ReadFn read{nullptr};
     CloseFn close{nullptr};
     DestroyFn destroy{nullptr};
+    ScriptPathResolver* scriptPathResolver{nullptr};
 };
 
 // 贴图桥用到的引擎入口（`ImagePcxLoad` 入口中继挂点的兜底依赖）。`z_stream*` 在设备侧没有

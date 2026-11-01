@@ -7,6 +7,8 @@
 #include "lib.hpp"
 #include "lib/nx/kernel/svc.h"
 #include "runtime_constants.hpp"
+#include "game_script_directory.hpp"
+#include "script_path_resolver.hpp"
 
 #include <array>
 #include <cstring>
@@ -15,6 +17,8 @@
 namespace {
 
 // 这些入口的类型声明已收进 `game_file_reader.hpp`（唯一一份，2026-09-17）。
+GameFileReader::GameScriptDirectory g_scriptDirectory{};
+GameFileReader::ScriptPathResolver g_scriptPathResolver{};
 
 bool IsMappedRxModuleCodeWindow(uintptr_t address, size_t length) {
     if (length == 0 || address > std::numeric_limits<uintptr_t>::max() - length) {
@@ -72,6 +76,20 @@ bool VerifyBindings(const TargetModule& module, Bindings* bindings) {
         return false;
     }
 
+    // Case fallback is optional: an unverified directory import must not disable
+    // exact-path reads, nor be called with a guessed address.
+    GameScriptDirectory directory{};
+    if (VerifyGameEntry(module, kFilesysOpenDirectoryThunkOffset,
+                        kFilesysOpenDirectoryThunkExpectedBytes, &directory.open) &&
+        VerifyGameEntry(module, kFilesysReadDirectoryThunkOffset,
+                        kFilesysReadDirectoryThunkExpectedBytes, &directory.read) &&
+        VerifyGameEntry(module, kFilesysCloseDirectoryThunkOffset,
+                        kFilesysCloseDirectoryThunkExpectedBytes, &directory.close)) {
+        g_scriptDirectory = directory;
+        g_scriptPathResolver.findName = GameScriptDirectory::Find;
+        g_scriptPathResolver.context = &g_scriptDirectory;
+        verified.scriptPathResolver = &g_scriptPathResolver;
+    }
     *bindings = verified;
     return true;
 }
@@ -270,7 +288,16 @@ TextReadResult ReadTextFile(const Bindings& bindings, const char* path,
     construct(fileStorage.data());
     if (!openRead(fileStorage.data(), path)) {
         destroy(fileStorage.data());
-        return TextReadResult::OpenFailed;
+        char resolved[ScriptPathResolver::kPathCapacity]{};
+        if (bindings.scriptPathResolver == nullptr ||
+            !bindings.scriptPathResolver->Resolve(path, resolved, sizeof(resolved))) {
+            return TextReadResult::OpenFailed;
+        }
+        construct(fileStorage.data());
+        if (!openRead(fileStorage.data(), resolved)) {
+            destroy(fileStorage.data());
+            return TextReadResult::OpenFailed;
+        }
     }
     const int length = getLength(fileStorage.data());
     if (length <= 0 || length > static_cast<int>(capacity)) {
