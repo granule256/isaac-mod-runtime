@@ -85,30 +85,25 @@ extern std::atomic<std::uint32_t> g_CallbackDispatchGeneration;
 // `ManagedFrameClock::Reset()` 同一时机、同一口径）。
 void ResetCallbackDispatchCounters() noexcept;
 
-// `Isaac.GetFrameCount()` 的帧计数真源。
-//
-// 生产路径里 `LuaRuntime::DispatchPostUpdate()` 每个游戏 update 调用一次
-// `CallbackDispatcher::Dispatch(kCallbackPostUpdate, ...)`，所以"派发过多少次
-// MC_POST_UPDATE"就是"自本次加载以来过了多少帧"。计数器放在派发层而不是 Lua 层，是因为
-// 只有一个地方派发该阶段：把累加放在派发入口，就等于每个 update 恰好加一次，不需要新线程、
-// 不需要任何时钟；宿主测试也可以直接调用 `LuaRuntime::DispatchPostUpdate()` 观察它递增。
-//
-// 这是**近似**：它数的是 Runtime 的 update 派发次数，不是引擎自己的游戏内计时器
-// （引擎时钟偏移尚未定位，见 `isaac_api.cpp` 的 `Isaac.GetTime`）。
-//
-//: 帧边界钩子：每次 `MC_POST_UPDATE` 推进帧号（`ManagedFrameClock::MarkPostUpdateDispatch`）
-//: **之后**调用一次，参数 = 新的帧号。默认没有钩子（空指针）。
-//:
-//: 为什么要有它（批次 381，2026-10-06）：`Input.IsButtonTriggered` / `IsActionTriggered` 的
-//: 边沿必须"绑在引擎帧上"——每帧固定时刻采一次、只在那一帧有效（PC 契约 `Input.md:75/107`）。
-//: 采样点必须落在"帧号自增之后、回调派发之前"，否则模组在 `MC_POST_UPDATE` 里看不到本帧边沿。
-//: 用函数指针钩子（而不是在这里直接调输入层）：`callback_dispatcher` 属于 application 层，
-//: 直接调 `interfaces/lua` 会形成反向依赖；钩子由输入层在会话初始化时装一次。
+// Whole-game native cycles (normally 60 Hz) are independent of simulation dispatch.
+// Manager::Update begins the cycle before native callbacks; the input Poll return
+// publishes its snapshot. Menu and pause cycles advance it too; Lua reloads and
+// new runs do not reset it. A native cycle which skips Poll expires old edges but
+// does not scan devices again.
 using FrameBoundaryHook = void (*)(std::uint64_t frame) noexcept;
-
-//: 装帧边界钩子（传 nullptr = 卸掉）。会话初始化时由输入层调用，幂等。
 void SetFrameBoundaryHook(FrameBoundaryHook hook) noexcept;
 
+class NativeFrameClock {
+public:
+    // Enter before native Update, then publish immediately after native input Poll.
+    static void BeginNativeFrame() noexcept;
+    static void CompleteInputPoll() noexcept;
+    // A complete-cycle helper for host adapters without native callbacks inside Update.
+    static void MarkNativeFrame(bool inputPolled = true) noexcept;
+    [[nodiscard]] static std::uint64_t Count() noexcept;
+};
+
+// The simulation clock remains tied to MC_POST_UPDATE (normally 30 Hz).
 class ManagedFrameClock {
 public:
     // 每次派发 MC_POST_UPDATE 时调用一次（dispatch 单线程路径，无锁）。

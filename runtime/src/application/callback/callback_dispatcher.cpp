@@ -23,6 +23,8 @@ void RecordDispatch(CallbackId id) noexcept {
 // 单线程派发路径上的普通全局：只有游戏线程会调用 `Dispatch`，所以既不需要锁，也不能用
 // `thread_local`（本项目在真机上已被 `thread_local` 坑过一次，见 `lua_runtime.cpp` 的注释）。
 std::uint64_t g_PostUpdateDispatchCount = 0;
+std::uint64_t g_NativeFrameCount = 0;
+bool g_NativeInputSampled = false;
 
 //: 帧边界钩子（批次 381）：默认没有；输入层在会话初始化时装上。
 FrameBoundaryHook g_FrameBoundaryHook = nullptr;
@@ -44,10 +46,27 @@ std::uint32_t CallbackDispatchGeneration() noexcept {
 
 void ManagedFrameClock::MarkPostUpdateDispatch() noexcept {
     ++g_PostUpdateDispatchCount;
-    // 帧号自增之后、调用方派发回调之前 —— 见 `FrameBoundaryHook` 的声明处。
-    if (g_FrameBoundaryHook != nullptr) {
-        g_FrameBoundaryHook(g_PostUpdateDispatchCount);
-    }
+}
+
+void NativeFrameClock::BeginNativeFrame() noexcept {
+    ++g_NativeFrameCount;
+    g_NativeInputSampled = false;
+}
+
+void NativeFrameClock::CompleteInputPoll() noexcept {
+    if (g_NativeInputSampled) return;
+    // Claim before sampling: native action queries can synchronously enter Lua.
+    g_NativeInputSampled = true;
+    if (g_FrameBoundaryHook != nullptr) g_FrameBoundaryHook(g_NativeFrameCount);
+}
+
+void NativeFrameClock::MarkNativeFrame(bool inputPolled) noexcept {
+    BeginNativeFrame();
+    if (inputPolled) CompleteInputPoll();
+}
+
+std::uint64_t NativeFrameClock::Count() noexcept {
+    return g_NativeFrameCount;
 }
 
 void SetFrameBoundaryHook(FrameBoundaryHook hook) noexcept {

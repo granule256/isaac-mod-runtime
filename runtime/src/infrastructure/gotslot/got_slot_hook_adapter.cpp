@@ -6,6 +6,7 @@
 #include "card_hook.hpp"
 #include "mod_room_hook.hpp"
 #include "console_lifecycle_hook.hpp"
+#include "input_poll_hook.hpp"
 
 #include <algorithm>
 #include <cstring>
@@ -37,6 +38,11 @@ Status GotSlotHookAdapter::Install(HookId id, const HookTarget& target) noexcept
     }
     // Present、原生HUD与NPC内部AI等数据槽；别的挂点由路由表交给各自的适配器。
     // 走到这里的其它 `HookId` 是配置错误，**响亮失败**而不是静默成功。
+    if (id == HookId::NativeInputPoll) {
+        const auto result = InstallNativeInputPollHook(target);
+        if (result.ok()) installed_[index] = true;
+        return result;
+    }
     if (id == HookId::ConsoleLifecycle) {
         const auto result=InstallConsoleLifecycleHook(target);
         if(result.ok())installed_[index]=true;

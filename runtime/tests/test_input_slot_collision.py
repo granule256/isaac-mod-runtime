@@ -179,8 +179,8 @@ int main() {
     lua_setglobal(state, "Input");
 
     const auto advance_frame = []() -> std::uint32_t {
-        isaac::runtime::ManagedFrameClock::MarkPostUpdateDispatch();
-        return static_cast<std::uint32_t>(isaac::runtime::ManagedFrameClock::Count());
+        isaac::runtime::NativeFrameClock::MarkNativeFrame();
+        return static_cast<std::uint32_t>(isaac::runtime::NativeFrameClock::Count());
     };
     const auto run_query = [&](int* triggered, int* pressed, int* any_triggered) {
         if (luaL_dostring(state, kQueryScript) != LUA_OK) {

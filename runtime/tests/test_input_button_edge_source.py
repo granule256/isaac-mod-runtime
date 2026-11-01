@@ -56,6 +56,7 @@ LUA_DIR = SRC / "interfaces" / "lua"
 
 HARNESS = r'''
 #include "interfaces/lua/input_api.hpp"
+#include "interfaces/lua/isaac_api.hpp"
 
 #include "application/callback/callback_dispatcher.hpp"   // `ManagedFrameClock`
 #include "lua_runtime.hpp"
@@ -112,10 +113,10 @@ bool FakeButtonPressed(void* /*manager*/, std::uint32_t button, std::uint32_t /*
 
 // 假的动作查询：本用例不关心动作侧，恒 false（但仍要发布，否则采样器会记采样失败）。
 unsigned g_actionCalls = 0;
-bool FakeActionPressed(void* /*manager*/, std::uint32_t /*action*/, std::uint32_t /*deviceId*/,
+bool FakeActionPressed(void* /*manager*/, std::uint32_t action, std::uint32_t /*deviceId*/,
                        void* /*out*/) {
     ++g_actionCalls;
-    return false;
+    return action == 14u && (g_heldButtons & (1u << 13)) != 0;
 }
 
 void StoreU64(void* base, std::size_t offset, std::uint64_t value) {
@@ -127,7 +128,8 @@ void StoreU32(void* base, std::size_t offset, std::uint32_t value) {
 
 // 与 MCM 同一句：读"按键号 13（右摇杆按下）、PC 的 controllerId 1（第 1 台手柄）"。
 const char* kQueryScript =
-    "captured = { Input.IsButtonTriggered(13, 1), Input.IsButtonPressed(13, 1) }";
+    "captured = { Input.IsButtonTriggered(13, 1), Input.IsButtonPressed(13, 1),"
+    "Input.IsActionTriggered(14, 1), Input.IsActionPressed(14, 1) }";
 
 }  // namespace
 
@@ -171,8 +173,8 @@ int main() {
     lua_setglobal(state, "Input");
 
     const auto advance_frame = []() -> std::uint32_t {
-        isaac::runtime::ManagedFrameClock::MarkPostUpdateDispatch();
-        return static_cast<std::uint32_t>(isaac::runtime::ManagedFrameClock::Count());
+        isaac::runtime::NativeFrameClock::MarkNativeFrame();
+        return static_cast<std::uint32_t>(isaac::runtime::NativeFrameClock::Count());
     };
     const auto run_query = [&](int* triggered, int* pressed) {
         if (luaL_dostring(state, kQueryScript) != LUA_OK) {
@@ -186,6 +188,12 @@ int main() {
         lua_pop(state, 1);
         lua_rawgeti(state, -1, 2);
         *pressed = lua_toboolean(state, -1);
+        lua_pop(state, 1);
+        lua_rawgeti(state, -1, 3);
+        Check(lua_toboolean(state, -1) == *triggered, "action and button edges share the native cycle");
+        lua_pop(state, 1);
+        lua_rawgeti(state, -1, 4);
+        Check(lua_toboolean(state, -1) == *pressed, "action and button held states share the native cycle");
         lua_pop(state, 2);
     };
 
@@ -209,6 +217,17 @@ int main() {
     Check(pressed == 1, "帧2：13 按住（读同一次采样）");
     Check(triggered == 1, "★★★ 帧2：13 首次按下 ⇒ 边沿为真（右摇杆能开 MCM）");
 
+    // The simulation update and every consumer in this native poll share one snapshot.
+    const auto callsAtEdge = g_buttonCalls;
+    isaac::runtime::ManagedFrameClock::MarkPostUpdateDispatch();
+    run_query(&triggered, &pressed);
+    Check(triggered == 1 && pressed == 1, "update cannot consume or resample render edge");
+    run_query(&triggered, &pressed);
+    Check(triggered == 1, "another mod in same render sees the same edge");
+    Check(g_buttonCalls == callsAtEdge, "queries and logic dispatch never resample input");
+    Check(isaac::runtime::ManagedFrameClock::Count() == 1u, "logic clock remains independent");
+    Check(isaac::runtime::NativeFrameClock::Count() == 2u, "native clock counts both render cycles");
+
     // ---- 帧 3：仍然按住 ⇒ 下一帧必须 false（381 的"一帧一次事件"仍在）------------------
     advance_frame();
     run_query(&triggered, &pressed);
@@ -224,12 +243,60 @@ int main() {
     run_query(&triggered, &pressed);
     Check(triggered == 1, "帧5：松开后再按 ⇒ 又一次边沿");
 
+    // Entering the next native update expires the previous cycle before any native callback.
+    const auto beforeNativeCallback = isaac::runtime::NativeFrameClock::Count();
+    isaac::runtime::NativeFrameClock::BeginNativeFrame();
+    run_query(&triggered, &pressed);
+    Check(triggered == 0, "callback before Poll cannot reuse the preceding native edge");
+    g_heldButtons = 0; // native Poll has now updated its source state
+    isaac::runtime::NativeFrameClock::CompleteInputPoll();
+    const auto callsAfterPoll = g_buttonCalls;
+    run_query(&triggered, &pressed);
+    Check(triggered == 0 && pressed == 0, "callback inside original Update sees current Poll");
+    isaac::runtime::NativeFrameClock::CompleteInputPoll();
+    Check(g_buttonCalls == callsAfterPoll, "post Update completion cannot sample Poll twice");
+    Check(isaac::runtime::NativeFrameClock::Count() == beforeNativeCallback + 1,
+          "frame count is identical before and after native callbacks");
+    isaac::runtime::NativeFrameClock::BeginNativeFrame();
+    g_heldButtons = (1u << 13);
+    isaac::runtime::NativeFrameClock::CompleteInputPoll();
+    run_query(&triggered, &pressed);
+    Check(triggered == 1 && pressed == 1, "native callback sees a fresh press before Update returns");
+    isaac::runtime::NativeFrameClock::CompleteInputPoll();
+    run_query(&triggered, &pressed);
+    Check(triggered == 1, "render after native callback sees identical current edge");
+
+    // A native interpolation tick which skipped Poll expires the edge without another scan.
+    const auto callsBeforeSkip = g_buttonCalls;
+    isaac::runtime::NativeFrameClock::MarkNativeFrame(false);
+    run_query(&triggered, &pressed);
+    Check(triggered == 0, "an edge never repeats in a later native render cycle");
+    Check(g_buttonCalls == callsBeforeSkip + 1u, "skipped Poll does not run the sampler");
+    // Native polling continues with no simulation update, as it does while paused.
+    g_heldButtons = 0;
+    advance_frame();
+    g_heldButtons = (1u << 13);
+    advance_frame();
+    run_query(&triggered, &pressed);
+    Check(triggered == 1 && pressed == 1, "paused render can observe a new physical press");
+    Check(isaac::runtime::ManagedFrameClock::Count() == 1u, "paused input never advances logic");
+
     // ---- 采样代价的账：每台手柄计划 50 个号（18 按键 + 32 动作），失败为 0 -----------------
     Check(isaac::runtime::g_InputSampleCodes.load() == 50u,
           "每台手柄计划采 50 个号（18 按键 + 32 动作）");
     Check(isaac::runtime::g_InputSampleCalls.load() >= 18u,
           "g_InputSampleCalls 至少含按键侧 18 次（换源后这笔账要能看见）");
     Check(isaac::runtime::g_InputSampleFailures.load() == 0u, "换源后采样不该失败");
+
+    // The global PC clock counts native cycles and survives Lua API re-registration.
+    const auto nativeBeforeReload = isaac::runtime::NativeFrameClock::Count();
+    static_cast<void>(isaac::runtime::RegisterIsaacApi(state));
+    lua_getglobal(state, "Isaac");
+    lua_getfield(state, -1, "GetFrameCount");
+    Check(lua_pcall(state, 0, 1, 0) == LUA_OK, "Isaac.GetFrameCount remains callable");
+    Check(static_cast<std::uint64_t>(lua_tointeger(state, -1)) == nativeBeforeReload,
+          "Isaac global clock is native60 and survives Lua reload");
+    lua_pop(state, 2);
 
     lua_close(state);
 

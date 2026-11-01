@@ -371,6 +371,7 @@ EntryRelayBinding BindingOf(HookId id) noexcept {
         case HookId::HudRender:
         case HookId::RoomConfigLoadStageBinary:
         case HookId::ConsoleLifecycle:
+        case HookId::NativeInputPoll:
         case HookId::LevelLoadRoom:
         case HookId::ItemPoolTrinketFirstRandom:
         case HookId::ItemPoolTrinketSelected:

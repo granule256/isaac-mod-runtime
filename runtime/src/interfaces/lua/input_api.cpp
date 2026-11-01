@@ -152,9 +152,10 @@ std::uint32_t g_InputDeviceTableFrame{kNoInputFrame};
 bool g_InputDeviceTableKnown = false;
 NsInputDeviceTableSnapshot g_InputDeviceTableSnapshot{};
 
-//: 当前"输入帧号"。口径见上面那段（唯一定义 = `ManagedFrameClock`）。
+// Input edges and cached device rows use the native polling cycle, shared by
+// simulation and rendering consumers. Querying never advances this clock.
 [[nodiscard]] std::uint32_t CurrentInputFrame() noexcept {
-    return static_cast<std::uint32_t>(isaac::runtime::ManagedFrameClock::Count());
+    return static_cast<std::uint32_t>(isaac::runtime::NativeFrameClock::Count());
 }
 
 //: 批次 109：**每个动作报过几次"刚按下"**（下标 = `动作 & 31`）。
@@ -1732,7 +1733,7 @@ void SampleInputFrame(std::uint32_t frame) noexcept {
     g_InputSampleDevices.store(devices + 1u, std::memory_order_relaxed);
 }
 
-//: 帧边界钩子的入口（`ManagedFrameClock` 每推进一次帧号就调它，参数 = 新帧号）。
+// Called once after a native cycle actually polled input, before managed callbacks.
 void FrameBoundaryHookEntry(std::uint64_t frame) noexcept {
     SampleInputFrame(static_cast<std::uint32_t>(frame));
 }

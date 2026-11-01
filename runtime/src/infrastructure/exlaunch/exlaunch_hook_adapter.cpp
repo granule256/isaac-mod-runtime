@@ -115,6 +115,7 @@ Status ExlaunchHookAdapter::Install(HookId id, const HookTarget& target) noexcep
         case HookId::HudRender:
         case HookId::RoomConfigLoadStageBinary:
         case HookId::ConsoleLifecycle:
+        case HookId::NativeInputPoll:
         case HookId::LevelLoadRoom:
         case HookId::ItemPoolTrinketFirstRandom:
         case HookId::ItemPoolTrinketSelected:

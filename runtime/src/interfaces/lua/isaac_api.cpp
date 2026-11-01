@@ -1076,8 +1076,8 @@ void ResetSessionState() {
 }
 
 std::int64_t FrameCount() {
-    // 30 Hz 下 `uint64` 溢出需要 190 亿年，所以直接窄化到 Lua 的整数类型。
-    return static_cast<std::int64_t>(ManagedFrameClock::Count());
+    // PC counts whole-game cycles, including paused and menu frames (~60 Hz).
+    return static_cast<std::int64_t>(NativeFrameClock::Count());
 }
 
 void PushNil(lua_State* state) {

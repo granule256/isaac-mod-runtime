@@ -162,6 +162,7 @@ int main(int argc, char** argv) {
     // 每次 `DispatchPostUpdate()` 就是一次 MC_POST_UPDATE 派发，也就是一帧。
     const int frames = surface ? @FRAMES@ : 1;
     for (int frame = 0; frame < frames; ++frame) {
+        isaac::runtime::NativeFrameClock::MarkNativeFrame();
         LuaRuntime::DispatchPostUpdate();
         // ★ 批次 108：`Isaac.GetTime()` 必须是**毫秒**（PC 文档 `Isaac.md:448`：
         // "milliseconds since the computer's operating system was started"）。

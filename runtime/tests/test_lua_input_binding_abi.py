@@ -164,8 +164,8 @@ DRIVER = textwrap.dedent(
         //   宿主夹具没有派发循环 ⇒ 每次脚本执行前**手动推进一帧**，再把这帧的"按住位图"
         //   写进边沿表（= 采样器在真机上做的同一件事）。
         const auto advance_frame = [&]() -> std::uint32_t {
-            isaac::runtime::ManagedFrameClock::MarkPostUpdateDispatch();
-            return static_cast<std::uint32_t>(isaac::runtime::ManagedFrameClock::Count());
+            isaac::runtime::NativeFrameClock::MarkNativeFrame();
+            return static_cast<std::uint32_t>(isaac::runtime::NativeFrameClock::Count());
         };
         //: `mask` 的第 i 位 = 本帧动作 i 被按住；`controller` 1 = 脚本里传的 controllerId（透传）。
         const auto sample_actions = [&](std::uint32_t frame, unsigned mask) {
