@@ -28,12 +28,7 @@
 
 当前正式版：[v1.0.0](https://github.com/granule256/isaac-mod-runtime/releases/tag/v1.0.0)。安装包随该 Release 发布，源码提交不代表安装包已经更新。
 
-| 安装包 | 安装说明语言 |
-| --- | --- |
-| `isaac-runtime-v1.0.0-zh-CN.zip` | 简体中文 |
-| `isaac-runtime-v1.0.0-en.zip` | English |
-
-两包的完整兼容层及全部自身补丁一致，只在根目录 `INSTALL.txt` 的语言上有区别，不附带游戏、Atmosphère 或第三方模组。
+下载 [`isaac-runtime-v1.0.0.zip`](https://github.com/granule256/isaac-mod-runtime/releases/download/v1.0.0/isaac-runtime-v1.0.0.zip)，包内 `INSTALL.txt` 为英文安装说明。安装包包含完整兼容层及全部自身补丁，不附带游戏、Atmosphère 或第三方模组。
 
 1. 准备已配置 Atmosphère 的 Switch 和受支持的《忏悔》`1.7.9b`，备份存档并完全关闭游戏。
 2. 解压所选 ZIP，将整个 `atmosphere/` 文件夹复制到 SD 卡根目录，合并目录并覆盖同名文件。核心、资源和补丁必须一起安装，避免混用版本。
@@ -115,7 +110,7 @@ python3 tools/build_deploy_package.py \
 
 兼容层自身的全部补丁必须默认进入完整发行包，不能作为用户需要另选或另装的独立产品。上述工具的内部输入参数不决定发布归属；打包前后须核对完整清单，防止遗漏。作者模组的覆盖补丁仍归对应模组，只有明确传入 `--apply-mod-patches` 才会合入；请核对来源版本和指纹。
 
-发行包分中文和英文两版，每包附一份 `INSTALL.txt` 介绍项目和安装方法，并保留 `exefs/isaac_runtime_sha256.md` 记录当前核心指纹；完整兼容层内容一致，运行文件中包含自身全部补丁。安装按包内 TXT 操作。不要混用不同构建的核心、内存预算及说明资源。发布压缩包通过 Release 资产分发，不提交到源码仓库。
+Release 只提供一个安装包，命名为 `isaac-runtime-<版本号>.zip`，不加语言后缀。包内附一份英文 `INSTALL.txt` 介绍项目和安装方法，并保留 `exefs/isaac_runtime_sha256.md` 记录当前核心指纹；运行文件中包含自身全部补丁。安装按包内 TXT 操作。不要混用不同构建的核心、内存预算及说明资源。发布压缩包通过 Release 资产分发，不提交到源码仓库。
 
 ## 性能与诊断
 
@@ -249,14 +244,9 @@ The current stable version is **v1.0.0**, based on v1.0.0-rc.4. The compatibilit
 
 ## Download and install
 
-Download the packages from the [v1.0.0 release](https://github.com/granule256/isaac-mod-runtime/releases/tag/v1.0.0). Source updates do not automatically update release assets.
+Download the package from the [v1.0.0 release](https://github.com/granule256/isaac-mod-runtime/releases/tag/v1.0.0). Source updates do not automatically update release assets.
 
-| Package | Installation guide |
-| --- | --- |
-| `isaac-runtime-v1.0.0-zh-CN.zip` | Simplified Chinese |
-| `isaac-runtime-v1.0.0-en.zip` | English |
-
-Both packages contain identical compatibility-layer files and patches; only the root `INSTALL.txt` language differs. The game, Atmosphère and third-party mods are not included.
+Download [`isaac-runtime-v1.0.0.zip`](https://github.com/granule256/isaac-mod-runtime/releases/download/v1.0.0/isaac-runtime-v1.0.0.zip). It contains the complete compatibility layer and all of its patches, with an English `INSTALL.txt`. Releases provide one package named `isaac-runtime-<version>.zip`, without a language suffix. The game, Atmosphère and third-party mods are not included.
 
 1. Use a Switch configured for Atmosphère and the supported Repentance **1.7.9b** build. Back up your saves and fully close the game.
 2. Extract a package and copy its entire `atmosphere/` folder to the SD card root. Merge folders and overwrite matching files. Keep the core, resources and patches together and avoid mixing versions.
