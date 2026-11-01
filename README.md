@@ -1,5 +1,7 @@
 # isaac-mod-runtime
 
+[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/P8P729Q77R)
+
 [简体中文](#中文) | [English](#english)
 
 <a id="中文"></a>
@@ -7,6 +9,8 @@
 面向《以撒的结合：忏悔》PC Lua 模组的社区兼容运行时，适配游戏 API、回调和资源加载，目标是尽可能保持原模组的调用方式与行为。
 
 兼容层统一包含运行时、配套资源以及自身全部修复、性能和时序补丁，统一版本、构建、验证、打包和安装。
+
+为防止倒卖，公告部分的代码未开源。
 
 > 当前正式版为 v1.0.0。加载成功或零报错不代表模组完整兼容；安装前请备份存档，并核对目标游戏构建。
 
@@ -239,6 +243,8 @@ python3 -m unittest runtime.tests.test_game_patch_bundle
 [简体中文](#中文) | [English](#english)
 
 A community compatibility layer for running PC Lua mods in **The Binding of Isaac: Repentance on Nintendo Switch**. It provides mod APIs, callbacks, resource loading, configuration persistence and an in-game mod menu while aiming to preserve the original mods' calls and behavior.
+
+To prevent resale, the notice-related code is not open source.
 
 The current stable version is **v1.0.0**, based on v1.0.0-rc.4. The compatibility layer includes its runtime, supporting resources and all of its own fixes, performance changes and timing patches as one versioned installation. It is free; donations are optional and do not affect access.
 
