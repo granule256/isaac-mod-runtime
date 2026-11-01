@@ -51,7 +51,6 @@
 
 已有部分功能验证记录的模组包括 EID、Mod Config Menu、MinimapAPI、StageAPI、GoodTrip、Planetarium Chance、MusicModCallback、TimeMachine 和 Watch out, laser!，不代表其全部功能、版本或组合均已通过。
 
-- 物品原地变形后，小地图图标可能未及时刷新。
 - 部分 API 行为、回调时机、自定义角色和多模组组合仍需进一步验证。
 - 重负载场景可能出现长帧，不保证所有场景稳定满帧。
 
@@ -133,7 +132,6 @@ Use left/right, the stick or L/R to turn pages. On first launch or after an upda
 
 Partial validation records exist for EID, Mod Config Menu, MinimapAPI, StageAPI, GoodTrip, Planetarium Chance, MusicModCallback, TimeMachine and Watch out, laser! These records do not certify every feature, version or combination.
 
-- An item transforming in place can leave a stale minimap icon.
 - Some API behavior, callback timing, custom characters and mod combinations need further testing.
 - Heavy workloads may produce long frames; stable full frame rate is not guaranteed in every scene.
 
