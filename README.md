@@ -1,10 +1,14 @@
 # isaac-mod-runtime
 
+[简体中文](#中文) | [English](#english)
+
+<a id="中文"></a>
+
 面向《以撒的结合：忏悔》PC Lua 模组的社区兼容运行时，适配游戏 API、回调和资源加载，目标是尽可能保持原模组的调用方式与行为。
 
-项目同时提供独立的游戏时序修复和诊断工具，兼容运行时与游戏优化分别构建、分别选择。
+兼容层统一包含运行时、配套资源以及自身全部修复、性能和时序补丁，统一版本、构建、验证、打包和安装。
 
-> 当前处于预发布阶段。加载成功或零报错不代表模组完整兼容；安装前请备份存档，并核对目标游戏构建。
+> 当前正式版为 v1.0.0。加载成功或零报错不代表模组完整兼容；安装前请备份存档，并核对目标游戏构建。
 
 ## 当前进展
 
@@ -15,18 +19,72 @@
 | 模组运行 | 提供 Lua API、回调派发、资源加载和配置持久化；不同模组的覆盖范围分别验证 |
 | 界面与资源 | 支持精灵、字体、图层及自定义着色器适配，包含多语言标题说明和资源完整性检查 |
 | 近期修复 | 修正商店敌人计数导致的说明误隐藏，补充手动实体更新后的回调，支持更大的入口脚本，并修复生成道具贴图的像素读取 |
-| 独立游戏修复 | 修正卡顿后时间累计丢失导致的持续逻辑超速；不依赖 Lua 模组加载 |
+| 兼容层时序修复 | 修正卡顿后时间累计丢失导致的持续逻辑超速；随完整兼容层统一安装 |
 | 性能状态 | 部分负载仍有长帧；内存分配、回收与渲染同步继续调查，不承诺所有场景稳定满帧 |
 
 修复按接口和场景验收。自定义角色、密集特效、复杂地图及多模组组合仍需更多验证。
 
+## 下载与安装
+
+当前正式版：[v1.0.0](https://github.com/granule256/isaac-mod-runtime/releases/tag/v1.0.0)。安装包随该 Release 发布，源码提交不代表安装包已经更新。
+
+| 安装包 | 安装说明语言 |
+| --- | --- |
+| `isaac-runtime-v1.0.0-zh-CN.zip` | 简体中文 |
+| `isaac-runtime-v1.0.0-en.zip` | English |
+
+两包的完整兼容层及全部自身补丁一致，只在根目录 `INSTALL.txt` 的语言上有区别，不附带游戏、Atmosphère 或第三方模组。
+
+1. 准备已配置 Atmosphère 的 Switch 和受支持的《忏悔》`1.7.9b`，备份存档并完全关闭游戏。
+2. 解压所选 ZIP，将整个 `atmosphere/` 文件夹复制到 SD 卡根目录，合并目录并覆盖同名文件。核心、资源和补丁必须一起安装，避免混用版本。
+3. 启动游戏，确认兼容层说明显示 `v1.0.0`。具体操作见包内 `INSTALL.txt`。
+4. 将每个模组的完整文件夹单独放入 `SD:/atmosphere/contents/010021C000B6A000/romfs/isaac_mods/mods/`，避免多套一层文件夹；完全关闭并重启游戏后，在模组菜单管理开关。
+
+`atmosphere/contents/010021C000B6A000/exefs/isaac_runtime_sha256.md` 是正式交付的一部分，记录当前 `subsdk9` 的版本、构建号、大小和 SHA-256。后续发布包沿用当前 v1.0.0 的目录及文档格式，并同步实际运行文件指纹，不能删除该文件或沿用旧指纹。
+
+## 已包含的兼容层补丁
+
+所有下列组件均在完整发行包中，统一版本、安装和验证，无需另行选择或下载补丁：
+
+| 包内目录（`atmosphere/nro_patches/` 下） | 用途 |
+| --- | --- |
+| `isaac-repentance-lifecycle-relay/` | 运行时所需的生命周期转接 |
+| `isaac-repentance-static-callbacks/` | 原生回调挂接 |
+| `isaac-repentance-native-heap-budget/` | 与当前核心配套的内存预算 |
+| `isaac-repentance-loop-time-carry/` | 保留卡顿补偿后已推进的时间，修复持续逻辑超速 |
+
+开源部分的补丁生成和校验代码见 [`runtime/game_patches/`](runtime/game_patches/) 与 [`tools/`](tools/)。目录划分和内部生成步骤不改变补丁归属；作者模组的覆盖补丁仍归对应模组。时序修复不代表所有场景的绘制帧率已经改善。
+
+## 更新日志
+
+### v1.0.0 — 2026-11-01
+
+- 以 `v1.0.0-rc.4` 为功能基线转为正式版，同步版本、八语言公告及配套完整性校验。
+- 完整兼容层统一包含核心、配套资源及自身全部补丁，包括 `loop-time-carry` 时序修复。
+- 累积修复商店敌人计数导致的说明误隐藏、手动实体更新后的回调缺失、较大入口脚本加载及生成道具贴图的像素读取问题。
+- 分别提供中文、英文安装 ZIP；保留各包的 `INSTALL.txt` 和 `exefs/isaac_runtime_sha256.md`。
+- 开源部分按生产源码范围整理；内部实现与本机资料继续隔离，不随源码上传。
+
+正式版沿用 rc.4 的功能实现，没有因转正新增性能收益。本次文档和发布整理没有重新构建或启动游戏回归。此前 v1.0.0 构建、六项版本/公告检查和设备文件指纹核对已有通过记录；这不等于全部模组功能已验证。
+
+已知问题：物品原地变形后，旧小地图图标可能未及时刷新；部分 API 行为、回调时机及多模组组合仍待验证，重负载场景可能出现长帧。
+
+### v1.0.0-beta.1 — 2026-10-26
+
+- 支持模组 Lua 脚本的 UTF-8 BOM 与 XML 注释解析。
+- 修正贪婪模式首层使用发光沙漏后进入错误房间的崩溃。
+- `Game.TimeCounter` 支持写入。
+- PNG 转 PCX 使用预乘 alpha，改善部分光效发青的问题。
+
+下载亦可通过 ToMod 的以撒页面及 GBAtemp 发布帖；QQ群：**1124953430**，[Discord](https://discord.gg/JMQc2jMsve)。
+
 ## 项目组成
 
 - **兼容运行时**：适配 `Isaac`、`Game`、`Level`、`Room`、实体、道具配置、精灵、字体、输入、音频等接口，并提供可枚举的 API Catalog。
-- **独立游戏修复**：位于 [`runtime/game_patches/`](runtime/game_patches/)，每项修复携带版本与原件校验。
+- **兼容层补丁实现**：位于 [`runtime/game_patches/`](runtime/game_patches/) 等目录，属于完整兼容层，随兼容层统一版本和交付；保留各项实现的原件指纹与行为校验。
 - **打包与诊断工具**：生成安装目录、验证补丁来源及文件指纹，辅助区分逻辑速度、绘制频率和长帧。
 
-仓库不提供游戏原件、密钥、设备凭据或完整第三方模组安装包。部分可选补丁源码和测试夹具引用第三方项目，相关版权归原作者。
+仓库不提供游戏原件、密钥、设备凭据或完整第三方模组安装包。部分源码和测试夹具引用第三方项目，相关版权归原作者。
 
 ## 已有验证覆盖
 
@@ -40,29 +98,26 @@
 
 ## 构建兼容运行时
 
+此仓库只发布开源部分。完整构建还需要与当前源码及公告资源匹配的 `NOTICE_GUARD_ARCHIVE`，相关内部实现不在本仓库；缺少匹配库时不能仅凭本仓库构建完整运行时。
+
 需要 Python、Docker、相应 C++ 交叉工具链，以及自行准备的未修改游戏模块输入。当前目标为游戏 `1.7.9b` 的指定构建；具体指纹由构建工具和源码守卫核对，版本不匹配时停止处理。
 
 在仓库根目录执行：
 
 ```sh
-docker run --rm -v "$PWD":/work -w /work devkitpro/devkita64:latest bash -lc \
+docker run --rm -v "$PWD":/work -v /path/to/inputs:/inputs -w /work \
+  devkitpro/devkita64:latest bash -lc \
   '. /opt/devkitpro/devkita64.sh && make -C runtime runtime_module -j4 \
    SKIP_DEFAULT_PC_MODS=1 OUT=deploy \
-   "ORIGINAL_NRO=/path/to/original/Repentance.nro" \
-   "ORIGINAL_NPDM=/path/to/original/main.npdm"'
+   ORIGINAL_NRO=/inputs/Repentance.nro ORIGINAL_NPDM=/inputs/main.npdm \
+   NOTICE_GUARD_ARCHIVE=/inputs/libnotice_guard.a MOD_ROW_DUMP_ROOT=/inputs/game-dump'
 ```
 
 参数与入口说明见 [`runtime/Makefile`](runtime/Makefile)。原始游戏模块仅作为本地构建输入，不随源码分发。
 
-## 独立构建游戏修复
+## 构建完整兼容层
 
-```sh
-python3 -m runtime.game_patches.build \
-  --nro /path/to/original/Repentance.nro \
-  --output dist/game-patches
-```
-
-这个入口不构建兼容运行时、不加载模组，也不连接设备。当前时序修复纠正游戏速度，不代表绘图开销或整体帧率已经改善。
+完整兼容层必须同时生成核心、配套资源与全部已纳入发布的兼容层补丁，包括 `loop-time-carry` 时序修复。内部组件可以分别编译或生成，发布前须核对清单并合并为同一安装树；缺少任何必需组件的产物不能标作完整兼容层。当前时序修复纠正游戏速度，不代表绘图开销或整体帧率已经改善。
 
 ## 打包与安装
 
@@ -75,9 +130,9 @@ python3 tools/build_deploy_package.py \
   --output releases/local/package
 ```
 
-需要组合独立游戏修复时，显式增加 `--game-patches dist/game-patches`。历史模组覆盖补丁是单独的可选项，只有明确传入 `--apply-mod-patches` 才会合入；请核对来源版本和指纹。
+兼容层自身的全部补丁必须默认进入完整发行包，不能作为用户需要另选或另装的独立产品。上述工具的内部输入参数不决定发布归属；打包前后须核对完整清单，防止遗漏。作者模组的覆盖补丁仍归对应模组，只有明确传入 `--apply-mod-patches` 才会合入；请核对来源版本和指纹。
 
-安装使用完整发行包，并遵循包内 `README.md`。不要混用不同构建的核心、内存预算及说明资源。发布压缩包通过 Release 资产分发，不提交到源码仓库。
+发行包分中文和英文两版，每包附一份 `INSTALL.txt` 介绍项目和安装方法，并保留 `exefs/isaac_runtime_sha256.md` 记录当前核心指纹；完整兼容层内容一致，运行文件中包含自身全部补丁。安装按包内 TXT 操作。不要混用不同构建的核心、内存预算及说明资源。发布压缩包通过 Release 资产分发，不提交到源码仓库。
 
 ## 性能与诊断
 
@@ -90,7 +145,7 @@ python3 tools/build_deploy_package.py \
 | 路径 | 内容 |
 | --- | --- |
 | [`runtime/`](runtime/) | 生产运行时、分层实现与定向测试 |
-| [`runtime/game_patches/`](runtime/game_patches/) | 独立游戏修复与构建清单 |
+| [`runtime/game_patches/`](runtime/game_patches/) | 兼容层修复实现与构建清单，随完整兼容层交付 |
 | 本地可选输入 | 历史覆盖补丁单独保留，不随公共源码分发 |
 | [`tools/`](tools/) | 构建、装配、核对与诊断脚本 |
 | `tests/` | 跨模块契约和工具测试 |
@@ -131,7 +186,7 @@ python3 tools/build_deploy_package.py \
 
 ## 贡献与协作
 
-以可复核的行为证据改进兼容性，保持原模组的调用方式和功能。修改前先定位差异，再选择兼容运行时或独立游戏修复的正确边界。
+以可复核的行为证据改进兼容性，保持原模组的调用方式和功能。修改前先定位差异，在兼容层内部选择合适的实现位置；自身补丁统一属于兼容层。
 
 ## 兼容性判据
 
@@ -149,8 +204,8 @@ API 定义见 `runtime/src/interfaces/lua/api_catalog.cpp`，接口范围工具�
 ## 修改边界
 
 - 兼容运行时位于 `runtime/source/` 和 `runtime/src/`。
-- 不依赖运行时的游戏修复位于 `runtime/game_patches/`，单独登记版本、原件指纹、改动范围和行为验证。
-- 运行时内存预算属于当前核心的配套产物，不能称为独立游戏优化。
+- `runtime/game_patches/` 中的修复属于兼容层，随兼容层统一版本、构建和发布；逐项登记原件指纹、改动范围和行为验证。
+- 运行时内存预算、时序修复及其他自身补丁均属于完整兼容层，统一安装。
 - 日常修复优先处理兼容实现，保持作者模组原件；历史覆盖补丁须显式选择并核对来源版本。
 - 性能优化不能以停用功能、降低逻辑频率或提高设备时钟替代。
 
@@ -195,3 +250,125 @@ python3 -m unittest runtime.tests.test_game_patch_bundle
 本地仅source与data两层入口：source/public为本工作区、只含可审查发布的源码；source/private保存既定私有实现和相关测试；文档、证据、原件、构建及发布包存放data。公共与私有实现共同构建时，通过private中的tools/workspace.py在data/build/workspace装配，正式源文件不混放。公共检出单独构建仍须提供匹配的NOTICE_GUARD_ARCHIVE。Lua宿主集成测试须提供匹配的NOTICE_GUARD_HOST_ARCHIVE；本机游戏/作者模组依赖的历史集成测试保留在data，不能将其结果当作公共树的独立验收。
 
 设备地址与凭据通过显式参数、环境变量或ISAAC_DEVICE_CONFIG指定，不内置本机地址。所有最终推送仍由用户人工审查后执行，目录整理不代表已有远端历史已清理。
+
+
+---
+
+<a id="english"></a>
+
+# isaac-mod-runtime — English
+
+[简体中文](#中文) | [English](#english)
+
+A community compatibility layer for running PC Lua mods in **The Binding of Isaac: Repentance on Nintendo Switch**. It provides mod APIs, callbacks, resource loading, configuration persistence and an in-game mod menu while aiming to preserve the original mods' calls and behavior.
+
+The current stable version is **v1.0.0**, based on v1.0.0-rc.4. The compatibility layer includes its runtime, supporting resources and all of its own fixes, performance changes and timing patches as one versioned installation. It is free; donations are optional and do not affect access.
+
+## Download and install
+
+Download the packages from the [v1.0.0 release](https://github.com/granule256/isaac-mod-runtime/releases/tag/v1.0.0). Source updates do not automatically update release assets.
+
+| Package | Installation guide |
+| --- | --- |
+| `isaac-runtime-v1.0.0-zh-CN.zip` | Simplified Chinese |
+| `isaac-runtime-v1.0.0-en.zip` | English |
+
+Both packages contain identical compatibility-layer files and patches; only the root `INSTALL.txt` language differs. The game, Atmosphère and third-party mods are not included.
+
+1. Use a Switch configured for Atmosphère and the supported Repentance **1.7.9b** build. Back up your saves and fully close the game.
+2. Extract a package and copy its entire `atmosphere/` folder to the SD card root. Merge folders and overwrite matching files. Keep the core, resources and patches together and avoid mixing versions.
+3. Launch the game and check that the compatibility-layer notice displays `v1.0.0`. Follow `INSTALL.txt` for details.
+4. Place each complete mod folder in `SD:/atmosphere/contents/010021C000B6A000/romfs/isaac_mods/mods/`, without an extra nested folder. Fully close and restart the game after changing mods, then manage them from the in-game mod menu.
+
+The release includes `atmosphere/contents/010021C000B6A000/exefs/isaac_runtime_sha256.md`. It records the version, build, size and SHA-256 of the actual packaged `subsdk9`. Future packages follow the current v1.0.0 layout and document format, retain this file and update its values for each build.
+
+Use left/right, the stick or L/R to turn notice pages. On first launch or after an update, read every page and hold B to close it. On later launches of the same version it stays closed by default. Select the notice entry at the bottom right of the title screen and press A to reopen it; when opened manually, press B on any page to close it.
+
+## Included patches
+
+All of these components ship and install with the complete compatibility layer:
+
+| Directory under `atmosphere/nro_patches/` | Purpose |
+| --- | --- |
+| `isaac-repentance-lifecycle-relay/` | Lifecycle relay required by the runtime |
+| `isaac-repentance-static-callbacks/` | Native callback hooks |
+| `isaac-repentance-native-heap-budget/` | Memory budget paired with the current core |
+| `isaac-repentance-loop-time-carry/` | Preserve time already advanced during catch-up updates to fix sustained simulation speedup |
+
+Patch generators and verification code in the open-source portion are in [`runtime/game_patches/`](runtime/game_patches/) and [`tools/`](tools/). Internal generation steps do not make these components separate products. Patches to third-party mods belong to those mods. The timing fix does not imply a general rendering frame-rate improvement.
+
+## Compatibility and known issues
+
+The runtime covers `Isaac`, `Game`, `Level`, `Room`, entities, item configuration, sprites, fonts, input and audio, with an enumerable API Catalog. It supports multilingual title notices, resource integrity checks and adaptations for custom shaders.
+
+Partial validation records exist for EID, Mod Config Menu, MinimapAPI, StageAPI, GoodTrip, Planetarium Chance, MusicModCallback, TimeMachine and Watch out, laser!, along with some health bars, boss bars, larger content mods and custom-character interfaces. These records do not certify every feature, version or combination. Successful loading or zero logged errors does not prove full compatibility.
+
+Known issues include a stale minimap icon after an item transforms in place. Some API semantics, callback timing and mod combinations need further testing. Heavy workloads can still produce long frames; stable full frame rate is not guaranteed. Custom characters, dense effects and complex maps need more coverage.
+
+## Changelog
+
+### v1.0.0 — 2026-11-01
+
+- Promote v1.0.0-rc.4 to stable with synchronized version information, notices in eight languages and matching integrity data.
+- Ship the core, supporting resources and all compatibility-layer patches together, including `loop-time-carry`.
+- Include accumulated fixes for shop enemy counts incorrectly hiding descriptions, missing callbacks after manual entity updates, larger entry scripts and pixel reads for generated item graphics.
+- Provide Chinese and English ZIP packages, each retaining `INSTALL.txt` and `exefs/isaac_runtime_sha256.md`.
+- Prepare the open-source portion for publication while keeping internal implementations and local materials separate.
+
+The stable promotion retains rc.4 functionality and introduces no new performance claim. This documentation and release preparation did not rebuild the runtime or run a new in-game regression. Earlier v1.0.0 records report a successful build, six version/notice checks and device file-hash verification; these do not certify every mod's behavior.
+
+### v1.0.0-beta.1 — 2026-10-26
+
+- Support UTF-8 BOMs in Lua entry scripts and XML comments.
+- Fix a crash after Glowing Hourglass leads to an incorrect room on the first Greed-mode floor.
+- Allow writing `Game.TimeCounter`.
+- Use premultiplied alpha for PNG-to-PCX conversion to improve cyan-tinted effects.
+
+## Source and building
+
+| Path | Contents |
+| --- | --- |
+| [`runtime/`](runtime/) | Production runtime, layered implementation and targeted tests |
+| [`runtime/game_patches/`](runtime/game_patches/) | Compatibility-layer patch implementation and inventory |
+| [`tools/`](tools/) | Build, assembly and verification tools |
+| [`tests/`](tests/) | Tool and cross-module contract tests |
+
+This repository publishes the open-source portion. A complete runtime build also requires a matching `NOTICE_GUARD_ARCHIVE`; its internal implementation is not included here. Source and library versions must match the notice resources. Host Lua integration tests likewise require a matching `NOTICE_GUARD_HOST_ARCHIVE`.
+
+Building requires Python, Docker, the C++ cross toolchain and your own unmodified supported game inputs. The build tools check the target build and reject mismatches. See [`runtime/Makefile`](runtime/Makefile) for arguments and targets. The following illustrates the runtime component build; replace the input paths with your own files:
+
+```sh
+docker run --rm -v "$PWD":/work -v /path/to/inputs:/inputs -w /work \
+  devkitpro/devkita64:latest bash -lc \
+  '. /opt/devkitpro/devkita64.sh && make -C runtime runtime_module -j4 \
+   SKIP_DEFAULT_PC_MODS=1 OUT=deploy \
+   ORIGINAL_NRO=/inputs/Repentance.nro ORIGINAL_NPDM=/inputs/main.npdm \
+   NOTICE_GUARD_ARCHIVE=/inputs/libnotice_guard.a MOD_ROW_DUMP_ROOT=/inputs/game-dump'
+```
+
+A complete release must also assemble and verify all supporting resources and patches, including `loop-time-carry`. Internal component outputs alone must not be labeled a complete compatibility layer. Release ZIPs are distributed as Release assets, separate from the source repository.
+
+## Contributing and verification
+
+Preserve original mod behavior and implement fixes within the compatibility layer. Verify interface provenance, availability, parameter and return semantics, object lifetime and callback timing. Report untested coverage explicitly. Do not replace functionality, reduce logic frequency or raise device clocks to claim an optimization.
+
+Use targeted checks appropriate to the change, for example:
+
+```sh
+python3 tools/run_tests.py --only loop_time_carry
+python3 -m unittest runtime.tests.test_game_patch_bundle
+```
+
+Documentation edits need direct content and link checks. More complex behavioral changes need relevant host checks and device validation. Do not run an unfiltered full test suite by default. Compare performance using the same version, workload, location and clocks, and state measurement limits.
+
+Keep only reviewed production code, active dependencies and licenses, build tools, core tests and required inputs in the remote source tree. Do not upload private implementations, local instructions, credentials, game inputs, mod originals, media projects, logs, evidence, binaries or release archives. Preserve third-party notices. Run `python3 tools/check_remote_source.py` on staged content and audit every unpublished commit before pushing. `tools/publish_progress.sh` is read-only. The pre-push source hook must remain enabled.
+
+Prepare releases on the minimal `main` history based on `origin/main`, without force-pushing development history or using the old `public` remote. All final source/tag pushes and internet publication are performed by the maintainer after review.
+
+## License, credits and contact
+
+The project is licensed under [GPL-2.0](LICENSE). Original code is **Copyright (C) 2026 granule256**. Third-party files retain their own copyrights and licenses. The project uses or references [Atmosphère](https://github.com/Atmosphere-NX/Atmosphere), libnx (ISC), [exlaunch](https://github.com/shadowninja108/exlaunch) and [Lua 5.3.3](https://www.lua.org/). Each component's source notices define its license scope. This is an unofficial community project, unaffiliated with the game developers, publishers or mod authors.
+
+Downloads are also available through the Isaac page on ToMod and the GBAtemp release thread. QQ group: **1124953430**. [Discord](https://discord.gg/JMQc2jMsve).
+
+For bug reports, include the release/core version, mod version, reproduction steps, expected and actual behavior and sanitized logs. Remove private paths, device addresses, accounts and credentials before sharing.
