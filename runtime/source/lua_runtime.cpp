@@ -424,7 +424,9 @@ constexpr char kModPrototypeField[] = "__isaac_mod_methods_prototype";
 #if defined(EXL_DIAGNOSTIC_STAGE) && EXL_DIAGNOSTIC_STAGE == 13
 constexpr int kStage13PostUpdateCallback = kStage13CallbackValue;
 #endif
-constexpr std::size_t kStage13RequireMaximumDepth = 8;
+// Legitimate dependency graphs (for example Stats+) exceed eight nested modules.
+// Keep a finite bound for recursive require/include without rejecting those graphs.
+constexpr std::size_t kStage13RequireMaximumDepth = 32;
 constexpr std::size_t kStage13ModRootCapacity = 1024;
 constexpr std::size_t kStage13RequirePathCapacity = 1536;
 constexpr char kStage13ModRootPrefix[] = "rom:/isaac_mods/mods/";

@@ -344,7 +344,7 @@ mod:AddCallback(ModCallbacks.MC_POST_UPDATE, function()
   if ascii:Load('font/terminus.fnt') ~= true then error('second Font did not load') end
   if pcall(function() return ascii:GetCharacterWidth(200) end) then error('non-ASCII width') end
   if pcall(function() return ascii:GetCharacterWidth(-1) end) then error('negative width') end
-  if pcall(function() return ascii:GetCharacterWidth('A') end) then error('string width argument') end
+  if ascii:GetCharacterWidth('A') ~= 70 then error('string width argument') end
 
   -- 9) Constructor and argument shape: `Font()` takes no argument, methods need their own object.
   if pcall(Font, 'font/terminus.fnt') then error('Font accepted an argument') end

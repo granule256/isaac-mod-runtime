@@ -41,7 +41,7 @@ class RestrictedRequireMirror:
         path = self.module_path(module_name)
         if module_name in self.cache:
             return self.cache[module_name]
-        if self.depth >= 8:
+        if self.depth >= 32:
             raise RequireFailure(19)
         if path not in self.modules:
             raise RequireFailure(20)
@@ -138,10 +138,11 @@ TextReadResult ReadTextFile(const Bindings&, const char* path, u8* buffer,
         return TextReadResult::InvalidArgument;
     }
     const char* relative = path + sizeof(root) - 1;
-    if (std::strcmp(g_Scenario, "depth") == 0 && relative[0] == 'm' &&
-        relative[1] >= '0' && relative[1] <= '7' && std::strcmp(relative + 2, ".lua") == 0) {
-        static char source[32];
-        std::snprintf(source, sizeof(source), "return require('m%c')", relative[1] + 1);
+    if (std::strcmp(g_Scenario, "depth") == 0 && relative[0] == 'm') {
+        unsigned index = 0;
+        if (std::sscanf(relative, "m%u.lua", &index) != 1) return TextReadResult::OpenFailed;
+        static char source[64];
+        std::snprintf(source, sizeof(source), "return require('m%u')", index + 1);
         return CopySource(source, buffer, capacity, length);
     }
     if (std::strcmp(relative, "src/mod.lua") == 0) {
@@ -544,9 +545,9 @@ mod:AddCallback(ModCallbacks.MC_POST_UPDATE, function() end))lua";
             invalid.require("src.broken")
         self.assertEqual(raised.exception.detail, 22)
 
-    def test_nested_load_depth_is_capped_at_eight(self):
+    def test_nested_load_depth_is_capped_at_thirty_two(self):
         modules = {}
-        for index in range(9):
+        for index in range(33):
             name = f"m{index}"
             next_name = f"m{index + 1}"
             modules[f"{name}.lua"] = lambda runtime, child=next_name: runtime.require(child)
@@ -555,7 +556,7 @@ mod:AddCallback(ModCallbacks.MC_POST_UPDATE, function() end))lua";
         with self.assertRaises(RequireFailure) as raised:
             loader.require("m0")
         self.assertEqual(raised.exception.detail, 19)
-        self.assertEqual(sum(loader.read_count.values()), 8)
+        self.assertEqual(sum(loader.read_count.values()), 32)
 
     def test_source_is_stage13_only_bounded_and_uses_task2_reader(self):
         header = (SOURCE / "lua_runtime.hpp").read_text()

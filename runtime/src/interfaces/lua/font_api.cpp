@@ -567,10 +567,23 @@ int FontGetCharacterWidth(lua_State* state) {
     if (const int error = ResolveFont(state, "Font:GetCharacterWidth", &font); error != 0) {
         return error;
     }
-    if (lua_gettop(state) != 2 || !isaac::runtime::IsIntegerArgument(state, 2)) {
-        return luaL_error(state, "Font:GetCharacterWidth accepts a character integer");
+    if (lua_gettop(state) != 2) {
+        return luaL_error(state, "Font:GetCharacterWidth accepts one ASCII character or code");
     }
-    const lua_Integer character = lua_tointegerx(state, 2, nullptr);
+    lua_Integer character = 0;
+    if (lua_type(state, 2) == LUA_TSTRING) {
+        std::size_t length = 0;
+        const char* text = lua_tolstring(state, 2, &length);
+        if (length != 1) {
+            return luaL_error(state, "Font:GetCharacterWidth accepts one ASCII character or code");
+        }
+        // Test the string type first: "3" is the digit glyph, not character code 3.
+        character = static_cast<unsigned char>(text[0]);
+    } else if (isaac::runtime::IsIntegerArgument(state, 2)) {
+        character = lua_tointegerx(state, 2, nullptr);
+    } else {
+        return luaL_error(state, "Font:GetCharacterWidth accepts one ASCII character or code");
+    }
     // The native `GetCharacterWidth(char)` computes its table displacement as `w1, sxtb`: a byte
     // >= 0x80 sign-extends into a *negative* displacement and reads in front of the glyph table
     // (Stage148 ABI audit). Every in-module caller passes an ASCII byte, so the handler accepts
