@@ -55,26 +55,9 @@
 
 开源部分的补丁生成和校验代码见 [`runtime/game_patches/`](runtime/game_patches/) 与 [`tools/`](tools/)。目录划分和内部生成步骤不改变补丁归属；作者模组的覆盖补丁仍归对应模组。时序修复不代表所有场景的绘制帧率已经改善。
 
-## 更新日志
-
-### v1.0.0 — 2026-11-01
-
-- 以 `v1.0.0-rc.4` 为功能基线转为正式版，同步版本、八语言公告及配套完整性校验。
-- 完整兼容层统一包含核心、配套资源及自身全部补丁，包括 `loop-time-carry` 时序修复。
-- 累积修复商店敌人计数导致的说明误隐藏、手动实体更新后的回调缺失、较大入口脚本加载及生成道具贴图的像素读取问题。
-- 分别提供中文、英文安装 ZIP；保留各包的 `INSTALL.txt` 和 `exefs/isaac_runtime_sha256.md`。
-- 开源部分按生产源码范围整理；内部实现与本机资料继续隔离，不随源码上传。
-
-正式版沿用 rc.4 的功能实现，没有因转正新增性能收益。本次文档和发布整理没有重新构建或启动游戏回归。此前 v1.0.0 构建、六项版本/公告检查和设备文件指纹核对已有通过记录；这不等于全部模组功能已验证。
+版本更新记录见 [Releases](https://github.com/granule256/isaac-mod-runtime/releases)。
 
 已知问题：物品原地变形后，旧小地图图标可能未及时刷新；部分 API 行为、回调时机及多模组组合仍待验证，重负载场景可能出现长帧。
-
-### v1.0.0-beta.1 — 2026-10-26
-
-- 支持模组 Lua 脚本的 UTF-8 BOM 与 XML 注释解析。
-- 修正贪婪模式首层使用发光沙漏后进入错误房间的崩溃。
-- `Game.TimeCounter` 支持写入。
-- PNG 转 PCX 使用预乘 alpha，改善部分光效发青的问题。
 
 下载亦可通过 ToMod 的以撒页面及 GBAtemp 发布帖；QQ群：**1124953430**，[Discord](https://discord.gg/JMQc2jMsve)。
 
@@ -305,24 +288,7 @@ Partial validation records exist for EID, Mod Config Menu, MinimapAPI, StageAPI,
 
 Known issues include a stale minimap icon after an item transforms in place. Some API semantics, callback timing and mod combinations need further testing. Heavy workloads can still produce long frames; stable full frame rate is not guaranteed. Custom characters, dense effects and complex maps need more coverage.
 
-## Changelog
-
-### v1.0.0 — 2026-11-01
-
-- Promote v1.0.0-rc.4 to stable with synchronized version information, notices in eight languages and matching integrity data.
-- Ship the core, supporting resources and all compatibility-layer patches together, including `loop-time-carry`.
-- Include accumulated fixes for shop enemy counts incorrectly hiding descriptions, missing callbacks after manual entity updates, larger entry scripts and pixel reads for generated item graphics.
-- Provide Chinese and English ZIP packages, each retaining `INSTALL.txt` and `exefs/isaac_runtime_sha256.md`.
-- Prepare the open-source portion for publication while keeping internal implementations and local materials separate.
-
-The stable promotion retains rc.4 functionality and introduces no new performance claim. This documentation and release preparation did not rebuild the runtime or run a new in-game regression. Earlier v1.0.0 records report a successful build, six version/notice checks and device file-hash verification; these do not certify every mod's behavior.
-
-### v1.0.0-beta.1 — 2026-10-26
-
-- Support UTF-8 BOMs in Lua entry scripts and XML comments.
-- Fix a crash after Glowing Hourglass leads to an incorrect room on the first Greed-mode floor.
-- Allow writing `Game.TimeCounter`.
-- Use premultiplied alpha for PNG-to-PCX conversion to improve cyan-tinted effects.
+For version history, see [Releases](https://github.com/granule256/isaac-mod-runtime/releases).
 
 ## Source and building
 
