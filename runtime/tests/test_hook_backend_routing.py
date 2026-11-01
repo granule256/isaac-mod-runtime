@@ -41,7 +41,7 @@ EXPECTED = ("ManagerUpdate", "ManagerRender", "PreGetCollectible",
             # 批次 397（2026-10-07）：补全回调（第 2 批）的三条 hookable 改走入口中继
             # + `MC_POST_FIRE_TEAR`（同批，用批次 337 已定死的 ABI）。
             "EntityKill", "NpcDeathRemove", "GameEnd", "FireTear",
-            'FamiliarCollision', 'NpcCollision', 'PlayerCollision', 'TearCollision', 'ProjectileCollision', 'KnifeCollision', 'BombCollision', 'NpcRender', 'ItemPoolGetPill', 'ItemPoolGetPillEffect', 'GameDevolveEnemy', 'NpcUpdateAi', 'GameSpawnEx', 'ItemPoolTrinketFirstRandom', 'ItemPoolTrinketSelected', 'RoomClearAward', 'EntityRemovePointers', 'EntityDestructorRemove', 'LevelCurseFirstRandom', 'LevelCurseEvaluation', 'PickupSelection', 'PickupSelectionSpecial', 'ItemPoolGetCard', 'ModManagerUnload', 'ConsoleUnknownLength', 'ConsoleUnknownCompare', 'HudRender', 'RoomConfigLoadStageBinary', 'LevelLoadRoom', 'ConsoleLifecycle', 'PressurePlateAnimationWriter', 'PressurePlateDestructor', 'PressurePlateDeletingDestructor', 'ProjectileUpdate', 'ProjectileInit', 'EntityPlayerInit', 'GameStartStageTransition')
+            'FamiliarCollision', 'NpcCollision', 'PlayerCollision', 'TearCollision', 'ProjectileCollision', 'KnifeCollision', 'BombCollision', 'NpcRender', 'ItemPoolGetPill', 'ItemPoolGetPillEffect', 'GameDevolveEnemy', 'NpcUpdateAi', 'GameSpawnEx', 'ItemPoolTrinketFirstRandom', 'ItemPoolTrinketSelected', 'RoomClearAward', 'EntityRemovePointers', 'EntityDestructorRemove', 'LevelCurseFirstRandom', 'LevelCurseEvaluation', 'PickupSelection', 'PickupSelectionSpecial', 'ItemPoolGetCard', 'ModManagerUnload', 'ConsoleUnknownLength', 'ConsoleUnknownCompare', 'HudRender', 'RoomConfigLoadStageBinary', 'LevelLoadRoom', 'ConsoleLifecycle', 'PressurePlateAnimationWriter', 'PressurePlateDestructor', 'PressurePlateDeletingDestructor', 'ProjectileUpdate', 'ProjectileInit', 'EntityPlayerInit', 'GameStartStageTransition', 'EntityInit')
 
 
 def catalog_entries(text):
@@ -86,7 +86,7 @@ class HookCatalogTests(unittest.TestCase):
             # 批次 396（2026-10-07）：`MC_ENTITY_TAKE_DMG` 四条 + `MC_EVALUATE_CACHE`。
             "EntryRelay", "EntryRelay", "EntryRelay", "EntryRelay", "EntryRelay",
             # 批次 397（2026-10-07）：补全回调（第 2 批）的四条。
-            "EntryRelay", "EntryRelay", "EntryRelay", "EntryRelay"] + ["EntryRelay"] * 11 + ["GotSlot", "EntryRelay"] + ["Internal"] * 3 + ["GotSlot", "Internal"] + ["Internal"] * 4 + ["GotSlot", "GotSlot", "Internal", "Internal", "GotSlot", "GotSlot", "GotSlot", "GotSlot", "EntryRelay", "Internal", "Internal", "RelaySlot", "RelaySlot", "EntryRelay", "EntryRelay"],
+            "EntryRelay", "EntryRelay", "EntryRelay", "EntryRelay"] + ["EntryRelay"] * 11 + ["GotSlot", "EntryRelay"] + ["Internal"] * 3 + ["GotSlot", "Internal"] + ["Internal"] * 4 + ["GotSlot", "GotSlot", "Internal", "Internal", "GotSlot", "GotSlot", "GotSlot", "GotSlot", "EntryRelay", "Internal", "Internal", "RelaySlot", "RelaySlot", "EntryRelay", "EntryRelay", "EntryRelay"],
             "M2b 之后：入口中继 + ManagerPresent 走 GOT 槽；"
             "GameStart 走 RelaySlot（引擎侧中继已放好代码，我们只往槽里写回调指针）；"
             "批次 102 的四个事件靶点都走入口中继（零占洞）")

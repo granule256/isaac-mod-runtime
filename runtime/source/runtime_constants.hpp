@@ -9819,6 +9819,13 @@ inline constexpr std::size_t kPressurePlateDeletingVeneerBytes = 16;
 // 2026-10-26：原生Entity_Player::Init结束时派MC_POST_PLAYER_INIT，
 // 避免零初始血角色被延迟扫描到时已经死亡。固定NRO实际虚函数入口；
 // ABI void(this, EntityType, variant, subType, initSeed)，原函数完整执行后派发。
+// Entity::Init(eEntityType,u32,u32,u32), verified against the supported original.
+// Its base initializer also runs for native pickup/NPC Morph operations.
+inline constexpr uintptr_t kNativeEntityInitOffset = 0x597D4;
+inline constexpr std::array<u8,16> kNativeEntityInitExpectedBytes = {
+    0xFF,0x83,0x01,0xD1,0xFD,0x7B,0x03,0xA9,
+    0xFD,0xC3,0x00,0x91,0xF5,0x23,0x00,0xF9,
+};
 inline constexpr uintptr_t kNativePlayerInitOffset = 0x278D94;
 inline constexpr std::array<u8, 16> kNativePlayerInitExpectedBytes = {
     0xFF,0x03,0x05,0xD1,0xEA,0x63,0x00,0xFD,

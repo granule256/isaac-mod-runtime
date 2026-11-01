@@ -21,6 +21,7 @@ NRO = (
 # 挂点台账：偏移与 16 字节都**复用既有常量**（不新造一套，避免同一个地址有两个真值源）。
 # 只有 Present 调用点是本次新增的 —— 登记它是为了把"不可入口挂"钉进测试。
 LEDGER = {
+    "EntityInit": ("kNativeEntityInitOffset", "kNativeEntityInitExpectedBytes"),
     "GameStartStageTransition": ("kApi200GameStartStageTransitionOffset", "kApi200GameStartStageTransitionExpectedBytes"),
     "GameStartRoomTransition": ("kGameStartRoomTransitionOffset", "kGameStartRoomTransitionExpectedBytes"),
     "ManagerUpdate": ("kManagerUpdateFileOffset", "kManagerUpdateExpectedBytes"),
@@ -50,7 +51,7 @@ LEDGER = {
 
 # 可以用入口中继挂的只有函数入口那四个；`ManagerPresentCallsite` 登记在台账里是为了
 # **明确记录它不可挂**（它是一条 `bl` 调用点，走 GOT 槽改写），因此不参与"必须无 PC 相对指令"的断言。
-ENTRY_HOOKABLE = ("GameStartStageTransition", "GameStartRoomTransition", "ManagerUpdate", "ManagerRender", "PreGetCollectible", "RebuildMountPoints",
+ENTRY_HOOKABLE = ("EntityInit", "GameStartStageTransition", "GameStartRoomTransition", "ManagerUpdate", "ManagerRender", "PreGetCollectible", "RebuildMountPoints",
                   "ModManagerLoadConfigs", 'FamiliarCollision', 'NpcCollision', 'PlayerCollision', 'TearCollision', 'ProjectileCollision', 'KnifeCollision', 'BombCollision', 'NpcRender', 'ItemPoolGetPill', 'ItemPoolGetPillEffect', 'GameDevolveEnemy', 'GameSpawnEx')
 
 PC_RELATIVE = (

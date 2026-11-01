@@ -280,7 +280,7 @@ CPPFILES += clear_award_internal_hook.cpp
 # 压力板字符串寿命事件位于source根目录，显式进入生产链接。
 CPPFILES += pressure_plate_animation_hook.cpp
 CPPFILES += main_module_load_hook.cpp
-CPPFILES += entity_remove_hook.cpp cold_callbacks_internal_hook.cpp card_hook.cpp console_callback_hook.cpp
+CPPFILES += entity_init_hook.cpp entity_remove_hook.cpp cold_callbacks_internal_hook.cpp card_hook.cpp console_callback_hook.cpp
 ifeq ($(PERSISTENCE_TRACE),1)
 CPPFILES += persistence_trace.cpp
 CPPFILES += manager_update_hook_audit.cpp
