@@ -59,6 +59,9 @@ int main(int argc,char**argv){
  assert(e.m_Height==-14 and e.State==1 and e.Timeout==27 and e.Rotation==90)
  t.Height=-11;t.KnockbackMultiplier=.8;t.Rotation=30;j.Height=-22;b.ExplosionDamage=35;p.ItemHoldCooldown=0
  local sp=t:GetSprite();sp.Rotation=t.Velocity:GetAngleDegrees()+90
+ sp.Offset=Vector(0,6);sp.Offset=sp.Offset+Vector(-2,1)
+ assert(sp.Offset.X==-2 and sp.Offset.Y==7)
+ assert(not pcall(function()sp.Offset={} end))
  local r1=Game():GetLevel():GetRoomByIdx(97);local r2=Game():GetLevel():GetRoomByIdx(98);assert(r1.ShopItemDiscountIdx==3 and r2.ShopItemDiscountIdx==-1);r1.ShopItemDiscountIdx=65537;r2.ShopItemDiscountIdx=32768;assert(r1.ShopItemDiscountIdx==1 and r2.ShopItemDiscountIdx==-32768)
  local i=p.QueuedItem.Item;assert(i.Special and i.AddMaxHearts==1 and i.AddHearts==2 and i.AddSoulHearts==3 and i.AddBlackHearts==4 and i.AddBombs==5 and i.AddKeys==6 and i.AddCoins==7);i.AddCoins="23";i.Special=false;assert(i.AddCoins==23 and not i.Special)
  _extended={done=1}
@@ -87,6 +90,8 @@ int main(int argc,char**argv){
  const auto cm=ReadAt<EngineColorMod>(g_Entities[kFamiliar],0x24c);
  if(std::fabs(cm.colorize[3]-.9F)>1e-5||cm.shift[2]!=3||ReadAt<std::int32_t>(item,0x70)!=23||item[0xb4]!=0)return 7;
  if(ReadAt<std::int16_t>(g_GameBytes,0x18+0xf2)!=1||ReadAt<std::int16_t>(g_GameBytes,0x118+0xf2)!=-32768)return 8;
+ if(ReadAt<float>(g_Entities[kTearNear],kEntitySpriteOffset+0xD4)!=-2 ||
+    ReadAt<float>(g_Entities[kTearNear],kEntitySpriteOffset+0xD8)!=7)return 9;
  return 0;
 }
 '''

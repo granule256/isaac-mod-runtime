@@ -200,6 +200,9 @@ Row ItemRow(const char*name){
  return {};
 }
 Row SpriteRow(const char*name){if(!name)return {};
+ // ANM2::Reset @66E4 initializes this vector; GetDestQuad @9804 consumes it.
+ // Both instructions are covered by the existing Sprite layout guards.
+ if(name[0]=='O'&&!std::strcmp(name,"Offset"))return {Kind::Vector,0xD4,Group::Sprite};
  if(name[0]=='R'&&!std::strcmp(name,"Rotation"))return {Kind::Float,0xE4,Group::Sprite};
  return {};
 }

@@ -2581,6 +2581,12 @@ inline constexpr uintptr_t kItemPoolPillIdentifiedOffset = 0xA68;
 inline constexpr std::uint32_t kPillColorCount = 15;
 inline constexpr std::uint32_t kPillColorMask = 0x7FF;
 
+// ItemPool::ResetTrinkets @0x3C78FC..0x3C7980 reads begin/end and divides
+// their difference by 8. RemoveTrinket @0x3C7B34 indexes this vector unchecked.
+inline constexpr uintptr_t kItemPoolTrinketBeginOffset = 0xA10;
+inline constexpr uintptr_t kItemPoolTrinketEndOffset = 0xA18;
+inline constexpr std::size_t kItemPoolTrinketEntryBytes = 8;
+
 // --- ItemConfig（2026-09-12 反汇编 + 真机现象逐位互证）--------------------------------
 //
 // 陷阱（上一轮探针失败的根因）：`ItemConfig` **内嵌**在 `Manager` 里，**不存在指向它的指针**。

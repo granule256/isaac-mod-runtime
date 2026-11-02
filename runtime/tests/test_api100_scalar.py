@@ -185,7 +185,10 @@ assert(pool:ForceAddPillEffect(4294967295)==23)
 assert(pool:GetCard(4294967295,true,true,true)==23)
 assert(pool:GetPill(4294967295)==23)
 assert(pool:GetTrinket(true)==23)
-assert(pool:RemoveTrinket(4294967295)==true)
+assert(pool:RemoveTrinket(4294967295)==false)
+assert(pool:RemoveTrinket(-1)==false)
+assert(pool:RemoveTrinket(32)==false)
+assert(pool:RemoveTrinket(4294967313)==false)
 assert(pool:ResetRoomBlacklist()==nil)
 assert(pool:ResetTrinkets()==nil)
 assert(level:ApplyBlueMapEffect()==nil)
@@ -450,13 +453,13 @@ assert(not pcall(function()room:TrySpawnBlueWombDoor(true,true,true)end))
 assert(not pcall(function()room:TrySpawnBossRushDoor(true,true)end))
 assert(not pcall(function()room:TrySpawnMegaSatanRoomDoor(true)end))
 assert(not pcall(function()room:TrySpawnSecretExit(true,true)end))
-assert(not pcall(function()room:TrySpawnTheVoidDoor(true)end)))LUA";if(LuaRuntime::InitializeFromBuffer(badguard,std::strlen(badguard),"@scalar-badguard.lua")!=LuaRuntime::LuaInitResult::Success)return 6;for(unsigned i=0;i<42;i++)if(calls[i]!=(i==26?6U:5U))return 8;return 0;}
+assert(not pcall(function()room:TrySpawnTheVoidDoor(true)end)))LUA";if(LuaRuntime::InitializeFromBuffer(badguard,std::strlen(badguard),"@scalar-badguard.lua")!=LuaRuntime::LuaInitResult::Success)return 6;for(unsigned i=0;i<42;i++)if(calls[i]!=(i==26?6U:(i==5?4U:5U)))return 8;return 0;}
 '''
 class Scalar42Behavior(unittest.TestCase):
  def test_real_owner_registration_and_native_consumption(self):
   prefix=fixture.HARNESS[:fixture.HARNESS.index('int main(')]
   prefix=re.sub(r'namespace GameFileReader \{\nTextReadResult[\s\S]*?\n\}\n\}', '',prefix,count=1)
-  prefix=prefix.replace('GameItemPoolObservation ReadCurrentGameItemPool(uintptr_t, void**) {\n    return GameItemPoolObservation::GameUnreadable;\n}', 'static unsigned char poolBytes[0x1000];\nGameItemPoolObservation ReadCurrentGameItemPool(uintptr_t, void**out) {*out=poolBytes; return GameItemPoolObservation::Success;}')
+  prefix=prefix.replace('GameItemPoolObservation ReadCurrentGameItemPool(uintptr_t, void**) {\n    return GameItemPoolObservation::GameUnreadable;\n}', 'alignas(8) static unsigned char poolBytes[0x1000];\nstatic std::uint64_t trinketPool[32]{};\nGameItemPoolObservation ReadCurrentGameItemPool(uintptr_t, void**out) {auto begin=reinterpret_cast<std::uintptr_t>(trinketPool);auto end=begin+sizeof(trinketPool);std::memcpy(poolBytes+0xA10,&begin,8);std::memcpy(poolBytes+0xA18,&end,8);*out=poolBytes; return GameItemPoolObservation::Success;}')
   prefix=prefix.replace('GameRoomObservation ReadCurrentGameRoom(uintptr_t, void**) {\n    return GameRoomObservation::RoomUnreadable;\n}', 'static void* roomPointer;\nGameRoomObservation ReadCurrentGameRoom(uintptr_t, void**out) {*out=roomPointer;return GameRoomObservation::Success;}')
   with tempfile.TemporaryDirectory(prefix='api100-scalar-behavior-')as d:
    binary=build_lua_harness(source_root=fixture.SOURCE,workdir=Path(d),harness_source=prefix+MAIN)

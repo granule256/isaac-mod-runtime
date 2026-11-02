@@ -9,6 +9,7 @@
 #include "lua_runtime.hpp"
 #include "lua_object_handles.hpp"
 #include <cstring>
+#include <limits>
 #include <type_traits>
 extern "C" {
 #include <lauxlib.h>
@@ -133,8 +134,27 @@ int Api100ItemPoolGetTrinket(lua_State*state){
 }
 int Api100ItemPoolRemoveTrinket(lua_State*state){
  auto*receiver=Receiver(state,LuaRuntime::kItemPoolMetatable,FieldReceipt::ItemPool);
- const auto arg0=Integer(state,2);
- return Call<bool>(state,Api100ScalarNative::ItemPoolRemoveTrinket,receiver ,arg0);
+ const auto id=luaL_checkinteger(state,2);
+ if(id<0 || id>std::numeric_limits<std::int32_t>::max()){
+  lua_pushboolean(state,false);return 1;
+ }
+ auto fn=Native<bool(*)(void*,std::int32_t)>(state,Api100ScalarNative::ItemPoolRemoveTrinket);
+ const auto pool=engine_memory::AddressOf(receiver);
+ std::uintptr_t begin{},end{};
+ if(!engine_memory::ReadField(pool,kItemPoolTrinketBeginOffset,&begin,engine_memory::EngineMemoryReadable) ||
+    !engine_memory::ReadField(pool,kItemPoolTrinketEndOffset,&end,engine_memory::EngineMemoryReadable) ||
+    (begin==0 && end!=0) || end<begin || ((begin|end)&(kItemPoolTrinketEntryBytes-1))!=0){
+  return luaL_error(state,"ItemPool:RemoveTrinket native vector is unavailable or malformed");
+ }
+ if(static_cast<std::uint64_t>(id)>=(end-begin)/kItemPoolTrinketEntryBytes){
+  lua_pushboolean(state,false);return 1;
+ }
+ std::uint64_t entry{};
+ if(!engine_memory::ReadField(begin,static_cast<std::uintptr_t>(id)*kItemPoolTrinketEntryBytes,
+                              &entry,engine_memory::EngineMemoryReadable)){
+  return luaL_error(state,"ItemPool:RemoveTrinket native entry is unavailable");
+ }
+ lua_pushboolean(state,fn(receiver,static_cast<std::int32_t>(id)));return 1;
 }
 int Api100ItemPoolResetRoomBlacklist(lua_State*state){
  auto*receiver=Receiver(state,LuaRuntime::kItemPoolMetatable,FieldReceipt::ItemPool);
