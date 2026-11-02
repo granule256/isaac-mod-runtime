@@ -4460,6 +4460,8 @@ namespace {
 // （`runtime/tests/test_manager_update_hook_audit.py::test_runtime_source_contains_no_bool_atomics`
 // 做的是纯字符串匹配，所以这里连写法都不能照抄）。
 std::atomic<std::uint32_t> g_PendingGameStarted{0};
+// 模组重载会在主菜单新建 VM；进局前作者尚未从存档恢复配置。
+bool g_GameStartedInCurrentVm{};
 isaac::runtime::ManagedUpdateSnapshot g_LastManagedUpdate{};
 bool g_HasManagedUpdate{};
 
@@ -4508,6 +4510,7 @@ bool DispatchPostGameStarted(bool isSave) {
     isaac::runtime::CallbackDispatcher dispatcher{g_CallbackRegistry, invoker};
     static_cast<void>(dispatcher.Dispatch(isaac::runtime::kCallbackPostGameStarted,
                                           isaac::runtime::ThreadAffinity::Any));
+    g_GameStartedInCurrentVm = true;
     return true;
 }
 
@@ -5310,7 +5313,9 @@ void AddPlayerArgument(CallbackArguments* arguments, std::uintptr_t player) noex
 }  // namespace
 
 void DispatchPreGameExit(bool shouldSave) {
-    if (!IsReady() || g_LuaState == nullptr) {
+    // 主菜单关闭游戏也会走系统退出入口。重载后未进局的 VM 只有默认配置，
+    // 此时派发会让 EID 等模组把默认值覆盖到原有存档。
+    if (!IsReady() || g_LuaState == nullptr || !g_GameStartedInCurrentVm) {
         return;
     }
     if (!isaac::runtime::BuiltinCallbackEnabled(isaac::runtime::kCallbackPreGameExit)) {
@@ -6594,6 +6599,7 @@ bool ShutdownForModReload() noexcept {
     g_RequireLastFailureName.store(0,std::memory_order_relaxed);
     g_RequireFailureTotal.store(0,std::memory_order_relaxed);
     g_PendingGameStarted.store(0,std::memory_order_release);
+    g_GameStartedInCurrentVm = false;
     g_FrameEventState = {};
     g_NativePlayerInitObserved = false;
     ResetLevelStartRoomTracker();
