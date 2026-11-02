@@ -19,6 +19,18 @@ struct State {
  ShaderBackend targetBackend;std::uint32_t targetWidth,targetHeight;bool active,finishing,unloadPending;
  std::uint64_t frames,passes,valueFailures;ShaderPipelineError error;
 };
+bool SleeperInterface(const Program& p,std::size_t count) {
+ constexpr const char* names[]={"ActiveIn","TargetPositionOne","TargetPositionTwo","FadePositions","WarpCheck","RandomIn","ColorPulseIn"};
+ constexpr unsigned components[]={1,4,4,4,2,1,1};
+ if(count!=7)return false;
+ unsigned seen=0;
+ for(std::size_t i=0;i<count;++i){
+  unsigned j=0;while(j<7&&std::strcmp(p.parameters[i].name,names[j]))++j;
+  if(j==7||p.parameters[i].components!=components[j]||(seen&(1U<<j)))return false;
+  seen|=1U<<j;
+ }
+ return seen==127;
+}
 State g_State{};
 bool Space(char c){return c==' '||c=='\t'||c=='\r'||c=='\n';}
 std::string_view Trim(std::string_view v){while(!v.empty()&&Space(v.front()))v.remove_prefix(1);while(!v.empty()&&Space(v.back()))v.remove_suffix(1);return v;}
@@ -188,7 +200,8 @@ Program* Make(std::string_view owner,std::string_view name,std::string_view vert
  if((p->identity==shader_identity::Kind::Copy&&count!=0)||
     (p->identity==shader_identity::Kind::Pixelation&&
      (count!=1||p->parameters[0].components!=1||p->parameters[0].offset!=14||
-      std::strcmp(p->parameters[0].name,"PixelAmount"))))
+      std::strcmp(p->parameters[0].name,"PixelAmount")))||
+    (p->identity==shader_identity::Kind::InactiveSleeper&&!SleeperInterface(*p,count)))
   p->identity=shader_identity::Kind::None;
  p->view={p->owner,p->name,p->vertex,p->fragment,p->attributes,p->parameters,count+5,count,stride};
  p->bytes=sizeof(Program)+(count?count:1)*sizeof(ShaderParameter)+(count+6)*sizeof(ShaderAttribute)+4*stride*sizeof(float)+
@@ -256,12 +269,19 @@ void SetShaderValueProvider(ShaderValueProvider provider) noexcept {g_State.valu
 namespace {
 bool IdentityOutput(const Program& p,const float* before) {
  if(p.identity==shader_identity::Kind::None)return false;
+ std::size_t activeOffset=0;
+ if(p.identity==shader_identity::Kind::InactiveSleeper){
+  for(std::size_t i=0;i<p.view.parameterCount;++i)
+   if(!std::strcmp(p.parameters[i].name,"ActiveIn"))activeOffset=p.parameters[i].offset;
+  if(!activeOffset)return false;
+ }
  for(unsigned i=0;i<4;++i){
   const auto* v=p.vertices+i*p.view.strideFloats;
   if(std::memcmp(v,before+i*14,14*sizeof(float)))return false;
   for(unsigned component=3;component<7;++component)if(v[component]!=1.f)return false;
   if(p.identity==shader_identity::Kind::Pixelation&&
      (!std::isfinite(v[14])||v[14]>0.001f||v[14]!=p.vertices[14]))return false;
+  if(p.identity==shader_identity::Kind::InactiveSleeper&&v[activeOffset]!=0.f)return false;
  }
  return true;
 }

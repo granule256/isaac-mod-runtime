@@ -2026,7 +2026,7 @@ struct EntitySnapshot {
     float size{0.0F};
 };
 
-bool CaptureEntity(std::uintptr_t address, EntitySnapshot* snapshot) noexcept {
+bool CaptureEntityTypeSnapshot(std::uintptr_t address, EntitySnapshot* snapshot) noexcept {
     if (address == 0 || snapshot == nullptr ||
         !IsEngineMemoryReadable(address, kEntitySnapshotSpan)) {
         return false;
@@ -2048,6 +2048,12 @@ bool CaptureEntity(std::uintptr_t address, EntitySnapshot* snapshot) noexcept {
     static_cast<void>(ReadEngineUnchecked(field(kEntityTypeOffset), &snapshot->type));
     static_cast<void>(ReadEngineUnchecked(field(kEntityVariantOffset), &snapshot->variant));
     static_cast<void>(ReadEngineUnchecked(field(kEntitySubTypeOffset), &snapshot->subType));
+    return true;
+}
+
+bool CaptureEntity(std::uintptr_t address, EntitySnapshot* snapshot) noexcept {
+    if (!CaptureEntityTypeSnapshot(address, snapshot)) return false;
+    const auto field = [address](std::uintptr_t offset) noexcept { return address + offset; };
     static_cast<void>(ReadEngineUnchecked(field(kEntityIndexOffset), &snapshot->index));
     static_cast<void>(ReadEngineUnchecked(field(kEntityPositionOffset), &snapshot->x));
     static_cast<void>(ReadEngineUnchecked(field(kEntityPositionOffset + sizeof(float)), &snapshot->y));
@@ -2219,7 +2225,7 @@ void PushQueryResult(QuerySink* sink, std::uintptr_t entity) {
 }
 
 // 遍历一张 `Entity**` 表，只把"vptr 落在 Entity 区间"的非空元素交给 `visit`。
-template <typename Visit>
+template <bool ValidatePointer = true, typename Visit>
 void ForEachEntityInTable(std::uintptr_t list, const EntityTableSpec& spec, Visit&& visit) {
     EntityTableView view{};
     if (!ReadEntityTable(list, spec, &view)) {
@@ -2231,7 +2237,7 @@ void ForEachEntityInTable(std::uintptr_t list, const EntityTableSpec& spec, Visi
                                  &entity)) {
             return;
         }
-        if (entity != 0 && IsEntityPointer(entity)) {
+        if (entity != 0 && (!ValidatePointer || IsEntityPointer(entity))) {
             visit(entity);
         }
     }
@@ -2239,7 +2245,7 @@ void ForEachEntityInTable(std::uintptr_t list, const EntityTableSpec& spec, Visi
 
 // `Game + 0x25C50` 的 `std::vector<Entity_Player*>`（与 `Isaac.GetPlayer` 同一对偏移）。
 // `PLAYER` 分区走这里，不走 CellSpace —— 与引擎 `QueryRadius` 的分支一致。
-template <typename Visit>
+template <bool ValidatePointer = true, typename Visit>
 void ForEachPlayerEntity(std::uintptr_t game, Visit&& visit) {
     if (game == 0 || game > UINTPTR_MAX - kGamePlayerArrayEndOffset) {
         return;
@@ -2260,7 +2266,7 @@ void ForEachPlayerEntity(std::uintptr_t game, Visit&& visit) {
         if (!ReadEngineUnchecked(begin + index * sizeof(std::uintptr_t), &entity)) {
             return;
         }
-        if (entity != 0 && IsEntityPointer(entity)) {
+        if (entity != 0 && (!ValidatePointer || IsEntityPointer(entity))) {
             visit(entity);
         }
     }
@@ -2975,9 +2981,12 @@ int IndexEntity(lua_State* state, EntityView view) {
     // 这些键只属于方法表；仍实时查本类/基类，不能缓存第三方可覆写的方法。
     const bool methodOnly =
         (field[0] == 'G' && (std::strcmp(field, "GetData") == 0 ||
-                              std::strcmp(field, "GetEffects") == 0)) ||
+                              std::strcmp(field, "GetEffects") == 0 ||
+                              std::strcmp(field, "GetSprite") == 0)) ||
         (field[0] == 'T' && std::strcmp(field, "ToPlayer") == 0) ||
-        (field[0] == 'H' && std::strcmp(field, "HasCollectible") == 0);
+        (field[0] == 'H' && (std::strcmp(field, "HasCollectible") == 0 ||
+                              std::strcmp(field, "HasTrinket") == 0)) ||
+        (field[0] == 'I' && std::strcmp(field, "IsDead") == 0);
     if (entity != 0 && !methodOnly) {
         if(const int pushed=TryPushApi400EffectMethod(state,entity,field))return pushed;
         if(const int pushed=TryPushApi400EntityField(state,entity,field))return pushed;
@@ -7079,14 +7088,14 @@ int IsaacFindByType(lua_State* state) {
     };
     const auto consider = [&](std::uintptr_t entity) {
         EntitySnapshot snapshot{};
-        if (CaptureEntity(entity, &snapshot) && matches(snapshot)) {
+        if (CaptureEntityTypeSnapshot(entity, &snapshot) && matches(snapshot)) {
             PushQueryResult(&sink, entity);
         }
     };
-    // 三张表都扫（去重）：EFFECT 在 `EL+0xA8`，玩家在玩家向量里，其余在活表。
-    ForEachEntityInTable(list, kLiveEntityTable, consider);
-    ForEachPlayerEntity(ResolveGameAddress(), consider);
-    ForEachEntityInTable(list, kEffectEntityTable, consider);
+    // 三表去重；visitor已核对完整实体/vptr，跳过重复的入口校验。
+    ForEachEntityInTable<false>(list, kLiveEntityTable, consider);
+    ForEachPlayerEntity<false>(ResolveGameAddress(), consider);
+    ForEachEntityInTable<false>(list, kEffectEntityTable, consider);
     return 1;
 }
 

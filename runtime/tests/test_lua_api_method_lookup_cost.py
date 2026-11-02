@@ -57,7 +57,7 @@ int main(){auto*L=luaL_newstate();luaL_requiref(L,"_G",luaopen_base,1);lua_pop(L
  for(const char*n:{"Entity","Player"}){luaL_newmetatable(L,n);lua_pushcfunction(L,!std::strcmp(n,"Entity")?EntityIndex:PlayerIndex);lua_setfield(L,-2,"__index");lua_newtable(L);lua_setfield(L,-2,"__methods");lua_setglobal(L,!std::strcmp(n,"Entity")?"base":"sub");}
  auto*h=static_cast<EntityHandle*>(lua_newuserdata(L,sizeof(EntityHandle)));h->valid=true;luaL_getmetatable(L,"Player");lua_setmetatable(L,-2);lua_setglobal(L,"p");
  const char*script=R"lua(
- for _,k in ipairs({'GetData','ToPlayer','GetEffects','HasCollectible'})do
+ for _,k in ipairs({'GetData','ToPlayer','GetEffects','HasCollectible','GetSprite','IsDead','HasTrinket'})do
   base.__methods[k]=function()return 10 end
   assert(p[k](p)==10)
   sub.__methods[k]=function()return 20 end;assert(p[k](p)==20)

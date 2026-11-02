@@ -1,7 +1,9 @@
 #pragma once
+#include <array>
+#include <cstdint>
 #include <string_view>
 namespace isaac::runtime::shader_identity {
-enum class Kind : unsigned char { None, Copy, Pixelation };
+enum class Kind : unsigned char { None, Copy, Pixelation, InactiveSleeper };
 // 已核对的完整作者程序，仅以源码和接口识别，不依赖owner或shader名称。
 // 来源：BOIStageAPI15/content/shaders.xml。加载时比较；帧上不解析GLSL。
 inline constexpr std::string_view kCopyVertex = R"GLSL(
@@ -39,6 +41,17 @@ inline constexpr std::string_view kCopyFragment = R"GLSL(
                 gl_FragColor = Color;
             }
         )GLSL";
+// Same copy operation with the smaller interface used by completion-mark HUDs.
+inline constexpr std::string_view kSimpleCopyVertex = R"GLSL(
+attribute vec3 Position; attribute vec4 Color; attribute vec2 TexCoord;
+varying vec4 Color0; varying vec2 TexCoord0; uniform mat4 Transform;
+void main(void) {Color0=Color;TexCoord0=TexCoord;gl_Position=Transform*vec4(Position.xyz,1.0);}
+)GLSL";
+inline constexpr std::string_view kSimpleCopyFragment = R"GLSL(
+varying lowp vec4 Color0; varying mediump vec2 TexCoord0;
+uniform sampler2D Texture0;
+void main(void) {vec4 col=texture2D(Texture0,TexCoord0);gl_FragColor=Color0*col;}
+)GLSL";
 inline constexpr std::string_view kPixelVertex = R"GLSL(
 
     attribute vec3 Position;
@@ -99,7 +112,9 @@ inline std::string_view Token(std::string_view& source) {
    const auto end=source.find('\n');source=end==source.npos?std::string_view{}:source.substr(end+1);continue;
   }
   if(source.substr(0,2)=="/*"){
-   const auto end=source.find("*/",2);if(end==source.npos)return source;source.remove_prefix(end+2);continue;
+   const auto end=source.find("*/",2);
+   if(end==source.npos){const auto invalid=source;source={};return invalid;}
+   source.remove_prefix(end+2);continue;
   }
   break;
  }
@@ -126,9 +141,25 @@ inline std::string_view Token(std::string_view& source) {
 inline bool SameCode(std::string_view left,std::string_view right) {
  for(;;){const auto a=Token(left),b=Token(right);if(a!=b)return false;if(a.empty())return true;}
 }
+// Identify the complete known token stream at load time without embedding the
+// mod's program. This is a content fingerprint, not an authorization digest.
+inline std::array<std::uint64_t,3> Fingerprint(std::string_view source) {
+ std::array<std::uint64_t,3> out{0xcbf29ce484222325ULL,0x84222325cbf29ce4ULL,0};
+ while(!source.empty()){
+  const auto token=Token(source);if(token.empty())break;
+  for(const unsigned char c:token){out[0]=(out[0]^c)*0x100000001b3ULL;out[1]=(out[1]^c)*0x9e3779b185ebca87ULL;}
+  out[0]*=0x100000001b3ULL;out[1]*=0x9e3779b185ebca87ULL;++out[2];
+ }
+ return out;
+}
 inline Kind Classify(std::string_view vertex,std::string_view fragment) {
  if(SameCode(vertex,kCopyVertex)&&SameCode(fragment,kCopyFragment))return Kind::Copy;
+ if(SameCode(vertex,kSimpleCopyVertex)&&SameCode(fragment,kSimpleCopyFragment))return Kind::Copy;
  if(SameCode(vertex,kPixelVertex)&&SameCode(fragment,kPixelFragment))return Kind::Pixelation;
+ // Fiend Folio content/shaders.xml: full vertex/fragment token fingerprints.
+ if(Fingerprint(vertex)==std::array<std::uint64_t,3>{0x500de42fc82865a8ULL,0x5ab439d0570becadULL,392}&&
+    Fingerprint(fragment)==std::array<std::uint64_t,3>{0xe45705619995a5e8ULL,0x952c900d8aea0eafULL,978})
+  return Kind::InactiveSleeper;
  return Kind::None;
 }
 } // namespace isaac::runtime::shader_identity

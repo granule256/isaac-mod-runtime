@@ -1,5 +1,5 @@
 #pragma once
-// 完整PC main.lua的Callbacks区块（SHA ae0efa…），仅函数执行处接观测桥、增删后更新诊断视图。
+// PC Callbacks（main.lua SHA ae0efa…）；默认匹配内联，执行仍读取共享表。
 namespace isaac::runtime {
 inline constexpr char kPcCallbackBootstrap[] = R"pc(local invoke, changed, ownerMatches = ...
 local debug_getinfo = debug.getinfo
@@ -28,20 +28,27 @@ local defaultCallbackMeta = {
 	end
 }
 
+local originalDefaultMatch = defaultCallbackMeta.__matchParams
+
 function _RunCallback(callbackId, param, ...)
-	local callbacks = Callbacks[callbackId]
-	if callbacks then
-		local matchFunc = getmetatable(callbacks).__matchParams or defaultCallbackMeta.__matchParams
-		
-		for _,v in ipairs(callbacks) do
-			if matchFunc(param, v.Param) then
-				local result = invoke(callbackId, v, ...)
-				if result ~= nil  then
-					return result
-				end
-			end
-		end
-	end
+    local callbacks = Callbacks[callbackId]
+    if callbacks then
+        local matchFunc = getmetatable(callbacks).__matchParams or defaultCallbackMeta.__matchParams
+        local useDefault = matchFunc == originalDefaultMatch
+        for _, v in ipairs(callbacks) do
+            local p = v.Param
+            local matched
+            if useDefault then
+                matched = not param or not p or param == -1 or p == -1 or param == p
+            else
+                matched = matchFunc(param, p)
+            end
+            if matched then
+                local result = invoke(callbackId, v, ...)
+                if result ~= nil then return result end
+            end
+        end
+    end
 end
 
 function _UnloadMod(mod)
@@ -130,19 +137,26 @@ rawset(Isaac, "RunCallbackWithParam", RunCallback)
 rawset(Isaac, "RunCallback", function(callbackID, ...) return RunCallback(callbackID, nil, ...) end)
 
 local function RunOwner(callbackId, param, owner, ...)
-	local callbacks = Callbacks[callbackId]
-	if callbacks then
-		local matchFunc = getmetatable(callbacks).__matchParams or defaultCallbackMeta.__matchParams
-		
-		for _,v in ipairs(callbacks) do
-			if ownerMatches(v.Mod, owner) and matchFunc(param, v.Param) then
-				local result = invoke(callbackId, v, ...)
-				if result ~= nil  then
-					return result
-				end
-			end
-		end
-	end
+    local callbacks = Callbacks[callbackId]
+    if callbacks then
+        local matchFunc = getmetatable(callbacks).__matchParams or defaultCallbackMeta.__matchParams
+        local useDefault = matchFunc == originalDefaultMatch
+        for _, v in ipairs(callbacks) do
+            if ownerMatches(v.Mod, owner) then
+                local p = v.Param
+                local matched
+                if useDefault then
+                    matched = not param or not p or param == -1 or p == -1 or param == p
+                else
+                    matched = matchFunc(param, p)
+                end
+                if matched then
+                    local result = invoke(callbackId, v, ...)
+                    if result ~= nil then return result end
+                end
+            end
+        end
+    end
 end
 
 return _RunCallback, Callbacks, _UnloadMod, RunOwner

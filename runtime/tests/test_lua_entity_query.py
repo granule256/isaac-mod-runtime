@@ -76,6 +76,7 @@ HARNESS = r'''
 #include "game_observer.hpp"
 #include "lua_runtime_state.hpp"
 #include "runtime_constants.hpp"
+#include "interfaces/lua/rplus_extended_fields_guards.hpp"
 
 #include <cstddef>
 #include <cstdint>
@@ -198,6 +199,11 @@ void CreateBlocks() {
         g_Entities[index].assign(size, 0);
     }
     g_EngineBase = AddressOf(g_ModuleBytes);
+    // Touched is served by the guarded extended pickup layout.
+    namespace guards = isaac::runtime::extended_fields;
+    std::memcpy(g_ModuleBytes.data()+guards::kPickup0Entry,guards::kPickup0Guard.data(),guards::kPickup0Guard.size());
+    std::memcpy(g_ModuleBytes.data()+guards::kPickup1Entry,guards::kPickup1Guard.data(),guards::kPickup1Guard.size());
+    std::memcpy(g_ModuleBytes.data()+guards::kPickup2Entry,guards::kPickup2Guard.data(),guards::kPickup2Guard.size());
 }
 
 void FillEntity(EntitySlot slot, std::uint32_t type, std::uint32_t variant, std::uint32_t subType,
