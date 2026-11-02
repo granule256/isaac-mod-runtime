@@ -76,7 +76,9 @@ namespace exl::setting {
      * 缓存空槽跳过预算、转码重复复制也已修复；堆继续128MiB，不凭旧推断继续抬堆。 */
     // 2026-10-13集成更正：保留生产424/448的152MiB，避免旧静态基线退回128MiB。
     // 上述GC/流式转码修复仍成立；449按最终NSO映射补齐原生CPU预留，不再漏算模块占用。
-    constexpr size_t HeapSize = 0x9800000;
+    // Fiend gameplay exhausted 152 MiB. The generated native heap budget must
+    // accompany this 192 MiB module heap to preserve the engine's CPU reserve.
+    constexpr size_t HeapSize = 0xC000000;
 
     /* How large the JIT area will be for hooks. */
     constexpr size_t JitSize = 0x1000;

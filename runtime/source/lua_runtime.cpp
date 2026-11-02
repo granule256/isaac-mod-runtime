@@ -2122,7 +2122,7 @@ void RegisterRngApi(lua_State* state) {
 
 // --- 最小 `debug` 库（批次 3）--------------------------------------------------
 //
-// 只有 `debug.getinfo`，因为它是 EID 用来**直接拿到自己真实 mod 路径**的那一条：
+// `debug.getinfo` 供 EID 定位脚本，`debug.traceback` 供模组构造错误堆栈。
 //
 //   EID:GetCurrentModPath()（main.lua:147）
 //     if debug then return string.sub(debug.getinfo(EID.GetCurrentModPath).source,2) .. "/../" end
@@ -2134,8 +2134,7 @@ void RegisterRngApi(lua_State* state) {
 //
 // **为什么不直接开标准 `debug`**：标准库的 `debug.sethook`/`debug.setlocal`/`debug.upvaluejoin`
 // 之类能任意改写运行时状态，而 Mod 是在游戏进程里跑的；本 Runtime 一直只开
-// base/coroutine/table/string/math/utf8（见 `OpenSafeLibraries`），所以这里只提供读取函数位置
-// 所需的那一个入口（`getinfo` 本身是只读的）。
+// base/coroutine/table/string/math/utf8（见 `OpenSafeLibraries`），这里只提供只读查询。
 //
 // 兼容性提醒：**存在 `debug` 这个全局会让 EID 走上面那条分支**（它只判 `if debug then`），
 // 于是 `EID.modPath` 变成 `<mod 根>/main.lua/../`（而不是 require hack 算出来的
@@ -2196,11 +2195,29 @@ int DebugGetInfo(lua_State* state) {
     return 1;
 }
 
+// Match Lua 5.3's traceback arguments without opening the mutable debug library.
+int DebugTraceback(lua_State* state) {
+    lua_State* thread = lua_tothread(state,1);
+    const int argument = thread != nullptr ? 1 : 0;
+    if (thread == nullptr) thread = state;
+    const char* message = lua_tostring(state,argument+1);
+    if (message == nullptr && !lua_isnoneornil(state,argument+1)) {
+        lua_pushvalue(state,argument+1);
+    } else {
+        const int level = static_cast<int>(luaL_optinteger(state,argument+2,
+                                                          state == thread ? 1 : 0));
+        luaL_traceback(state,thread,message,level);
+    }
+    return 1;
+}
+
 // 把最小 `debug` 表挂成全局。由 `PrepareRuntime` 在 Mod 脚本运行前调用一次。
 void RegisterDebugLibrary(lua_State* state) {
     lua_newtable(state);
     lua_pushcfunction(state, DebugGetInfo);
     lua_setfield(state, -2, "getinfo");
+    lua_pushcfunction(state, DebugTraceback);
+    lua_setfield(state, -2, "traceback");
     lua_setglobal(state, "debug");
 }
 
