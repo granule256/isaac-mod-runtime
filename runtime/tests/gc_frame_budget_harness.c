@@ -152,13 +152,20 @@ static void test_saturation(void) {
   }
 }
 static void test_pressure(void) {
-  Alloc a={0};Clock c={0,10};lua_State *L=newvm(&a);size_t high;
-  garbage(L,3000);budget(L,&c,1,0);CHECK(call(L,automatic)==LUA_OK);high=a.live/2;
-  lua_gc_setframebudget(L,tick,&c,1,high);lua_gc_beginframe(L,1);
-  {int i;for(i=0;i<20000 && a.live>=high;++i)CHECK(call(L,advance)==LUA_OK);CHECK(a.live<high);}
-  {size_t live=a.live;CHECK(call(L,advance)==LUA_OK);CHECK(a.live==live);}
-  lua_gc(L,LUA_GCCOLLECT,0);lua_gc_beginframe(L,2);
-  {uint64_t t=c.tick;CHECK(call(L,advance)==LUA_OK);CHECK(c.tick==t);}
+  Alloc a={0};Clock c={0,1};lua_State *L=newvm(&a);lua_GCBudgetInfo info;int i;
+  /* The retained live set itself can exceed the pressure threshold. */
+  lua_newuserdata(L,65536);garbage(L,3000);budget(L,&c,3,32768);
+  CHECK(call(L,automatic)==LUA_OK);lua_gc_budgetinfo(L,&info);
+  CHECK(info.pressure==1);CHECK(info.spent<=3*4+c.cost);
+  {uint64_t steps=info.steps,t=c.tick;
+   CHECK(call(L,automatic)==LUA_OK);CHECK(call(L,advance)==LUA_OK);
+   lua_gc_budgetinfo(L,&info);CHECK(info.steps==steps);CHECK(c.tick==t);}
+  for(i=2;i<20000 && !info.cycles;++i) {
+    lua_gc_beginframe(L,i);CHECK(call(L,advance)==LUA_OK);
+    lua_gc_budgetinfo(L,&info);CHECK(info.spent<=3*4+c.cost);
+  }
+  CHECK(info.cycles==1);CHECK(a.live>=32768);CHECK(a.live<100000);
+  {uint64_t t=c.tick;lua_gc_beginframe(L,i);CHECK(call(L,advance)==LUA_OK);CHECK(c.tick==t);}
   closevm(L,&a);
 }
 static int allocate(lua_State *L) {lua_newuserdata(L,1024);return 1;}

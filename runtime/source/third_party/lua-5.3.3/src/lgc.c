@@ -1214,7 +1214,7 @@ LUA_API void lua_gc_budgetinfo (lua_State *L, lua_GCBudgetInfo *info) {
 void luaC_autostep (lua_State *L, int continuation) {
   global_State *g = G(L);
   lua_GCBudget *b = &g->gcbudget;
-  uint64_t spent, started, elapsed = 0;
+  uint64_t spent, started, elapsed = 0, limit;
   l_mem debt, originaldebt, originalwork;
   int pressure;
   if (!b->clock || !b->info.budget || !b->hasframe) {
@@ -1227,8 +1227,11 @@ void luaC_autostep (lua_State *L, int continuation) {
      Keep paced finalizer errors inside the existing protected entry. */
   if (L->errorJmp == NULL) return;
   pressure = b->info.highwater && gettotalbytes(g) >= b->info.highwater;
-  if (b->info.spent == UINT64_MAX ||
-      (!pressure && b->info.spent >= b->info.budget)) {
+  /* Large live sets may never fall below highwater. Pressure can increase
+     throughput, but must not turn an incremental slice into an entire cycle. */
+  limit = pressure ? (b->info.budget > UINT64_MAX / 4
+                     ? UINT64_MAX : b->info.budget * 4) : b->info.budget;
+  if (b->info.spent == UINT64_MAX || b->info.spent >= limit) {
     ++b->info.deferred;
     return;  /* no debt modification when no work was done */
   }
@@ -1246,9 +1249,11 @@ void luaC_autostep (lua_State *L, int continuation) {
     ++b->info.steps;
     elapsed = b->clock(b->context) - started;
     if (g->gcstate == GCSpause) break;
-    if (pressure && gettotalbytes(g) < b->info.highwater) pressure = 0;
-    if (!pressure && (spent >= b->info.budget ||
-                     elapsed >= b->info.budget - spent)) break;
+    if (pressure && gettotalbytes(g) < b->info.highwater) {
+      pressure = 0;
+      limit = b->info.budget;
+    }
+    if (spent >= limit || elapsed >= limit - spent) break;
   } while (continuation || debt > -GCSTEPSIZE);
   if (g->gcstate == GCSpause) {
     ++b->info.cycles;
@@ -1257,8 +1262,7 @@ void luaC_autostep (lua_State *L, int continuation) {
   else {
     if (debt == originalwork) luaE_setdebt(g, originaldebt);
     else savebudgetdebt(g, debt);
-    if (g->tobefnz && (pressure || (spent < b->info.budget &&
-                                     elapsed < b->info.budget - spent))) {
+    if (g->tobefnz && spent < limit && elapsed < limit - spent) {
       GCTM(L, 1);
       g->gcfinnum = g->tobefnz ? 1 : 0;
     }

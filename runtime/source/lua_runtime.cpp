@@ -3770,10 +3770,12 @@ std::uint64_t GcBudgetClock(void*) {
 void BeginGcFrame(std::uint64_t serial) noexcept {
     if (!IsReady() || !g_LuaState || !g_ProfileSessionStarted ||
         isaac::runtime::RuntimePerfTick() == 0) return;
-    // Bootstrap stays on Lua's original scheduler. Gameplay shares one soft
-    // millisecond across ALL callbacks/coroutines in this native 60 Hz frame.
-    lua_gc_setframebudget(g_LuaState, GcBudgetClock, nullptr, 19200, 64U * 1024U * 1024U);
+    // Start earlier than Lua's default 2x live-set threshold. Share 2 ms across
+    // all callbacks/coroutines; pressure above 112 MiB gets a bounded 8 ms.
+    // Leave explicit mod changes to the pause setting intact after setup.
     lua_gc_budgetinfo(g_LuaState, &g_RuntimeGcBudgetSnapshot);
+    if (!g_RuntimeGcBudgetSnapshot.budget) lua_gc(g_LuaState, LUA_GCSETPAUSE, 110);
+    lua_gc_setframebudget(g_LuaState, GcBudgetClock, nullptr, 38400, 112U * 1024U * 1024U);
     lua_gc_beginframe(g_LuaState, serial);
 }
 
