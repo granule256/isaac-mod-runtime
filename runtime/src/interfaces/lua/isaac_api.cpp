@@ -4045,7 +4045,9 @@ bool CallEntityPlayerHasCollectible(std::uintptr_t method, std::uintptr_t entity
 int EntityPlayerAddCollectible(lua_State* state) {
     auto* handle = CheckEntityHandle(state, 1);
     const int argumentCount = lua_gettop(state);
-    if (argumentCount < 2 || argumentCount > 6 || !isaac::runtime::IsIntegerArgument(state, 2)) {
+    // CustomHealthAPI forwards the optional Repentance+ pool argument even on
+    // Repentance. This engine consumes the original five arguments only.
+    if (argumentCount < 2 || argumentCount > 7 || !isaac::runtime::IsIntegerArgument(state, 2)) {
         return luaL_error(
             state,
             "EntityPlayer:AddCollectible accepts (type[, charge[, force[, slot[, varData]]]])");
