@@ -29,6 +29,8 @@ __attribute__((noinline)) std::uintptr_t Resolve(lua_State* state,const Entry& e
     fallback=EntryRelayFallbackEntry(HookId::GameEnd);
    else if(entry.offset==kApi200GameStartStageTransitionOffset)
     fallback=EntryRelayFallbackEntry(HookId::GameStartStageTransition);
+   else if(entry.offset==kNativePlayerInitOffset)
+    fallback=EntryRelayFallbackEntry(HookId::EntityPlayerInit);
    if(fallback) {
     std::array<std::uint8_t,16> original{};
     std::memcpy(original.data(),entry.guard,original.size());

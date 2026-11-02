@@ -85,7 +85,7 @@ auto saved=fallback;fallback=0;assert(EntityMethodByExpectedBytes(offsets[i],gua
 '''.replace('CONSTANTS','\n'.join(declarations)).replace('BODY',body)
         result=run(program);self.assertEqual(result.returncode,0,result.stdout+result.stderr)
 
-    def test_shared_resolver_limits_relay_support_to_pill_and_end(self):
+    def test_shared_resolver_accepts_registered_lifecycle_entries_only(self):
         text=NATIVE.read_text()
         body=function(text,'std::uintptr_t Resolve(lua_State* state,')
         program=r'''
@@ -105,11 +105,11 @@ static std::uintptr_t fallback{};
 namespace LuaRuntime{std::uintptr_t EngineModuleBase(){return reinterpret_cast<std::uintptr_t>(image.data());}}
 namespace isaac::runtime{std::uintptr_t EntryRelayFallbackEntry(HookId)noexcept{return fallback;}}
 static int luaL_error(lua_State*,const char*message){throw std::runtime_error(message);}
-constexpr std::uintptr_t kApi100ItemPoolGetPillOffset=64,kApi200GameEndOffset=96;
+constexpr std::uintptr_t kApi100ItemPoolGetPillOffset=64,kApi200GameEndOffset=96,kApi200GameStartStageTransitionOffset=160,kNativePlayerInitOffset=192;
 #define __SWITCH__ 1
 namespace isaac::runtime::api100_native{BODY}
 int main(){lua_State L;const std::array<std::uint8_t,16> guard={0xff,0xc3,0,0xd1,0xfd,0x7b,1,0xa9,0xfd,0x43,0,0x91,0xf3,0x13,0,0xf9};
-for(auto off:{64U,96U}){auto target=LuaRuntime::EngineModuleBase()+off;auto*entry=image.data()+off;api100_native::Entry spec{off,guard.data()};api100_native::Cache cache{};
+for(auto off:{64U,96U,160U,192U}){auto target=LuaRuntime::EngineModuleBase()+off;auto*entry=image.data()+off;api100_native::Entry spec{off,guard.data()};api100_native::Cache cache{};
 fallback=0;std::memcpy(entry,guard.data(),16);assert(api100_native::Resolve(&L,spec,cache)==target);
 relay::BuildSlotImage(slot.data(),target,guard.data(),0);fallback=reinterpret_cast<std::uintptr_t>(slot.data())+relay::kSlotFallbackOffset;relay::BuildEntryPatch(entry,fallback-relay::kSlotFallbackOffset);cache={};
 try{if(api100_native::Resolve(&L,spec,cache)!=target)return 1;}catch(...){std::fprintf(stderr,"registered API entry %u rejected\n",off);return 2;}

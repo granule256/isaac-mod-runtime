@@ -12817,6 +12817,9 @@ constexpr ItemConfigConstant kItemConfigTagConstants[] = {
 
 void PublishItemConfigConstants(lua_State* state) {
     lua_newtable(state);
+    lua_pushinteger(state,0);lua_setfield(state,-2,"CHARGE_NORMAL");
+    lua_pushinteger(state,1);lua_setfield(state,-2,"CHARGE_TIMED");
+    lua_pushinteger(state,2);lua_setfield(state,-2,"CHARGE_SPECIAL");
     for (const ItemConfigConstant& constant : kItemConfigTagConstants) {
         // `lua_Integer` 是 64 位，`1 << 32`（`TAG_NO_EDEN`）不会溢出。
         lua_pushinteger(state, static_cast<lua_Integer>(1) << constant.bit);

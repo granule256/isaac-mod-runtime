@@ -23,6 +23,8 @@ assert(getmetatable(ItemConfig.Config).__class==getmetatable(instance))
 assert(ItemConfig.Config.ShouldAddCostumeOnPickup(instance:GetCollectible(1)))
 assert(not ItemConfig.Config.ShouldAddCostumeOnPickup(nil))
 assert(ItemConfig.TAG_BOB~=nil)
+assert(ItemConfig.CHARGE_NORMAL==0 and ItemConfig.CHARGE_TIMED==1 and ItemConfig.CHARGE_SPECIAL==2)
+assert("slot:"..ItemConfig.CHARGE_NORMAL=="slot:0")
 ''',1)
 class ItemConfigNamespaceTests(unittest.TestCase):
  def test_pc_namespace_statics_and_class_identity(self):
