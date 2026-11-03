@@ -660,8 +660,8 @@ int SeedsGetNextSeed(lua_State* state) {
 // 唯一写它的是 `Seeds::SetStartSeed(unsigned) @ 0x4A1114`（`str w1,[x0,#0x4]`，0 时取
 // `RandomU32() ?: 1` —— 与 PC 文档 `Seeds.md:79` 的"1 与 2^32-1 之间"吻合）；另有两处独立读到它。
 //
-// ★ PC 的返回类型是 `int` ⇒ 按 **int32** 呈现（≥2^31 的种子在 PC 上就是负数）。EID 拿它当
-//   缓存键（`eid_bagofcrafting.lua:822`、`eid_api.lua:2887`），返回 nil 会让调用方在拼接/索引处抛错。
+// 文档值域是 1..2^32-1，Lua integer 可完整保存；不能经 int32 符号扩展。
+// EID 直接用它运行 Lua xorshift，负种子会让随机配方错误落到道具 1。
 // 退化：`Game*` 或字段读不到 ⇒ 0（主菜单里 PC 本来就返回 0，`Seeds.md:81`）。
 int SeedsGetStartSeed(lua_State* state) {
     static_cast<void>(luaL_checkudata(state, 1, kSeedsMetatable));
@@ -672,7 +672,7 @@ int SeedsGetStartSeed(lua_State* state) {
     const std::uintptr_t game = ResolveGame();
     if (game != 0 && game <= UINTPTR_MAX - (kGameSeedsObjectOffset + kSeedsStartSeedOffset) &&
         ReadEngine(game + kGameSeedsObjectOffset + kSeedsStartSeedOffset, &raw)) {
-        lua_pushinteger(state, static_cast<lua_Integer>(static_cast<std::int32_t>(raw)));
+        lua_pushinteger(state, static_cast<lua_Integer>(raw));
         return 1;
     }
     lua_pushinteger(state, 0);

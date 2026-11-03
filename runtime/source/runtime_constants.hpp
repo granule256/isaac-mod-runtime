@@ -262,7 +262,7 @@ inline constexpr uintptr_t kGameSeedsObjectOffset = 0x25D40;
 // "1 与 2^32-1 之间"逐字吻合）。第二处独立读到它：`Seeds::Restart(eChallenge) @ 0x4A120C`
 // （`0x4A1220 ldr w1,[x0,#0x4]`，带自定义种子时重开沿用同一颗）；第三处：`Game::NextVictoryLap`
 // （`0x34FEF0 ldr w1,[x24,#0xf4]`，x24 = `Game+0x25C50` ⇒ 0x25D44）把它喂给 `SetStartSeed`。
-// ★ PC 返回类型是 `int` ⇒ 按 `int32` 呈现（≥2^31 的种子显示为负），不要直接推 u32。
+// Lua 返回值保留完整 uint32 值域（1..2^32-1）；不能把最高位当符号位。
 inline constexpr uintptr_t kSeedsStartSeedOffset = 0x4;
 
 // `kSeedsCustomRunFlagOffset`：`Seeds + 0x0` 那**一个字节** = "本局用的是玩家自选种子"。
