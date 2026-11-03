@@ -2122,6 +2122,9 @@ bool EntityMatchesRadius(const EntitySnapshot& snapshot, double x, double y,
 // 这类情形兜底（`EL+0x78` 的 cap 是 0x800，EFFECT 表是 0x4000）。
 constexpr std::size_t kMaximumQueryResults = 4096;
 
+// 仅作无过滤房间查询的容量提示；不缓存实体或结果表。
+int g_RoomEntityQueryCapacity = 0;
+
 // 批次 428：`g_QuerySeen` 从"线性扫描的名单"改成**开放寻址的哈希表**的键数组。
 // 为什么：线性去重最坏是 4096² ≈ 1600 万次比较**每查询**，而 `Isaac:GetRoomEntities` 每秒 120 次、
 // `Isaac:FindInRadius` 每秒 66 次（API 层归因实测）⇒ 房间实体一多就要真付这笔钱。
@@ -2291,6 +2294,7 @@ int PushEntityDataTable(lua_State* state, std::uintptr_t entity) {
 }
 void ResetEntityDataStore() noexcept {
     isaac::runtime::ResetEntityLifetimeState();
+    g_RoomEntityQueryCapacity = 0;
 }
 
 // Entity 的整型字段（偏移来自 `Entity::Init` 的存值形态与真机探针）。
@@ -2982,13 +2986,6 @@ int IndexEntity(lua_State* state, EntityView view) {
         return 1;
     }
     if (IsFamiliarOrbitField(field)) return PushFamiliarOrbitField(state,handle,field);
-    // 校验失败（伪造/过期句柄）时字段与方法都不给：返回 nil 比报错更接近 PC 的"空对象"，
-    // 也不会让一个已经失效的引用把 Mod 直接打断。
-    //
-    // `EntityPlayer` 视图要求**精确**的 `Entity_Player` vptr（玩家专属字段/方法都在它上面），
-    // `Entity`/`EntityPickup` 用 `Entity` 家族的 vtable 区间。
-    const std::uintptr_t entity =
-        view == EntityView::Player ? ValidatedEntityPlayer(handle) : ValidatedEntity(handle);
     // 这些键只属于方法表；仍实时查本类/基类，不能缓存第三方可覆写的方法。
     const bool methodOnly =
         (field[0] == 'G' && (std::strcmp(field, "GetData") == 0 ||
@@ -2998,7 +2995,11 @@ int IndexEntity(lua_State* state, EntityView view) {
         (field[0] == 'H' && (std::strcmp(field, "HasCollectible") == 0 ||
                               std::strcmp(field, "HasTrinket") == 0)) ||
         (field[0] == 'I' && std::strcmp(field, "IsDead") == 0);
-    if (entity != 0 && !methodOnly) {
+    // 纯方法键的查找不使用原生状态，方法执行时仍由各自入口校验。
+    // 字段读取保留即时校验：Player 要求精确 vptr，其余使用 Entity 家族范围。
+    const std::uintptr_t entity = methodOnly ? 0 :
+        (view == EntityView::Player ? ValidatedEntityPlayer(handle) : ValidatedEntity(handle));
+    if (entity != 0) {
         // 三个身份字段无子类覆盖；复用原读取和计数，省去扩展字段的逐组探测。
         if (((field[0] == 'T' && std::strcmp(field, "Type") == 0) ||
              (field[0] == 'V' && std::strcmp(field, "Variant") == 0) ||
@@ -7540,7 +7541,8 @@ int IsaacGetRoomEntities(lua_State* state) {
     if (lua_gettop(state) != 0) {
         return luaL_error(state, "Isaac.GetRoomEntities accepts no arguments");
     }
-    lua_newtable(state);
+    lua_createtable(state, g_RoomEntityQueryCapacity, 0);
+    g_RoomEntityQueryCapacity = 0;
     const int resultIndex = lua_gettop(state);
     ResetQueryDedup();
     const std::uintptr_t room = ResolveRoom();
@@ -7553,6 +7555,7 @@ int IsaacGetRoomEntities(lua_State* state) {
     ForEachEntityInTable(list, kLiveEntityTable, consider);
     ForEachPlayerEntity(ResolveGameAddress(), consider);
     ForEachEntityInTable(list, kEffectEntityTable, consider);
+    g_RoomEntityQueryCapacity = sink.emitted < 512 ? sink.emitted : 512;
     return 1;
 }
 

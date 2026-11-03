@@ -29,9 +29,11 @@ void PushMap(lua_State* state) {
     if (!lua_istable(state, -1)) luaL_error(state, "entity lifetime registry is unavailable");
     s_Map = static_cast<Table*>(const_cast<void*>(lua_topointer(state, -1)));
     s_Registry = registry;
-    lua_rawgeti(state, LUA_REGISTRYINDEX, LUA_RIDX_MAINTHREAD);
-    s_MainState = lua_tothread(state, -1);
-    lua_pop(state, 1);
+    if (s_MainState == nullptr) {
+        lua_rawgeti(state, LUA_REGISTRYINDEX, LUA_RIDX_MAINTHREAD);
+        s_MainState = lua_tothread(state, -1);
+        lua_pop(state, 1);
+    }
 }
 
 // 我方固定Lua5.3.3：已有userdata/table引用的nil删除无需分配或GC写屏障。
@@ -58,6 +60,22 @@ void ClearUservalue(Udata* userdata) noexcept {
 
 LuaRuntime::EntityLifetimeToken* PushEntityLifetimeToken(lua_State* state, std::uintptr_t entity) {
     PushMap(state);
+    // 固定 Lua 5.3.3：复用表中已存在的 token，直接替换栈顶的 map 根。
+    // 不分配、不触发 GC；仍以本次取得的 registry map 为准。
+    TValue key{};
+    setpvalue(&key, engine_memory::AsObject(entity));
+    const TValue* slot = luaH_get(s_Map, &key);
+    if (ttisfulluserdata(slot)) {
+        Udata* userdata = uvalue(slot);
+        if (userdata->len == sizeof(LuaRuntime::EntityLifetimeToken)) {
+            auto* token = static_cast<LuaRuntime::EntityLifetimeToken*>(
+                static_cast<void*>(getudatamem(userdata)));
+            if (token->entity == entity && token->alive) {
+                setuvalue(state, state->top - 1, userdata);
+                return token;
+            }
+        }
+    }
     const int map = lua_gettop(state);
     lua_rawgetp(state, map, engine_memory::AsObject(entity));
     if (lua_isnil(state, -1)) {

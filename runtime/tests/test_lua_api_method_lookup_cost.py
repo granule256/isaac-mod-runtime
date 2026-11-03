@@ -27,7 +27,8 @@ enum class EntityView {Base,Player,Pickup,Projectile,Tear,Laser,Npc,Familiar,Bom
 constexpr const char* kEntityMetatable="Entity";
 const char* EntityViewMetatable(EntityView v){return v==EntityView::Base?"Entity":"Player";}
 EntityHandle* CheckEntityHandle(lua_State* L,int i){return static_cast<EntityHandle*>(lua_touserdata(L,i));}
-std::uintptr_t ValidatedEntity(EntityHandle*h){return h->valid?1:0;}
+unsigned validations=0;
+std::uintptr_t ValidatedEntity(EntityHandle*h){++validations;return h->valid?1:0;}
 std::uintptr_t ValidatedEntityPlayer(EntityHandle*h){return ValidatedEntity(h);}
 std::uintptr_t ValidatedTypedEntity(EntityHandle*h,int,int){return ValidatedEntity(h);}
 constexpr int kEntityBombVtableOffset=0,kEntityTypeBomb=0,kEntityBombIsFetusOffset=0,kEntityTearVtableOffset=0,kEntityTypeTear=0,kEntityTearScaleOffset=0;
@@ -68,6 +69,7 @@ int main(){auto*L=luaL_newstate();luaL_requiref(L,"_G",luaopen_base,1);lua_pop(L
  )lua";
  if(luaL_loadstring(L,script)||lua_pcall(L,0,0,0)){std::fprintf(stderr,"%s",lua_tostring(L,-1));return 2;}
  if(probes){std::fprintf(stderr,"method-only lookup entered field probes %d times",probes);return 1;}
+ if(validations){std::fprintf(stderr,"method-only lookup performed %u unused native validations",validations);return 10;}
  if(luaL_loadstring(L,"assert(p.HitPoints==7);base.__index=function(o,k)return k=='GetData' and 99 or nil end;assert(p.GetData==99)")||lua_pcall(L,0,0,0)){std::fprintf(stderr,"%s",lua_tostring(L,-1));return 3;}
  fieldValue=8;if(luaL_loadstring(L,"assert(p.HitPoints==8)")||lua_pcall(L,0,0,0))return 4;
  h->valid=false;probes=0;if(luaL_loadstring(L,"assert(p.HitPoints==nil);assert(p.GetData==99)")||lua_pcall(L,0,0,0)||probes)return 5;
