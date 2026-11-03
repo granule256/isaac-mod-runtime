@@ -1991,9 +1991,13 @@ constexpr std::uintptr_t kNonNpcEntityVtables[] = {
 //: **是不是 `Entity_NPC` 家族**（= `Entity` 家族区间内、且不是那 13 个已知非 NPC 直接子类）。
 //: 三处共用：`Entity:ToNPC()` 的转型判据、`Scale` 字段的读写判据（`Scale` 只挂在 `EntityNPC` 页上，
 //: `tools/pc_contract_docs/EntityNPC.md:225`）。**判据只有一份**，免得日后漂开。
-bool IsNpcFamilyVtable(std::uintptr_t vtable) noexcept {
+bool IsNpcFamilyEntity(std::uintptr_t entity) noexcept {
     const std::uintptr_t base = EngineModuleBase();
-    if (base == 0 || !IsEntityVtableInRange(vtable)) {
+    if (entity == 0 || base == 0) {
+        return false;
+    }
+    std::uintptr_t vtable = 0;
+    if (!ReadEngine(entity, &vtable) || !IsEntityVtableInRange(vtable)) {
         return false;
     }
     for (const std::uintptr_t offset : kNonNpcEntityVtables) {
@@ -2002,11 +2006,6 @@ bool IsNpcFamilyVtable(std::uintptr_t vtable) noexcept {
         }
     }
     return true;
-}
-
-bool IsNpcFamilyEntity(std::uintptr_t entity) noexcept {
-    std::uintptr_t vtable = 0;
-    return entity != 0 && ReadEngine(entity, &vtable) && IsNpcFamilyVtable(vtable);
 }
 
 // `vptr` 是否落在 `Entity` 家族的 vtable 区间里。
@@ -2202,30 +2201,28 @@ struct QuerySink {
 // 视图回落已在 `IndexEntity` 里落实：`EntityPickup` 先查自己的字段，再回落到 `Entity` 的
 // ⇒ 换成它**不会**丢掉基类字段/方法（与 PC 的继承关系一致）。
 const char* EntityViewMetatableForPointer(std::uintptr_t entity) noexcept {
-    // 查询及回调封装只需 Type/vptr；同一步内复用身份，不重复做分类和子类读取。
-    std::uintptr_t vtable = 0;
-    std::uint32_t type = 0;
-    if (entity == 0 || !IsEngineMemoryReadable(entity, kEntitySnapshotSpan) ||
-        !ReadEngineUnchecked(entity, &vtable) || !IsEntityVtableInRange(vtable) ||
-        !ReadEngineUnchecked(entity + kEntityTypeOffset, &type)) {
-        return kEntityMetatable;
+    switch (ClassifyCallbackEntity(entity)) {
+        case CallbackEntityClass::Player: return kEntityPlayerMetatable;
+        case CallbackEntityClass::Pickup: return kEntityPickupMetatable;
+        case CallbackEntityClass::Laser:
+            return IsTypedEntity(entity,kEntityLaserVtableOffset,kEntityTypeLaser)
+                       ? kEntityLaserMetatable : kEntityMetatable;
+        case CallbackEntityClass::Projectile:
+            return IsTypedEntity(entity,kEntityProjectileVtableOffset,kEntityTypeProjectile)
+                       ? kEntityProjectileMetatable : kEntityMetatable;
+        case CallbackEntityClass::Knife:
+            return IsTypedEntity(entity,kEntityKnifeVtableOffset,kEntityTypeKnife)
+                       ? kEntityKnifeMetatable : kEntityMetatable;
+        case CallbackEntityClass::Bomb:
+            return IsTypedEntity(entity, kEntityBombVtableOffset, kEntityTypeBomb)
+                       ? kEntityBombMetatable : kEntityMetatable;
+        case CallbackEntityClass::Tear:
+            return IsTypedEntity(entity, kEntityTearVtableOffset, kEntityTypeTear)
+                       ? kEntityTearMetatable : kEntityMetatable;
+        case CallbackEntityClass::Npc:
+            return IsNpcFamilyEntity(entity) ? kEntityNPCMetatable : kEntityMetatable;
+        default: return kEntityMetatable;
     }
-    const auto base = EngineModuleBase();
-    const auto typed = [&](std::uintptr_t offset, const char* metatable) {
-        return base != 0 && base <= UINTPTR_MAX - offset && vtable == base + offset
-                   ? metatable : kEntityMetatable;
-    };
-    switch (type) {
-        case kEntityTypePlayer: return typed(kEntityPlayerVtableOffset, kEntityPlayerMetatable);
-        case kEntityTypePickup: return typed(kEntityPickupVtableOffset, kEntityPickupMetatable);
-        case kEntityTypeLaser: return typed(kEntityLaserVtableOffset, kEntityLaserMetatable);
-        case kEntityTypeProjectile: return typed(kEntityProjectileVtableOffset, kEntityProjectileMetatable);
-        case kEntityTypeKnife: return typed(kEntityKnifeVtableOffset, kEntityKnifeMetatable);
-        case kEntityTypeBomb: return typed(kEntityBombVtableOffset, kEntityBombMetatable);
-        case kEntityTypeTear: return typed(kEntityTearVtableOffset, kEntityTearMetatable);
-        default: break;
-    }
-    return IsEnemyType(type) && IsNpcFamilyVtable(vtable) ? kEntityNPCMetatable : kEntityMetatable;
 }
 
 void PushQueryResult(QuerySink* sink, std::uintptr_t entity) {
