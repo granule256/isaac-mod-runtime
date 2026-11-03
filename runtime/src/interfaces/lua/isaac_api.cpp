@@ -7093,24 +7093,37 @@ int IsaacFindByType(lua_State* state) {
     }
     const std::uintptr_t list = room + kRoomEntityListOffset;
     QuerySink sink{state, resultIndex, 0};
-    const auto matches = [&](const EntitySnapshot& snapshot) {
-        if (EntityHasNoQueryFlag(snapshot)) {
+    const auto matches = [&](std::uintptr_t entity) {
+        if (entity == 0 || !IsEngineMemoryReadable(entity, kEntitySnapshotSpan)) {
             return false;
         }
-        if (static_cast<lua_Integer>(snapshot.type) != type) {
+        std::uintptr_t vtable = 0;
+        if (!ReadEngineUnchecked(entity, &vtable) || !IsEntityVtableInRange(vtable)) {
             return false;
         }
-        if (variant >= 0 && static_cast<lua_Integer>(snapshot.variant) != variant) {
+        // 多怪物反复查询时，类型不符即可排除；通配字段也无需读取。
+        // 全跨度/vptr 校验仍逐实体执行，不缓存可能在本回调中变化的身份。
+        std::uint32_t value = 0;
+        if (!ReadEngineUnchecked(entity + kEntityTypeOffset, &value) ||
+            static_cast<lua_Integer>(value) != type) {
             return false;
         }
-        if (subType >= 0 && static_cast<lua_Integer>(snapshot.subType) != subType) {
+        if (variant >= 0 &&
+            (!ReadEngineUnchecked(entity + kEntityVariantOffset, &value) ||
+             static_cast<lua_Integer>(value) != variant)) {
             return false;
         }
-        return true;
+        if (subType >= 0 &&
+            (!ReadEngineUnchecked(entity + kEntitySubTypeOffset, &value) ||
+             static_cast<lua_Integer>(value) != subType)) {
+            return false;
+        }
+        std::uint64_t flags = 0;
+        return ReadEngineUnchecked(entity + kEntityFlagsOffset, &flags) &&
+               (flags & (1ULL << kEntityFlagNoQueryBit)) == 0;
     };
     const auto consider = [&](std::uintptr_t entity) {
-        EntitySnapshot snapshot{};
-        if (CaptureEntityTypeSnapshot(entity, &snapshot) && matches(snapshot)) {
+        if (matches(entity)) {
             PushQueryResult(&sink, entity);
         }
     };

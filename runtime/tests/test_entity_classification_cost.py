@@ -15,7 +15,7 @@ class EntityClassificationCostTests(unittest.TestCase):
         start = source.index('struct EntitySnapshot {')
         snapshot = source[start:source.index('\nbool CaptureEntity', start)]
         body = snapshot + '\n' + '\n'.join(function(source, name) for name in (
-            'bool CaptureEntityTypeSnapshot(', 'bool CaptureEntity(',
+            'bool CaptureEntityTypeSnapshot(',
             'CallbackEntityClass ClassifyCallbackEntity(',
         ))
         prefix = r'''
