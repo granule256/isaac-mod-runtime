@@ -42,6 +42,11 @@ int main(int argc,char**argv){
  WriteAt<float>(g_Entities[kTearNear],0x400,-5);WriteAt<float>(g_Entities[kPlayer],0x124,1);WriteAt<float>(g_Entities[kPlayer],0x128,2);
  for(unsigned i=0;i<7;++i)WriteAt<std::int32_t>(item,0x58+i*4,static_cast<std::int32_t>(i+1));item[0xb4]=1;
  WriteAt<std::int32_t>(g_Entities[kPlayer],0x1d6c,4);
+ if(scene=="collision"){
+  // Native CollideWithGrid reads +0x1e0; handle_collisions reads +0x1e4.
+  WriteAt<std::int32_t>(g_Entities[kPlayer],0x1e0,5);
+  WriteAt<std::int32_t>(g_Entities[kPlayer],0x1e4,4);
+ }
  const std::string setup="local m=RegisterMod('extended-fields',1);m:AddCallback(1,function() local p=Isaac.GetPlayer();local f=Isaac.FindByType(3)[1]:ToFamiliar();local t=Isaac.FindByType(2)[1]:ToTear();local q=Isaac.FindByType(5)[1]:ToPickup();local b=Isaac.FindByType(4)[1]:ToBomb();local e=Isaac.FindByType(1000)[1]:ToEffect();local j=Isaac.FindByType(9)[1]:ToProjectile();";
  const char*body=R"lua(
  assert(f.FireCooldown==18 and f.RoomClearCount>=3 and f.Hearts>=15 and f.Keys==13)
@@ -77,12 +82,22 @@ int main(int argc,char**argv){
   assert(not pcall(function()f.SplatColor={} end));p.DepthOffset="2.5";assert(p.DepthOffset==2.5)
   _extended={done=1}
  )lua";
+ if(scene=="collision")body=R"lua(
+  assert(p.GridCollisionClass==5 and p.EntityCollisionClass==4)
+  p.GridCollisionClass=0
+  assert(p.GridCollisionClass==0 and p.EntityCollisionClass==4)
+  p.EntityCollisionClass=0
+  assert(p.GridCollisionClass==0 and p.EntityCollisionClass==0)
+  p.EntityCollisionClass=4
+  _extended={done=1}
+ )lua";
  const auto script=setup+body+"end)";
  if(LuaRuntime::InitializeFromBuffer(script.c_str(),script.size(),"@extended-fields.lua")!=LuaRuntime::LuaInitResult::Success)return 1;
  // 未知名字必须在配置/实体校验前退出，不能给HasCollectible/Position新增分类。
  auto*L=LuaRuntime::StateForTesting(); /*STATE*/
  LuaRuntime::DispatchPostUpdate();if(LuaRuntime::TakeCallbackError()){LuaRuntime::LuaErrorHistoryEntryView errs[8]{};const auto n=LuaRuntime::CopyLuaErrorHistory(errs,8);for(unsigned x=0;x<n;++x)fprintf(stderr,"%s\n",errs[x].text);return 2;}
  double done{};if(LuaRuntime::ReadLuaTableNumber("_extended","done",&done)||done!=1)return 3;
+ if(scene=="collision")return ReadAt<std::int32_t>(g_Entities[kPlayer],0x1e0)==0&&ReadAt<std::int32_t>(g_Entities[kPlayer],0x1e4)==4?0:10;
  if(scene=="badguard"||scene=="types"||scene=="badparentguard")return 0;
  if(targets!=2||children!=2||heights!=1||parents!=3||ReadAt<std::uintptr_t>(g_Entities[kPlayer],0x390)!=0)return 4;
  if(ReadAt<std::int32_t>(g_Entities[kFamiliar],0xd60)!=17||ReadAt<float>(g_Entities[kTearNear],0x324)!=-5.5F||ReadAt<std::int32_t>(g_Entities[kPickup],0x574)!=20)return 5;
@@ -112,3 +127,6 @@ class ExtendedFieldConsumers(unittest.TestCase):
   for scene in ('normal','badguard','types','badparentguard'):
    with self.subTest(scene=scene):
     r=subprocess.run([str(self.binary),scene],text=True,capture_output=True);self.assertEqual(r.returncode,0,r.stdout+r.stderr)
+ def test_grid_none_preserves_native_entity_collision(self):
+  r=subprocess.run([str(self.binary),'collision'],text=True,capture_output=True)
+  self.assertEqual(r.returncode,0,r.stdout+r.stderr)

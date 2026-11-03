@@ -95,8 +95,9 @@ Row Layout(std::uintptr_t entity,Field field){
  case Field::Child:return {Kind::Child,0x398,Group::Entity};
  case Field::Parent:return {Kind::Parent,0x390,Group::Entity};
  case Field::DepthOffset:return {Kind::Float,0x32C,Group::Entity};
- case Field::EntityCollisionClass:return {Kind::Int,0x1E0,Group::Entity};
- case Field::GridCollisionClass:return {Kind::Int,0x1E4,Group::Entity};
+ // Entity::handle_collisions @63078 reads +1e4; CollideWithGrid @5a2ec reads +1e0.
+ case Field::EntityCollisionClass:return {Kind::Int,0x1E4,Group::Entity};
+ case Field::GridCollisionClass:return {Kind::Int,0x1E0,Group::Entity};
  case Field::SplatColor:return {Kind::Color,0x24C,Group::Entity};
  default:break;
  }
