@@ -385,6 +385,7 @@ void MeasureEmptyCallCost(lua_State* state) noexcept {
 
 namespace LuaRuntime {
 int InvokeObservedCallback(lua_State* state);
+int InvokeObservedNativeCallback(lua_State* state);
 
 namespace {
 
@@ -2312,7 +2313,7 @@ void RegisterModApi(lua_State* state) {
     // `main.lua:148` 的加载期就会读它。
     RegisterDebugLibrary(state);
     RegisterOsLibrary(state);
-    isaac::runtime::RegisterCallbackBootstrap(state, InvokeObservedCallback);
+    isaac::runtime::RegisterCallbackBootstrap(state, InvokeObservedCallback, InvokeObservedNativeCallback);
     isaac::runtime::SetShaderValueProvider(FillShaderParameters);
 
     lua_newtable(state);
@@ -4069,6 +4070,8 @@ struct BatchObservation {
     std::uint32_t failureOwner{0};
     std::uint32_t failureId{0};
     bool hasFailureContext{false};
+    bool nativePending{false};
+    std::uint64_t nativeStartedAt{0};
 };
 BatchObservation* g_ActiveCallbackBatch = nullptr;
 
@@ -4152,6 +4155,42 @@ int InvokeObservedCallback(lua_State* state) {
     }
     g_ErrorContextOwner=previousOwner;g_ErrorContextCallbackId=previousId;
     return status==LUA_OK?1:lua_error(state);
+}
+
+// 原生 runner 的未完成调用由外层保护收尾；手动/嵌套 Lua 派发保留独立保护。
+void FinishObservedNativeCallback(lua_State* state, BatchObservation& observation, bool failed) {
+    RecordObservedCallbackPerf(g_ErrorContextOwner, g_ErrorContextCallbackId, observation.nativeStartedAt);
+    observation.nativePending = false;
+    observation.depth = 0;
+    if (failed) {
+        observation.failureOwner = g_ErrorContextOwner;
+        observation.failureId = g_ErrorContextCallbackId;
+        observation.hasFailureContext = true;
+    } else {
+        ++observation.result->invoked;
+        if (!lua_isnil(state, -1)) observation.lastOwner = g_ErrorContextOwner;
+    }
+}
+
+int InvokeObservedNativeCallback(lua_State* state) {
+    auto* observation = g_ActiveCallbackBatch;
+    if (!observation || observation->depth != 0) return InvokeObservedCallback(state);
+    if (!isaac::runtime::notice::integrity::RuntimeAllowed())
+        return luaL_error(state, "compatibility layer disabled: notice resources do not match this build");
+    const auto previousOwner = g_ErrorContextOwner, previousId = g_ErrorContextCallbackId;
+    g_ErrorContextOwner = 0;
+    int integral = 0;
+    const auto id = lua_type(state, 1) == LUA_TNUMBER ? lua_tointegerx(state, 1, &integral) : 0;
+    g_ErrorContextCallbackId = integral && id >= 0 && static_cast<std::uint64_t>(id) <= UINT32_MAX
+        ? static_cast<std::uint32_t>(id) : UINT32_MAX;
+    observation->nativePending = true;
+    observation->depth = 1;
+    observation->nativeStartedAt = isaac::runtime::RuntimePerfTick();
+    const int result = InvokeObservedProtected(state);
+    FinishObservedNativeCallback(state, *observation, false);
+    g_ErrorContextOwner = previousOwner;
+    g_ErrorContextCallbackId = previousId;
+    return result;
 }
 
 struct LuaCallbackInvoker final : isaac::runtime::ICallbackInvoker {
@@ -4392,6 +4431,9 @@ private:
         g_InManagedCallbackDispatch.store(previousManagedScope, std::memory_order_release);
         g_CurrentCallbackManager.store(previousManager, std::memory_order_release);
         if (callbackStatus != LUA_OK) {
+            if (batchMode && g_ActiveCallbackBatch && g_ActiveCallbackBatch->nativePending) {
+                FinishObservedNativeCallback(g_LuaState, *g_ActiveCallbackBatch, true);
+            }
 #if defined(EXL_PERSISTENCE_TRACE) || defined(EXL_PERSISTENCE_EVENT_DIAGNOSTIC)
             const u64 detail =
                 (CallbackErrorTail(g_LuaState) << 16) |

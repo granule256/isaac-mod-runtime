@@ -6,7 +6,8 @@ extern "C" {
 namespace isaac::runtime {
 // 关闭VM后清空外部的内建回调位图及诊断计数，不访问旧registry。
 void ResetCallbackRuntimeState() noexcept;
-void RegisterCallbackBootstrap(lua_State* state, lua_CFunction invoke);
+void RegisterCallbackBootstrap(lua_State* state, lua_CFunction invoke,
+                               lua_CFunction nativeInvoke = nullptr);
 int CallCallbackTableApi(lua_State* state, const char* name);
 int GetBuiltInCallbackState(lua_State* state);
 int SetBuiltInCallbackState(lua_State* state);

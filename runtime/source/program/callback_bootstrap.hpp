@@ -1,7 +1,8 @@
 #pragma once
 // PC Callbacks（main.lua SHA ae0efa…）；默认匹配内联，执行仍读取共享表。
 namespace isaac::runtime {
-inline constexpr char kPcCallbackBootstrap[] = R"pc(local invoke, changed, ownerMatches = ...
+inline constexpr char kPcCallbackBootstrap[] = R"pc(local invoke, changed, ownerMatches, nativeInvoke = ...
+nativeInvoke = nativeInvoke or invoke
 local debug_getinfo = debug.getinfo
 local diagnostic_pcall = pcall
 
@@ -30,7 +31,8 @@ local defaultCallbackMeta = {
 
 local originalDefaultMatch = defaultCallbackMeta.__matchParams
 
-function _RunCallback(callbackId, param, ...)
+local function MakeRunner(invoke)
+ return function(callbackId, param, ...)
     local callbacks = Callbacks[callbackId]
     if callbacks then
         local matchFunc = getmetatable(callbacks).__matchParams or defaultCallbackMeta.__matchParams
@@ -50,6 +52,10 @@ function _RunCallback(callbackId, param, ...)
         end
     end
 end
+end
+
+_RunCallback = MakeRunner(invoke)
+local RunNative = MakeRunner(nativeInvoke)
 
 function _UnloadMod(mod)
 	Isaac.RunCallback(ModCallbacks.MC_PRE_MOD_UNLOAD, mod)
@@ -151,7 +157,7 @@ local function RunOwner(callbackId, param, owner, ...)
                     matched = matchFunc(param, p)
                 end
                 if matched then
-                    local result = invoke(callbackId, v, ...)
+                    local result = nativeInvoke(callbackId, v, ...)
                     if result ~= nil then return result end
                 end
             end
@@ -159,6 +165,6 @@ local function RunOwner(callbackId, param, owner, ...)
     end
 end
 
-return _RunCallback, Callbacks, _UnloadMod, RunOwner
+return _RunCallback, Callbacks, _UnloadMod, RunOwner, RunNative
 )pc";
 }

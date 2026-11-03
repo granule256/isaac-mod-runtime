@@ -107,7 +107,7 @@ int SetBuiltInCallbackState(lua_State* state) {
     }
     return 0;
 }
-void RegisterCallbackBootstrap(lua_State* state,lua_CFunction invoke) {
+void RegisterCallbackBootstrap(lua_State* state,lua_CFunction invoke,lua_CFunction nativeInvoke) {
     ResetCallbackRuntimeState();
     auto* stored=static_cast<TableState*>(lua_newuserdata(state,sizeof(TableState)));
     *stored={};stored->runRef=LUA_NOREF;stored->tableRef=LUA_NOREF;stored->ownerRunRef=LUA_NOREF;
@@ -120,12 +120,13 @@ void RegisterCallbackBootstrap(lua_State* state,lua_CFunction invoke) {
     lua_pushcfunction(state,GetBuiltInCallbackState);lua_setfield(state,-2,"GetBuiltInCallbackState");
     lua_pushcfunction(state,SetBuiltInCallbackState);lua_setfield(state,-2,"SetBuiltInCallbackState");lua_pop(state,1);
     if(luaL_loadbuffer(state,kPcCallbackBootstrap,sizeof(kPcCallbackBootstrap)-1,"@pc/callbacks.lua")!=LUA_OK)lua_error(state);
-    lua_pushcfunction(state,invoke);lua_pushcfunction(state,RefreshDiagnostics);lua_pushcfunction(state,MatchOwner);lua_call(state,3,4);
-    lua_pushvalue(state,-4);stored->runRef=luaL_ref(state,LUA_REGISTRYINDEX);
-    lua_pushvalue(state,-3);stored->tableRef=luaL_ref(state,LUA_REGISTRYINDEX);
-    lua_pushvalue(state,-2);stored->unloadRef=luaL_ref(state,LUA_REGISTRYINDEX);
-    lua_pushvalue(state,-1);stored->ownerRunRef=luaL_ref(state,LUA_REGISTRYINDEX);
-    lua_pop(state,4);lua_pushnil(state);lua_setglobal(state,"_RunCallback");lua_pushnil(state);lua_setglobal(state,"_UnloadMod");
+    lua_pushcfunction(state,invoke);lua_pushcfunction(state,RefreshDiagnostics);lua_pushcfunction(state,MatchOwner);
+    lua_pushcfunction(state,nativeInvoke?nativeInvoke:invoke);lua_call(state,4,5);
+    lua_pushvalue(state,-1);stored->runRef=luaL_ref(state,LUA_REGISTRYINDEX);
+    lua_pushvalue(state,-4);stored->tableRef=luaL_ref(state,LUA_REGISTRYINDEX);
+    lua_pushvalue(state,-3);stored->unloadRef=luaL_ref(state,LUA_REGISTRYINDEX);
+    lua_pushvalue(state,-2);stored->ownerRunRef=luaL_ref(state,LUA_REGISTRYINDEX);
+    lua_pop(state,5);lua_pushnil(state);lua_setglobal(state,"_RunCallback");lua_pushnil(state);lua_setglobal(state,"_UnloadMod");
 }
 void PushCallbackRunner(lua_State* state, bool ownerOnly) {
     const auto* stored=State(state);if(stored)lua_rawgeti(state,LUA_REGISTRYINDEX,ownerOnly?stored->ownerRunRef:stored->runRef);else lua_pushnil(state);
