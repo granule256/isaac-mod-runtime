@@ -1,4 +1,5 @@
 #include "infrastructure/internal/use_item_hook_installer.hpp"
+#include "infrastructure/internal/player_damage_hook_installer.hpp"
 #include "infrastructure/relay/entry_relay_hook_adapter.hpp"
 #include "room_spawn_internal_hook.hpp"
 #include "infrastructure/call/engine_call_access.hpp"
@@ -586,6 +587,9 @@ Status EntryRelayHookAdapter::Install(HookId id, const HookTarget& target) noexc
     if(id==HookId::UseActiveItem&&!TryInstallUseItemNativeBoundaries(target)){
         lastFailure_=1U;noteIfTracked(false,1U);return Status{StatusCode::Rejected};
     }
+    if(id==HookId::EntityPlayerTakeDamage&&!TryInstallPlayerDamageBoundary(target)){
+        lastFailure_=1U;noteIfTracked(false,1U);return Status{StatusCode::Rejected};
+    }
     std::uintptr_t originalEntry = 0;
     EntryPublicationContext publication{id,binding.fallbackEntry};
     if (!isaac::runtime::relay::TryInstallEntryRelayWithPublisher(
@@ -648,6 +652,7 @@ bool TryInstallEntryRelayEarly(HookId id, const HookTarget& target,
         return false;   // 纯判定拒绝（地址/边界/对齐/回调未接线）—— 不写任何字节
     }
     if(id==HookId::UseActiveItem&&!TryInstallUseItemNativeBoundaries(target))return false;
+    if(id==HookId::EntityPlayerTakeDamage&&!TryInstallPlayerDamageBoundary(target))return false;
     std::uintptr_t originalEntry = 0;
     EntryPublicationContext publication{id,binding.fallbackEntry};
     if (!isaac::runtime::relay::TryInstallEntryRelayWithPublisher(

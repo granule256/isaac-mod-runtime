@@ -277,6 +277,7 @@ CPPFILES += native_image_cache_removal.cpp
 CPPFILES += room_spawn_internal_hook.cpp
 # 2026-10-10：66双内部钩位于source根目录，同样必须显式进入生产链接。
 CPPFILES += trinket_internal_hook.cpp
+CPPFILES += player_damage_internal_hook.cpp
 CPPFILES += clear_award_internal_hook.cpp
 # 压力板字符串寿命事件位于source根目录，显式进入生产链接。
 CPPFILES += pressure_plate_animation_hook.cpp

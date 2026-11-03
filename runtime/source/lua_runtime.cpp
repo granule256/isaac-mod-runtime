@@ -5649,7 +5649,7 @@ void DispatchPreRoomEntitySpawn(std::int32_t entityType, std::int32_t variant,
 // 已知偏离：我们的派发器**不短路**（PC 会停在第一个非 nil），所以"一个返回 true、另一个返回
 // false"时我们按"照常受伤"处理；这与项目里 `MC_INPUT_ACTION` 那处已知偏离同源。
 // 2026-10-09更正上方历史偏离：受伤现在首个非nil短路；Input PC文档明确继续执行，不能类比。
-bool DispatchEntityTakeDamage(std::uintptr_t entity, float amount, std::int32_t damageFlags,
+bool DispatchEntityTakeDamage(std::uintptr_t entity, float amount, std::uint64_t damageFlags,
                               std::uintptr_t sourceRef, std::int32_t countdownFrames,
                               std::int32_t entityType) {
     if (!IsReady() || g_LuaState == nullptr ||

@@ -368,7 +368,7 @@ struct RoomEntitySpawnOverride {
 // `sourceRef` 是引擎那个 `EntityRef const&` 的地址（0 = 没有来源）；`damageFlags`/`countdownFrames`
 // 按 PC 签名压整数。四条入口中继（基类 + 玩家/掉落物/槽位）共用这一个函数。
 [[nodiscard]] bool DispatchEntityTakeDamage(std::uintptr_t entity, float amount,
-                                            std::int32_t damageFlags, std::uintptr_t sourceRef,
+                                            std::uint64_t damageFlags, std::uintptr_t sourceRef,
                                             std::int32_t countdownFrames, std::int32_t entityType);
 // 批次 396（2026-10-07）：`MC_EVALUATE_CACHE`(8)。过滤器 = 本次要重算的那个 CacheFlag 位；
 // 调用点把 `Entity_Player + 0x1958` 掩码逐位拆开、一位调一次（入口不带 CacheFlag 实参）。
