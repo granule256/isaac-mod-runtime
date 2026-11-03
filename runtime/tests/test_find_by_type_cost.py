@@ -12,7 +12,7 @@ class FindByTypeCostTests(unittest.TestCase):
    pos=source.index(name);return source[source.rfind('template <',0,pos):pos]+function(source,name)
   body=source[source.index('struct EntitySnapshot {'):source.index('\nbool CaptureEntity',source.index('struct EntitySnapshot {'))]
   if 'bool CaptureEntityTypeSnapshot('in source:body+=function(source,'bool CaptureEntityTypeSnapshot(')
-  body+=function(source,'bool CaptureEntity(')+function(source,'bool EntityHasNoQueryFlag(')
+  body+=function(source,'bool EntityHasNoQueryFlag(')
   body+=template('void ForEachEntityInTable(')+template('void ForEachPlayerEntity(')
   body+=function(source,'int IsaacFindByType(lua_State* state) {')
   prefix=r'''

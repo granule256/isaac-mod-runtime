@@ -2072,16 +2072,6 @@ bool CaptureEntityTypeSnapshot(std::uintptr_t address, EntitySnapshot* snapshot)
     return true;
 }
 
-bool CaptureEntity(std::uintptr_t address, EntitySnapshot* snapshot) noexcept {
-    if (!CaptureEntityTypeSnapshot(address, snapshot)) return false;
-    const auto field = [address](std::uintptr_t offset) noexcept { return address + offset; };
-    static_cast<void>(ReadEngineUnchecked(field(kEntityIndexOffset), &snapshot->index));
-    static_cast<void>(ReadEngineUnchecked(field(kEntityPositionOffset), &snapshot->x));
-    static_cast<void>(ReadEngineUnchecked(field(kEntityPositionOffset + sizeof(float)), &snapshot->y));
-    static_cast<void>(ReadEngineUnchecked(field(kEntitySizeOffset), &snapshot->size));
-    return true;
-}
-
 // `EntityFlag.FLAG_NO_QUERY`（`+0x1B8` bit46）：查询结果里必须跳过它。
 bool EntityHasNoQueryFlag(const EntitySnapshot& snapshot) noexcept {
     return (snapshot.flags & (1ULL << kEntityFlagNoQueryBit)) != 0;
@@ -6962,7 +6952,7 @@ namespace {
 bool EntityMatchesRadiusQuery(std::uintptr_t address, double x, double y, double radius,
                               std::uint32_t mask) {
     EntitySnapshot snapshot{};
-    if (!CaptureEntity(address, &snapshot)) {
+    if (!CaptureEntityTypeSnapshot(address, &snapshot)) {
         return false;
     }
     if (EntityHasNoQueryFlag(snapshot)) {
@@ -6971,6 +6961,11 @@ bool EntityMatchesRadiusQuery(std::uintptr_t address, double x, double y, double
     if ((ClassifyEntity(snapshot) & mask) == 0) {
         return false;
     }
+    // 火焰碰撞会连续查询相同房间；先排除无关分区，再读空间字段。
+    // TypeSnapshot 已核对整个实体跨度，半径判据不需要 Index。
+    static_cast<void>(ReadEngineUnchecked(address + kEntityPositionOffset, &snapshot.x));
+    static_cast<void>(ReadEngineUnchecked(address + kEntityPositionOffset + sizeof(float), &snapshot.y));
+    static_cast<void>(ReadEngineUnchecked(address + kEntitySizeOffset, &snapshot.size));
     return EntityMatchesRadius(snapshot, x, y, radius);
 }
 
@@ -7033,19 +7028,20 @@ int IsaacFindInRadius(lua_State* state) {
     // 探针读数：三个数据源各自命中多少（`QuerySink::emitted` 是已写入 Lua 表的条数）。
     if ((mask & kLiveTablePartitions) != 0) {
         const int before = sink.emitted;
-        ForEachEntityInTable(list, kLiveEntityTable, consider);
+        // visitor 会核对实体可读性及 vptr，迭代器无需再验证同一指针。
+        ForEachEntityInTable<false>(list, kLiveEntityTable, consider);
         g_FindInRadiusLive.store(static_cast<std::uint32_t>(sink.emitted - before),
                                  std::memory_order_relaxed);
     }
     if ((mask & kPartitionPlayer) != 0) {
         const int before = sink.emitted;
-        ForEachPlayerEntity(ResolveGameAddress(), consider);
+        ForEachPlayerEntity<false>(ResolveGameAddress(), consider);
         g_FindInRadiusPlayers.store(static_cast<std::uint32_t>(sink.emitted - before),
                                     std::memory_order_relaxed);
     }
     if ((mask & kPartitionEffect) != 0) {
         const int before = sink.emitted;
-        ForEachEntityInTable(list, kEffectEntityTable, consider);
+        ForEachEntityInTable<false>(list, kEffectEntityTable, consider);
         g_FindInRadiusEffects.store(static_cast<std::uint32_t>(sink.emitted - before),
                                     std::memory_order_relaxed);
     }
