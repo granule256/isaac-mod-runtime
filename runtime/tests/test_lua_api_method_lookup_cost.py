@@ -34,7 +34,7 @@ constexpr int kEntityBombVtableOffset=0,kEntityTypeBomb=0,kEntityBombIsFetusOffs
 template<class T>bool ReadEngine(std::uintptr_t,T*){return false;}
 bool IsFamiliarOrbitField(const char*){return false;}
 int PushFamiliarOrbitField(lua_State*,EntityHandle*,const char*){return 0;}
-int probes=0,fieldValue=7;
+int probes=0,fieldValue=7;bool readable=true;
 int Probe(lua_State*,std::uintptr_t,const char*){++probes;return 0;}
 #define TryPushApi400EffectMethod Probe
 #define TryPushApi400EntityField Probe
@@ -44,7 +44,7 @@ int Probe(lua_State*,std::uintptr_t,const char*){++probes;return 0;}
 #define TryPushApi600EntityField Probe
 #define TryPushApi600ExtraEntityField Probe
 #define TryPushApi600PlayerField Probe
-bool PushEntityField(lua_State*L,std::uintptr_t,const char*k,bool){++probes;if(!std::strcmp(k,"HitPoints")){lua_pushinteger(L,fieldValue);return true;}return false;}
+bool PushEntityField(lua_State*L,std::uintptr_t,const char*k,bool){++probes;if(readable&&(!std::strcmp(k,"HitPoints")||!std::strcmp(k,"Type")||!std::strcmp(k,"Variant")||!std::strcmp(k,"SubType"))){lua_pushinteger(L,fieldValue);return true;}return false;}
 bool PushEntityPickupField(lua_State*,std::uintptr_t,const char*){++probes;return false;}
 bool PushEntityProjectileField(lua_State*,std::uintptr_t,const char*){++probes;return false;}
 bool PushEntityNpcField(lua_State*,std::uintptr_t,const char*){++probes;return false;}
@@ -71,6 +71,14 @@ int main(){auto*L=luaL_newstate();luaL_requiref(L,"_G",luaopen_base,1);lua_pop(L
  if(luaL_loadstring(L,"assert(p.HitPoints==7);base.__index=function(o,k)return k=='GetData' and 99 or nil end;assert(p.GetData==99)")||lua_pcall(L,0,0,0)){std::fprintf(stderr,"%s",lua_tostring(L,-1));return 3;}
  fieldValue=8;if(luaL_loadstring(L,"assert(p.HitPoints==8)")||lua_pcall(L,0,0,0))return 4;
  h->valid=false;probes=0;if(luaL_loadstring(L,"assert(p.HitPoints==nil);assert(p.GetData==99)")||lua_pcall(L,0,0,0)||probes)return 5;
+ lua_getglobal(L,"base");lua_pushcfunction(L,EntityIndex);lua_setfield(L,-2,"__index");lua_pop(L,1);
+ h->valid=true;probes=0;
+ if(luaL_dostring(L,"base.__methods.Type=123;assert(p.Type==8 and p.Variant==8 and p.SubType==8)"))return 6;
+ if(probes!=3){std::fprintf(stderr,"identity fields entered %d probes instead of 3",probes);return 7;}
+ readable=false;
+ if(luaL_dostring(L,"assert(p.Type==123);assert(p.Variant==nil)"))return 8;
+ h->valid=false;
+ if(luaL_dostring(L,"assert(p.Type==123)"))return 9;
  lua_close(L);return 0;}
 '''
   with tempfile.TemporaryDirectory()as tmp:

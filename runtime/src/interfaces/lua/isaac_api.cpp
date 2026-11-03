@@ -1759,10 +1759,31 @@ EntityHandle* TryGetEntityHandle(lua_State* state, int index) noexcept {
         kEntityProjectileMetatable, kEntityTearMetatable, kEntityBombMetatable,
         kEntityLaserMetatable, kEntityKnifeMetatable, kEntityNPCMetatable, kEntityFamiliarMetatable,
     };
-    for (const char* metatable : metatables) {
-        auto* handle = static_cast<EntityHandle*>(luaL_testudata(state, index, metatable));
-        if (handle != nullptr) {
-            return handle;
+    // 玩家保留原来的短路径；其余视图在本次识别中共用真实元表。
+    auto* handle = static_cast<EntityHandle*>(luaL_testudata(state, index, metatables[0]));
+    if (handle != nullptr) return handle;
+    handle = static_cast<EntityHandle*>(lua_touserdata(state, index));
+    if (handle == nullptr) return nullptr;
+    // registry 自带元方法时保留原探测次序，避免改变动态查找的副作用。
+    if (lua_getmetatable(state, LUA_REGISTRYINDEX)) {
+        lua_pop(state, 1);
+    } else if (lua_getmetatable(state, index)) {
+        for (std::size_t i = 1; i < sizeof(metatables) / sizeof(metatables[0]); ++i) {
+            luaL_getmetatable(state, metatables[i]);
+            const bool same = lua_rawequal(state, -1, -2) != 0;
+            lua_pop(state, 1);
+            if (same) {
+                lua_pop(state, 1);
+                return handle;
+            }
+        }
+        lua_pop(state, 1);
+        return nullptr;
+    }
+    // registry 带元方法时，每一步重新取对象元表，保留原查找的副作用。
+    for (std::size_t i = 1; i < sizeof(metatables) / sizeof(metatables[0]); ++i) {
+        if (auto* found = static_cast<EntityHandle*>(luaL_testudata(state, index, metatables[i]))) {
+            return found;
         }
     }
     return nullptr;
@@ -2988,6 +3009,11 @@ int IndexEntity(lua_State* state, EntityView view) {
                               std::strcmp(field, "HasTrinket") == 0)) ||
         (field[0] == 'I' && std::strcmp(field, "IsDead") == 0);
     if (entity != 0 && !methodOnly) {
+        // 三个身份字段无子类覆盖；复用原读取和计数，省去扩展字段的逐组探测。
+        if (((field[0] == 'T' && std::strcmp(field, "Type") == 0) ||
+             (field[0] == 'V' && std::strcmp(field, "Variant") == 0) ||
+             (field[0] == 'S' && std::strcmp(field, "SubType") == 0)) &&
+            PushEntityField(state, entity, field, view == EntityView::Player)) return 1;
         if(const int pushed=TryPushApi400EffectMethod(state,entity,field))return pushed;
         if(const int pushed=TryPushApi400EntityField(state,entity,field))return pushed;
         if(const int pushed=TryPushRPlusEntityField(state,entity,field))return pushed;
@@ -13494,12 +13520,9 @@ bool IsPickupEntity(std::uintptr_t candidate) noexcept {
 
 CallbackEntityClass ClassifyCallbackEntity(std::uintptr_t candidate,
                                           std::int64_t* callbackFilter) noexcept {
-    // 一次快照就够：`CaptureEntity` 先做**一次**可读性检查（覆盖 `[entity, entity+0x348)`）、
-    // 再校验 vptr 是否落在 `Entity` 家族的 vtable 区间里，然后把类型字段一起读出来。
-    // 用它而不是逐个 `ReadEngine`：每帧要把整个房间过一遍，逐字段检查会让一次扫描变成
-    // 上千次 `svcQueryMemory`（真机上是系统调用）。
+    // 分类只需要身份字段，保持一次范围/vptr校验，不读取位置、尺寸或容器下标。
     EntitySnapshot snapshot{};
-    if (!CaptureEntity(candidate, &snapshot)) {
+    if (!CaptureEntityTypeSnapshot(candidate, &snapshot)) {
         return CallbackEntityClass::None;
     }
     // 复用分类快照：NPC按Type、刀按SubType、其它族按Variant过滤，不新增每回调内存查询。
