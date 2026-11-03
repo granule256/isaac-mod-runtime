@@ -179,6 +179,8 @@ void PublishFakeWorld(std::uintptr_t playerSlotTarget, std::uintptr_t npcSlotTar
     std::memcpy(g_ModuleBytes.data()+E::kEntity0Entry,E::kEntity0Guard.data(),E::kEntity0Guard.size());
     std::memcpy(g_ModuleBytes.data()+E::kEntity1Entry,E::kEntity1Guard.data(),E::kEntity1Guard.size());
     std::memcpy(g_ModuleBytes.data()+E::kEntity2Entry,E::kEntity2Guard.data(),E::kEntity2Guard.size());
+    std::memcpy(g_ModuleBytes.data()+kEntityNpcCanShutDoorsMethodOffset,
+                kEntityNpcCanShutDoorsExpectedBytes.data(),kEntityNpcCanShutDoorsExpectedBytes.size());
 
     MakeFakeEntity(g_PlayerBytes, kEntityPlayerVtableOffset);
     WriteAt<std::uint64_t>(g_PlayerBytes, kEntityParentOffset, AddressOf(g_NpcBytes));
@@ -241,7 +243,8 @@ int main(int argc, char** argv) {
         "  local n = p.Parent:ToNPC()\n"
         "  print('B303 nkind=' .. type(n))\n"
         "  print('B303 nfn=' .. type(n and n.CanShutDoors))\n"
-        "  print('B303 ret=' .. select('#', n:CanShutDoors()))\n"
+        // NPC has a boolean property; query its virtual behavior through Entity's method.
+        "  print('B303 ret=' .. select('#', p.CanShutDoors(n)))\n"
         "elseif scenario == 'args' then\n"
         "  print('B303 extra=' .. ok(function() return p:CanShutDoors(1) end))\n"
         "  print('B303 extramsg=' .. err(function() return p:CanShutDoors(1) end))\n"
@@ -309,7 +312,7 @@ class VtableCallsBatch303Tests(unittest.TestCase):
 
         out = self.run_scenario("npc")
         self.assertIn("B303 nkind=userdata", out)
-        self.assertIn("B303 nfn=function", out)
+        self.assertIn("B303 nfn=boolean", out)
         self.assertEqual(self.value(out, "B303 calls"), "1")
         self.assertEqual(int(self.value(out, "B303 target"), 16), int(TARGET_B, 16))
         self.assertEqual(int(self.value(out, "B303 x0"), 16), int(self.value(out, "B303 naddr"), 16),

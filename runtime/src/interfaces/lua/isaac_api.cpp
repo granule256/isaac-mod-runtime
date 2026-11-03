@@ -2967,6 +2967,21 @@ int IndexEntity(lua_State* state, EntityView view) {
         return 1;
     }
     const char* field = lua_tostring(state, 2);
+    if (view == EntityView::Npc && field[0] == 'C' && std::strcmp(field, "CanShutDoors") == 0) {
+        const auto npc = ValidatedEntity(handle);
+        if (!IsNpcFamilyEntity(npc)) {
+            lua_pushnil(state);
+            return 1;
+        }
+        std::uint8_t value = 0;
+        if (EntityMethodByExpectedBytes(kEntityNpcCanShutDoorsMethodOffset,
+                                       kEntityNpcCanShutDoorsExpectedBytes) == 0 ||
+            !ReadEngine(npc + kEntityNpcCanShutDoorsOffset, &value)) {
+            return luaL_error(state, "EntityNPC.CanShutDoors native field is unavailable");
+        }
+        lua_pushboolean(state, value != 0);
+        return 1;
+    }
     if (view == EntityView::Bomb && std::strcmp(field, "IsFetus") == 0) {
         const auto bomb = ValidatedTypedEntity(handle, kEntityBombVtableOffset, kEntityTypeBomb);
         std::uint8_t value = 0;
@@ -3200,6 +3215,16 @@ int EntityNewIndex(lua_State* state) {
     const std::uintptr_t entity = ValidatedEntity(handle);
     if (entity == 0) {
         // 过期/伪造句柄：与读路径同一口径 —— 不报错、也不写（写一个失效地址才是真危险）。
+        return 0;
+    }
+    if (std::strcmp(field, "CanShutDoors") == 0) {
+        if (!IsNpcFamilyEntity(entity)) return luaL_error(state, "CanShutDoors requires EntityNPC");
+        const auto value = static_cast<std::uint8_t>(lua_toboolean(state, 3) != 0);
+        if (EntityMethodByExpectedBytes(kEntityNpcCanShutDoorsMethodOffset,
+                                       kEntityNpcCanShutDoorsExpectedBytes) == 0 ||
+            !WriteEngine(entity + kEntityNpcCanShutDoorsOffset, value)) {
+            return luaL_error(state, "EntityNPC.CanShutDoors native field is not writable");
+        }
         return 0;
     }
     if(TryWriteApi400EntityField(state,entity,field))return 0;
@@ -11568,7 +11593,7 @@ int EntityPlayerAddItemWisp(lua_State* state) {
         PushNil(state);
         return 1;
     }
-    PushEntityHandle(state, created, kEntityMetatable);
+    PushEntityHandle(state, created, kEntityFamiliarMetatable);
     return 1;
 }
 

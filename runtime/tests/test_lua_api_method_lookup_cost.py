@@ -32,6 +32,9 @@ std::uintptr_t ValidatedEntity(EntityHandle*h){++validations;return h->valid?1:0
 std::uintptr_t ValidatedEntityPlayer(EntityHandle*h){return ValidatedEntity(h);}
 std::uintptr_t ValidatedTypedEntity(EntityHandle*h,int,int){return ValidatedEntity(h);}
 constexpr int kEntityBombVtableOffset=0,kEntityTypeBomb=0,kEntityBombIsFetusOffset=0,kEntityTearVtableOffset=0,kEntityTypeTear=0,kEntityTearScaleOffset=0;
+constexpr int kEntityNpcCanShutDoorsOffset=0,kEntityNpcCanShutDoorsMethodOffset=0,kEntityNpcCanShutDoorsExpectedBytes=0;
+bool IsNpcFamilyEntity(std::uintptr_t){return false;}
+template<class T>std::uintptr_t EntityMethodByExpectedBytes(std::uintptr_t,const T&){return 0;}
 template<class T>bool ReadEngine(std::uintptr_t,T*){return false;}
 bool IsFamiliarOrbitField(const char*){return false;}
 int PushFamiliarOrbitField(lua_State*,EntityHandle*,const char*){return 0;}

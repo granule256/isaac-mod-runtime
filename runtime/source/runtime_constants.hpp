@@ -2097,6 +2097,15 @@ inline constexpr std::uint32_t kEntityEnemyTypeSpan = 0x3DE;
 //      这是一个由 NPC 配置驱动、被 AI 代码真正使用的字段。
 inline constexpr uintptr_t kEntityBossFlagOffset = 0xCC9;
 
+// EntityNPC.CanShutDoors 是可写 bool 属性，与基类的虚方法不同。
+// NPC::Init @108A04/108A08 把 config+5C 拷到 +CC8；
+// NPC::CanShutDoors @124B00 先读本字节，再排除友军标记。
+inline constexpr uintptr_t kEntityNpcCanShutDoorsOffset = 0xCC8;
+inline constexpr uintptr_t kEntityNpcCanShutDoorsMethodOffset = 0x124B00;
+inline constexpr std::array<u8,16> kEntityNpcCanShutDoorsExpectedBytes = {
+    0x08,0x20,0x73,0x39,0xa8,0x00,0x00,0x34,0x08,0xec,0x46,0x39,0x1f,0x01,0x1b,0x72
+};
+
 // 扫描一个实体需要的字段区间：最远的字段是 `Size`（`+0x344`，4 字节），所以一次可读性检查
 // 覆盖 `[entity, entity + 0x348)` 就够，之后的逐字段读取只是 `memcpy`（真机上 `svcQueryMemory`
 // 是系统调用，逐字段检查会让一次全房间扫描变成上千次调用）。
