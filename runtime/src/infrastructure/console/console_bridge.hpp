@@ -71,7 +71,7 @@ inline constexpr std::size_t kCommandInlineCapacity = 22;
 inline constexpr std::size_t kCommandBufferCapacity = 128;
 //: 老有界复制助手最多多少字节（= 缓冲容量 − 结尾 `\0`），公共执行入口不使用它。
 inline constexpr std::size_t kCommandLengthLimit = kCommandBufferCapacity - 1;
-//: 输出累计字节上限。超了就**拒绝新命令**（既不 free 也不 clear —— 那块内存是游戏分配的）。
+//: 输出累计字节上限；独立命令之间复用引擎缓冲，嵌套执行仍受上限保护。
 inline constexpr std::size_t kOutputByteLimit = 64 * 1024;
 //: 对象缓冲尾部的哨兵宽度：`Console` 写出界要能被发现，而不是踩到相邻静态变量。
 inline constexpr std::size_t kObjectFenceBytes = 16;
@@ -346,6 +346,7 @@ struct Core {
     isaac::runtime::ConsoleControls controls{};
     std::uint32_t controlsWriteDelay{};
     std::uint32_t controlsReadDelay{};
+    std::uint32_t executionDepth{};
 };
 
 [[nodiscard]] inline Core& Storage() noexcept {
@@ -592,6 +593,13 @@ struct ExecutionOutcome {
                                                     std::size_t length) noexcept {
     ExecutionOutcome outcome{};
     Core& core = Storage();
+    const bool independent = core.executionDepth++ == 0;
+    struct ExecutionScope {
+        std::uint32_t& depth;
+        ~ExecutionScope() { --depth; }
+    } executionScope{core.executionDepth};
+    // 拒绝本次命令时也不能把上次结果交给调用者。
+    core.lastOutputLength = 0;
     outcome.status = ExecStatus::kOk;
 
     if (command == nullptr || length == 0) {
@@ -631,9 +639,21 @@ struct ExecutionOutcome {
         return outcome;
     }
     if (State().outputBytes >= kOutputByteLimit) {
-        outcome.status = ExecStatus::kOutputFenced;
-        State().lastStatus = static_cast<std::uint32_t>(outcome.status);
-        return outcome;
+        // 原生长字符串的容量/指针仍归引擎；只在独立命令边界清长度与首字节。
+        // 嵌套命令不能清：外层还按 before/after 读取自己的输出。
+        auto* data = const_cast<char*>(EngineStringData(core.outputString));
+        if (independent && core.outputReady && EngineStringIsLong(core.outputString) &&
+            EngineStringSize(core.outputString) >= kOutputByteLimit && data != nullptr &&
+            engine_memory::EngineMemoryWritable(engine_memory::AddressOf(data), 1)) {
+            const std::uint64_t empty = 0;
+            std::memcpy(core.outputString + sizeof(std::uint64_t), &empty, sizeof(empty));
+            data[0] = '\0';
+            State().outputBytes = 0;
+        } else {
+            outcome.status = ExecStatus::kOutputFenced;
+            State().lastStatus = static_cast<std::uint32_t>(outcome.status);
+            return outcome;
+        }
     }
     ++State().layoutChecks;
     State().layoutOk = StringLayoutSelfCheck() ? 1U : 0U;

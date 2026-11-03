@@ -1,14 +1,18 @@
 """经公共执行入口验证命令原文、调用期生命周期与既有拒绝条件。"""
 
 import subprocess
+import shutil
 import tempfile
 import unittest
 from pathlib import Path
 
-try:
-    from .test_console_bridge import ROOT, SOURCE, host_compilers
-except ImportError:
-    from test_console_bridge import ROOT, SOURCE, host_compilers
+ROOT = Path(__file__).resolve().parents[2]
+SOURCE = ROOT / 'runtime/source'
+
+def host_compilers():
+    cc=shutil.which('clang') or shutil.which('gcc')
+    cxx=shutil.which('clang++') or shutil.which('g++')
+    return (cc,cxx) if cc and cxx else None
 
 
 HARNESS = r'''
@@ -29,6 +33,10 @@ std::uintptr_t moduleBase = 0;
 console::EngineEntries entries{};
 bool recurse = false;
 bool breakFence = false;
+bool accumulate = false;
+bool fenceNested = false;
+unsigned reused = 0;
+char engineOutput[console::kOutputByteLimit + 128]{};
 
 void check(bool condition, const char* name) {
     if (!condition) { ++failures; std::printf("CONSOLE_FAIL %s\n", name); }
@@ -62,8 +70,15 @@ void MockConsoleRunCommand(void* object, const void* command, void* output, void
         std::memcpy(saved, header, sizeof(saved));
         std::string nested(1024, 'n');
         expected = nested.c_str(); expectedLength = nested.size();
+        if (fenceNested) {
+            auto* bytes=static_cast<unsigned char*>(output);
+            const std::uint64_t capacity=sizeof(engineOutput)|1ULL,length=console::kOutputByteLimit;
+            const std::uint64_t pointer=memory::AddressOf(engineOutput);
+            std::memcpy(bytes,&capacity,8);std::memcpy(bytes+8,&length,8);std::memcpy(bytes+16,&pointer,8);
+            console::State().outputBytes=console::kOutputByteLimit;
+        }
         const auto result = console::ExecuteCommand(entries, moduleBase, expected, expectedLength);
-        check(result.status == console::ExecStatus::kOk, "recursive-command-runs");
+        check(result.status == (fenceNested?console::ExecStatus::kOutputFenced:console::ExecStatus::kOk), "recursive-command-keeps-output-guard");
         check(std::memcmp(saved, header, sizeof(saved)) == 0, "outer-header-survives-recursion");
         check(std::memcmp(console::EngineStringData(header), outer, outerLength) == 0,
               "outer-text-survives-recursion");
@@ -74,6 +89,25 @@ void MockConsoleRunCommand(void* object, const void* command, void* output, void
     }
     std::memset(static_cast<unsigned char*>(object)+0x150,0,sizeof(redirect));
     auto* result = static_cast<unsigned char*>(output);
+    if (accumulate) {
+        auto length=console::EngineStringSize(result);
+        if (calls>1 && length==0) {
+            check(console::EngineStringIsLong(result),"recycle-keeps-long-layout");
+            check(console::EngineStringData(result)==engineOutput,"recycle-keeps-engine-allocation");
+            std::uint64_t capacity=0;std::memcpy(&capacity,result,8);
+            check(capacity==(sizeof(engineOutput)|1ULL),"recycle-keeps-engine-capacity");
+            check(engineOutput[0]=='\0',"recycle-terminates-empty-output");
+            ++reused;
+        }
+        const char* text=calls%2?"Enabled debug flag.\n":"Disabled debug flag.\n";
+        const auto added=std::strlen(text);
+        check(length+added<sizeof(engineOutput),"output-allocation-stays-bounded");
+        std::memcpy(engineOutput+length,text,added+1);length+=added;
+        const std::uint64_t capacity=sizeof(engineOutput)|1ULL;
+        const std::uint64_t pointer=memory::AddressOf(engineOutput);
+        std::memcpy(result,&capacity,8);std::memcpy(result+8,&length,8);std::memcpy(result+16,&pointer,8);
+        return;
+    }
     std::memset(result, 0, console::kEngineStringBytes);
     result[0] = 4; result[1] = 'o'; result[2] = 'k';
     if (breakFence) {
@@ -99,7 +133,26 @@ int main(int argc, char** argv) {
     entries.consoleCtor = MockCtor; entries.consoleInit = MockInit;
     entries.runCommand = MockConsoleRunCommand;
     std::string scenario(argv[1]);
-    if (scenario == "guards") {
+    if (scenario == "reused-output") {
+        expected="debug 3";expectedLength=7;accumulate=true;
+        for(unsigned i=0;i<7000;++i) {
+            const auto result=console::ExecuteCommand(entries,moduleBase,expected,expectedLength);
+            check(result.status==console::ExecStatus::kOk,"repeated-debug-command-keeps-running");
+            const char* text=nullptr;std::uint32_t length=0;
+            const char* wanted=calls%2?"Enabled debug flag.":"Disabled debug flag.";
+            check(console::TakeLastOutput(&text,&length)&&length==std::strlen(wanted)&&
+                  std::memcmp(text,wanted,length)==0,"each-debug-call-returns-current-toggle");
+            check(console::State().outputBytes<=console::kOutputByteLimit+22,"repeated-output-does-not-grow-unbounded");
+            if(failures)break;
+        }
+        check(calls==7000 && reused>0,"engine-output-allocation-is-reused-after-limit");
+    } else if (scenario == "rejected-output") {
+        expected="debug 3";expectedLength=7;
+        check(console::ExecuteCommand(entries,moduleBase,expected,expectedLength).status==console::ExecStatus::kOk,"initial-command-runs");
+        check(console::ExecuteCommand(entries,moduleBase,nullptr,0).status==console::ExecStatus::kEmptyCommand,"empty-command-refused");
+        const char* text=nullptr;std::uint32_t length=0;
+        check(!console::TakeLastOutput(&text,&length),"refused-command-does-not-return-previous-output");
+    } else if (scenario == "guards") {
         std::string input(65536, 'g');
         expected = input.c_str(); expectedLength = input.size();
         auto execute = [&]() { return console::ExecuteCommand(entries, moduleBase, expected, expectedLength); };
@@ -137,16 +190,19 @@ int main(int argc, char** argv) {
         check(execute().status == console::ExecStatus::kFenceBroken && calls == 1,
               "post-call-fence-damage-blocks-next-call");
     } else {
-        const std::size_t length = scenario == "recursive" ? 22 : std::stoull(scenario);
+        const bool recursive=scenario=="recursive" || scenario=="recursive-full-output";
+        const std::size_t length = recursive ? 22 : std::stoull(scenario);
         std::string input(length, 'a');
         for (std::size_t i = 0; i < length; ++i) input[i] = static_cast<char>('a' + i % 23);
         // 原文中的 NUL 必须随显式长度穿过入口，不能由 strlen 截断。
         if (length > 10) input[7] = '\0';
         const std::string original = input;
-        expected = input.c_str(); expectedLength = input.size(); recurse = scenario == "recursive";
+        expected = input.c_str(); expectedLength = input.size(); recurse = recursive;
+        fenceNested=scenario=="recursive-full-output";
         const auto result = console::ExecuteCommand(entries, moduleBase, expected, expectedLength);
         check(result.status == console::ExecStatus::kOk, "command-executes");
         check(calls == (scenario == "recursive" ? 2U : 1U), "engine-called-exactly-once-per-command");
+        check(console::Storage().executionDepth==0,"execution-depth-restored-after-nesting");
         check(input == original, "caller-text-unchanged");
         check(console::State().lastCommandLength == length, "full-length-published");
         check(console::State().commandsRun == calls, "successful-calls-published");
@@ -212,6 +268,15 @@ class ConsoleLongCommandTests(unittest.TestCase):
 
     def test_guards_and_size_overflow_remain_enforced(self):
         self.run_case("guards")
+
+    def test_repeated_debug_commands_reuse_output_and_return_fresh_results(self):
+        self.run_case("reused-output")
+
+    def test_refused_commands_do_not_return_stale_output(self):
+        self.run_case("rejected-output")
+
+    def test_nested_commands_cannot_recycle_the_outer_output(self):
+        self.run_case("recursive-full-output")
 
 
 if __name__ == "__main__":
