@@ -760,7 +760,8 @@ int SpriteReplaceSpritesheet(lua_State* state) {
     if (const int error = ResolveSprite(state, "Sprite:ReplaceSpritesheet", &sprite); error != 0) {
         return error;
     }
-    if (lua_gettop(state) != 3 || !isaac::runtime::IsIntegerArgument(state, 2) || lua_type(state, 3) != LUA_TSTRING) {
+    // PC's LuaBridge wrapper reads slots 2/3 and ignores trailing compatibility arguments.
+    if (lua_gettop(state) < 3 || !isaac::runtime::IsIntegerArgument(state, 2) || lua_type(state, 3) != LUA_TSTRING) {
         return luaL_error(state, "Sprite:ReplaceSpritesheet accepts a layer id and a file name");
     }
     const LuaRuntime::SpriteReplaceSpritesheetFn method = LuaRuntime::SpriteReplaceSpritesheetThunk();
