@@ -12902,6 +12902,15 @@ void PublishItemConfigConstants(lua_State* state) {
     lua_pushinteger(state,0);lua_setfield(state,-2,"CHARGE_NORMAL");
     lua_pushinteger(state,1);lua_setfield(state,-2,"CHARGE_TIMED");
     lua_pushinteger(state,2);lua_setfield(state,-2,"CHARGE_SPECIAL");
+    // PC ItemConfig card categories (enums/ItemConfig.md), used as table keys by mods.
+    constexpr const char* cardTypes[] = {
+        "CARDTYPE_TAROT", "CARDTYPE_SUIT", "CARDTYPE_RUNE",
+        "CARDTYPE_SPECIAL", "CARDTYPE_SPECIAL_OBJECT", "CARDTYPE_TAROT_REVERSE",
+    };
+    for (std::size_t type = 0; type < std::size(cardTypes); ++type) {
+        lua_pushinteger(state, static_cast<lua_Integer>(type));
+        lua_setfield(state, -2, cardTypes[type]);
+    }
     for (const ItemConfigConstant& constant : kItemConfigTagConstants) {
         // `lua_Integer` 是 64 位，`1 << 32`（`TAG_NO_EDEN`）不会溢出。
         lua_pushinteger(state, static_cast<lua_Integer>(1) << constant.bit);

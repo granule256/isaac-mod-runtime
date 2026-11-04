@@ -229,13 +229,13 @@ int main(int argc, char** argv) {
             // `include(path)`：PC 提供给模组的全局（`Globals.md:189`）。判据三条 ——
             // ① 存在且返回**被包含文件 chunk 的返回值**；② **不缓存**（每次都重新读盘：
             //    GoodTrip 的 main.lua:30-33 明说"include re-reads the file on every luamod"）；
-            // ③ 文件不存在时**抛错**（GoodTrip 用 pcall 包着第一次调用，正是为了容忍这一点）。
+            // ③ 文件不存在时返回诊断字符串，调用者继续执行（PC include 0x7FC640）。
             "if type(include)~='function' then error('include must exist (PC provides it)') end "
             "local incA=include('src.metadata') "
             "local incB=include('src.metadata') "
             "if type(incA)~='table' or incA.name~='Probe' then error('include return value') end "
             "if incA==incB then error('include must not cache (it re-reads every call)') end "
-            "if pcall(include,'src.missing') then error('include must raise on a missing file') end "
+            "local incOk,incError=pcall(include,'src.missing'); if not incOk or type(incError)~='string' then error('include missing-file return') end "
             "if type(os)~='table' then error('os must exist') end "
             "if os.remove~=nil or os.rename~=nil or os.tmpname~=nil or os.exit~=nil then error('unsafe os member') end "
             "if debug==nil or type(debug.getinfo)~='function' then error('debug.getinfo must exist') end "

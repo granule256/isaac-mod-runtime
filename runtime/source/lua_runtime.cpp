@@ -1342,8 +1342,8 @@ int ModLoadString(lua_State* state) {
 // ⚠️ 这条缺口此前**扫不到**：缺口工具认的是 `Owner:Name(` / `Owner.Name(` / 链式三种形态，
 // 而 `include(...)` 是**裸全局调用**。已登记为工具的待补形态（见 `docs/问题与解决记录.md` 续六十三）。
 //
-// 失败口径：与 PC 一致地**抛 Lua 错误**（GoodTrip 用 `pcall` 包着第一次调用，正是为了容忍
-// `gtconfig.lua` 不存在/写坏）。
+// PC 的路径解析失败会压入诊断字符串，include 返回该字符串而不抛错
+// （PC include 0x7FC640，路径解析 0x7FB740）。编译和执行错误仍抛出。
 int Include(lua_State* state) {
     std::array<char,kStage13ModRootCapacity> callerRoot{};
     std::size_t modRootLength=g_Stage13ModRootLength;
@@ -1395,9 +1395,13 @@ int Include(lua_State* state) {
     if (readResult != GameFileReader::TextReadResult::Success) {
         --g_Stage13RequireDepth;
         std::array<char, kStage13RequirePathCapacity * 2> notFoundText{};
-        return luaL_error(state, "%s", BuildRequireNotFoundMessage(
-                                            &notFoundText, modRoot,
-                                            modRootLength, moduleName, moduleLength));
+        const char* diagnostic = BuildRequireNotFoundMessage(
+            &notFoundText, modRoot, modRootLength, moduleName, moduleLength);
+        if (readResult == GameFileReader::TextReadResult::OpenFailed) {
+            lua_pushstring(state, diagnostic);
+            return 1;
+        }
+        return luaL_error(state, "%s", diagnostic);
     }
 
     std::array<char, kStage13RequirePathCapacity + 1> chunkNameStorage{};
@@ -1995,8 +1999,11 @@ void RegisterGameApi(lua_State* state) {
     luaL_newmetatable(state, kItemPoolMetatable);
     lua_newtable(state);
     static_cast<void>(isaac::runtime::AttachItemPoolMethods(state));
+    lua_setfield(state, -2, "__methods");
+    lua_pushcfunction(state, isaac::runtime::NativeClassMethodIndex);
     lua_setfield(state, -2, "__index");
     lua_pop(state, 1);
+    isaac::runtime::PublishNativeClass(state, "ItemPool", kItemPoolMetatable);
 
     // ★★ 批次 284（2026-10-04）：`Level` 的元表要补成 **PC 的形状** —— 三处消费者都要它：
     //   * `MinimapAPI/main.lua:230`：`getmetatable(Level).__class.MakeRedRoomDoor`
