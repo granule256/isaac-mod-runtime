@@ -23,10 +23,7 @@ void RawField(lua_State* state,int index,const char* name) {
     index=lua_absindex(state,index);lua_pushstring(state,name);lua_rawget(state,index);
 }
 std::uint32_t Owner(lua_State* state,int index) {
-    if(!lua_istable(state,index)||!lua_getmetatable(state,index))return 0;
-    RawField(state,-1,"__handle");
-    const auto* handle=static_cast<LuaRuntime::ModHandle*>(luaL_testudata(state,-1,LuaRuntime::kModMetatable));
-    const auto owner=handle?handle->ownerPacked:0;lua_pop(state,2);return owner;
+    return ModObjectOwner(state,index);
 }
 int RefreshDiagnostics(lua_State* state) {
     g_CallbackDiagnosticViewIncomplete=1;

@@ -49,6 +49,7 @@ using LuaRuntime::kModMetatable;
 using LuaRuntime::kStage13CallbackValue;
 using LuaRuntime::ModHandle;
 using LuaRuntime::RecordCallbackOperation;
+constexpr char kModObjectHandles[] = "IsaacRuntime.ModObjectHandles";
 
 int ModAddCallback(lua_State* state);
 int ModRemoveCallback(lua_State* state);
@@ -89,6 +90,18 @@ constexpr char kModOwner[] = "Mod";
 
 LuaRuntime::ModHandle* ModHandleFromObject(lua_State* state, int index) noexcept {
     if (lua_istable(state, index)) {
+        index = lua_absindex(state, index);
+        lua_getfield(state, LUA_REGISTRYINDEX, kModObjectHandles);
+        if (lua_istable(state, -1)) {
+            lua_pushvalue(state, index);
+            lua_rawget(state, -2);
+            auto* handle = static_cast<LuaRuntime::ModHandle*>(
+                luaL_testudata(state, -1, LuaRuntime::kModMetatable));
+            lua_pop(state, 2);
+            if (handle != nullptr) return handle;
+        } else {
+            lua_pop(state, 1);
+        }
         if (lua_getmetatable(state, index) == 0) {
             return nullptr;
         }
@@ -482,6 +495,29 @@ int IsaacHasModData(lua_State* state) {
 std::size_t AttachModMethods(lua_State* state) noexcept {
     return AttachOwnerMethods(state, kModOwner, kModHandlers,
                               sizeof(kModHandlers) / sizeof(kModHandlers[0]));
+}
+void BindModObjectHandle(lua_State* state, int object, int handle) {
+    object = lua_absindex(state, object);
+    handle = lua_absindex(state, handle);
+    lua_getfield(state, LUA_REGISTRYINDEX, kModObjectHandles);
+    if (!lua_istable(state, -1)) {
+        lua_pop(state, 1);
+        lua_newtable(state);
+        lua_newtable(state);
+        lua_pushliteral(state, "k");
+        lua_setfield(state, -2, "__mode");
+        lua_setmetatable(state, -2);
+        lua_pushvalue(state, -1);
+        lua_setfield(state, LUA_REGISTRYINDEX, kModObjectHandles);
+    }
+    lua_pushvalue(state, object);
+    lua_pushvalue(state, handle);
+    lua_rawset(state, -3);
+    lua_pop(state, 1);
+}
+std::uint32_t ModObjectOwner(lua_State* state, int object) noexcept {
+    const auto* handle = ModHandleFromObject(state, object);
+    return handle != nullptr ? handle->ownerPacked : 0;
 }
 void RecordCallbackTableRegistration(std::uint32_t id) noexcept {
     LuaRuntime::RecordCallbackRegistration(id,HasDispatchSite(id));

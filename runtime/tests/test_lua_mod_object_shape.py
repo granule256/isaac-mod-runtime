@@ -100,12 +100,17 @@ end
 -- 模组往自己身上写字段（PC 用 table 的理由）
 mod.myField = 41
 if mod.myField ~= 41 then error('a mod must be able to store its own fields') end
--- 内部句柄不许漏出来：表里只应有 Name 与自己写的那个键
+-- PC puts public methods on the table too; private owner userdata must stay hidden.
 local keys = {}
-for key in pairs(mod) do keys[#keys + 1] = tostring(key) end
+for key,value in pairs(mod) do
+  keys[#keys + 1] = tostring(key)
+  if key ~= 'Name' and key ~= 'myField' and type(value) ~= 'function' then
+    error('private field leaked into mod table: '..tostring(key))
+  end
+end
 table.sort(keys)
-if #keys ~= 2 or keys[1] ~= 'Name' or keys[2] ~= 'myField' then
-  error('the mod table must expose only its own fields, got: ' .. table.concat(keys, ','))
+if rawget(mod,'__handle')~=nil or mod.Name~='Probe' or mod.myField~=41 then
+  error('unexpected public mod fields: ' .. table.concat(keys, ','))
 end
 -- `InitializeFromBuffer` 会核对"至少登记了一个 MC_POST_UPDATE"（结果码 6 = 缺它）
 mod:AddCallback(ModCallbacks.MC_POST_UPDATE, function() end)

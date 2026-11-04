@@ -1559,8 +1559,12 @@ int RegisterMod(lua_State* state) {
     lua_pushvalue(state, -3);
     lua_setfield(state, -2, "__handle");                              // Mi.__handle = U
     lua_getfield(state, LUA_REGISTRYINDEX, kModPrototypeField);       // [U T Mi 原型]
+    // PC main.lua stores the public methods on the Mod table itself. Libraries
+    // may replace its metatable to lazily load classes without losing methods.
+    isaac::runtime::CopyClassMethods(state, -3, -1);
     lua_setfield(state, -2, "__index");                               // Mi.__index = 原型
     lua_setmetatable(state, -2);                                      // setmetatable(T, Mi) → [U T]
+    isaac::runtime::BindModObjectHandle(state, -1, -2);
     lua_remove(state, -2);                                            // [T]
     isaac::runtime::TrackLoadedMod(state,-1,g_LoadingModRoot,false);
 #if !defined(EXL_DIAGNOSTIC_STAGE) || EXL_DIAGNOSTIC_STAGE == 13
@@ -4121,11 +4125,7 @@ int InvokeObservedProtected(lua_State* state) {
     if(!lua_checkstack(state,count+4))return luaL_error(state,"not enough memory preparing callback arguments");
     lua_getfield(state,2,"Function");
     lua_getfield(state,2,"Mod");
-    if(lua_istable(state,-1)&&lua_getmetatable(state,-1)) {
-        lua_pushliteral(state,"__handle");lua_rawget(state,-2);
-        const auto* handle=static_cast<ModHandle*>(luaL_testudata(state,-1,kModMetatable));
-        g_ErrorContextOwner=handle?handle->ownerPacked:0;lua_pop(state,2);
-    } else g_ErrorContextOwner=0;
+    g_ErrorContextOwner=isaac::runtime::ModObjectOwner(state,-1);
     for(int index=3;index<=count;++index)lua_pushvalue(state,index);
     lua_call(state,count-1,1);return 1;
 }

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 #include "domain/callback/callback_priority.hpp"
 
 extern "C" {
@@ -20,6 +21,9 @@ namespace isaac::runtime {
 // Returns how many methods were attached; unknown ids are skipped so a catalog
 // entry can never attach a null function.
 [[nodiscard]] std::size_t AttachModMethods(lua_State* state) noexcept;
+// Keep the private owner independent of a Mod's replaceable public metatable.
+void BindModObjectHandle(lua_State* state, int object, int handle);
+[[nodiscard]] std::uint32_t ModObjectOwner(lua_State* state, int object) noexcept;
 void RecordCallbackTableRegistration(std::uint32_t id) noexcept;
 
 // --- 命名回调（PC 的"自定义回调名"）--------------------------------------------
