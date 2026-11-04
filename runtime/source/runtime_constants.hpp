@@ -2559,6 +2559,14 @@ inline constexpr uintptr_t kEntityPlayerHasTrinketOffset = 0x28D3B8;
 //: `0x28D3B8` 的入口首 4 字节（小端整字）：`stp x29,x30,[sp,#-0x20]!`。
 inline constexpr std::uint32_t kEntityPlayerHasTrinketEntryWord = 0xA9BE7BFD;
 
+// Entity_Player::GetTrinketMultiplier(eTrinketType) const includes held/golden,
+// swallowed and simulated trinkets, plus Mom's Box. HasTrinket(false) calls it.
+inline constexpr uintptr_t kEntityPlayerGetTrinketMultiplierOffset = 0x29B030;
+inline constexpr std::array<u8, 16> kEntityPlayerGetTrinketMultiplierExpectedBytes = {
+    0xFF, 0x43, 0x01, 0xD1, 0xFD, 0x7B, 0x01, 0xA9,
+    0xFD, 0x43, 0x00, 0x91, 0xF8, 0x5F, 0x02, 0xA9,
+};
+
 // `Level` **内嵌在 `Game` 起始处**（见 `docs/问题与解决记录.md` 批次 4 的"更正旧记录"：
 // `Level+0x21550` 与 `Game+0x21550` 是同一个地址），所以 `Level* == Game*`，
 // `Level:GetCurses()` 读的就是 `Game + 0x0C`（u32 位掩码）。

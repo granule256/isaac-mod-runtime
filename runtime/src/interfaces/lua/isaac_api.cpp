@@ -4943,10 +4943,8 @@ int EntityPlayerGetCollectibleNum(lua_State* state) {
     return 1;
 }
 
-// `EntityPlayer:GetTrinketMultiplier(id)` —— 2026-09-14 从"恒 0 占位"改成**真读数**。
-// PC 语义：该饰品在身上的**份数**（EID 的套装进度用它累加饰品贡献）。
-// 数据来源：`Entity_Player` 的两个饰品槽（`kEntityPlayerTrinketOffset`，步长 4 字节）：
-// 某个槽等于该 id 就 +1。槽读不到就跳过（保守，不报错）。
+// EID uses the effective multiplier for transformation progress. Counting held
+// slots alone loses swallowed/golden trinkets and modifiers such as Mom's Box.
 int EntityPlayerGetTrinketMultiplier(lua_State* state) {
     auto* handle = CheckEntityHandle(state, 1);
     lua_Integer trinketId = 0;
@@ -4959,18 +4957,28 @@ int EntityPlayerGetTrinketMultiplier(lua_State* state) {
         PushZero(state);
         return 1;
     }
-    lua_Integer multiplier = 0;
-    for (std::size_t slot = 0; slot < kEntityPlayerTrinketSlotCount; ++slot) {
-        std::uint32_t held = 0;
-        if (!ReadEngine(entity + kEntityPlayerTrinketOffset + slot * sizeof(std::uint32_t),
-                        &held)) {
-            continue;
-        }
-        if (held == static_cast<std::uint32_t>(trinketId)) {
-            multiplier += 1;
-        }
+    // The native method masks the golden flag then indexes this vector without
+    // bounds checks. Reject absent/out-of-range entries before calling it.
+    std::uintptr_t begin = 0, end = 0;
+    const auto baseId = static_cast<std::uint32_t>(trinketId) & 0x7FFFU;
+    if (!ReadEngine(entity + kEntityPlayerSmeltedTrinketBeginOffset, &begin) ||
+        !ReadEngine(entity + kEntityPlayerSmeltedTrinketEndOffset, &end) ||
+        begin == 0 || end < begin || (end - begin) % kSmeltedTrinketDescriptorBytes != 0 ||
+        baseId >= (end - begin) / kSmeltedTrinketDescriptorBytes) {
+        PushZero(state);
+        return 1;
     }
-    lua_pushinteger(state, multiplier);
+    const auto method = EntityMethodByExpectedBytes(kEntityPlayerGetTrinketMultiplierOffset,
+                                                   kEntityPlayerGetTrinketMultiplierExpectedBytes);
+    if (method == 0) {
+        return luaL_error(state, "EntityPlayer:GetTrinketMultiplier native bindings are unavailable");
+    }
+    const std::uint64_t integers[8] = {entity, static_cast<std::uint32_t>(trinketId)};
+    const double floats[8] = {};
+    std::uint64_t result = 0;
+    double floatResult = 0;
+    EngineCallTrampoline(method, integers, floats, &result, &floatResult);
+    lua_pushinteger(state, static_cast<std::int32_t>(result));
     return 1;
 }
 
