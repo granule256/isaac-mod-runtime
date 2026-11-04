@@ -19,8 +19,8 @@ PATCHES = {
     ),
     Path('features/eid_api.lua'): (
         'EID/features/eid_api.lua',
-        frozenset({'93d7adb0738467992d42724df93434aa4531dff5d840dc5ddeea6e334532e346'}),
-        'aa11c0c1fd5ab7406925d7976b7305a6908ea3921c2b3f3728dbadc59149ccb8',
+        frozenset({'93d7adb0738467992d42724df93434aa4531dff5d840dc5ddeea6e334532e346', 'aa11c0c1fd5ab7406925d7976b7305a6908ea3921c2b3f3728dbadc59149ccb8'}),
+        'e988073da8dfbcc3630a9a74d08ad751e24772a644afdc84a97860ab30a7b34e',
     ),
     Path('features/eid_modifiers.lua'): (
         'EID/features/eid_modifiers.lua',
