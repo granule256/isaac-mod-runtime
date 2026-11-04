@@ -176,7 +176,7 @@ private:
                     break;
                 }
             }
-            if (free_slot != kNpos && used_bytes_ + bytes <= budget_bytes_) {
+            if (free_slot != kNpos && bytes <= budget_bytes_ - used_bytes_) {
                 return free_slot;
             }
             std::size_t victim = kNpos;
