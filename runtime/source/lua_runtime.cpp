@@ -10,6 +10,7 @@
 #include "interfaces/lua/class_metadata.hpp"
 #include "card_rng_scope.hpp"
 #include "interfaces/lua/entity_lifetime.hpp"
+#include "interfaces/lua/minimap_pickup_cache.hpp"
 #include "lua_runtime.hpp"
 #include "notice_integrity_native.hpp"
 #include "notice_runtime_bindings.hpp"
@@ -4543,6 +4544,7 @@ constexpr std::uint32_t kGameStartedFresh = 2;
 }  // namespace
 
 void NoteGameStarted(bool isSave) noexcept {
+    isaac::runtime::ResetMinimapPickupCache();
     g_HasManagedUpdate = false;
     g_LastManagedUpdate = {};
     isaac::runtime::console::InvalidateConsoleSession();
@@ -4628,6 +4630,7 @@ struct FrameEventState {
     std::uint32_t preparedGameStartKind{0};
     GameLocationKey location{};
     std::uint64_t roomLoadGeneration{0};
+    std::uint64_t levelInitGeneration{0};
     // 下面这些表**只用来比较、绝不解引用**：里面的地址可能已经被释放，但比较两个整数
     // 地址不碰内存。（本项目的纪律是"过期的原生指针不许解引用"，这里遵守。）
     //
@@ -5119,15 +5122,16 @@ void DispatchEntityRenderEvents(const RegisteredCallbackMask& registered) noexce
 
 }  // namespace
 
-void DispatchFrameEvents(bool initialOnly = false) {
+bool DispatchFrameEvents(bool initialOnly = false) {
     const RegisteredCallbackMask registered = BuildRegisteredCallbackMask();
     const bool wantsEntityScan = AnyEntityFamilyRegistered(registered);
     const bool wantsRoom = registered.Has(isaac::runtime::kCallbackPostNewRoom);
     const bool wantsLevel = registered.Has(isaac::runtime::kCallbackPostNewLevel);
     // 一种都没登记就整段跳过：这条路径每帧都要读房间身份，有实体时还要扫实体表，
     // "没人听"的时候一律不做（不白花每帧的引擎读取与 `svcQueryMemory`）。
-    if (!initialOnly && !wantsEntityScan && !wantsRoom && !wantsLevel) {
-        return;
+    if (!initialOnly && !wantsEntityScan && !wantsRoom && !wantsLevel &&
+        !isaac::runtime::HasPendingMinimapPickupReroll()) {
+        return true;
     }
 
     GameLocationKey location{};
@@ -5140,26 +5144,35 @@ void DispatchFrameEvents(bool initialOnly = false) {
 
     bool enteredNewRoom = false;
     bool enteredNewLevel = false;
-    // 真实下层时stage先变，房间数组仍属于旧层；不消费这段过渡身份。
-    // 初始开局由Game::Start返回后的现有流程处理；普通同层路径不读取完成标记。
-    if (haveLocation &&
-        (g_FrameEventState.levelKnown == 0 || location.SameLevel(g_FrameEventState.location) ||
+    bool acceptedLocation = false;
+    bool initialRoomConsumed = false;
+    const auto roomLoadGeneration = isaac::runtime::NativeRoomLoadGeneration();
+    const auto levelInitGeneration = isaac::runtime::NativeLevelInitGeneration();
+    const bool regeneratedLevel = levelInitGeneration != g_FrameEventState.levelInitGeneration;
+    // stage/type may stay unchanged during Init. Its previous loaded key is
+    // invalidated on entry; only its own load_room completion proves readiness.
+    if (haveLocation && !isaac::runtime::NativeLevelInitializing() &&
+        ((!regeneratedLevel && (g_FrameEventState.levelKnown == 0 ||
+                               location.SameLevel(g_FrameEventState.location))) ||
          isaac::runtime::NativeLoadedLevelMatches(location.stage, location.stageType))) {
-        const auto roomLoadGeneration = isaac::runtime::NativeRoomLoadGeneration();
         // 判定抽到 `frame_event_decision.hpp`（纯函数、宿主上逐条验）：三条口径 ——
         // 开局起始房间补一次、读不到身份时不判也不消费、中途加载时不拿残值当身份。
         const isaac::runtime::FrameRoomDecision decision =
             isaac::runtime::DecideFrameRoomEvents(
             true, g_FrameEventState.roomKnown != 0, g_FrameEventState.levelKnown != 0,
             location.stage == g_FrameEventState.location.stage &&
-                location.stageType == g_FrameEventState.location.stageType,
+                location.stageType == g_FrameEventState.location.stageType && !regeneratedLevel,
             location.SameRoom(g_FrameEventState.location) &&
                 roomLoadGeneration == g_FrameEventState.roomLoadGeneration,
             g_FrameEventState.initialRoomPending);
         enteredNewLevel = decision.newLevel;
-        if (decision.initialRoomConsumed) {
-            g_FrameEventState.initialRoomPending = 0;
-        }
+        // Initial startup mutations after NoteGameStarted belong to this run.
+        // Later floor changes discard work recorded against the previous map.
+        if (enteredNewLevel && g_FrameEventState.levelKnown != 0)
+            isaac::runtime::ResetMinimapPickupCache();
+        if (!isaac::runtime::FlushMinimapPickupCache(g_LuaState)) return false;
+        initialRoomConsumed = decision.initialRoomConsumed;
+        acceptedLocation = true;
         if (decision.newRoom) {
             enteredNewRoom = true;
             // 换房间 = 房间里的实体整批换掉，"见过"的表随之作废，于是新房间里原本摆着的
@@ -5173,13 +5186,6 @@ void DispatchFrameEvents(bool initialOnly = false) {
             ClearSeenEntities(&g_FrameEventState.seenKnifeCount);
             ClearSeenEntities(&g_FrameEventState.seenBombCount);
         }
-        // 开始房间记账（批次 106）：层号变了、或**第一次**读到身份，都把当时的房间索引记下来。
-        // 为什么"第一次"也算：那是我们唯一能知道本层起始房间的时机；正常路径（开局/换层后第一次
-        // 看到新层）玩家正站在起始房间。已知偏的情形只有"运行时在该层中途才加载"，写在
-        // `api_deviation.cpp` 的 0x03010011 那条里。
-        if (enteredNewLevel || g_FrameEventState.levelKnown == 0) {
-            g_LevelStartRoom.Observe(location.stage, location.stageType, location.roomIndex);
-        }
         // ★ 2026-09-22 更正：这句话以前是这么写的 ——"第一次读到身份时**不判变化**：那时这一局
         // 刚开局，`MC_POST_GAME_STARTED` 已经承担了'开局'这件事，再补一次'进入新房间'会让模组
         // 把开局那间房当成第二间房"。**前半段的前提是错的**：PC 在开局时"开局事件"与
@@ -5188,12 +5194,8 @@ void DispatchFrameEvents(bool initialOnly = false) {
         // ★ 2026-10-14 更正：上述 NEW_LEVEL/NEW_ROOM 顺序是历史误记，实际应先 NEW_ROOM 再 NEW_LEVEL。
         // 现在的口径：**开局那一间房补派一次**（由 `initialRoomPending` 驱动，见上面派发处）；
         // 只有"运行时在该层中途才加载"（没有 `initialRoomPending`）时才不判变化。
-        g_FrameEventState.location = location;
-        // Consume before callbacks, so a load triggered by a callback remains pending.
-        g_FrameEventState.roomLoadGeneration = roomLoadGeneration;
-        g_FrameEventState.roomKnown = 1;
-        g_FrameEventState.levelKnown = 1;
     }
+    if (!acceptedLocation && isaac::runtime::HasPendingMinimapPickupReroll()) return false;
 
     // 先扫实体与玩家，再派发"换房/换层"。顺序是照 PC 的观感定的：换层时模组先收到
     // `POST_NEW_LEVEL`、再收到 `POST_NEW_ROOM`，而实体的 INIT/UPDATE 属于"新房间已经在了"
@@ -5214,6 +5216,24 @@ void DispatchFrameEvents(bool initialOnly = false) {
     // ★ 2026-10-14 更正：上面的历史顺序注释写反了；PC 官方明确 NEW_LEVEL 总在 NEW_ROOM 之后。
     // MinimapAPI 在 NEW_ROOM 刷新 cache.RoomDescriptor/Stage，NEW_LEVEL 重建地图并读取这些缓存；
     // 因此必须先换房再换层，避免换层地图仍读到上一层。实体扫描与 GAME_STARTED 顺序不改。
+    // Entity callbacks can also reroll pickups. Flush before MiniMAPI snapshots
+    // the departing room, and consume lifecycle identities only after success.
+    if (!isaac::runtime::FlushMinimapPickupCache(g_LuaState)) return false;
+    if (acceptedLocation) {
+        // A same-stage Init owns a fresh starting room. Publish it with the
+        // accepted lifecycle identity only after cache invalidation succeeds.
+        if (enteredNewLevel) g_LevelStartRoom.Reset();
+        if (enteredNewLevel || g_FrameEventState.levelKnown == 0) {
+            g_LevelStartRoom.Observe(location.stage, location.stageType, location.roomIndex);
+        }
+        if (initialRoomConsumed) g_FrameEventState.initialRoomPending = 0;
+        g_FrameEventState.location = location;
+        // A native load triggered by a lifecycle callback remains pending.
+        g_FrameEventState.roomLoadGeneration = roomLoadGeneration;
+        g_FrameEventState.levelInitGeneration = levelInitGeneration;
+        g_FrameEventState.roomKnown = 1;
+        g_FrameEventState.levelKnown = 1;
+    }
     if (enteredNewRoom) {
         LuaCallbackInvoker invoker{0, false, false};
         isaac::runtime::CallbackDispatcher dispatcher{g_CallbackRegistry, invoker};
@@ -5226,6 +5246,7 @@ void DispatchFrameEvents(bool initialOnly = false) {
         static_cast<void>(dispatcher.Dispatch(isaac::runtime::kCallbackPostNewLevel,
                                               isaac::runtime::ThreadAffinity::Any));
     }
+    return true;
 }
 
 void DispatchPostUpdate() {
@@ -5273,7 +5294,7 @@ void DispatchPostUpdate() {
     }
     // 新房间的初始化必须先于它的第一次POST_UPDATE；否则模组仍拿上一房间的
     // 追踪状态处理新房间。复用本帧已有扫描，且在认领simulation帧后才允许Lua重入。
-    DispatchFrameEvents();
+    if (!DispatchFrameEvents() || !isaac::runtime::FlushMinimapPickupCache(g_LuaState)) return;
     if (isaac::runtime::BuiltinCallbackEnabled(isaac::runtime::kCallbackPostUpdate)) {
         LuaCallbackInvoker invoker{0, false, true};
         isaac::runtime::CallbackDispatcher dispatcher{g_CallbackRegistry, invoker};
@@ -5314,16 +5335,21 @@ void DispatchNativeEffectInit(std::uintptr_t effect) noexcept {
 // simulation update. Publish its room/level events before either HUD consumer,
 // or mods write the destination's pickups into their cached previous room.
 bool PrepareRoomEventsForRender() {
+    if (isaac::runtime::NativeLevelInitializing()) return false;
     if (g_PendingGameStarted.load(std::memory_order_acquire) != 0 ||
         g_FrameEventState.roomKnown == 0 ||
-        isaac::runtime::NativeRoomLoadGeneration() == g_FrameEventState.roomLoadGeneration) {
-        return true;
+        (isaac::runtime::NativeRoomLoadGeneration() == g_FrameEventState.roomLoadGeneration &&
+         isaac::runtime::NativeLevelInitGeneration() == g_FrameEventState.levelInitGeneration)) {
+        return isaac::runtime::FlushMinimapPickupCache(g_LuaState);
     }
     const ManagedEngineDispatchScope dispatchScope;
     DispatchFrameEvents(true); // Room lifecycle only; never synthesize entity updates in render.
     // A failed read, incomplete new level, or another load inside a callback
     // must retry before any renderer consumes the still-stale room cache.
-    return isaac::runtime::NativeRoomLoadGeneration() == g_FrameEventState.roomLoadGeneration;
+    return !isaac::runtime::NativeLevelInitializing() &&
+        isaac::runtime::NativeRoomLoadGeneration() == g_FrameEventState.roomLoadGeneration &&
+        isaac::runtime::NativeLevelInitGeneration() == g_FrameEventState.levelInitGeneration &&
+        isaac::runtime::FlushMinimapPickupCache(g_LuaState);
 }
 
 void DispatchPostRender(uintptr_t manager) {
@@ -6618,7 +6644,10 @@ bool UnloadManifestMods() noexcept {
 
 bool ShutdownForModReload() noexcept {
     // 先确认线程，再读Lua栈；没有VM时重复调用不需要触碰任何Lua对象。
-    if (!g_LuaState && !g_ShuttingDownForModReload) return true;
+    if (!g_LuaState && !g_ShuttingDownForModReload) {
+        isaac::runtime::ResetMinimapPickupCache();
+        return true;
+    }
     if (!IsOnGameThread()) {
         constexpr char error[] = "mod reload shutdown requires the observed game thread";
         RecordLuaErrorText(error,sizeof(error)-1);return false;
@@ -6656,6 +6685,7 @@ bool ShutdownForModReload() noexcept {
     // lua_close负责完整运行Font/Sprite和其它userdata终结器；绑定仍须有效。
     isaac::runtime::ResetEntityLifetimeState();
     lua_close(state);
+    isaac::runtime::ResetMinimapPickupCache();
     g_LuaState = nullptr;
     // 用户终结器可能再次访问过GetData，关闭之后再解除一次外部缓存。
     isaac::runtime::ResetEntityLifetimeState();

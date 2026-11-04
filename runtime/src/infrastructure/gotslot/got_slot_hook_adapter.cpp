@@ -7,6 +7,7 @@
 #include "mod_room_hook.hpp"
 #include "console_lifecycle_hook.hpp"
 #include "input_poll_hook.hpp"
+#include "infrastructure/gotslot/level_pickup_reroll_hook.hpp"
 
 #include <algorithm>
 #include <cstring>
@@ -50,6 +51,16 @@ Status GotSlotHookAdapter::Install(HookId id, const HookTarget& target) noexcept
     }
     if (id == HookId::LevelLoadRoom) {
         const auto result=InstallLevelRoomPointerHook(target);
+        if(result.ok())installed_[index]=true;
+        return result;
+    }
+    if (id == HookId::LevelInit) {
+        const auto result=InstallLevelInitPointerHook(target);
+        if(result.ok())installed_[index]=true;
+        return result;
+    }
+    if (id == HookId::GameRerollLevelPickups || id == HookId::GameRerollLevelCollectibles) {
+        const auto result=InstallLevelPickupRerollPointerHook(id,target);
         if(result.ok())installed_[index]=true;
         return result;
     }

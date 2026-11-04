@@ -155,6 +155,7 @@ enum class HookId : std::uint8_t {
     HudRender,
     RoomConfigLoadStageBinary,
     LevelLoadRoom,
+    LevelInit,
     ConsoleLifecycle,
     PressurePlateAnimationWriter,
     PressurePlateDestructor,
@@ -166,6 +167,8 @@ enum class HookId : std::uint8_t {
     EntityInit,
     NativeInputPoll,
     RoomConstructor,
+    GameRerollLevelPickups,
+    GameRerollLevelCollectibles,
     Count,
 };
 
@@ -269,6 +272,7 @@ inline constexpr std::array<HookDescriptor, kHookIdCount> kHookCatalog = {{
     {HookId::HudRender, "HudRender", HookBackend::GotSlot, false},
     {HookId::RoomConfigLoadStageBinary, "RoomConfigLoadStageBinary", HookBackend::GotSlot, false},
     {HookId::LevelLoadRoom, "LevelLoadRoom", HookBackend::GotSlot, false},
+    {HookId::LevelInit, "LevelInit", HookBackend::GotSlot, false},
     {HookId::ConsoleLifecycle, "ConsoleLifecycle", HookBackend::GotSlot, false},
     {HookId::PressurePlateAnimationWriter, "PressurePlateAnimationWriter", HookBackend::EntryRelay, false},
     {HookId::PressurePlateDestructor, "PressurePlateDestructor", HookBackend::Internal, false},
@@ -280,6 +284,8 @@ inline constexpr std::array<HookDescriptor, kHookIdCount> kHookCatalog = {{
     {HookId::EntityInit, "EntityInit", HookBackend::EntryRelay, false},
     {HookId::NativeInputPoll, "NativeInputPoll", HookBackend::GotSlot, true},
     {HookId::RoomConstructor, "RoomConstructor", HookBackend::EntryRelay, true},
+    {HookId::GameRerollLevelPickups, "GameRerollLevelPickups", HookBackend::GotSlot, false},
+    {HookId::GameRerollLevelCollectibles, "GameRerollLevelCollectibles", HookBackend::GotSlot, false},
 }};
 
 // 取登记项。传入 `HookId::Count` 或越界值属于调用方错误，这里退化成第一个登记项

@@ -13,6 +13,12 @@ class NativeRoomInstallerTests(unittest.TestCase):
   for name,off in [('Load',0x3d6cb0),('Tail',0x3d79e0),('Plt',0x67bf60)]:
    raw=re.search('k'+name+r'Bytes\{(.*?)\}',text).group(1)
    self.assertEqual(bytes(int(x,16)for x in re.findall(r'0x([a-f0-9]{2})',raw)),data[off:off+16])
+  key='_ZN15IsaacRepentance5Level4InitEv'
+  self.assertEqual([(r.offset,r.relocation_type)for r in rows[key]],[(0xa9eaf0,1026)])
+  text=(ROOT/'runtime/source/mod_room_guards.hpp').read_text().split('namespace isaac::runtime::native_level {',1)[1]
+  for name,off in [('Init',0x3e0688),('Plt',0x671710)]:
+   raw=re.search('k'+name+r'Bytes\{(.*?)\}',text).group(1)
+   self.assertEqual(bytes(int(x,16)for x in re.findall(r'0x([a-f0-9]{2})',raw)),data[off:off+16])
  def test_corrupt_guards_or_foreign_slot_never_install(self):
   shim='#pragma once\n#include <cstdint>\n#include <cstddef>\nnamespace exl::util{struct RwPages{std::uintptr_t p;RwPages(std::uintptr_t a,std::size_t):p(a){}std::uintptr_t GetRw()const{return p;}void Flush(){}};}\n'
   driver=r'''
@@ -38,7 +44,23 @@ std::vector<unsigned char>image(0xab0000);auto base=reinterpret_cast<std::uintpt
  reject(native_room::kLoadOffset,native_room::kLoadBytes);reject(native_room::kTailOffset,native_room::kTailBytes);reject(native_room::kPltOffset,native_room::kPltBytes);
  write(std::uintptr_t{123});assert(!InstallLevelRoomPointerHook(t).ok());write(base+kPltResolverOffset);
  auto wrong=t;wrong.buildId[0]^=1;assert(!InstallLevelRoomPointerHook(wrong).ok());
- assert(InstallLevelRoomPointerHook(t).ok());assert(!InstallLevelRoomPointerHook(t).ok());}
+ assert(InstallLevelRoomPointerHook(t).ok());assert(!InstallLevelRoomPointerHook(t).ok());
+ // Level Init owns a separate GOT slot; curse body hooks may already be installed.
+ copy(native_level::kInitOffset,native_level::kInitBytes);copy(native_level::kPltOffset,native_level::kPltBytes);
+ auto writeInit=[&](auto pointer){memcpy(image.data()+native_level::kGotOffset,&pointer,8);};
+ writeInit(base+native_level::kInitOffset);
+ auto rejectInit=[&](auto offset,const auto&bytes){for(unsigned i=0;i<bytes.size();++i){image[offset+i]^=1;assert(!InstallLevelInitPointerHook(t).ok());image[offset+i]^=1;}};
+ rejectInit(native_level::kInitOffset,native_level::kInitBytes);rejectInit(native_level::kPltOffset,native_level::kPltBytes);
+ writeInit(std::uintptr_t{123});assert(!InstallLevelInitPointerHook(t).ok());writeInit(base+kPltResolverOffset);
+ assert(!InstallLevelInitPointerHook(wrong).ok());
+ const std::uint32_t branch=0x14000000;
+ memcpy(image.data()+kLevelCurseFirstRandomOffset,&branch,4);
+ memcpy(image.data()+kLevelCurseEvalOffset,&branch,4);
+ const auto before=image;
+ assert(InstallLevelInitPointerHook(t).ok());assert(!InstallLevelInitPointerHook(t).ok());
+ assert(!memcmp(image.data(),before.data(),t.codeSize));
+ assert(!memcmp(image.data()+native_room::kGotOffset,before.data()+native_room::kGotOffset,8));
+}
 '''
   with tempfile.TemporaryDirectory(prefix='isaac-mod-room-install-')as tmp:
    p=Path(tmp);(p/'lib/util/sys').mkdir(parents=True);(p/'lib/util/sys/rw_pages.hpp').write_text(shim)

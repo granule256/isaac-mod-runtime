@@ -76,6 +76,7 @@ def layered_lua_runtime_sources(source_root: Path) -> list[Path]:
         unit_root / "interfaces" / "lua" / "api200_bindings.cpp",
         unit_root / "interfaces" / "lua" / "api200_player.cpp",
         unit_root / "interfaces" / "lua" / "api200_game.cpp",
+        unit_root / "interfaces" / "lua" / "minimap_pickup_cache.cpp",
         unit_root / "interfaces" / "lua" / "api300_game_room.cpp",
         unit_root / "interfaces" / "lua" / "api300_world.cpp",
         unit_root / "interfaces" / "lua" / "api400_params.cpp",

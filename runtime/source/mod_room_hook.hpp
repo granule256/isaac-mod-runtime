@@ -4,4 +4,5 @@
 namespace isaac::runtime {
 Status InstallModRoomPointerHook(const HookTarget&) noexcept;
 Status InstallLevelRoomPointerHook(const HookTarget&) noexcept;
+Status InstallLevelInitPointerHook(const HookTarget&) noexcept;
 }

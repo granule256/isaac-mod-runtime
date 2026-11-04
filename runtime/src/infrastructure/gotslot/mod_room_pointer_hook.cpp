@@ -12,6 +12,7 @@ namespace isaac::runtime {
 namespace {
 std::atomic<std::uintptr_t> s_ModRoomBase{};
 std::atomic<std::uintptr_t> s_LevelRoomBase{};
+std::atomic<std::uintptr_t> s_LevelInitBase{};
 bool Window(const HookTarget& t,std::uintptr_t offset,std::size_t size) {
     const auto limit=t.imageSize?t.imageSize:t.codeSize;
     return t.base && offset<=limit && size<=limit-offset && t.base<=UINTPTR_MAX-offset-size &&
@@ -69,6 +70,33 @@ Status InstallLevelRoomPointerHook(const HookTarget& t) noexcept {
     if(previous&&previous!=t.base)return Status{StatusCode::Rejected};
     s_LevelRoomBase.store(t.base,std::memory_order_release);
     const auto replacement=engine_call::AddressOfFunction(&IsaacModRuntime_LevelRoomPointerIntercept);
+    bool changed=false;
+    if(engine_memory::EngineMemoryWritable(address,8))
+        changed=__atomic_compare_exchange_n(static_cast<std::uintptr_t*>(engine_memory::AsObject(address)),
+            &expected,replacement,false,__ATOMIC_RELEASE,__ATOMIC_RELAXED);
+    else {
+        exl::util::RwPages pages(address,8);
+        changed=__atomic_compare_exchange_n(static_cast<std::uintptr_t*>(engine_memory::AsObject(pages.GetRw())),
+            &expected,replacement,false,__ATOMIC_RELEASE,__ATOMIC_RELAXED);pages.Flush();
+    }
+    return changed?Status::Ok():Status{StatusCode::Rejected};
+}
+extern "C" void IsaacModRuntime_LevelInitPointerIntercept(void* level) {
+    const auto base=s_LevelInitBase.load(std::memory_order_acquire);
+    if(!base)__builtin_trap();
+    CompleteNativeLevelInit(engine_call::AsFunction<void(*)(void*)>(base+native_level::kInitOffset),level);
+}
+Status InstallLevelInitPointerHook(const HookTarget& t) noexcept {
+    if(t.buildId!=kTargetBuildId || !Guard(t,native_level::kInitOffset,native_level::kInitBytes) ||
+       !Guard(t,native_level::kPltOffset,native_level::kPltBytes) ||
+       !Window(t,native_level::kGotOffset,8) || ((t.base+native_level::kGotOffset)&7))return Status{StatusCode::Rejected};
+    const auto address=t.base+native_level::kGotOffset;
+    auto expected=__atomic_load_n(static_cast<const std::uintptr_t*>(engine_memory::AsObject(address)),__ATOMIC_ACQUIRE);
+    if(expected!=t.base+native_level::kInitOffset&&expected!=t.base+kPltResolverOffset)return Status{StatusCode::Rejected};
+    const auto previous=s_LevelInitBase.load(std::memory_order_acquire);
+    if(previous&&previous!=t.base)return Status{StatusCode::Rejected};
+    s_LevelInitBase.store(t.base,std::memory_order_release);
+    const auto replacement=engine_call::AddressOfFunction(&IsaacModRuntime_LevelInitPointerIntercept);
     bool changed=false;
     if(engine_memory::EngineMemoryWritable(address,8))
         changed=__atomic_compare_exchange_n(static_cast<std::uintptr_t*>(engine_memory::AsObject(address)),

@@ -378,6 +378,9 @@ EntryRelayBinding BindingOf(HookId id) noexcept {
         case HookId::ConsoleLifecycle:
         case HookId::NativeInputPoll:
         case HookId::LevelLoadRoom:
+        case HookId::LevelInit:
+        case HookId::GameRerollLevelPickups:
+        case HookId::GameRerollLevelCollectibles:
         case HookId::ItemPoolTrinketFirstRandom:
         case HookId::ItemPoolTrinketSelected:
         case HookId::RoomClearAward:
