@@ -4331,6 +4331,12 @@ private:
                     // 视图与 `Isaac.GetRoomEntities()` 给出的一致（玩家给 `EntityPlayer`），
                     // 否则模组在回调里对参数调 `player:HasCollectible()` 会失败。
                     isaac::runtime::PushEntityCallbackArgument(state, argument.entity);
+                    // Token creation stays under this protection; claim INIT before Lua can reenter.
+                    if (descriptor->id == isaac::runtime::kCallbackPostTearInit) {
+                        isaac::runtime::MarkEntityTearInitialized(argument.entity);
+                    } else if (descriptor->id == isaac::runtime::kCallbackPostEffectInit) {
+                        isaac::runtime::MarkEntityEffectInitialized(argument.entity);
+                    }
                     break;
                 case CallbackArgument::Kind::Vector:
                     // 渲染偏移（`Vector` userdata，与 `Room:GetRenderScrollOffset()` 给出的是同一种值类型）。
@@ -4578,7 +4584,8 @@ bool DispatchPostGameStarted(bool isSave) {
 //     因此**每次进新房间**，房间里原本就摆着的实体（掉落物、跟班、敌人…）会各收到一次 INIT。
 //     PC 上它们在房间生成时就被初始化，而模组此时通常已经加载完毕 ⇒"补发"比"漏发"更接近
 //     PC 的观感；
-//   * "见过"的表以**房间**为生命周期（换房清空；玩家那张例外，玩家跨房间存活）。
+//   * 泪弹与效果用原生析构退役的token记录INIT，原生FireTear与扫描共用；其它"见过"的表以
+//     **房间**为生命周期（换房清空；玩家那张例外，玩家跨房间存活）。
 //     房间内被拿走、又在同一房间重新生成的同一个指针不会被重复触发（指针复用）；
 //     这是拿"能立刻做出来"换来的已知缺口；
 //   * 实体族按 `EntityType` 分派，判据见 `ClassifyCallbackEntity`；**没有各自 vtable 常量**的
@@ -4594,18 +4601,16 @@ bool DispatchPostGameStarted(bool isSave) {
 
 namespace {
 
-//: "见过"的实体指针表容量，按类各一张。容量照"一个房间里可能同时存在多少"给：眼泪与效果
-//: 最多（弹幕与爆炸可以上百），跟班/刀/炸弹少。**满了就不再记录、也不再报"新"**（见
+//: "见过"的实体指针表容量，按类各一张。容量照"一个房间里可能同时存在多少"给：
+//: 弹幕可以上百，跟班/刀/炸弹少。**满了就不再记录、也不再报"新"**（见
 //: `NoteNewEntity` 的注释）。
 constexpr std::uint32_t kSeenPickupCapacity = 256;
 constexpr std::uint32_t kSeenPlayerCapacity = 8;
 constexpr std::uint32_t kSeenNpcCapacity = 256;
 constexpr std::uint32_t kSeenFamiliarCapacity = 64;
-constexpr std::uint32_t kSeenTearCapacity = 512;
 constexpr std::uint32_t kSeenProjectileCapacity = 256;
 constexpr std::uint32_t kSeenLaserCapacity = 128;
 constexpr std::uint32_t kSeenKnifeCapacity = 32;
-constexpr std::uint32_t kSeenEffectCapacity = 512;
 constexpr std::uint32_t kSeenBombCapacity = 64;
 
 struct FrameEventState {
@@ -4636,16 +4641,12 @@ struct FrameEventState {
     std::uint32_t seenNpcCount{0};
     std::uintptr_t seenFamiliars[kSeenFamiliarCapacity]{};
     std::uint32_t seenFamiliarCount{0};
-    std::uintptr_t seenTears[kSeenTearCapacity]{};
-    std::uint32_t seenTearCount{0};
     std::uintptr_t seenProjectiles[kSeenProjectileCapacity]{};
     std::uint32_t seenProjectileCount{0};
     std::uintptr_t seenLasers[kSeenLaserCapacity]{};
     std::uint32_t seenLaserCount{0};
     std::uintptr_t seenKnives[kSeenKnifeCapacity]{};
     std::uint32_t seenKnifeCount{0};
-    std::uintptr_t seenEffects[kSeenEffectCapacity]{};
-    std::uint32_t seenEffectCount{0};
     std::uintptr_t seenBombs[kSeenBombCapacity]{};
     std::uint32_t seenBombCount{0};
 };
@@ -4812,15 +4813,19 @@ void DispatchFamiliarEntityEvents(EntityEventScan* scan, std::uintptr_t entity,
     }
 }
 
-void DispatchTearEntityEvents(EntityEventScan* scan, std::uintptr_t entity,
-                             std::int64_t filter) noexcept {
-    if (!scan->renderPhase && scan->registered.Has(isaac::runtime::kCallbackPostTearInit) &&
-        NoteNewEntity(g_FrameEventState.seenTears, kSeenTearCapacity, &g_FrameEventState.seenTearCount,
-                      entity)) {
+void DispatchTearInitialization(std::uintptr_t entity, std::int64_t filter) noexcept {
+    if (!isaac::runtime::EntityTearInitialized(entity)) {
         LuaCallbackInvoker invoker = LuaCallbackInvoker::ForEntity(entity);
         isaac::runtime::CallbackDispatcher dispatcher{g_CallbackRegistry, invoker};
         static_cast<void>(dispatcher.DispatchFiltered(isaac::runtime::kCallbackPostTearInit,
                                               isaac::runtime::ThreadAffinity::Any, filter));
+    }
+}
+
+void DispatchTearEntityEvents(EntityEventScan* scan, std::uintptr_t entity,
+                             std::int64_t filter) noexcept {
+    if (!scan->renderPhase && scan->registered.Has(isaac::runtime::kCallbackPostTearInit)) {
+        DispatchTearInitialization(entity, filter);
     }
     if (!scan->renderPhase && scan->registered.Has(isaac::runtime::kCallbackPostTearUpdate)) {
         LuaCallbackInvoker invoker = LuaCallbackInvoker::ForEntity(entity);
@@ -4899,15 +4904,19 @@ void DispatchKnifeEntityEvents(EntityEventScan* scan, std::uintptr_t entity,
     }
 }
 
-void DispatchEffectEntityEvents(EntityEventScan* scan, std::uintptr_t entity,
-                             std::int64_t filter) noexcept {
-    if (!scan->renderPhase && scan->registered.Has(isaac::runtime::kCallbackPostEffectInit) &&
-        NoteNewEntity(g_FrameEventState.seenEffects, kSeenEffectCapacity,
-                      &g_FrameEventState.seenEffectCount, entity)) {
+void DispatchEffectInitialization(std::uintptr_t entity, std::int64_t filter) noexcept {
+    if (!isaac::runtime::EntityEffectInitialized(entity)) {
         LuaCallbackInvoker invoker = LuaCallbackInvoker::ForEntity(entity);
         isaac::runtime::CallbackDispatcher dispatcher{g_CallbackRegistry, invoker};
         static_cast<void>(dispatcher.DispatchFiltered(isaac::runtime::kCallbackPostEffectInit,
                                               isaac::runtime::ThreadAffinity::Any, filter));
+    }
+}
+
+void DispatchEffectEntityEvents(EntityEventScan* scan, std::uintptr_t entity,
+                             std::int64_t filter) noexcept {
+    if (!scan->renderPhase && scan->registered.Has(isaac::runtime::kCallbackPostEffectInit)) {
+        DispatchEffectInitialization(entity, filter);
     }
     if (!scan->renderPhase && scan->registered.Has(isaac::runtime::kCallbackPostEffectUpdate)) {
         LuaCallbackInvoker invoker = LuaCallbackInvoker::ForEntity(entity);
@@ -5159,11 +5168,9 @@ void DispatchFrameEvents(bool initialOnly = false) {
             ClearSeenEntities(&g_FrameEventState.seenPickupCount);
             ClearSeenEntities(&g_FrameEventState.seenNpcCount);
             ClearSeenEntities(&g_FrameEventState.seenFamiliarCount);
-            ClearSeenEntities(&g_FrameEventState.seenTearCount);
             ClearSeenEntities(&g_FrameEventState.seenProjectileCount);
             ClearSeenEntities(&g_FrameEventState.seenLaserCount);
             ClearSeenEntities(&g_FrameEventState.seenKnifeCount);
-            ClearSeenEntities(&g_FrameEventState.seenEffectCount);
             ClearSeenEntities(&g_FrameEventState.seenBombCount);
         }
         // 开始房间记账（批次 106）：层号变了、或**第一次**读到身份，都把当时的房间索引记下来。
@@ -5288,6 +5295,19 @@ void DispatchNativePlayerInit(std::uintptr_t player) noexcept {
     isaac::runtime::CallbackDispatcher dispatcher{g_CallbackRegistry, invoker};
     static_cast<void>(dispatcher.DispatchFiltered(isaac::runtime::kCallbackPostPlayerInit,
                                                    isaac::runtime::ThreadAffinity::Any, variant));
+}
+
+void DispatchNativeEffectInit(std::uintptr_t effect) noexcept {
+    if (!IsReady() || g_LuaState == nullptr || effect == 0 ||
+        !isaac::runtime::ShouldDispatchManagedCallbacks() ||
+        !isaac::runtime::BuiltinCallbackEnabled(isaac::runtime::kCallbackPostEffectInit)) return;
+    const ManagedEngineDispatchScope dispatchScope;
+    std::int64_t variant{};
+    if (isaac::runtime::ClassifyCallbackEntity(effect, &variant) !=
+        isaac::runtime::CallbackEntityClass::Effect) return;
+    // SpawnEx has completed derived Init and published Spawner/Position/Velocity.
+    // Dispatch before the first native Update can remove an effect with no animation.
+    DispatchEffectInitialization(effect, variant);
 }
 
 // load_room can finish on a transition frame that renders before the next
@@ -5785,15 +5805,24 @@ void DispatchPostFireTear(std::uintptr_t tear) {
         !isaac::runtime::ShouldDispatchManagedCallbacks()) {
         return;
     }
-    if (!isaac::runtime::BuiltinCallbackEnabled(isaac::runtime::kCallbackPostFireTear)) {
-        return;
+    const bool wantsInit = isaac::runtime::BuiltinCallbackEnabled(isaac::runtime::kCallbackPostTearInit);
+    const bool wantsFire = isaac::runtime::BuiltinCallbackEnabled(isaac::runtime::kCallbackPostFireTear);
+    if (!wantsInit && !wantsFire) return;
+    const ManagedEngineDispatchScope dispatchScope;
+    std::int64_t variant{};
+    if (isaac::runtime::ClassifyCallbackEntity(tear, &variant) !=
+        isaac::runtime::CallbackEntityClass::Tear) return;
+    if (wantsInit) {
+        // Native FireTear returns before the next scene scan; deliver its INIT first.
+        DispatchTearInitialization(tear, variant);
+        // A failed argument allocation or destruction in INIT must not produce FIRE first.
+        if (!isaac::runtime::EntityTearInitialized(tear)) return;
     }
-    isaac::runtime::EngineGuardEnterDispatch();
+    if (!wantsFire) return;
     LuaCallbackInvoker invoker = LuaCallbackInvoker::ForEntity(tear);
     isaac::runtime::CallbackDispatcher dispatcher{g_CallbackRegistry, invoker};
     static_cast<void>(dispatcher.Dispatch(isaac::runtime::kCallbackPostFireTear,
                                           isaac::runtime::ThreadAffinity::Any));
-    isaac::runtime::EngineGuardLeaveDispatch();
 }
 
 // 批次 396（2026-10-07）：`MC_ENTITY_TAKE_DMG`(11)。

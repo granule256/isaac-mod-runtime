@@ -61,10 +61,15 @@ int main(){
     PushEntityLifetimeData(state,0x5678);
     const void* otherData=lua_topointer(state,-1);lua_pop(state,1);
     for(unsigned repeat=0;repeat<2;++repeat){
+        // A pooled/reinitialized object can retain its token without passing through D2.
+        MarkEntityTearInitialized(0x1234);
+        MarkEntityEffectInitialized(0x1234);
+        assert(EntityTearInitialized(0x1234)&&EntityEffectInitialized(0x1234));
         const int top=lua_gettop(state);
         const unsigned attempts=allocator.attempts;allocator.fail=true;
         EntryRelayEntityInitCallback(reinterpret_cast<void*>(0x1234),5,10,3,0xabcdef01);
         assert(lua_gettop(state)==top&&allocator.attempts==attempts&&token->alive);
+        assert(!EntityTearInitialized(0x1234)&&!EntityEffectInitialized(0x1234));
         allocator.fail=false;
         assert(PushEntityLifetimeToken(state,0x1234)==token);lua_pop(state,1);
         PushEntityLifetimeData(state,0x1234);

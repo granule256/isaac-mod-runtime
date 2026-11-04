@@ -11,6 +11,6 @@ extern "C" void EntryRelayEntityInitCallback(void* entity, std::uint32_t type,
     const auto original = Original<Init>(HookId::EntityInit);
     if (original == nullptr) __builtin_trap();
     original(entity, type, variant, subtype, seed);
-    ClearEntityLifetimeData(engine_memory::AddressOf(entity));
+    ReinitializeEntityLifetime(engine_memory::AddressOf(entity));
 }
 }

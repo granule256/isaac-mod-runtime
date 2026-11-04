@@ -382,6 +382,8 @@ void DispatchPostNpcDeath(std::uintptr_t npc, std::int32_t entityType);
 void DispatchPostGameEnd(bool isGameOver);
 // `MC_POST_FIRE_TEAR`(61)：`(EntityTear)`，无过滤；实参 = `FireTear` 的返回值（泪弹指针）。
 void DispatchPostFireTear(std::uintptr_t tear);
+// Native SpawnEx return boundary; the scene scan shares the same lifetime claim.
+void DispatchNativeEffectInit(std::uintptr_t effect) noexcept;
 //: 调用点**先**读 `RoomConfig::Entry` 的前三个字段（`ReadRoomConfigEntryFields`）；
 //: 读不到就**不要调**上面那个派发函数 —— 不编造 Type/Variant/SubType（EID 拿它们去建索引，
 //: 给错的比给不到更糟；理由与 `runtime_constants.hpp` 里那段靶点证据同一节）。

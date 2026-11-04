@@ -375,6 +375,8 @@ inline constexpr std::uint8_t kSpriteSourceEngineGridEntity = 2;
 struct EntityLifetimeToken {
     std::uintptr_t entity{};
     bool alive{};
+    bool tearInitialized{};
+    bool effectInitialized{};
 };
 struct EntityHandle {
     void* entity;
