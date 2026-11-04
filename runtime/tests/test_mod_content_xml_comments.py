@@ -87,6 +87,20 @@ class ModContentXmlCommentTests(unittest.TestCase):
                             ["First", "Second", "Phantom"], "pocket")
         self.assert_valid(result, 2, [98, 99, -1])
 
+    def test_cards_use_hud_names_and_keep_their_loaded_id_order(self):
+        result = self.parse(
+            '<pocketitems><card name="Internal Card" hud="Card HUD"/>'
+            '<rune name="Internal Rune" hud="Rune HUD"/>'
+            '<card name="Legacy Card"/></pocketitems>',
+            ["Card HUD", "Rune HUD", "Legacy Card", "Internal Card", "Internal Rune"],
+            "pocket")
+        self.assert_valid(result, 3, [98, 99, 100, -1, -1])
+
+    def test_hud_does_not_replace_item_names(self):
+        result = self.parse('<items><trinket name="Real Name" hud="Other Name"/></items>',
+                            ["Real Name", "Other Name"])
+        self.assert_valid(result, 1, [190, -1])
+
     def test_real_auri_items_original_keeps_both_trinket_names(self):
         original = (ROOT / "dist/character-hair-pause-20261026/auri-user-original/"
                            "2283703372/content/items.xml").read_bytes()

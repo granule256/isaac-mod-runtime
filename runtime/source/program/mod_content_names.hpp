@@ -100,7 +100,7 @@ inline constexpr char kModContentPocketItemsFileName[] = "pocketitems.xml";
 //: 一条解析结果：族 + 名字切片（**指向输入文本**，不拥有）。
 struct ModContentName {
     ModContentNameFamily family;
-    const char* name;   //: 可能为空（`name` 属性缺失/为空 ⇒ 仍占 id、但不进表）
+    const char* name;   //: 卡牌优先 hud，其余取 name；缺失/为空仍占 id、但不进表。
     std::size_t length;
 };
 

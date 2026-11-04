@@ -358,8 +358,14 @@ std::uint32_t ParseTaggedFile(const char* xml, std::size_t length, ModContentFil
         }
         const char* value = nullptr;
         std::size_t valueLength = 0;
-        if (ExtractAttribute(xml, nameStart, tagEnd, "name", 4, &value, &valueLength) &&
-            value != nullptr && valueLength > 0) {
+        // GetCardIdByName takes the HUD name; older cards without hud retain their name.
+        const bool hasHud = matched->family == ModContentNameFamily::Card &&
+            ExtractAttribute(xml, nameStart, tagEnd, "hud", 3, &value, &valueLength) &&
+            valueLength > 0;
+        if (!hasHud) {
+            (void)ExtractAttribute(xml, nameStart, tagEnd, "name", 4, &value, &valueLength);
+        }
+        if (value != nullptr && valueLength > 0) {
             // 有名条目。
             if (out != nullptr && stored < capacity) {
                 out[stored].family = matched->family;
