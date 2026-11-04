@@ -41,7 +41,7 @@ EXPECTED = ("ManagerUpdate", "ManagerRender", "PreGetCollectible",
             # 批次 397（2026-10-07）：补全回调（第 2 批）的三条 hookable 改走入口中继
             # + `MC_POST_FIRE_TEAR`（同批，用批次 337 已定死的 ABI）。
             "EntityKill", "NpcDeathRemove", "GameEnd", "FireTear",
-            'FamiliarCollision', 'NpcCollision', 'PlayerCollision', 'TearCollision', 'ProjectileCollision', 'KnifeCollision', 'BombCollision', 'NpcRender', 'ItemPoolGetPill', 'ItemPoolGetPillEffect', 'GameDevolveEnemy', 'NpcUpdateAi', 'GameSpawnEx', 'ItemPoolTrinketFirstRandom', 'ItemPoolTrinketSelected', 'RoomClearAward', 'EntityRemovePointers', 'EntityDestructorRemove', 'LevelCurseFirstRandom', 'LevelCurseEvaluation', 'PickupSelection', 'PickupSelectionSpecial', 'ItemPoolGetCard', 'ModManagerUnload', 'ConsoleUnknownLength', 'ConsoleUnknownCompare', 'HudRender', 'RoomConfigLoadStageBinary', 'LevelLoadRoom', 'ConsoleLifecycle', 'PressurePlateAnimationWriter', 'PressurePlateDestructor', 'PressurePlateDeletingDestructor', 'ProjectileUpdate', 'ProjectileInit', 'EntityPlayerInit', 'GameStartStageTransition', 'EntityInit', 'NativeInputPoll')
+            'FamiliarCollision', 'NpcCollision', 'PlayerCollision', 'TearCollision', 'ProjectileCollision', 'KnifeCollision', 'BombCollision', 'NpcRender', 'ItemPoolGetPill', 'ItemPoolGetPillEffect', 'GameDevolveEnemy', 'NpcUpdateAi', 'GameSpawnEx', 'ItemPoolTrinketFirstRandom', 'ItemPoolTrinketSelected', 'RoomClearAward', 'EntityRemovePointers', 'EntityDestructorRemove', 'LevelCurseFirstRandom', 'LevelCurseEvaluation', 'PickupSelection', 'PickupSelectionSpecial', 'ItemPoolGetCard', 'ModManagerUnload', 'ConsoleUnknownLength', 'ConsoleUnknownCompare', 'HudRender', 'RoomConfigLoadStageBinary', 'LevelLoadRoom', 'ConsoleLifecycle', 'PressurePlateAnimationWriter', 'PressurePlateDestructor', 'PressurePlateDeletingDestructor', 'ProjectileUpdate', 'ProjectileInit', 'EntityPlayerInit', 'GameStartStageTransition', 'EntityInit', 'NativeInputPoll', 'RoomConstructor')
 
 
 def catalog_entries(text):
@@ -86,15 +86,15 @@ class HookCatalogTests(unittest.TestCase):
             # 批次 396（2026-10-07）：`MC_ENTITY_TAKE_DMG` 四条 + `MC_EVALUATE_CACHE`。
             "EntryRelay", "EntryRelay", "EntryRelay", "EntryRelay", "EntryRelay",
             # 批次 397（2026-10-07）：补全回调（第 2 批）的四条。
-            "EntryRelay", "EntryRelay", "EntryRelay", "EntryRelay"] + ["EntryRelay"] * 11 + ["GotSlot", "EntryRelay"] + ["Internal"] * 3 + ["GotSlot", "Internal"] + ["Internal"] * 4 + ["GotSlot", "GotSlot", "Internal", "Internal", "GotSlot", "GotSlot", "GotSlot", "GotSlot", "EntryRelay", "Internal", "Internal", "RelaySlot", "RelaySlot", "EntryRelay", "EntryRelay", "EntryRelay", "GotSlot"],
+            "EntryRelay", "EntryRelay", "EntryRelay", "EntryRelay"] + ["EntryRelay"] * 11 + ["GotSlot", "EntryRelay"] + ["Internal"] * 3 + ["GotSlot", "Internal"] + ["Internal"] * 4 + ["GotSlot", "GotSlot", "Internal", "Internal", "GotSlot", "GotSlot", "GotSlot", "GotSlot", "EntryRelay", "Internal", "Internal", "RelaySlot", "RelaySlot", "EntryRelay", "EntryRelay", "EntryRelay", "GotSlot", "EntryRelay"],
             "M2b 之后：入口中继 + ManagerPresent 走 GOT 槽；"
             "GameStart 走 RelaySlot（引擎侧中继已放好代码，我们只往槽里写回调指针）；"
             "批次 102 的四个事件靶点都走入口中继（零占洞）")
 
     def test_required_points_gate_mod_loading(self):
         required = [row[0] for row in catalog_entries(self.text) if row[2]]
-        self.assertEqual(required, ["ManagerUpdate", "NativeInputPoll"],
-                         "原生更新和输入轮询边界都是加载 Mod 的前置条件")
+        self.assertEqual(required, ["ManagerUpdate", "NativeInputPoll", "RoomConstructor"],
+                         "原生更新、输入轮询和房间初始化都是加载 Mod 的前置条件")
 
     def test_routing_table_is_derived_not_duplicated(self):
         routing = ROUTING.read_text(encoding="utf-8")

@@ -135,6 +135,7 @@ Status ExlaunchHookAdapter::Install(HookId id, const HookTarget& target) noexcep
         case HookId::PressurePlateDeletingDestructor:
         case HookId::ProjectileInit:
         case HookId::EntityPlayerInit:
+        case HookId::RoomConstructor:
         case HookId::EntityInit:
         case HookId::GameStartStageTransition:
         case HookId::ProjectileUpdate:

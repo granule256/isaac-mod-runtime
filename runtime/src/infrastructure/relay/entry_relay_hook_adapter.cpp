@@ -131,6 +131,7 @@ extern "C" void EntryRelayEntityInitCallback(void*, std::uint32_t, std::uint32_t
                                              std::uint32_t, std::uint32_t);
 extern "C" void EntryRelayEntityPlayerInitCallback(void*, std::uint32_t, std::uint32_t,
                                                    std::uint32_t, std::uint32_t);
+extern "C" void EntryRelayRoomConstructorCallback(void*);
 extern "C" void EntryRelayNpcDeathRemoveCallback(void* npc, void* forwarded);
 extern "C" void EntryRelayGameEndCallback(void* game, std::int32_t ending);
 extern "C" void EntryRelayGameStartStageTransitionCallback(void*, bool, int, void*);
@@ -284,6 +285,9 @@ EntryRelayBinding BindingOf(HookId id) noexcept {
         case HookId::EntityPlayerInit:
             return {"Entity_Player::Init", kNativePlayerInitOffset,
                     kNativePlayerInitExpectedBytes.data(), callback, &g_fallbackEntries[index]};
+        case HookId::RoomConstructor:
+            return {"Room::Room", kNativeRoomConstructorOffset,
+                    kNativeRoomConstructorExpectedBytes.data(), callback, &g_fallbackEntries[index]};
         case HookId::NpcDeathRemove:
             return {"Entity_NPC::trigger_death_remove", kEntityNpcTriggerDeathRemoveOffset,
                     kEntityNpcTriggerDeathRemoveExpectedBytes.data(), callback,
@@ -491,6 +495,8 @@ void RegisterEntryRelayCallbacks() noexcept {
         engine_memory::AsObject(engine_call::AddressOfFunction(&EntryRelayEntityInitCallback));
     g_hookCallbacks[static_cast<std::size_t>(HookId::EntityPlayerInit)] =
         engine_memory::AsObject(engine_call::AddressOfFunction(&EntryRelayEntityPlayerInitCallback));
+    g_hookCallbacks[static_cast<std::size_t>(HookId::RoomConstructor)] =
+        engine_memory::AsObject(engine_call::AddressOfFunction(&EntryRelayRoomConstructorCallback));
     g_hookCallbacks[static_cast<std::size_t>(HookId::NpcDeathRemove)] =
         engine_memory::AsObject(engine_call::AddressOfFunction(&EntryRelayNpcDeathRemoveCallback));
     g_hookCallbacks[static_cast<std::size_t>(HookId::GameEnd)] =

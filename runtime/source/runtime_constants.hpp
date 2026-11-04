@@ -3292,7 +3292,10 @@ inline constexpr uintptr_t kSpriteColorOffset = 0xE8;    // ColorMod：tint 在 
 // NS Update86F4/8748通过AnimationState.owner读取同一+144，参与实际帧推进。
 // 原件反汇编：dist/callback-rplus-20261013/{pc-playback-speed,ns-anm2-ctor,ns-anm2-update}.txt。
 inline constexpr uintptr_t kSpritePlaybackSpeedOffset = 0x144; // float，逐对象共享原生值
-inline constexpr uintptr_t kSpriteFlipXOffset = 0x140;   // u8（+0x141 是 FlipY，本轮不用）
+inline constexpr uintptr_t kSpriteFlipXOffset = 0x140;   // u8
+// Reset @0x6754 clears both bytes; GetDestQuad @0x97C4 reads +0x141,
+// then @0x98BC/0x98D4 uses it for the Y component (X uses +0x140).
+inline constexpr uintptr_t kSpriteFlipYOffset = 0x141;   // u8
 // `ColorMod` 内部偏移：tint 的 R/G/B/A 与"偏移量"四元组的起点。
 inline constexpr uintptr_t kColorModTintOffset = 0x00;
 // 2026-10-10 更正：旧注释把 SetColorize 当作 SetOffset，原始记录保存在本批 before。
@@ -9870,4 +9873,16 @@ inline constexpr uintptr_t kNativePlayerInitOffset = 0x278D94;
 inline constexpr std::array<u8, 16> kNativePlayerInitExpectedBytes = {
     0xFF,0x03,0x05,0xD1,0xEA,0x63,0x00,0xFD,
     0xE9,0x23,0x0D,0x6D,0xFD,0x7B,0x0E,0xA9,
+};
+
+// Room::Room() leaves +0x8 (RoomDescriptor*) untouched. Level::Reset @0x3D0284
+// deletes the old room, allocates 0x8168 bytes, calls this constructor, then
+// publishes it at +0x21550. PlayerManager::Init runs before Level::Init and Lua
+// may read the descriptor during POST_PLAYER_INIT -> SetPocketActiveItem -> cache.
+// Initialize only this member before native construction; the native bounds
+// vectors (+0x1C/+0x24) and GetCenterPos implementation remain authoritative.
+inline constexpr uintptr_t kNativeRoomConstructorOffset = 0x44E5DC;
+inline constexpr std::array<u8, 16> kNativeRoomConstructorExpectedBytes = {
+    0xFF,0x43,0x02,0xD1,0xE9,0x23,0x03,0x6D,
+    0xF9,0x2B,0x00,0xF9,0xFD,0x7B,0x04,0xA9,
 };

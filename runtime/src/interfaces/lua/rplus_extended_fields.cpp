@@ -7,6 +7,7 @@
 #include "infrastructure/memory/engine_field_access.hpp"
 #include "infrastructure/call/engine_call_access.hpp"
 #include "lua_runtime.hpp"
+#include "runtime_constants.hpp"
 #include <cstring>
 extern "C" {
 #include <lauxlib.h>
@@ -201,6 +202,7 @@ Row ItemRow(const char*name){
  return {};
 }
 Row SpriteRow(const char*name){if(!name)return {};
+ if(name[0]=='F'&&!std::strcmp(name,"FlipY"))return {Kind::Bool,kSpriteFlipYOffset,Group::Sprite};
  // ANM2::Reset @66E4 initializes this vector; GetDestQuad @9804 consumes it.
  // Both instructions are covered by the existing Sprite layout guards.
  if(name[0]=='O'&&!std::strcmp(name,"Offset"))return {Kind::Vector,0xD4,Group::Sprite};

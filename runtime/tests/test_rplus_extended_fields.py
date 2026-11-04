@@ -42,6 +42,11 @@ int main(int argc,char**argv){
  WriteAt<float>(g_Entities[kTearNear],0x400,-5);WriteAt<float>(g_Entities[kPlayer],0x124,1);WriteAt<float>(g_Entities[kPlayer],0x128,2);
  for(unsigned i=0;i<7;++i)WriteAt<std::int32_t>(item,0x58+i*4,static_cast<std::int32_t>(i+1));item[0xb4]=1;
  WriteAt<std::int32_t>(g_Entities[kPlayer],0x1d6c,4);
+ if(scene=="flipy"){
+  g_Entities[kPlayer][kEntitySpriteOffset+0x140]=0;
+  g_Entities[kPlayer][kEntitySpriteOffset+0x141]=1;
+  g_Entities[kPlayer][kEntitySpriteOffset+0x142]=0x5a;
+ }
  if(scene=="collision"){
   // Native CollideWithGrid reads +0x1e0; handle_collisions reads +0x1e4.
   WriteAt<std::int32_t>(g_Entities[kPlayer],0x1e0,5);
@@ -91,12 +96,24 @@ int main(int argc,char**argv){
   p.EntityCollisionClass=4
   _extended={done=1}
  )lua";
+ if(scene=="flipy")body=R"lua(
+  local sprite=p:GetSprite();local other=p:GetSprite()
+  assert(sprite.FlipY==true and sprite.FlipX==false)
+  sprite.FlipY=false;assert(other.FlipY==false and other.FlipX==false)
+  sprite.FlipY=true;assert(other.FlipY==true and other.FlipX==false)
+  sprite.FlipX=true;sprite.FlipY=false
+  assert(other.FlipX==true and other.FlipY==false)
+  _extended={done=1}
+ )lua";
  const auto script=setup+body+"end)";
  if(LuaRuntime::InitializeFromBuffer(script.c_str(),script.size(),"@extended-fields.lua")!=LuaRuntime::LuaInitResult::Success)return 1;
  // 未知名字必须在配置/实体校验前退出，不能给HasCollectible/Position新增分类。
  auto*L=LuaRuntime::StateForTesting(); /*STATE*/
  LuaRuntime::DispatchPostUpdate();if(LuaRuntime::TakeCallbackError()){LuaRuntime::LuaErrorHistoryEntryView errs[8]{};const auto n=LuaRuntime::CopyLuaErrorHistory(errs,8);for(unsigned x=0;x<n;++x)fprintf(stderr,"%s\n",errs[x].text);return 2;}
  double done{};if(LuaRuntime::ReadLuaTableNumber("_extended","done",&done)||done!=1)return 3;
+ if(scene=="flipy")return g_Entities[kPlayer][kEntitySpriteOffset+0x140]==1&&
+  g_Entities[kPlayer][kEntitySpriteOffset+0x141]==0&&
+  g_Entities[kPlayer][kEntitySpriteOffset+0x142]==0x5a?0:11;
  if(scene=="collision")return ReadAt<std::int32_t>(g_Entities[kPlayer],0x1e0)==0&&ReadAt<std::int32_t>(g_Entities[kPlayer],0x1e4)==4?0:10;
  if(scene=="badguard"||scene=="types"||scene=="badparentguard")return 0;
  if(targets!=2||children!=2||heights!=1||parents!=3||ReadAt<std::uintptr_t>(g_Entities[kPlayer],0x390)!=0)return 4;
@@ -129,4 +146,7 @@ class ExtendedFieldConsumers(unittest.TestCase):
     r=subprocess.run([str(self.binary),scene],text=True,capture_output=True);self.assertEqual(r.returncode,0,r.stdout+r.stderr)
  def test_grid_none_preserves_native_entity_collision(self):
   r=subprocess.run([str(self.binary),'collision'],text=True,capture_output=True)
+  self.assertEqual(r.returncode,0,r.stdout+r.stderr)
+ def test_sprite_flipy_updates_native_byte_and_other_views_without_changing_flipx(self):
+  r=subprocess.run([str(self.binary),'flipy'],text=True,capture_output=True)
   self.assertEqual(r.returncode,0,r.stdout+r.stderr)

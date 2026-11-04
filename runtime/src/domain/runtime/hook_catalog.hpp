@@ -165,6 +165,7 @@ enum class HookId : std::uint8_t {
     GameStartStageTransition,
     EntityInit,
     NativeInputPoll,
+    RoomConstructor,
     Count,
 };
 
@@ -278,6 +279,7 @@ inline constexpr std::array<HookDescriptor, kHookIdCount> kHookCatalog = {{
     {HookId::GameStartStageTransition, "GameStartStageTransition", HookBackend::EntryRelay, false},
     {HookId::EntityInit, "EntityInit", HookBackend::EntryRelay, false},
     {HookId::NativeInputPoll, "NativeInputPoll", HookBackend::GotSlot, true},
+    {HookId::RoomConstructor, "RoomConstructor", HookBackend::EntryRelay, true},
 }};
 
 // 取登记项。传入 `HookId::Count` 或越界值属于调用方错误，这里退化成第一个登记项
