@@ -2263,18 +2263,27 @@ int ItemPoolGetLastPool(lua_State* state) {
 int ItemPoolGetCollectible(lua_State* state) {
     luaL_checkudata(state, 1, kItemPoolMetatable);
     const int argumentCount = lua_gettop(state);
-    if ((argumentCount != 4 && argumentCount != 5) || !isaac::runtime::IsIntegerArgument(state, 2) ||
-        !isaac::runtime::IsIntegerArgument(state, 4) || (argumentCount == 5 && !isaac::runtime::IsIntegerArgument(state, 5))) {
+    const bool randomSeed = lua_isnoneornil(state, 4);
+    if (argumentCount < 2 || argumentCount > 5 || !isaac::runtime::IsIntegerArgument(state, 2) ||
+        (!randomSeed && !isaac::runtime::IsIntegerArgument(state, 4)) ||
+        (!lua_isnoneornil(state, 5) && !isaac::runtime::IsIntegerArgument(state, 5))) {
         return luaL_error(state,
-                          "ItemPool:GetCollectible accepts poolType, decrease, seed and optional defaultItem");
+                          "ItemPool:GetCollectible accepts poolType and optional decrease, seed, defaultItem");
     }
     const lua_Integer poolType = lua_tointegerx(state, 2, nullptr);
-    const lua_Integer seed = lua_tointegerx(state, 4, nullptr);
-    const lua_Integer defaultItem = argumentCount == 5 ? lua_tointegerx(state, 5, nullptr) : 0;
+    lua_Integer seed = randomSeed ? 0 : lua_tointegerx(state, 4, nullptr);
+    const lua_Integer defaultItem = lua_isnoneornil(state, 5) ? 0 : lua_tointegerx(state, 5, nullptr);
     if (poolType < 0 || static_cast<std::uint64_t>(poolType) > std::numeric_limits<std::uint32_t>::max() ||
         seed < 0 || static_cast<std::uint64_t>(seed) > std::numeric_limits<std::uint32_t>::max() ||
         defaultItem < 0 || static_cast<std::uint64_t>(defaultItem) > std::numeric_limits<std::uint32_t>::max()) {
         return luaL_error(state, "ItemPool:GetCollectible integer arguments are outside uint32 range");
+    }
+    if (randomSeed) {
+        std::uint32_t value = 0;
+        if (!TryEngineRandomU32(&value)) {
+            return luaL_error(state, "ItemPool:GetCollectible native random source unavailable");
+        }
+        seed = value;
     }
     void* itemPool = nullptr;
     if (ReadCurrentGameItemPool(GameOwnerSlot(), &itemPool) != GameItemPoolObservation::Success) {
