@@ -1750,7 +1750,7 @@ int GridEntityGetGridIndex(lua_State* state) {
 }
 
 //: 7 条转换共同的那一段：读对象首字（vptr），与 `base + vtableOffset` 比。
-//: 命中 ⇒ 压一个**基类 `GridEntity` 视图**的句柄；不命中 ⇒ 压 `nil`（与 `Entity:ToPlayer()` 同口径）。
+//: 命中门时给完整门视图，其余沿用基类 `GridEntity` 视图；不命中给 `nil`。
 //:
 //: ★ 为什么给基类视图而不是"子类视图"：我们这套里子类视图**还不存在**
 //:   （`Entity:ToFamiliar()` 也是压 `Entity` 元表的句柄 —— 同一个先例）。
@@ -1774,6 +1774,21 @@ int PushGridEntityCast(lua_State* state, std::uintptr_t vtableOffset, const char
         lua_pushnil(state);
         return 1;
     }
+    if (vtableOffset == kGridEntity_DoorVtableOffset) {
+        std::int32_t slot = -1;
+        if (!isaac::runtime::engine_memory::ReadAt(entity + kGridEntityDoorSlotOffset,
+                &slot, &IsEngineMemoryReadable) ||
+            slot < kRoomDoorSlotMinimum || slot > kRoomDoorSlotMaximum) {
+            lua_pushnil(state);
+            return 1;
+        }
+        auto* door = static_cast<LuaRuntime::DoorHandle*>(
+            lua_newuserdata(state, sizeof(LuaRuntime::DoorHandle)));
+        *door = {entityPointer, slot, 0};
+        luaL_getmetatable(state, LuaRuntime::kGridEntityDoorMetatable);
+        lua_setmetatable(state, -2);
+        return 1;
+    }
     PushGridEntityHandle(state, entity);
     return 1;
 }
@@ -1787,9 +1802,7 @@ int GridEntityToRock(lua_State* state) {
     return PushGridEntityCast(state, kGridEntity_RockVtableOffset, "GridEntity:ToRock");
 }
 
-//: ★ `ToDoor()` 这一条也压**基类** `GridEntity` 视图（不是 `GridEntityDoor` 视图）：
-//: 门的视图（`DoorHandle`）带一个 `slot`（`Room:GetDoor(slot)` 才有），而 `ToDoor()` 没有槽位可比 ——
-//: 压一个槽位不明的门句柄会让 `door.TargetRoomIndex` 之类**读错格子**，比给基类视图危险得多。
+//: 门自身 +0x1A0 保存槽位，可直接构造与 Room:GetDoor 一致的门视图。
 int GridEntityToDoor(lua_State* state) {
     return PushGridEntityCast(state, kGridEntity_DoorVtableOffset, "GridEntity:ToDoor");
 }
