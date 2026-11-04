@@ -30,12 +30,12 @@ class RestrictedRequireMirror:
     def module_path(module_name):
         if not isinstance(module_name, str) or not module_name:
             raise RequireFailure(19)
-        if module_name[0] == "." or module_name[-1] == "." or ".." in module_name:
+        if module_name[0] in "./\\" or module_name[-1] in "./\\" or ".." in module_name:
             raise RequireFailure(19)
         for character in module_name:
-            if ord(character) > 0x7F or not (character.isalnum() or character in "_.-"):
+            if ord(character) > 0x7F or not (character.isalnum() or character in "_.-+/\\"):
                 raise RequireFailure(19)
-        return module_name.replace(".", "/") + ".lua"
+        return module_name.replace(".", "/").replace("\\", "/") + ".lua"
 
     def require(self, module_name):
         path = self.module_path(module_name)
@@ -505,6 +505,8 @@ mod:AddCallback(ModCallbacks.MC_POST_UPDATE, function() end))lua";
 
     def test_dot_module_name_maps_to_relative_lua_path(self):
         self.assertEqual(RestrictedRequireMirror.module_path("src.metadata"), "src/metadata.lua")
+        self.assertEqual(RestrictedRequireMirror.module_path("src/metadata"), "src/metadata.lua")
+        self.assertEqual(RestrictedRequireMirror.module_path("src\\metadata"), "src/metadata.lua")
 
     def test_successful_module_result_is_cached_once(self):
         expected = {"name": "Runtime Require Probe"}
@@ -519,7 +521,7 @@ mod:AddCallback(ModCallbacks.MC_POST_UPDATE, function() end))lua";
 
     def test_rejects_unsafe_or_non_ascii_module_names_before_read(self):
         loader = RestrictedRequireMirror({})
-        for name in ("../escape", "src/escape", "src\\escape", ".src", "src.", "src..escape", "src.\u6d4b\u8bd5"):
+        for name in ("../escape", "/escape", "\\escape", "src/../escape", "src/", ".src", "src.", "src..escape", "src.\u6d4b\u8bd5"):
             with self.subTest(name=name), self.assertRaises(RequireFailure) as raised:
                 loader.require(name)
             self.assertEqual(raised.exception.detail, 19)

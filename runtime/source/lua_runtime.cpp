@@ -985,7 +985,8 @@ const char* BuildRequireNotFoundMessage(std::array<char, kStage13RequirePathCapa
         lineLength = AppendRequireText(text, capacity, lineLength, "/");
         // 模块名逐字符翻译：`.` → `/`（与 `Require` 的成功路径同一条规则）。
         for (std::size_t index = 0; index < moduleLength; ++index) {
-            const char translated = moduleName[index] == '.' ? '/' : moduleName[index];
+            const char translated = moduleName[index] == '.' || moduleName[index] == '\\'
+                ? '/' : moduleName[index];
             lineLength = AppendRequireText(text, capacity, lineLength, &translated, 1);
         }
         if (directoryForm) {
@@ -1122,12 +1123,13 @@ int Require(lua_State* state) {
     std::size_t pathLength = modRootLength;
     path[pathLength++] = '/';
     for (std::size_t index = 0; index < moduleLength; ++index) {
-        if (!IsAsciiModuleCharacter(moduleName[index]) ||
-            moduleName[index] == '/' || moduleName[index] == '\\' ||
+        const bool separator = moduleName[index] == '/' || moduleName[index] == '\\';
+        if ((!IsAsciiModuleCharacter(moduleName[index]) && !separator) ||
+            (separator && (index == 0 || index + 1 == moduleLength)) ||
             (moduleName[index] == '.' && index + 1 < moduleLength && moduleName[index + 1] == '.')) {
             return RaiseRequireFailure(state, 19, notFound);
         }
-        path[pathLength++] = moduleName[index] == '.' ? '/' : moduleName[index];
+        path[pathLength++] = moduleName[index] == '.' || separator ? '/' : moduleName[index];
     }
     std::memcpy(path.data() + pathLength, ".lua", 5);
     pathLength += 4;
