@@ -8784,6 +8784,10 @@ constexpr EngineCallShapeRow kEngineCallShapes[] = {
     {2, {EngineArgKind::Int, EngineArgKind::BoolDefaultTrue, EngineArgKind::Int, EngineArgKind::Int,
          EngineArgKind::Int, EngineArgKind::Int, EngineArgKind::Int, EngineArgKind::Int},
      EngineReturnKind::Void, FieldReceipt::EntityPlayer, IntArgumentGuard::None, 1, {0, 1, 0}},
+    // 39: PC Kill wrapper 0x846EC0 reads self, calls its virtual target, returns no values.
+    {0, {EngineArgKind::Int, EngineArgKind::Int, EngineArgKind::Int, EngineArgKind::Int,
+         EngineArgKind::Int, EngineArgKind::Int, EngineArgKind::Int, EngineArgKind::Int},
+     EngineReturnKind::Void, FieldReceipt::Entity, IntArgumentGuard::None, 0, {0, 1, 0}},
 };
 
 //: ★★ 批次 338（2026-10-04）：跳板浮点槽的**两侧转换**（契约见 `engine_call_trampoline.hpp`）。
@@ -12174,7 +12178,7 @@ constexpr EngineMethodRow kEntityEngineRows[] = {
     // ★★ 批次 319 **改走虚调用**：PC 绑定 `0x8604FD` = `mov eax,[ecx]; jmp [eax+0x24]`（跳板表）
     //    ⇒ 虚函数（Switch 槽 10）。`Entity_Familiar::Kill` 与 `Entity_NPC::Kill` 各有覆盖。
     {0x0E010069, MakeEngineVtableRowOffset(kEntityVtableKillSlot), 0, FieldReceipt::Entity,
-     EngineCallShape::Void0, 0, 0xFF},
+     EngineCallShape::Void0IgnoreExtra, 0, 0xFF},
     // ---- 批次 238：`Entity:Remove`（void Remove ( )）
     // 符号 `_ZN15IsaacRepentance6Entity6RemoveEv`；形状按符号参数表取（见 `runtime_constants.hpp` 的批次 238 段）。
     // ★★ 批次 319 **改走虚调用**：PC 绑定 `0x860511` = `mov eax,[ecx]; jmp [eax+0x28]`（跳板表）

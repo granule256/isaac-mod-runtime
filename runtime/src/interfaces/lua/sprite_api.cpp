@@ -1640,9 +1640,8 @@ int SpriteIndex(lua_State* state) {
 
 // `__newindex`：三个可写属性（大小写与 PC 一致）。
 //
-// 类型不对时**报错**（与 `Vector.X`/`KColor.Red` 一致）：把 `sprite.FlipX = 1` 这种写法
-// 静默接受会让 Mod 的笔误变成"看起来生效了其实没有"。未知字段名同样报错 —— 这一批只承诺
-// PC 的这三个属性，多接受一个没实现的名字等于撒谎。
+// Vector/Color values retain their typed checks. FlipX follows PC's boolean
+// setter (0x839C10): nil/false clear it; every other Lua value sets it.
 int SpriteNewIndex(lua_State* state) {
     auto* handle = static_cast<SpriteHandle*>(luaL_checkudata(state, 1, kSpriteMetatable));
     if (lua_type(state, 2) != LUA_TSTRING) {
@@ -1693,9 +1692,6 @@ int SpriteNewIndex(lua_State* state) {
         return 0;
     }
     if (std::strcmp(field, kSpriteFlipXField) == 0) {
-        if (lua_type(state, 3) != LUA_TBOOLEAN) {
-            return luaL_error(state, "Sprite.FlipX must be a boolean");
-        }
         handle->flipX = lua_toboolean(state, 3) != 0 ? 1 : 0;
         handle->hasFlipX = 1;
         if (!ApplyCachedSpriteProperties(ResolveSpriteObject(handle), handle,
