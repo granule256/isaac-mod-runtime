@@ -3769,7 +3769,7 @@ constexpr EngineMethodRow kLevelEngineRows[] = {
     // 0x000F `Level:AddCurse(eLevelCurse, bool)`：`x0 = this`、`w1 = 诅咒号`、`w2 = 是否显示名称`
     // bool在原生ABI上是0/1，但Lua参数仍须先按布尔取值，不能用整数参数校验拒绝true/false。
     {0x0301000F, kLevelAddCurseOffset, kLevelAddCurseEntryWord, FieldReceipt::Level,
-     EngineCallShape::VoidIntBool, 2, 0xFF},
+     EngineCallShape::VoidIntBoolOpt1, 2, 0xFF},
     // 0x0010 `Level:RemoveCurses(uint)`：`x0 = this`、`w1 = 诅咒位掩码`。
     {0x03010010, kLevelRemoveCursesOffset, kLevelRemoveCursesEntryWord, FieldReceipt::Level,
      EngineCallShape::Void1, 1, 0xFF},

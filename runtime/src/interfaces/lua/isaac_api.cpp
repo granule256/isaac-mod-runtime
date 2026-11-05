@@ -2207,6 +2207,7 @@ const char* EntityViewMetatableForPointer(std::uintptr_t entity) noexcept {
     switch (ClassifyCallbackEntity(entity)) {
         case CallbackEntityClass::Player: return kEntityPlayerMetatable;
         case CallbackEntityClass::Pickup: return kEntityPickupMetatable;
+        case CallbackEntityClass::Familiar: return kEntityFamiliarMetatable;
         case CallbackEntityClass::Laser:
             return IsTypedEntity(entity,kEntityLaserVtableOffset,kEntityTypeLaser)
                        ? kEntityLaserMetatable : kEntityMetatable;
@@ -2233,8 +2234,10 @@ void PushQueryResult(QuerySink* sink, std::uintptr_t entity) {
         sink->emitted >= static_cast<int>(kMaximumQueryResults) || !QueryRecordUnique(entity)) {
         return;
     }
-    // 视图按实体类别选（见上面的 `EntityViewMetatableForPointer`）：PC 的查询返回的就是真类对象。
-    PushEntityHandle(sink->state, entity, EntityViewMetatableForPointer(entity));
+    // PC queries construct Entity userdata (FindByType 0x80CFEE,
+    // FindInRadius 0x80CCB7, GetRoomEntities 0x80C2F1). Typed callback
+    // arguments use their separate path; queries require explicit To* casts.
+    PushEntityHandle(sink->state, entity, kEntityMetatable);
     lua_rawseti(sink->state, sink->resultIndex, ++sink->emitted);
 }
 
@@ -13635,10 +13638,8 @@ void PushEntityCallbackArgument(lua_State* state, std::uintptr_t entity) noexcep
     if (state == nullptr) {
         return;
     }
-    // 视图与查询结果同一种（`EntityViewMetatableForPointer`）：PC 的回调实参也是**真类对象**，
-    // 所以玩家给 `EntityPlayer`、掉落物给 `EntityPickup`、其余给 `Entity`。
-    // 视图不一致会让模组在回调里直接调不到类方法（`player:HasCollectible()`、
-    // `pickup:IsShopItem()` 这类），而现象只是"方法不存在"。
+    // Callback arguments follow their declared concrete type; entity queries
+    // use Entity handles and explicit To* casts, as in PC's query bindings.
     PushEntityHandle(state, entity, EntityViewMetatableForPointer(entity));
 }
 

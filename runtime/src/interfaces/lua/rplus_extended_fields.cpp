@@ -15,7 +15,7 @@ extern "C" {
 namespace isaac::runtime {
 namespace {
 namespace guards=extended_fields;
-enum class Group:unsigned {Entity,Sprite,Familiar,Pickup,Effect,Tear,Projectile,Bomb,Player,Item,SetTarget,SetChild,SetHeight,Descriptor,SetParent,SetEntityRef,Count};
+enum class Group:unsigned {Entity,Sprite,Familiar,Pickup,Effect,Tear,Projectile,Bomb,Player,Item,SetTarget,SetChild,SetHeight,Descriptor,SetParent,SetEntityRef,SetSpawner,Count};
 struct Cache {std::uintptr_t base{};bool valid{};};
 Cache g_Guards[static_cast<unsigned>(Group::Count)]{};
 constexpr std::uintptr_t kSetEntityRefEntry=0x11fb70;
@@ -46,6 +46,7 @@ void Check(lua_State* state,Group group){
  case Group::SetTarget:cache.valid=G(SetTarget,0);break;
  case Group::SetChild:cache.valid=G(SetChild,0);break;
  case Group::SetParent:cache.valid=G(SetParent,0);break;
+ case Group::SetSpawner:cache.valid=G(SetSpawner,0);break;
  case Group::SetEntityRef:cache.valid=Guard(base,kSetEntityRefEntry,kSetEntityRefGuard);break;
  case Group::SetHeight:cache.valid=G(SetHeight,0);break;
  case Group::Descriptor:cache.valid=G(Descriptor,0);break;
@@ -61,13 +62,13 @@ template<class T>T Read(lua_State* state,std::uintptr_t object,std::uintptr_t of
 template<class T>void Write(lua_State* state,std::uintptr_t object,std::uintptr_t offset,const T&value){
  if(!engine_memory::WriteField(object,offset,value,engine_memory::EngineMemoryWritable))luaL_error(state,"native extended field is not writable");}
 std::int32_t Integer(lua_State*state){const auto low=static_cast<std::uint32_t>(luaL_checkinteger(state,3));std::int32_t value{};std::memcpy(&value,&low,4);return value;}
-enum class Kind:std::uint8_t {None,Int,Float,Bool,Vector,Color,Target,Child,Height,Parent,UInt,EntityReference};
-enum class Field:std::uint8_t {None,SpriteOffset,SpriteScale,Target,Child,DepthOffset,EntityCollisionClass,GridCollisionClass,SplatColor,FireCooldown,RoomClearCount,Hearts,IsFollower,Keys,State,Timeout,Wait,Charge,FallingSpeed,FallingAcceleration,Rotation,EffectHeight,Height,KnockbackMultiplier,ExplosionDamage,ItemHoldCooldown,Parent,Touched,EntityRef};
+enum class Kind:std::uint8_t {None,Int,Float,Bool,Vector,Color,Target,Child,Height,Parent,UInt,EntityReference,Spawner};
+enum class Field:std::uint8_t {None,SpriteOffset,SpriteScale,Target,Child,DepthOffset,EntityCollisionClass,GridCollisionClass,SplatColor,FireCooldown,RoomClearCount,Hearts,IsFollower,Keys,State,Timeout,Wait,Charge,FallingSpeed,FallingAcceleration,Rotation,EffectHeight,Height,KnockbackMultiplier,ExplosionDamage,ItemHoldCooldown,Parent,Touched,EntityRef,SpawnerEntity};
 Field Name(const char*name){
  if(!name)return Field::None;
 #define N(x) if(!std::strcmp(name,#x))return Field::x
  switch(name[0]){
- case 'S':N(SpriteOffset);N(SpriteScale);N(SplatColor);N(State);break;
+ case 'S':N(SpawnerEntity);N(SpriteOffset);N(SpriteScale);N(SplatColor);N(State);break;
  case 'T':N(Target);N(Timeout);N(Touched);break;
  case 'C':N(Child);N(Charge);break;
  case 'P':if(name[1]=='a'){N(Parent);}break;
@@ -95,6 +96,7 @@ Row Layout(std::uintptr_t entity,Field field){
  case Field::Target:return {Kind::Target,0x3A0,Group::Entity};
  case Field::Child:return {Kind::Child,0x398,Group::Entity};
  case Field::Parent:return {Kind::Parent,0x390,Group::Entity};
+ case Field::SpawnerEntity:return {Kind::Spawner,0x3a8,Group::Entity};
  case Field::DepthOffset:return {Kind::Float,0x32C,Group::Entity};
  // Entity::handle_collisions @63078 reads +1e4; CollideWithGrid @5a2ec reads +1e0.
  case Field::EntityCollisionClass:return {Kind::Int,0x1E4,Group::Entity};
@@ -156,7 +158,7 @@ int Push(lua_State*state,std::uintptr_t object,const Row&row){
  case Kind::Bool:lua_pushboolean(state,Read<std::uint8_t>(state,object,row.offset)!=0);break;
  case Kind::Vector:{const auto value=Read<LuaRuntime::VectorHandle>(state,object,row.offset);PushLuaVector(state,value.x,value.y);break;}
  case Kind::Color:PushLuaColorFromEngineColorMod(state,Read<EngineColorMod>(state,object,row.offset));break;
- case Kind::Target:case Kind::Child:case Kind::Parent:{const auto p=Read<std::uintptr_t>(state,object,row.offset);if(!p)lua_pushnil(state);else PushEntityCallbackArgument(state,p);break;}
+ case Kind::Target:case Kind::Child:case Kind::Parent:case Kind::Spawner:{const auto p=Read<std::uintptr_t>(state,object,row.offset);if(!p)lua_pushnil(state);else PushEntityCallbackArgument(state,p);break;}
  case Kind::EntityReference:{const auto p=Read<std::uintptr_t>(state,object,row.offset);if(p&&IsLiveEntityPointer(p))PushEntityCallbackArgument(state,p);else lua_pushnil(state);break;}
  case Kind::None:return 0;
  }
@@ -171,14 +173,28 @@ bool Store(lua_State*state,std::uintptr_t object,const Row&row){
  case Kind::Bool:Write(state,object,row.offset,static_cast<std::uint8_t>(lua_toboolean(state,3)!=0));break;
  case Kind::Vector:Write(state,object,row.offset,*RequireVectorArgument(state,3));break;
  case Kind::Color:{EngineColorMod value{};if(!FillEngineColorMod(state,3,&value))luaL_argerror(state,3,"Color expected");Write(state,object,row.offset,value);break;}
- case Kind::Target:case Kind::Child:case Kind::Parent:{std::uintptr_t target{};if(!lua_isnil(state,3)){target=EntityPointerArgument(state,3);if(!target)luaL_argerror(state,3,"live Entity or nil expected");}
-  const bool parent=row.kind==Kind::Parent;
-  if(parent)Check(state,Group::SetParent);
-  using Fn=void(*)(void*,void*);Fn fn=nullptr;
+ case Kind::Target:case Kind::Child:case Kind::Parent:case Kind::Spawner:{
+  std::uintptr_t target{};
+  if(!lua_isnil(state,3)){
+   target=EntityPointerArgument(state,3);
+   if(!target)luaL_argerror(state,3,"live Entity or nil expected");
+  }
+  using Fn=void(*)(void*,void*);
+  struct Setter {Group group;std::uintptr_t entry;};
+  static constexpr Setter setters[]={
+   {Group::SetTarget,guards::kSetTarget0Entry},
+   {Group::SetChild,guards::kSetChild0Entry},
+   {Group::SetParent,guards::kSetParent0Entry},
+   {Group::SetSpawner,guards::kSetSpawner0Entry},
+  };
+  const auto index=row.kind==Kind::Target?0U:row.kind==Kind::Child?1U:row.kind==Kind::Parent?2U:3U;
+  const auto&setter=setters[index];Fn fn=nullptr;
 #if !defined(__SWITCH__)
-  fn=parent?g_Tests.setParent:(row.kind==Kind::Target?g_Tests.setTarget:g_Tests.setChild);
+  const Fn tests[]={g_Tests.setTarget,g_Tests.setChild,g_Tests.setParent,g_Tests.setSpawner};
+  fn=tests[index];
 #endif
-  if(!fn){const auto group=parent?Group::SetParent:(row.kind==Kind::Target?Group::SetTarget:Group::SetChild);if(!parent)Check(state,group);fn=engine_call::AsFunction<Fn>(LuaRuntime::EngineModuleBase()+(parent?guards::kSetParent0Entry:(row.kind==Kind::Target?guards::kSetTarget0Entry:guards::kSetChild0Entry)));}
+  if(!fn||row.kind==Kind::Parent||row.kind==Kind::Spawner)Check(state,setter.group);
+  if(!fn)fn=engine_call::AsFunction<Fn>(LuaRuntime::EngineModuleBase()+setter.entry);
   fn(engine_memory::AsObject(object),engine_memory::AsObject(target));break;}
  case Kind::Height:{const auto value=static_cast<float>(luaL_checknumber(state,3));using Fn=void(*)(void*,float);Fn fn=nullptr;
 #if !defined(__SWITCH__)

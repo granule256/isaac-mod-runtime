@@ -43,7 +43,7 @@ int main(int argc,char**argv){
  else if(!std::strcmp(mode,"discharge"))script+="Isaac.GetPlayer(0):DischargeActiveItem(0)";
  else if(!std::strcmp(mode,"discharge_default"))script+="Isaac.GetPlayer(0):DischargeActiveItem()";
  else if(!std::strcmp(mode,"direction"))script+="Isaac.GetPlayer(0):GetMovementDirection()";
- else if(!std::strcmp(mode,"arguments"))script+="assert(not pcall(function()l:AddCurse(1)end));assert(not pcall(function()l:AddCurse('bad',true)end));assert(not pcall(function()s:SetStartSeed({})end));assert(not pcall(function()s:SetStartSeed(1,2)end))";
+ else if(!std::strcmp(mode,"arguments"))script+="assert(not pcall(function()l:AddCurse()end));assert(not pcall(function()l:AddCurse('bad',true)end));assert(not pcall(function()s:SetStartSeed({})end));assert(not pcall(function()s:SetStartSeed(1,2)end))";
  else return 91;
  auto result=LuaRuntime::InitializeFromBuffer(script.data(),script.size(),"@seed-curse-contracts.lua");
  if(result!=LuaRuntime::LuaInitResult::Success){char e[512]{};const auto n=LuaRuntime::CopyLastLuaErrorText(e,sizeof(e));std::printf("LUA_ERROR %.*s\n",static_cast<int>(n),e);return 1;}

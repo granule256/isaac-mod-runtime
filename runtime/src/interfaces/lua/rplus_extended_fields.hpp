@@ -18,6 +18,7 @@ struct ExtendedFieldsNativeTestBindings {
  void (*setChild)(void*,void*){};
  void (*setTearHeight)(void*,float){};
  void (*setParent)(void*,void*){};
+ void (*setSpawner)(void*,void*){};
 };
 void SetExtendedFieldsNativeTestBindings(ExtendedFieldsNativeTestBindings) noexcept;
 #endif
