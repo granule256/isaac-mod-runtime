@@ -2196,13 +2196,9 @@ struct QuerySink {
     int emitted{0};
 };
 
-// 查询结果该给哪种视图：**玩家给 `EntityPlayer`、掉落物给 `EntityPickup`、其余给 `Entity`**。
-//
-// 为什么掉落物也要分视图（2026-09-18 实测）：PC 的 `Isaac.FindByType(5)` 返回的是
-// **真正的类对象**，所以模组在查询结果上调 `EntityPickup` 的方法（`CanReroll`、`IsShopItem`…）是正常的；
-// 而我们此前一律给基类 `Entity` ⇒ 那些方法在查询结果上**全是 nil**（探针的 `R=` 打出 `ERR` 就是这么来的）。
-// 视图回落已在 `IndexEntity` 里落实：`EntityPickup` 先查自己的字段，再回落到 `Entity` 的
-// ⇒ 换成它**不会**丢掉基类字段/方法（与 PC 的继承关系一致）。
+// Concrete views are used for typed callback arguments and native methods
+// returning a declared subclass. The three Isaac collection queries construct
+// base Entity userdata in PC and use PushQueryResult instead.
 const char* EntityViewMetatableForPointer(std::uintptr_t entity) noexcept {
     switch (ClassifyCallbackEntity(entity)) {
         case CallbackEntityClass::Player: return kEntityPlayerMetatable;
