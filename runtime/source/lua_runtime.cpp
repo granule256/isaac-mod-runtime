@@ -5954,10 +5954,7 @@ InputActionOutcome DispatchInputAction(std::uint32_t action, std::uint32_t contr
                                        std::int32_t inputHook, std::uintptr_t entity) {
     InputActionOutcome outcome{};
     static_cast<void>(controllerIndex);  // PC回调不暴露此参数，真实Entity由原生独立提供。
-    if (!IsReady() || g_LuaState == nullptr ||
-        !isaac::runtime::ShouldDispatchManagedCallbacks()) {
-        return outcome;
-    }
+    if (!IsReady() || g_LuaState == nullptr) return outcome;
     if (!isaac::runtime::BuiltinCallbackEnabled(isaac::runtime::kCallbackInputAction)) {
         return outcome;  // ★ 快路径（绝大多数帧走这里）
     }
@@ -5965,7 +5962,10 @@ InputActionOutcome DispatchInputAction(std::uint32_t action, std::uint32_t contr
     if (inInputActionDispatch) {
         return outcome;
     }
-    isaac::runtime::EngineGuardEnterDispatch();
+    // Native player queries can reenter here inside another Lua dispatch.
+    // Only the owner may close that window; retain its permission/cache epoch.
+    const ManagedEngineDispatchScope dispatchScope;
+    if (!isaac::runtime::ShouldDispatchManagedCallbacks()) return outcome;
     LuaCallbackInvoker invoker{0, false, false};
     // PC 签名：`(Entity, InputHook, ButtonAction)`。
     // 真实nil/玩家/受控实体，保留原调用者上下文，不把界面输入伪装成玩家0。
@@ -6012,7 +6012,6 @@ InputActionOutcome DispatchInputAction(std::uint32_t action, std::uint32_t contr
                                      isaac::runtime::ThreadAffinity::Any,
                                      static_cast<std::int64_t>(inputHook));
     inInputActionDispatch = false;
-    isaac::runtime::EngineGuardLeaveDispatch();
     if (!result.anyNonNil) {
         return outcome;  // 没有模组想覆盖这次查询
     }
