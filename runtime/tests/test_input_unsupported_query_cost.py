@@ -21,11 +21,11 @@ constexpr unsigned kKageControllerButtonMaximum=17;
 struct InputButtonArguments{lua_Integer code;lua_Integer controller;};
 '''+helper+function(source,'bool IsControllerButtonCode(')+prefix+r'''
 int main(){auto*L=luaL_newstate();lua_pushcfunction(L,InputIsButtonTriggered);lua_setglobal(L,"query");
- for(const char*s:{"return query(32,0)","return query(400,4)","return query(32.0,'0',1.0)","return query(-1,0)"}){
+ for(const char*s:{"return query(32,0)","return query(400,4)","return query(32.0,'0',1.0)","return query(-1,0)","return query(32,0,true)","return query(32,0,nil,{})"}){
   lua_settop(L,0);refreshes=0;if(luaL_loadstring(L,s)||lua_pcall(L,0,1,0)||lua_type(L,-1)!=LUA_TBOOLEAN||lua_toboolean(L,-1))return 2;
   if(refreshes){std::fprintf(stderr,"unsupported key refreshed snapshot %d times",refreshes);return 1;}
  }
- for(const char*s:{"return query(32,0.5)","return query(32,0,true)","return query(32)","return query(1.5,0)"}){
+ for(const char*s:{"return query(32,0.5)","return query(32)","return query(1.5,0)"}){
   lua_settop(L,0);refreshes=0;if(luaL_loadstring(L,s)||lua_pcall(L,0,1,0)==LUA_OK||refreshes)return 3;
  }
  lua_settop(L,0);refreshes=0;if(luaL_loadstring(L,"return query(13,1)")||lua_pcall(L,0,1,0)||refreshes!=1)return 4;

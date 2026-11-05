@@ -432,15 +432,15 @@ constexpr char kInputOwner[] = "Input";
 // ★ 2026-09-19 修正（ABI 体检的"少给参数"判据修正后当场查出来）：
 // 引擎签名是 `Manager::IsActionPressed(unsigned int, unsigned int, Entity*)`（`tools/engine_symbol_signatures.json`），
 // 我们原先只声明了 3 个形参（被跳板覆盖的 Manager* + 动作号 + controller）⇒ **第 4 个寄存器是调用方的残留值**。
-// 第 3 个引擎参数是 PC `Input.IsActionPressed(action, controller, entity)` 的那个可选 `entity`
-// （PC 的 Lua 侧允许省略 ⇒ 传空指针），所以这里按 `nullptr` 显式给出去，不留残留值。
+// PC 的 Input 包装只消费动作号和手柄号，并给底层查询传空指针。
+// 额外 Lua 参数不映射为原生 Entity*，不能把模组附带的布尔值当指针。
 using ActionQueryFn = bool (*)(void* /* 被跳板覆盖的 Manager* */, std::uint32_t, std::uint32_t,
-                               void* /* Entity*：PC 的可选第三参，我们一律给空指针 */);
+                               void* /* Entity*：原始 Input 查询传 nullptr */);
 using ActionValueFn = float (*)(void*, std::uint32_t, std::uint32_t, void*);
 
-// Every Input method takes `(input code, controllerId)`.
+// PC bindings consume the two required arguments and ignore trailing Lua values.
 void CheckInputQueryArguments(lua_State* state, const char* apiName) {
-    if (lua_gettop(state) != 2 || !isaac::runtime::IsIntegerArgument(state, 1) || !isaac::runtime::IsIntegerArgument(state, 2)) {
+    if (lua_gettop(state) < 2 || !isaac::runtime::IsIntegerArgument(state, 1) || !isaac::runtime::IsIntegerArgument(state, 2)) {
         luaL_error(state, "%s accepts input code and controllerId integers", apiName);
     }
 }
@@ -469,10 +469,8 @@ void CheckInputQueryArguments(lua_State* state, const char* apiName) {
 //   只有手柄/触摸两个设备类，`Manager::Initialize` 只 new 两个），所以键盘码没有真值来源 ⇒
 //   答 false 与 PC 上"那个键没被按"同形，是**不误报**的那一侧。这条偏离登记在 `api_deviation.cpp`。
 //
-// ★ 参数形状：PC 的绑定层**接受第三个参数**（文档没写），设备旁的 EID 确实传三个
-//   （`features/eid_bagofcrafting_search.lua:129` 等 7 处 `(Keyboard.KEY_ESCAPE, 0, true)`）⇒
-//   收 **2 或 3 个整数**，与 PC 一致；旧实现"恰好两个"会把那些调用变成 `luaL_error`、
-//   派发器摘掉整条回调（比假值更糟）。
+// PC 的六个 Input 查询只读取键码/动作号和手柄号；尾随 Lua 参数不参与查询。
+// 不能限制总参数个数，也不能校验未消费参数的类型。
 //
 // ★ 边沿（Triggered）不用引擎那条：引擎的 `+0x38` 语义是"**上一帧也按着**"
 //   （`InputDeviceBase::Poll @ 0x4F70B0` 把 `+0x30` 复制进 `+0x38`），不是 PC 文档说的
@@ -489,7 +487,7 @@ using ButtonFloatFn = float (*)(void* /* 同上 */, std::uint32_t button, std::u
 //: ★ 批次 381：类型改名 `InputFrameEdges`，同样改成"帧上采样 + 纯读"（见 `input_edge.hpp` 第五节）。
 LuaRuntime::InputFrameEdges g_ButtonEdge{};
 
-// 参数校验：**2 或 3 个整数**（第三个是 PC 未文档化的可选参数，EID 在用；我们不解释它的语义）。
+// Only the two consumed arguments are validated and converted.
 struct InputButtonArguments {
     lua_Integer code{};
     lua_Integer controller{};
@@ -497,11 +495,10 @@ struct InputButtonArguments {
 InputButtonArguments CheckInputButtonArguments(lua_State* state, const char* apiName) {
     InputButtonArguments arguments{};
     const int top = lua_gettop(state);
-    if ((top != 2 && top != 3) ||
+    if (top < 2 ||
         !isaac::runtime::IntegerArgumentAt(state, 1, &arguments.code) ||
-        !isaac::runtime::IntegerArgumentAt(state, 2, &arguments.controller) ||
-        (top == 3 && !isaac::runtime::IsIntegerArgument(state, 3))) {
-        luaL_error(state, "%s accepts an input button, a controller id[, and one more integer]",
+        !isaac::runtime::IntegerArgumentAt(state, 2, &arguments.controller)) {
+        luaL_error(state, "%s accepts an input button and a controller id",
                    apiName);
     }
     return arguments;
