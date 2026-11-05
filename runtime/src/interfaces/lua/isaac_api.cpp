@@ -5002,17 +5002,20 @@ int EntityPlayerGetPlayerFormCounter(lua_State* state) {
     auto* handle = static_cast<EntityHandle*>(luaL_checkudata(state, 1, kEntityPlayerMetatable));
     const std::uintptr_t entity = ValidatedEntityPlayer(handle);
     const lua_Integer form = lua_tointeger(state, 2);
-    if (entity == 0 || form < 0 ||
+    if (form < 0 ||
         static_cast<std::uint64_t>(form) >= kEntityPlayerFormCounterCount) {
         PushZero(state);
         return 1;
+    }
+    if (entity == 0) {
+        return luaL_error(state, "EntityPlayer:GetPlayerFormCounter player is no longer available");
     }
     std::int32_t value = 0;
     if (!ReadEngine(entity + kEntityPlayerFormCountersOffset +
                         static_cast<std::uintptr_t>(form) * sizeof(std::int32_t),
                     &value)) {
-        PushZero(state);
-        return 1;
+        // A missing native read must not masquerade as a real zero-piece form.
+        return luaL_error(state, "EntityPlayer:GetPlayerFormCounter native counter is unavailable");
     }
     lua_pushinteger(state, static_cast<lua_Integer>(value));
     return 1;

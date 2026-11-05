@@ -30,12 +30,14 @@ struct EntityHandle {};
 std::array<unsigned char,0x1ca0> nativePlayer{};
 unsigned expectedFirst=1,grants=0;
 bool failed=false;
+bool playerAvailable=true,counterReadable=true;
 EntityHandle* CheckEntityHandle(lua_State*L,int index){return static_cast<EntityHandle*>(luaL_checkudata(L,index,kEntityPlayerMetatable));}
-std::uintptr_t ValidatedEntityPlayer(EntityHandle*){return reinterpret_cast<std::uintptr_t>(nativePlayer.data());}
+std::uintptr_t ValidatedEntityPlayer(EntityHandle*){return playerAvailable?reinterpret_cast<std::uintptr_t>(nativePlayer.data()):0;}
 bool ReadIntegerArgument(lua_State*L,int index,lua_Integer*out){return isaac::runtime::IntegerArgumentAt(L,index,out);}
 bool EntityPlayerProbeIdArgument(lua_State*L,const char*,bool,void*){CheckEntityHandle(L,1);luaL_checkinteger(L,2);return true;}
 void PushZero(lua_State*L){lua_pushinteger(L,0);}
 template<class T>bool ReadEngine(std::uintptr_t address,T*out){
+ if(!counterReadable)return false;
  const auto start=reinterpret_cast<std::uintptr_t>(nativePlayer.data());
  if(address<start||address>start+nativePlayer.size()-sizeof(T))return false;
  std::memcpy(out,reinterpret_cast<void*>(address),sizeof(T));return true;
@@ -69,6 +71,12 @@ int main(int argc,char**argv){
   run("p:AddCollectible(134);p:AddCollectible(134,0);p:AddCollectible(134,0,nil);p:AddCollectible(134,0,true)");
   expectedFirst=0;run("p:AddCollectible(134,0,false);p:AddCollectible(134,0,false,0,0,nil)");
   if(grants!=6)failed=true;
+ }else if(!std::strcmp(argv[1],"unavailable")){
+  playerAvailable=false;
+  run("assert(not pcall(p.GetPlayerFormCounter,p,0), 'an unavailable player is not a genuine zero counter')");
+  playerAvailable=true;counterReadable=false;
+  run("assert(not pcall(p.GetPlayerFormCounter,p,0), 'an unreadable native counter is not zero')");
+  counterReadable=true;run("assert(p:GetPlayerFormCounter(0)==0, 'a readable native zero remains valid')");
  }else{
   // Native HasPlayerForm and increment_player_form_counter both access +0x1c54.
   // Neighboring completion-history bits and unrelated bytes must not supply progress.
@@ -113,4 +121,8 @@ class NativePlayerFormStateTests(unittest.TestCase):
 
     def test_progress_reads_the_live_native_counter_array(self):
         result = subprocess.run([str(self.binary),'counter'],capture_output=True,text=True)
+        self.assertEqual(result.returncode,0,result.stdout+result.stderr)
+
+    def test_unavailable_native_state_is_not_reported_as_zero_progress(self):
+        result = subprocess.run([str(self.binary),'unavailable'],capture_output=True,text=True)
         self.assertEqual(result.returncode,0,result.stdout+result.stderr)
