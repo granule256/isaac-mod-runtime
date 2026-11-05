@@ -1545,9 +1545,8 @@ int RoomGetGridEntity(lua_State* state) {
     if (!ResolveCurrentRoomCached(&roomAddress)) {
         return PushNativeFallbackNil(state, kFbRoomGetGridEntity);
     }
-    if (gridIndex < 0) {
-        return luaL_error(state, "Room:GetGridEntity accepts one grid index");
-    }
+    // Negative neighbor indices are empty cells on PC; the shared slot
+    // lookup returns nil without dereferencing them.
 #if PERF_API_WRAPPER
     const std::uint64_t gridProbeT1 = RuntimePerfTick();
 #endif

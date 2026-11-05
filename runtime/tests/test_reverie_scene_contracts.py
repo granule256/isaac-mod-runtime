@@ -17,7 +17,7 @@ template<class T>void BindSpawner(T&b){if constexpr(requires{b.setSpawner;})b.se
 extern "C" {extern std::uint32_t g_HostEngineCallTrampolineCalls;extern std::uint64_t g_HostEngineCallTrampolineLastIntegers[8];}
 int main(int argc,char**argv){
  if(argc!=2)return 90;static_cast<void>(kScriptTemplate);static_cast<void>(&HarnessHasCollectible);static_cast<void>(&BuildPrelude);static_cast<void>(&ExpectNumber);
- CreateBlocks();FillEntities();PublishLists();PublishGame();PublishEntityList(g_RoomBytes,true);
+ CreateBlocks();if(g_RoomBytes.size()<0x2000)g_RoomBytes.resize(0x2000);FillEntities();PublishLists();PublishGame();PublishEntityList(g_RoomBytes,true);
  WriteWord(g_Entities[kEnemyA],0,g_EngineBase+kEntityNpcVtableOffset);
  std::memcpy(g_ModuleBytes.data()+kEntityNpcCanShutDoorsMethodOffset,kEntityNpcCanShutDoorsExpectedBytes.data(),kEntityNpcCanShutDoorsExpectedBytes.size());
  LuaRuntime::SetEngineModuleBase(g_EngineBase);LuaRuntime::SetGameBindings(g_EngineBase+kGameOwnerGlobalSlotOffset,0x2222);
@@ -26,6 +26,9 @@ int main(int argc,char**argv){
  /*GUARDS*/
  WriteAt<std::uint32_t>(g_ModuleBytes,kLevelAddCurseOffset,kLevelAddCurseEntryWord);
  isaac::runtime::ExtendedFieldsNativeTestBindings bindings{};BindSpawner(bindings);isaac::runtime::SetExtendedFieldsNativeTestBindings(bindings);
+ std::vector<unsigned char> grid(0x100);
+ WriteWord(grid,0,g_EngineBase+kGridEntityVtableOffset);
+ WriteWord(g_RoomBytes,kRoomGridEntityTableOffset,AddressOf(grid));
  const std::string scene=argv[1];std::string script="local m=RegisterMod('scene contracts',1);";
  if(scene=="familiar")script+=R"lua(
  local f=Isaac.FindByType(3,5)[1];assert(f and f.AddToOrbit==nil and type(f:ToFamiliar().AddToOrbit)=='function')
@@ -46,6 +49,11 @@ int main(int argc,char**argv){
  p.SpawnerEntity=nil;assert(p.SpawnerEntity==nil)
  assert(not pcall(function()p.SpawnerEntity={}end))
  )lua";
+ else if(scene=="grid")script+=R"lua(
+ local room=Game():GetRoom();assert(type(room:GetGridEntity(0))=='userdata');assert(room:GetGridEntity(-1)==nil)
+ assert(room:GetGridEntity(-2147483648)==nil)
+ assert(not pcall(function()room:GetGridEntity({})end))
+ )lua";
  else if(scene=="curse")script+="Game():GetLevel():AddCurse(1);Game():GetLevel():AddCurse(1,nil)";
  else return 91;
  if(LuaRuntime::InitializeFromBuffer(script.data(),script.size(),"@scene-contracts.lua")!=LuaRuntime::LuaInitResult::Success){char e[512]{};static_cast<void>(LuaRuntime::CopyLastLuaErrorText(e,sizeof(e)));std::fprintf(stderr,"%s\n",e);return 1;}
@@ -61,7 +69,9 @@ class ReverieSceneContractTests(unittest.TestCase):
   cls.tmp=tempfile.TemporaryDirectory(prefix='reverie-scene-')
   header=(ROOT/'runtime/src/interfaces/lua/rplus_extended_fields_guards.hpp').read_text()
   guards='\n'.join(f'guard(guards::k{n}Entry,guards::k{n}Guard);'for n in re.findall(r'k(\w+)Entry=',header))
-  source=fixture.HARNESS.split('int main(',1)[0]+MAIN.replace('/*GUARDS*/',guards)
+  prefix=fixture.HARNESS.split('int main(',1)[0]
+  prefix=prefix.replace('GameRoomObservation ReadCurrentGameRoom(uintptr_t, void**) {\n    return GameRoomObservation::RoomUnreadable;\n}', '')
+  source=prefix+'GameRoomObservation ReadCurrentGameRoom(uintptr_t,void**out){*out=g_RoomBytes.data();return GameRoomObservation::Success;}\n'+MAIN.replace('/*GUARDS*/',guards)
   source=re.sub(r'namespace GameFileReader \{\nTextReadResult[\s\S]*?\n\}\n\}', '',source,count=1)
   cls.binary=test_support.build_lua_harness(source_root=fixture.SOURCE,workdir=Path(cls.tmp.name),harness_source=source)
  @classmethod
@@ -73,3 +83,4 @@ class ReverieSceneContractTests(unittest.TestCase):
  def test_color_default_has_pc_bootstrap_identity(self):self.run_scene('color')
  def test_spawner_assignment_uses_native_setter(self):self.run_scene('spawner')
  def test_addcurse_omitted_boolean_is_false(self):self.run_scene('curse')
+ def test_negative_grid_indices_return_nil(self):self.run_scene('grid')
