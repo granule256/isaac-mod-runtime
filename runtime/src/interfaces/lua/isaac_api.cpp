@@ -4100,7 +4100,7 @@ int EntityPlayerAddCollectible(lua_State* state) {
     if (argumentCount < 2 || argumentCount > 7 || !isaac::runtime::IsIntegerArgument(state, 2)) {
         return luaL_error(
             state,
-            "EntityPlayer:AddCollectible accepts (type[, charge[, force[, slot[, varData]]]])");
+            "EntityPlayer:AddCollectible accepts (type[, charge[, firstTimePickingUp[, slot[, varData]]]])");
     }
     const lua_Integer type = lua_tointegerx(state, 2, nullptr);
     if (type < 0 || static_cast<std::uint64_t>(type) > std::numeric_limits<std::uint32_t>::max()) {
@@ -4121,7 +4121,9 @@ int EntityPlayerAddCollectible(lua_State* state) {
         return 1;
     }
     const lua_Integer charge = argumentCount >= 3 ? lua_tointegerx(state, 3, nullptr) : 0;
-    const bool force = argumentCount >= 4 && lua_toboolean(state, 4) != 0;
+    // PC defaults FirstTimePickingUp to true. The native method uses this flag
+    // to update transformation counters and grant the item's consumables.
+    const bool firstTimePickingUp = lua_isnoneornil(state, 4) || lua_toboolean(state, 4) != 0;
     // 默认槽位必须是 `ActiveSlot.SLOT_PRIMARY = 0`（PC 文档的默认值）。2026-09-14 真机定位到：
     // 这里原先是 `-1`，于是 `player:AddCollectible(628, 0, true)`（不写 slot）会把**主动道具**
     // 放进一个不存在的槽位 —— 引擎仍把它记进"拥有列表"（`HasCollectible` 变 true），但**不装备**，
@@ -4139,7 +4141,7 @@ int EntityPlayerAddCollectible(lua_State* state) {
                                                std::uint32_t, std::uint32_t, std::uint32_t);
     engine_call::AsFunction<AddCollectibleFn>(method)(
         entity, static_cast<std::uint32_t>(type), static_cast<std::uint32_t>(charge),
-        force ? 1U : 0U, static_cast<std::uint32_t>(slot),
+        firstTimePickingUp ? 1U : 0U, static_cast<std::uint32_t>(slot),
         static_cast<std::uint32_t>(varData));
     // 返回值取"**实际结果**"：调用后用 `HasCollectible`（同族、已实现的接口）复核一次。
     // 引擎那一层的返回类型没有从反汇编确认过，与其信寄存器里的值，不如用效果说话 ——
