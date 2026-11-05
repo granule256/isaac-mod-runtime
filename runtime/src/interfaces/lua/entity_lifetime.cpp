@@ -99,40 +99,6 @@ bool EntityLifetimeAlive(const LuaRuntime::EntityLifetimeToken* token) noexcept 
     return token == nullptr || token->alive;
 }
 
-bool EntityTearInitialized(std::uintptr_t entity) noexcept {
-    if (auto* userdata = ExistingToken(entity)) {
-        const auto* token = static_cast<const LuaRuntime::EntityLifetimeToken*>(
-            static_cast<const void*>(getudatamem(userdata)));
-        return token->alive && token->tearInitialized;
-    }
-    return false;
-}
-
-void MarkEntityTearInitialized(std::uintptr_t entity) noexcept {
-    if (auto* userdata = ExistingToken(entity)) {
-        auto* token = static_cast<LuaRuntime::EntityLifetimeToken*>(
-            static_cast<void*>(getudatamem(userdata)));
-        token->tearInitialized = true;
-    }
-}
-
-bool EntityEffectInitialized(std::uintptr_t entity) noexcept {
-    if (auto* userdata = ExistingToken(entity)) {
-        const auto* token = static_cast<const LuaRuntime::EntityLifetimeToken*>(
-            static_cast<const void*>(getudatamem(userdata)));
-        return token->alive && token->effectInitialized;
-    }
-    return false;
-}
-
-void MarkEntityEffectInitialized(std::uintptr_t entity) noexcept {
-    if (auto* userdata = ExistingToken(entity)) {
-        auto* token = static_cast<LuaRuntime::EntityLifetimeToken*>(
-            static_cast<void*>(getudatamem(userdata)));
-        token->effectInitialized = true;
-    }
-}
-
 int PushEntityLifetimeData(lua_State* state, std::uintptr_t entity) {
     static_cast<void>(PushEntityLifetimeToken(state, entity));
     const int token = lua_gettop(state);
@@ -152,10 +118,6 @@ void ClearEntityLifetimeData(std::uintptr_t entity) noexcept {
 }
 void ReinitializeEntityLifetime(std::uintptr_t entity) noexcept {
     if (auto* userdata = ExistingToken(entity)) {
-        auto* token = static_cast<LuaRuntime::EntityLifetimeToken*>(
-            static_cast<void*>(getudatamem(userdata)));
-        token->tearInitialized = false;
-        token->effectInitialized = false;
         ClearUservalue(userdata);
     }
 }

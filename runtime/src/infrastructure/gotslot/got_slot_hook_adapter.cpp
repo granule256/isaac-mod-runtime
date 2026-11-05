@@ -2,6 +2,7 @@
 
 #include "hook_manager.hpp"
 #include "entity_remove_hook.hpp"
+#include "entity_init_hook.hpp"
 #include "mod_unload_hook.hpp"
 #include "card_hook.hpp"
 #include "mod_room_hook.hpp"
@@ -36,6 +37,11 @@ Status GotSlotHookAdapter::Install(HookId id, const HookTarget& target) noexcept
     }
     if (installed_[index]) {
         return Status{StatusCode::InvalidState};
+    }
+    if (id == HookId::EntityInit || id == HookId::EntityTearInit || id == HookId::EntityEffectInit) {
+        const auto result = InstallEntityInitPointerHooks(id, target);
+        if (result.ok()) installed_[index] = true;
+        return result;
     }
     // Present、原生HUD与NPC内部AI等数据槽；别的挂点由路由表交给各自的适配器。
     // 走到这里的其它 `HookId` 是配置错误，**响亮失败**而不是静默成功。

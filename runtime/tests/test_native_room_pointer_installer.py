@@ -30,6 +30,7 @@ class NativeRoomInstallerTests(unittest.TestCase):
 #include <cstring>
 #include <vector>
 namespace isaac::runtime::modmenu{void LoadEngineModRoomsAfterStage(void*,int,int)noexcept{}}
+namespace isaac::runtime{void BeginWorldContentFloor() noexcept{}}
 using namespace isaac::runtime;
 struct FakeLevel{std::uint32_t stage=1,type=0;int finished=0;};
 void FakeLoad(void* p){assert(NativeRoomLoadGeneration()==0&&!NativeLoadedLevelMatches(2,0));auto*level=static_cast<FakeLevel*>(p);level->stage=2;level->finished=1;}

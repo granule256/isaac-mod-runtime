@@ -127,8 +127,6 @@ extern "C" std::uint64_t EntryRelayGameDevolveEnemyCallback(void* game, void* en
 //     **两个实参**声明，把它**原样转发**给原函数（我们从不解释它 ⇒ 转发即透明，无论它是什么）。
 //   * `Game::End(eEnding)` —— x0 = this（Game*）、w1 = eEnding。
 extern "C" void EntryRelayEntityKillCallback(void* entity);
-extern "C" void EntryRelayEntityInitCallback(void*, std::uint32_t, std::uint32_t,
-                                             std::uint32_t, std::uint32_t);
 extern "C" void EntryRelayEntityPlayerInitCallback(void*, std::uint32_t, std::uint32_t,
                                                    std::uint32_t, std::uint32_t);
 extern "C" void EntryRelayRoomConstructorCallback(void*);
@@ -279,9 +277,6 @@ EntryRelayBinding BindingOf(HookId id) noexcept {
         case HookId::GameStartStageTransition:
             return {"Game::StartStageTransition", kApi200GameStartStageTransitionOffset,
                     kApi200GameStartStageTransitionExpectedBytes.data(), callback, &g_fallbackEntries[index]};
-        case HookId::EntityInit:
-            return {"Entity::Init", kNativeEntityInitOffset,
-                    kNativeEntityInitExpectedBytes.data(), callback, &g_fallbackEntries[index]};
         case HookId::EntityPlayerInit:
             return {"Entity_Player::Init", kNativePlayerInitOffset,
                     kNativePlayerInitExpectedBytes.data(), callback, &g_fallbackEntries[index]};
@@ -379,6 +374,9 @@ EntryRelayBinding BindingOf(HookId id) noexcept {
         case HookId::NativeInputPoll:
         case HookId::LevelLoadRoom:
         case HookId::LevelInit:
+        case HookId::EntityInit:
+        case HookId::EntityTearInit:
+        case HookId::EntityEffectInit:
         case HookId::GameRerollLevelPickups:
         case HookId::GameRerollLevelCollectibles:
         case HookId::ItemPoolTrinketFirstRandom:
@@ -494,8 +492,6 @@ void RegisterEntryRelayCallbacks() noexcept {
         engine_memory::AsObject(engine_call::AddressOfFunction(&EntryRelayEntityKillCallback));
     g_hookCallbacks[static_cast<std::size_t>(HookId::GameStartStageTransition)] =
         engine_memory::AsObject(engine_call::AddressOfFunction(&EntryRelayGameStartStageTransitionCallback));
-    g_hookCallbacks[static_cast<std::size_t>(HookId::EntityInit)] =
-        engine_memory::AsObject(engine_call::AddressOfFunction(&EntryRelayEntityInitCallback));
     g_hookCallbacks[static_cast<std::size_t>(HookId::EntityPlayerInit)] =
         engine_memory::AsObject(engine_call::AddressOfFunction(&EntryRelayEntityPlayerInitCallback));
     g_hookCallbacks[static_cast<std::size_t>(HookId::RoomConstructor)] =

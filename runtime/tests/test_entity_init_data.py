@@ -10,12 +10,11 @@ SOURCE = ROOT / 'runtime/source'
 BRIDGE = SOURCE / 'entity_init_hook.cpp'
 DRIVER = r'''
 #include "interfaces/lua/entity_lifetime.hpp"
-#include "infrastructure/relay/entry_relay_binding.hpp"
+#include "entity_init_hook.hpp"
 #include "lua_object_handles.hpp"
 extern "C" {
 #include "lua.h"
 #include "lauxlib.h"
-void EntryRelayEntityInitCallback(void*,std::uint32_t,std::uint32_t,std::uint32_t,std::uint32_t);
 }
 #include <cassert>
 #include <cstdlib>
@@ -42,15 +41,14 @@ static void NativeInit(void* entity,std::uint32_t type,std::uint32_t variant,
         lua_settop(state,top);
     }
 }
-namespace isaac::runtime {
-std::uintptr_t EntryRelayFallbackEntry(HookId id)noexcept{
-    assert(id==HookId::EntityInit);
-    return reinterpret_cast<std::uintptr_t>(&NativeInit);
+namespace LuaRuntime {
+void DispatchNativeTearInit(std::uintptr_t) noexcept {}
+void DispatchNativeEffectInit(std::uintptr_t) noexcept {}
 }
-}
+static EntityInitNativeBindings native{NativeInit};
 int main(){
     // Native initialization also runs before any Lua state or entity data exists.
-    EntryRelayEntityInitCallback(reinterpret_cast<void*>(0x1234),5,10,3,0xabcdef01);
+    RunNativeEntityInit(&native,NativeEntityInitKind::Base,reinterpret_cast<void*>(0x1234),5,10,3,0xabcdef01);
     Allocator allocator;state=lua_newstate(Allocate,&allocator);assert(state);
     assert(lua_checkstack(state,80));
     auto* token=PushEntityLifetimeToken(state,0x1234);
@@ -62,14 +60,10 @@ int main(){
     const void* otherData=lua_topointer(state,-1);lua_pop(state,1);
     for(unsigned repeat=0;repeat<2;++repeat){
         // A pooled/reinitialized object can retain its token without passing through D2.
-        MarkEntityTearInitialized(0x1234);
-        MarkEntityEffectInitialized(0x1234);
-        assert(EntityTearInitialized(0x1234)&&EntityEffectInitialized(0x1234));
         const int top=lua_gettop(state);
         const unsigned attempts=allocator.attempts;allocator.fail=true;
-        EntryRelayEntityInitCallback(reinterpret_cast<void*>(0x1234),5,10,3,0xabcdef01);
+        RunNativeEntityInit(&native,NativeEntityInitKind::Base,reinterpret_cast<void*>(0x1234),5,10,3,0xabcdef01);
         assert(lua_gettop(state)==top&&allocator.attempts==attempts&&token->alive);
-        assert(!EntityTearInitialized(0x1234)&&!EntityEffectInitialized(0x1234));
         allocator.fail=false;
         assert(PushEntityLifetimeToken(state,0x1234)==token);lua_pop(state,1);
         PushEntityLifetimeData(state,0x1234);
@@ -88,7 +82,7 @@ int main(){
     assert(lua_isstring(state,-1)&&std::strcmp(lua_tostring(state,-1),"Coin")==0);
     luaL_unref(state,LUA_REGISTRYINDEX,saved);
     ResetEntityLifetimeState();lua_close(state);state=nullptr;
-    EntryRelayEntityInitCallback(reinterpret_cast<void*>(0x1234),5,10,3,0xabcdef01);
+    RunNativeEntityInit(&native,NativeEntityInitKind::Base,reinterpret_cast<void*>(0x1234),5,10,3,0xabcdef01);
     assert(calls==4);
 }
 '''

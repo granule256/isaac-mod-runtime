@@ -169,6 +169,8 @@ enum class HookId : std::uint8_t {
     RoomConstructor,
     GameRerollLevelPickups,
     GameRerollLevelCollectibles,
+    EntityTearInit,
+    EntityEffectInit,
     Count,
 };
 
@@ -281,11 +283,13 @@ inline constexpr std::array<HookDescriptor, kHookIdCount> kHookCatalog = {{
     {HookId::ProjectileInit, "ProjectileInit", HookBackend::RelaySlot, false},
     {HookId::EntityPlayerInit, "EntityPlayerInit", HookBackend::EntryRelay, false},
     {HookId::GameStartStageTransition, "GameStartStageTransition", HookBackend::EntryRelay, false},
-    {HookId::EntityInit, "EntityInit", HookBackend::EntryRelay, false},
+    {HookId::EntityInit, "EntityInit", HookBackend::GotSlot, true},
     {HookId::NativeInputPoll, "NativeInputPoll", HookBackend::GotSlot, true},
     {HookId::RoomConstructor, "RoomConstructor", HookBackend::EntryRelay, true},
     {HookId::GameRerollLevelPickups, "GameRerollLevelPickups", HookBackend::GotSlot, false},
     {HookId::GameRerollLevelCollectibles, "GameRerollLevelCollectibles", HookBackend::GotSlot, false},
+    {HookId::EntityTearInit, "EntityTearInit", HookBackend::GotSlot, true},
+    {HookId::EntityEffectInit, "EntityEffectInit", HookBackend::GotSlot, true},
 }};
 
 // 取登记项。传入 `HookId::Count` 或越界值属于调用方错误，这里退化成第一个登记项

@@ -1,7 +1,7 @@
 #include "infrastructure/gotslot/level_pickup_reroll_hook.hpp"
 #include "infrastructure/call/engine_call_access.hpp"
 #include "infrastructure/memory/engine_field_access.hpp"
-#include "interfaces/lua/minimap_pickup_cache.hpp"
+#include "infrastructure/native/world_content_mutations.hpp"
 #include "runtime_constants.hpp"
 #include "lib/util/sys/rw_pages.hpp"
 
@@ -31,17 +31,17 @@ bool Guard(const HookTarget& target, std::uintptr_t offset,
 extern "C" void IsaacModRuntime_LevelPickupsRerollIntercept(void* game, std::uint32_t seed) {
     const auto base = s_PickupsBase.load(std::memory_order_acquire);
     if (!base) __builtin_trap();
-    engine_call::AsFunction<void(*)(void*, std::uint32_t)>(
-        base + kApi200GameRerollLevelPickupsOffset)(game, seed);
-    NoteMinimapPickupReroll(MinimapPickupReroll::Pickups);
+    CompleteWorldContentMutation(WorldContentMutation::PickupsRerolled,
+        engine_call::AsFunction<void(*)(void*, std::uint32_t)>(
+            base + kApi200GameRerollLevelPickupsOffset), game, seed);
 }
 
 extern "C" void IsaacModRuntime_LevelCollectiblesRerollIntercept(void* game) {
     const auto base = s_CollectiblesBase.load(std::memory_order_acquire);
     if (!base) __builtin_trap();
-    engine_call::AsFunction<void(*)(void*)>(
-        base + kApi200GameRerollLevelCollectiblesOffset)(game);
-    NoteMinimapPickupReroll(MinimapPickupReroll::Collectibles);
+    CompleteWorldContentMutation(WorldContentMutation::CollectiblesRerolled,
+        engine_call::AsFunction<void(*)(void*)>(
+            base + kApi200GameRerollLevelCollectiblesOffset), game);
 }
 
 Status InstallLevelPickupRerollPointerHook(HookId id, const HookTarget& target) noexcept {

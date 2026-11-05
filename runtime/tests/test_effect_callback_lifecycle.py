@@ -1,4 +1,4 @@
-"""Production effect scan initializes reused addresses for each native lifetime."""
+"""Only actual effect Init initializes reused addresses before their first update."""
 import subprocess
 import tempfile
 import unittest
@@ -42,20 +42,27 @@ end, 999)
     if (LuaRuntime::InitializeFromBuffer(script, std::strlen(script), "@effect-lifecycle.lua") !=
         LuaRuntime::LuaInitResult::Success) return 1;
     LuaRuntime::DispatchPostUpdate();
+    if (!ExpectNumber("otherInit", 0)) return 20; // No scan-generated Init.
+    const auto effect = AddressOf(g_Entities[kEffect]);
+    LuaRuntime::DispatchNativeEffectInit(effect);
     LuaRuntime::DispatchPostUpdate();
     if (!ExpectNumber("otherInit", 1) || !ExpectNumber("animationInit", 0)) return 2;
-    const auto effect = AddressOf(g_Entities[kEffect]);
     // D2 retires variant 7; allocator reuses exactly its address for the animation variant.
     isaac::runtime::RetireEntityLifetime(effect);
     WriteAt<std::uint32_t>(g_Entities[kEffect], kEntityVariantOffset, 999);
+    LuaRuntime::DispatchNativeEffectInit(effect);
     LuaRuntime::DispatchPostUpdate();
     LuaRuntime::DispatchPostUpdate();
     if (!ExpectNumber("animationInit", 1) || !ExpectNumber("animationUpdate", 2)) return 3;
     // Reuse for the same variant must also create a fresh initialized lifetime.
     isaac::runtime::RetireEntityLifetime(effect);
+    LuaRuntime::DispatchNativeEffectInit(effect);
     LuaRuntime::DispatchPostUpdate();
     LuaRuntime::DispatchPostUpdate();
     if (!ExpectNumber("animationInit", 2) || !ExpectNumber("animationUpdate", 4)) return 4;
+    isaac::runtime::ReinitializeEntityLifetime(effect);
+    LuaRuntime::DispatchNativeEffectInit(effect);
+    if (!ExpectNumber("animationInit", 3)) return 6;
     if (LuaRuntime::TakeCallbackError()) {
         LuaRuntime::LuaErrorHistoryEntryView errors[16]{};
         const auto count = LuaRuntime::CopyLuaErrorHistory(errors, 16);
@@ -68,7 +75,7 @@ end, 999)
 
 
 class EffectCallbackLifecycleTests(unittest.TestCase):
-    def test_scan_initializes_reused_effect_address_before_update(self):
+    def test_native_effect_init_and_reinit_are_not_scan_events(self):
         flags = tuple(flag for flag in test_support.HARNESS_COMPILE_FLAGS
                       if not flag.startswith("-DEXL_DIAGNOSTIC_STAGE="))
         with tempfile.TemporaryDirectory(prefix="isaac-effect-lifecycle-") as temp:

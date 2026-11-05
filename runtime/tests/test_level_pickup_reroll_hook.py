@@ -6,21 +6,14 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from .test_support import LUA_SOURCE_RELATIVE, lua_harness_objects
-
 ROOT = Path(__file__).resolve().parents[2]
 SOURCE = ROOT / 'runtime/source'
 HOOK = ROOT / 'runtime/src/infrastructure/gotslot/level_pickup_reroll_hook.cpp'
 
 DRIVER = r'''
 #include "ports/hook_port.hpp"
-#include "interfaces/lua/minimap_pickup_cache.hpp"
+#include "infrastructure/native/world_content_mutations.hpp"
 #include "runtime_constants.hpp"
-extern "C" {
-#include "lua.h"
-#include "lauxlib.h"
-#include "lualib.h"
-}
 #include <cassert>
 #include <cstdio>
 #include <cstdlib>
@@ -39,12 +32,13 @@ constexpr std::array<std::uint8_t,16> collectiblesPltBytes={0x70,0x21,0x00,0xb0,
 std::uintptr_t mappedBase{};
 unsigned pickupCalls{},collectibleCalls{};
 int game{};
+WorldContentCursor cursor{};
 void Pickups(void* self,std::uint32_t seed){
-    assert(self==&game&&seed==0xffffffffU&&!HasPendingMinimapPickupReroll());
+    assert(self==&game&&seed==0xffffffffU&&!ChangesSince(cursor,CaptureWorldContentSnapshot()).Any());
     ++pickupCalls;
 }
 void Collectibles(void* self){
-    assert(self==&game&&!HasPendingMinimapPickupReroll());++collectibleCalls;
+    assert(self==&game&&!ChangesSince(cursor,CaptureWorldContentSnapshot()).Any());++collectibleCalls;
 }
 // Only ARM engine entry execution is substituted; production installer/interceptors
 // and the real pending cache helper are linked and exercised below.
@@ -56,9 +50,6 @@ std::uintptr_t TestEngineAddress(std::uintptr_t address) noexcept {
 Status Install(HookId id,const HookTarget& target){
     auto* installer=&InstallLevelPickupRerollPointerHook;
     return installer?installer(id,target):Status{StatusCode::Rejected};
-}
-void Run(lua_State* L,const char* script){
-    if(luaL_dostring(L,script)!=LUA_OK){std::fprintf(stderr,"%s\n",lua_tostring(L,-1));std::abort();}
 }
 int main(){
     std::vector<std::uint8_t> image(0xab0000);mappedBase=reinterpret_cast<std::uintptr_t>(image.data());
@@ -73,7 +64,6 @@ int main(){
     write(pickupsGot,base+kApi200GameRerollLevelPickupsOffset);
     write(collectiblesGot,base+kPltResolverOffset);
     assert(!Install(HookId::ManagerPresent,t).ok());
-    auto* L=luaL_newstate();assert(L);luaL_requiref(L,"_G",luaopen_base,1);lua_pop(L,1);
     const HookId ids[]={HookId::GameRerollLevelPickups,HookId::GameRerollLevelCollectibles};
     const std::uintptr_t entries[]={kApi200GameRerollLevelPickupsOffset,kApi200GameRerollLevelCollectiblesOffset};
     const std::uintptr_t plts[]={pickupsPlt,collectiblesPlt};
@@ -99,16 +89,17 @@ int main(){
         assert(std::memcmp(image.data()+kApi200GameRerollLevelPickupsOffset,kApi200GameRerollLevelPickupsExpectedBytes.data(),16)==0);
         assert(std::memcmp(image.data()+kApi200GameRerollLevelCollectiblesOffset,kApi200GameRerollLevelCollectiblesExpectedBytes.data(),16)==0);
         assert(!Install(id,t).ok());
-        ResetMinimapPickupCache();
-        Run(L,"MinimapAPI={PickupList={{Type=5,Variant=20,IconID='Coin'},{Type=5,Variant=100,IconID='Item'}},Levels={[0]={{Descriptor={},ItemIcons={'Coin','Item'}}}}}");
+        BeginWorldContentRun();cursor.snapshot=CaptureWorldContentSnapshot();
         if(kind==0)reinterpret_cast<void(*)(void*,std::uint32_t)>(read(slot))(&game,0xffffffffU);
         else reinterpret_cast<void(*)(void*)>(read(slot))(&game);
-        assert(HasPendingMinimapPickupReroll());
+        const auto completed=CaptureWorldContentSnapshot();
+        const auto changes=ChangesSince(cursor,completed);
+        assert(completed.version==cursor.snapshot.version+1);
+        assert(changes.pickupsChanged==(kind==0)&&changes.collectiblesChanged==(kind==1));
         assert(pickupCalls==1&&collectibleCalls==kind);
-        assert(FlushMinimapPickupCache(L)&&!HasPendingMinimapPickupReroll());
-        Run(L,kind==0?"assert(#MinimapAPI.Levels[0][1].ItemIcons==1 and MinimapAPI.Levels[0][1].ItemIcons[1]=='Item')":"assert(#MinimapAPI.Levels[0][1].ItemIcons==1 and MinimapAPI.Levels[0][1].ItemIcons[1]=='Coin')");
+        cursor.snapshot=completed;
+        assert(!ChangesSince(cursor,CaptureWorldContentSnapshot()).Any());
     }
-    lua_close(L);
 }
 '''
 
@@ -135,14 +126,13 @@ template<class Fn> std::uintptr_t AddressOfFunction(Fn f) noexcept {return reint
             (work / 'infrastructure/call').mkdir(parents=True)
             (work / 'infrastructure/call/engine_call_access.hpp').write_text(calls)
             (work / 'driver.cpp').write_text(DRIVER)
-            objects = lua_harness_objects(SOURCE, work)
             sources = [HOOK] if HOOK.is_file() else []
             result = subprocess.run([
                 'clang++', '-std=c++23', '-Wall', '-Wextra', '-Werror',
                 '-I', str(work), '-I', str(ROOT / 'runtime/src'), '-I', str(SOURCE),
-                '-I', str(SOURCE / LUA_SOURCE_RELATIVE), str(work / 'driver.cpp'),
-                *map(str, sources), str(ROOT / 'runtime/src/interfaces/lua/minimap_pickup_cache.cpp'),
-                *map(str, objects), '-o', str(work / 'driver')
+                str(work / 'driver.cpp'),
+                *map(str, sources), str(ROOT / 'runtime/src/infrastructure/native/world_content_mutations.cpp'),
+                '-o', str(work / 'driver')
             ], text=True, capture_output=True)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             result = subprocess.run([str(work / 'driver')], text=True, capture_output=True)

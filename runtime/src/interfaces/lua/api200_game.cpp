@@ -1,6 +1,6 @@
 #include "interfaces/lua/api200_game.hpp"
 #include "interfaces/lua/api200_game.guards.hpp"
-#include "interfaces/lua/minimap_pickup_cache.hpp"
+#include "infrastructure/native/world_content_mutations.hpp"
 #include "interfaces/lua/api100_native.hpp"
 #include "interfaces/lua/isaac_api.hpp"
 #include "interfaces/lua/field_api.hpp"
@@ -166,14 +166,14 @@ int Api200GameRerollEnemy(lua_State*state){
 }
 int Api200GameRerollLevelCollectibles(lua_State*state){
  auto*p=Game(state);
- Native<void(*)(void*)>(state,Api200GameNative::RerollLevelCollectibles)(p);
- NoteMinimapPickupReroll(MinimapPickupReroll::Collectibles);return 0;
+ CompleteWorldContentMutation(WorldContentMutation::CollectiblesRerolled,
+     Native<void(*)(void*)>(state,Api200GameNative::RerollLevelCollectibles),p);return 0;
 }
 int Api200GameRerollLevelPickups(lua_State*state){
  auto*p=Game(state);
  std::uint32_t a0=static_cast<std::uint32_t>(Int(state,2));
- Native<void(*)(void*,std::uint32_t)>(state,Api200GameNative::RerollLevelPickups)(p,a0);
- NoteMinimapPickupReroll(MinimapPickupReroll::Pickups);return 0;
+ CompleteWorldContentMutation(WorldContentMutation::PickupsRerolled,
+     Native<void(*)(void*,std::uint32_t)>(state,Api200GameNative::RerollLevelPickups),p,a0);return 0;
 }
 int Api200GameStartStageTransition(lua_State*state){
  auto*p=Game(state);

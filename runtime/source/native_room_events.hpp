@@ -2,6 +2,7 @@
 #include <atomic>
 #include <cstdint>
 #include <cstring>
+#include "infrastructure/native/world_content_mutations.hpp"
 
 namespace isaac::runtime {
 // Native Level::load_room completion, including re-entry at the same grid index.
@@ -39,7 +40,8 @@ inline void CompleteNativeRoomLoad(void (*original)(void*), void* level) {
     NoteNativeRoomLoaded();
 }
 inline void CompleteNativeLevelInit(void (*original)(void*), void* level) {
-    g_NativeLevelInitDepth.fetch_add(1, std::memory_order_acq_rel);
+    if (g_NativeLevelInitDepth.fetch_add(1, std::memory_order_acq_rel) == 0)
+        BeginWorldContentFloor();
     // A previous completion for the same stage/type is no proof of readiness.
     g_NativeLoadedLevelKey.store(0, std::memory_order_release);
     original(level); // Init itself completes load_room before returning.

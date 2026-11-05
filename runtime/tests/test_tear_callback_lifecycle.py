@@ -1,4 +1,4 @@
-"""Production tear dispatch: initialization precedes fire and follows native lifetime."""
+"""Only real native tear Init publishes INIT, before AddEntity and fire."""
 import subprocess
 import tempfile
 import unittest
@@ -51,21 +51,28 @@ end)
     if (LuaRuntime::InitializeFromBuffer(script.data(), script.size(), "@tear-lifecycle.lua") !=
         LuaRuntime::LuaInitResult::Success) return 1;
     const auto tear = AddressOf(g_Entities[kTearNear]);
+    // Native Init happens before publication in the room live table.
+    WriteAt<std::uint32_t>(g_RoomBytes,
+        kRoomEntityListOffset + kEntityListLiveCountOffset, 0);
+    if (mode != "fire_only") LuaRuntime::DispatchNativeTearInit(tear);
+    PublishEntityList(g_RoomBytes, true);
     if (mode == "scan_first") LuaRuntime::DispatchPostUpdate();
     LuaRuntime::DispatchPostFireTear(tear);
-    const double expectedInit = mode == "filtered_nonmatching" ? 0 : 1;
+    const double expectedInit = mode == "filtered_nonmatching" || mode == "fire_only" ? 0 : 1;
     if (!ExpectNumber("initCount", expectedInit) ||
         !ExpectNumber("fireCount", mode == "init_only" ? 0 : 1) ||
-        !ExpectNumber("promoted", mode == "init_only" || mode == "filtered_nonmatching" ? 0 : 1)) return 2;
+        !ExpectNumber("promoted", mode == "init_only" || mode == "filtered_nonmatching" || mode == "fire_only" ? 0 : 1)) return 2;
     LuaRuntime::DispatchPostUpdate();
     if (!ExpectNumber("initCount", expectedInit)) return 3;
-    if (mode == "reuse" || mode == "room") {
+    if (mode == "reuse" || mode == "room" || mode == "repeat_init") {
         // D2 retires the old identity even when allocator address/seed/frame all repeat.
-        isaac::runtime::RetireEntityLifetime(tear);
+        if (mode == "repeat_init") isaac::runtime::ReinitializeEntityLifetime(tear);
+        else isaac::runtime::RetireEntityLifetime(tear);
         if (mode == "room") {
             ++location.roomIndex;
             isaac::runtime::NoteNativeRoomLoaded();
         }
+        LuaRuntime::DispatchNativeTearInit(tear);
         LuaRuntime::DispatchPostFireTear(tear);
         LuaRuntime::DispatchPostUpdate();
         if (!ExpectNumber("initCount", 2) || !ExpectNumber("promoted", 2)) return 4;
@@ -102,8 +109,8 @@ class TearCallbackLifecycleTests(unittest.TestCase):
     def tearDownClass(cls):
         cls.temp.cleanup()
 
-    def test_native_fire_and_scan_share_entity_lifetime(self):
-        for mode in ("native", "scan_first", "init_only", "reuse", "room", "surviving_room"):
+    def test_native_init_only_and_scan_never_synthesizes_init(self):
+        for mode in ("native", "scan_first", "init_only", "reuse", "room", "surviving_room", "repeat_init", "fire_only"):
             with self.subTest(mode=mode):
                 result = subprocess.run([str(self.binary), mode], capture_output=True, text=True)
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)

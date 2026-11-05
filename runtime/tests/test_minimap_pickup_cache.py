@@ -1,49 +1,40 @@
-"""Level rerolls invalidate only MiniMAPI's affected saved pickup icons."""
-import subprocess
-import tempfile
-import unittest
+"""Optional MiniMAPI Lua policy; the PC runtime does not own its private cache."""
+import subprocess,tempfile,unittest
 from pathlib import Path
-
-from .test_support import LUA_SOURCE_RELATIVE, lua_harness_objects
-
-
-ROOT = Path(__file__).resolve().parents[2]
-SOURCE = ROOT / 'runtime/source'
-HELPER = ROOT / 'runtime/src/interfaces/lua/minimap_pickup_cache.cpp'
-BUILD = ROOT.parents[1] / 'data/build/minimap-pickup-test'
-
-DRIVER = r'''
-#include "interfaces/lua/minimap_pickup_cache.hpp"
+from .test_support import LUA_SOURCE_RELATIVE,lua_harness_objects
+ROOT=Path(__file__).resolve().parents[2]
+SOURCE=ROOT/'runtime/source'
+DRIVER=r'''
+#include "interfaces/lua/compatibility_adapter_runtime.hpp"
+#include "infrastructure/native/world_content_mutations.hpp"
+#if __has_include("compatibility/minimapapi_pickups_adapter.hpp")
+#include "compatibility/minimapapi_pickups_adapter.hpp"
+#else
+namespace isaac::runtime::compatibility {inline constexpr char kMinimapApiPickupAdapter[]="return function() end";}
+#endif
 extern "C" {
 #include "lua.h"
 #include "lauxlib.h"
 #include "lualib.h"
 }
+#if __has_include("compatibility/builtin_adapters.hpp")
+#include "compatibility/builtin_adapters.hpp"
+#else
+namespace isaac::runtime::compatibility {inline void InstallBuiltinCompatibilityAdapters(lua_State*)noexcept{}}
+#endif
 #include <cassert>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 using namespace isaac::runtime;
-struct Allocator { bool fail{}; unsigned calls{}; };
-static void* Allocate(void* user,void* old,size_t,size_t size){
-    if(!size){std::free(old);return nullptr;}
-    auto& a=*static_cast<Allocator*>(user);++a.calls;
-    if(a.fail)return nullptr;
-    return std::realloc(old,size);
-}
-static void Run(lua_State* L,const char* script){
-    if(luaL_dostring(L,script)!=LUA_OK){
-        std::fprintf(stderr,"%s\n",lua_tostring(L,-1));std::abort();
-    }
-}
+static void Run(lua_State*L,const char*s){if(luaL_dostring(L,s)!=LUA_OK){std::fprintf(stderr,"%s\n",lua_tostring(L,-1));std::abort();}}
 int main(){
-    Allocator allocator;
-    auto* L=lua_newstate(Allocate,&allocator);assert(L);
-    luaL_requiref(L,"_G",luaopen_base,1);lua_pop(L,1);
-    luaL_requiref(L,LUA_TABLIBNAME,luaopen_table,1);lua_pop(L,1);
-    assert(lua_checkstack(L,80));
-    ResetMinimapPickupCache();
-    assert(!HasPendingMinimapPickupReroll());
-    Run(L,R"lua(
+ auto*L=luaL_newstate();assert(L);luaL_requiref(L,"_G",luaopen_base,1);lua_pop(L,1);luaL_requiref(L,LUA_TABLIBNAME,luaopen_table,1);lua_pop(L,1);BeginWorldContentRun();
+ const auto*source=compatibility::kMinimapApiPickupAdapter;
+ assert(luaL_loadbuffer(L,source,std::strlen(source),"@compatibility/minimapapi_pickups.lua")==LUA_OK);
+ assert(lua_pcall(L,0,1,0)==LUA_OK);CompatibilityAdapterId id{};
+ assert(RegisterCompatibilityAdapter(L,"minimapapi.pickups",-1,&id));lua_pop(L,1);
+ Run(L,R"lua(
       function setup()
         local defs={
           Coin={Type=5,Variant=20,SubType=-1,IconID='Coin'},
@@ -72,7 +63,7 @@ int main(){
         end
         normal=room(); otherDimension=room(); noUpdate=room{NoUpdate=true}
         custom=room();custom.Descriptor=nil
-        MinimapAPI={PickupList=defs,GridEntityList={{IconID='Ladder'},{IconID='SharedGrid'}},
+        MinimapAPI={MajorVersion=2,MinorVersion=59,PickupList=defs,GridEntityList={{IconID='Ladder'},{IconID='SharedGrid'}},
                     Levels={[0]={normal,noUpdate,custom},[2]={otherDimension}}}
         originalIcons=normal.ItemIcons
         rewind={ItemIcons={table.unpack(icons)}}
@@ -90,86 +81,44 @@ int main(){
       end
       setup()
     )lua");
-    const int top=lua_gettop(L);
-    auto Note=[&](MinimapPickupReroll kind){
-        const unsigned calls=allocator.calls;allocator.fail=true;
-        NoteMinimapPickupReroll(kind);
-        assert(allocator.calls==calls);allocator.fail=false;
-        assert(HasPendingMinimapPickupReroll());
-    };
-    Note(MinimapPickupReroll::Pickups);
-    assert(!FlushMinimapPickupCache(nullptr)&&HasPendingMinimapPickupReroll());
-    assert(FlushMinimapPickupCache(L)&&!HasPendingMinimapPickupReroll());
-    assert(lua_gettop(L)==top);
-    Run(L,R"lua(
-      expected={'Item','CustomItem','DadNote','EmptyItem','Ladder','Flag','Bed','MomChest',
-                'BombChest','Shared','SharedGrid','SharedKinds','Unknown'}
-      eq(normal.ItemIcons,expected);eq(otherDimension.ItemIcons,expected);intact()
-      setup()
-    )lua");
-    Note(MinimapPickupReroll::Collectibles);
-    assert(FlushMinimapPickupCache(L));
-    Run(L,R"lua(
-      expected={'Coin','DadNote','EmptyItem','Ladder','Flag','Bed','MomChest',
-                'BombChest','Shared','SharedGrid','SharedKinds','Unknown'}
-      eq(normal.ItemIcons,expected);eq(otherDimension.ItemIcons,expected);intact()
-      setup()
-    )lua");
-    Note(MinimapPickupReroll::Pickups);Note(MinimapPickupReroll::Collectibles);
-    assert(FlushMinimapPickupCache(L));
-    Run(L,R"lua(
-      expected={'DadNote','EmptyItem','Ladder','Flag','Bed','MomChest','BombChest',
-                'Shared','SharedGrid','Unknown'}
-      eq(normal.ItemIcons,expected);eq(otherDimension.ItemIcons,expected);intact()
-      normal.ItemIcons={'Coin'}
-    )lua");
-    const unsigned idleCalls=allocator.calls;allocator.fail=true;
-    assert(FlushMinimapPickupCache(L)); // consumed: no Lua work, even without allocation
-    assert(allocator.calls==idleCalls);allocator.fail=false;
-    Run(L,"eq(normal.ItemIcons,{'Coin'});setup()");
-    Note(MinimapPickupReroll::Pickups);
-    allocator.fail=true;
-    assert(!FlushMinimapPickupCache(L)&&HasPendingMinimapPickupReroll());
-    assert(lua_gettop(L)==top);
-    allocator.fail=false;
-    Run(L,"eq(normal.ItemIcons,icons)");
-    assert(FlushMinimapPickupCache(L)&&!HasPendingMinimapPickupReroll());
-    Run(L,"assert(normal.ItemIcons[1]=='Item');setup()");
-    // Raw accesses must neither invoke mod-defined metamethods nor error on malformed data.
-    Run(L,R"lua(
-      local mt={__index=function() error('unexpected __index') end,
-                __newindex=function() error('unexpected __newindex') end}
-      setmetatable(MinimapAPI,mt);setmetatable(normal,mt)
-      MinimapAPI.Levels[9]={false,{Descriptor={},ItemIcons=false}}
-      MinimapAPI.PickupList.bad=false
-    )lua");
-    Note(MinimapPickupReroll::Pickups);assert(FlushMinimapPickupCache(L));
-    Run(L,"MinimapAPI=nil");
-    Note(MinimapPickupReroll::Collectibles);assert(FlushMinimapPickupCache(L));
-    assert(!HasPendingMinimapPickupReroll());
-    Note(MinimapPickupReroll::Pickups);ResetMinimapPickupCache();
-    assert(!HasPendingMinimapPickupReroll());
-    lua_close(L);
+ RecordWorldContentMutation(WorldContentMutation::PickupsRerolled);PumpCompatibilityAdapters(L);
+ Run(L,R"lua(
+ eq(normal.ItemIcons,{'Item','CustomItem','DadNote','EmptyItem','Ladder','Flag','Bed','MomChest','BombChest','Shared','SharedGrid','SharedKinds','Unknown'});intact();setup()
+ )lua");
+ RecordWorldContentMutation(WorldContentMutation::CollectiblesRerolled);PumpCompatibilityAdapters(L);
+ Run(L,R"lua(
+ eq(normal.ItemIcons,{'Coin','DadNote','EmptyItem','Ladder','Flag','Bed','MomChest','BombChest','Shared','SharedGrid','SharedKinds','Unknown'});intact();setup()
+ )lua");
+ RecordWorldContentMutation(WorldContentMutation::PickupsRerolled);RecordWorldContentMutation(WorldContentMutation::CollectiblesRerolled);PumpCompatibilityAdapters(L);
+ Run(L,R"lua(eq(normal.ItemIcons,{'DadNote','EmptyItem','Ladder','Flag','Bed','MomChest','BombChest','Shared','SharedGrid','Unknown'});intact();setup())lua");
+ Run(L,"MinimapAPI.MinorVersion=63");RecordWorldContentMutation(WorldContentMutation::PickupsRerolled);PumpCompatibilityAdapters(L);
+ Run(L,"eq(normal.ItemIcons,icons)");auto d=GetCompatibilityAdapterDiagnostics(id);assert(d.lastResult==CompatibilityAdapterResult::NotApplicable&&d.reason[0]);
+ Run(L,"MinimapAPI.MinorVersion=62");RecordWorldContentMutation(WorldContentMutation::PickupsRerolled);PumpCompatibilityAdapters(L);
+ Run(L,"assert(normal.ItemIcons[1]=='Item');setup()");
+ // Policy uses captured primitive raw access, even if a mod adds metatables.
+ Run(L,R"lua(
+ local m={__index=function()error('metamethod')end,__newindex=function()error('metamethod')end,__pairs=function()error('pairs')end}
+ setmetatable(MinimapAPI,m);setmetatable(normal,m);setmetatable(MinimapAPI.Levels,m)
+ )lua");
+ RecordWorldContentMutation(WorldContentMutation::PickupsRerolled);PumpCompatibilityAdapters(L);
+ Run(L,"assert(normal.ItemIcons[1]=='Item');MinimapAPI=nil");
+ RecordWorldContentMutation(WorldContentMutation::CollectiblesRerolled);PumpCompatibilityAdapters(L);
+ d=GetCompatibilityAdapterDiagnostics(id);assert(d.failures==0&&d.lastResult==CompatibilityAdapterResult::NotApplicable);
+ assert(!HasPendingCompatibilityAdapters());ResetCompatibilityAdapters(L);lua_close(L);
+ L=luaL_newstate();assert(L);luaL_requiref(L,"_G",luaopen_base,1);lua_pop(L,1);luaL_requiref(L,LUA_TABLIBNAME,luaopen_table,1);lua_pop(L,1);
+ compatibility::InstallBuiltinCompatibilityAdapters(L);
+ assert(std::strcmp(GetCompatibilityAdapterDiagnostics(0).name,"minimapapi.pickups")==0);
+ Run(L,"pcStillWorks=true;assert(pcStillWorks)");
+ ResetCompatibilityAdapters(L);lua_close(L);
 }
 '''
-
-
-class MinimapPickupCacheTests(unittest.TestCase):
-    def test_level_rerolls_invalidate_affected_icons_without_changing_map_state(self):
-        self.assertTrue(HELPER.is_file(), 'level rerolls leave MiniMAPI pickup snapshots stale')
-        BUILD.mkdir(parents=True, exist_ok=True)
-        with tempfile.TemporaryDirectory(prefix='host-', dir=BUILD) as directory:
-            work = Path(directory)
-            driver = work / 'driver.cpp'
-            driver.write_text(DRIVER)
-            objects = lua_harness_objects(SOURCE, work)
-            binary = work / 'driver'
-            result = subprocess.run([
-                'clang++', '-std=c++23', '-Wall', '-Wextra', '-Werror',
-                '-I', str(ROOT / 'runtime/src'),
-                '-I', str(SOURCE / LUA_SOURCE_RELATIVE),
-                str(driver), str(HELPER), *map(str, objects), '-o', str(binary)
-            ], text=True, capture_output=True)
-            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-            result = subprocess.run([str(binary)], text=True, capture_output=True)
-            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+class MinimapPickupAdapterTests(unittest.TestCase):
+ def test_explicit_versioned_policy_preserves_unaffected_mod_state(self):
+  with tempfile.TemporaryDirectory(prefix='minimap-adapter-')as directory:
+   p=Path(directory);f=p/'main.cpp';f.write_text(DRIVER);objects=lua_harness_objects(SOURCE,p);out=p/'test'
+   cpp=[ROOT/'runtime/src/interfaces/lua/compatibility_adapter_runtime.cpp',ROOT/'runtime/src/infrastructure/native/world_content_mutations.cpp']
+   catalog=ROOT/'runtime/src/compatibility/builtin_adapters.cpp'
+   if catalog.exists():cpp.append(catalog)
+   build=subprocess.run(['clang++','-std=c++23','-Wall','-Wextra','-Werror','-I',str(ROOT/'runtime/src'),'-I',str(SOURCE/LUA_SOURCE_RELATIVE),str(f),*map(str,cpp),*map(str,objects),'-o',str(out)],capture_output=True,text=True)
+   self.assertEqual(build.returncode,0,build.stdout+build.stderr)
+   run=subprocess.run([str(out)],capture_output=True,text=True);self.assertEqual(run.returncode,0,run.stdout+run.stderr)

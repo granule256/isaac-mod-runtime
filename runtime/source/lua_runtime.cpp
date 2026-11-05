@@ -10,7 +10,8 @@
 #include "interfaces/lua/class_metadata.hpp"
 #include "card_rng_scope.hpp"
 #include "interfaces/lua/entity_lifetime.hpp"
-#include "interfaces/lua/minimap_pickup_cache.hpp"
+#include "interfaces/lua/compatibility_adapter_runtime.hpp"
+#include "infrastructure/native/world_content_mutations.hpp"
 #include "lua_runtime.hpp"
 #include "notice_integrity_native.hpp"
 #include "notice_runtime_bindings.hpp"
@@ -715,6 +716,8 @@ bool g_InPostEntityKillDispatch = false;
 std::atomic<uintptr_t> g_CurrentCallbackManager{0};
 // 批次 149："本帧的 Manager"兜底来源（`SetFrameManagerProvider` 发布；宿主夹具不发 ⇒ 空）。
 std::atomic<uintptr_t (*)()> g_FrameManagerProvider{nullptr};
+std::atomic<RuntimeExtensionInstaller> g_RuntimeExtensionInstaller{nullptr};
+RuntimeExtensionDiagnostics g_RuntimeExtensionDiagnostics{};
 // 批次 149：上一次 `Music` 方法解析失败的原因码 —— 只用来把报错写清楚，不参与判据。
 //   0 = 没失败过；1 = 不在托管回调派发里；2 = 拿不到 Manager（回调里没有、本帧也没有）；
 //   3 = 方法地址没发布（那份绑定缺失）；4 = 入口 16 字节指纹不符（偏移写错）。
@@ -2411,6 +2414,12 @@ bool InstallConsoleControlsMenu(lua_State* state) {
 }
 #endif
 
+int InstallRuntimeExtensionsProtected(lua_State* state) {
+    if (const auto installer = g_RuntimeExtensionInstaller.load(std::memory_order_acquire))
+        installer(state);
+    return 0;
+}
+
 int PrepareRuntime(lua_State* state) {
     OpenSafeLibraries(state);
 #if !defined(EXL_DIAGNOSTIC_STAGE) || EXL_DIAGNOSTIC_STAGE == 13
@@ -2424,6 +2433,22 @@ int PrepareRuntime(lua_State* state) {
     lua_pushcfunction(state,GetConsoleControls);lua_setfield(state,-2,"GetControls");
     lua_pushcfunction(state,SetConsoleControls);lua_setfield(state,-2,"SetControls");
     lua_setglobal(state,"SwitchConsole");
+    g_RuntimeExtensionDiagnostics = {};
+    if (g_RuntimeExtensionInstaller.load(std::memory_order_acquire)) {
+        ++g_RuntimeExtensionDiagnostics.invocations;
+        const int top = lua_gettop(state);
+        lua_pushcfunction(state, InstallRuntimeExtensionsProtected);
+        const int status = lua_pcall(state, 0, 0, 0);
+        g_RuntimeExtensionDiagnostics.lastStatus = status;
+        if (status != LUA_OK) {
+            ++g_RuntimeExtensionDiagnostics.failures;
+            const char* error = lua_type(state, -1) == LUA_TSTRING ? lua_tostring(state, -1) :
+                                "optional runtime extension failed";
+            std::strncpy(g_RuntimeExtensionDiagnostics.error, error,
+                         sizeof(g_RuntimeExtensionDiagnostics.error) - 1);
+        }
+        lua_settop(state, top);
+    }
     return 0;
 }
 
@@ -2441,6 +2466,7 @@ LuaInitResult ResetAfterFailure(lua_State* state, LuaInitResult result) {
         }
     }
     isaac::runtime::ResetEntityLifetimeState();
+    isaac::runtime::ResetCompatibilityAdapters(state);
     lua_close(state);
     g_LuaState = nullptr;
     g_CallbackRegistry.Reset();
@@ -3776,6 +3802,14 @@ void SetFrameManagerProvider(uintptr_t (*provider)()) noexcept {
     g_FrameManagerProvider.store(provider, std::memory_order_release);
 }
 
+void SetRuntimeExtensionInstaller(RuntimeExtensionInstaller installer) noexcept {
+    g_RuntimeExtensionInstaller.store(installer, std::memory_order_release);
+}
+
+RuntimeExtensionDiagnostics GetRuntimeExtensionDiagnostics() noexcept {
+    return g_RuntimeExtensionDiagnostics;
+}
+
 namespace {
 std::uint64_t GcBudgetClock(void*) {
     return isaac::runtime::RuntimePerfTick();
@@ -4332,12 +4366,6 @@ private:
                     // 视图与 `Isaac.GetRoomEntities()` 给出的一致（玩家给 `EntityPlayer`），
                     // 否则模组在回调里对参数调 `player:HasCollectible()` 会失败。
                     isaac::runtime::PushEntityCallbackArgument(state, argument.entity);
-                    // Token creation stays under this protection; claim INIT before Lua can reenter.
-                    if (descriptor->id == isaac::runtime::kCallbackPostTearInit) {
-                        isaac::runtime::MarkEntityTearInitialized(argument.entity);
-                    } else if (descriptor->id == isaac::runtime::kCallbackPostEffectInit) {
-                        isaac::runtime::MarkEntityEffectInitialized(argument.entity);
-                    }
                     break;
                 case CallbackArgument::Kind::Vector:
                     // 渲染偏移（`Vector` userdata，与 `Room:GetRenderScrollOffset()` 给出的是同一种值类型）。
@@ -4544,7 +4572,7 @@ constexpr std::uint32_t kGameStartedFresh = 2;
 }  // namespace
 
 void NoteGameStarted(bool isSave) noexcept {
-    isaac::runtime::ResetMinimapPickupCache();
+    isaac::runtime::BeginWorldContentRun();
     g_HasManagedUpdate = false;
     g_LastManagedUpdate = {};
     isaac::runtime::console::InvalidateConsoleSession();
@@ -4586,7 +4614,7 @@ bool DispatchPostGameStarted(bool isSave) {
 //     因此**每次进新房间**，房间里原本就摆着的实体（掉落物、跟班、敌人…）会各收到一次 INIT。
 //     PC 上它们在房间生成时就被初始化，而模组此时通常已经加载完毕 ⇒"补发"比"漏发"更接近
 //     PC 的观感；
-//   * 泪弹与效果用原生析构退役的token记录INIT，原生FireTear与扫描共用；其它"见过"的表以
+//   * 泪弹、效果与子弹的INIT由真实原生Init完成边界派发；其它"见过"的表以
 //     **房间**为生命周期（换房清空；玩家那张例外，玩家跨房间存活）。
 //     房间内被拿走、又在同一房间重新生成的同一个指针不会被重复触发（指针复用）；
 //     这是拿"能立刻做出来"换来的已知缺口；
@@ -4734,13 +4762,13 @@ RegisteredCallbackMask BuildRegisteredCallbackMask() noexcept {
            mask.Has(isaac::runtime::kCallbackFamiliarUpdate) || mask.Has(isaac::runtime::kCallbackFamiliarInit) ||
            mask.Has(isaac::runtime::kCallbackPostFamiliarRender) || mask.Has(isaac::runtime::kCallbackPostNpcInit) ||
            mask.Has(isaac::runtime::kCallbackPostPlayerUpdate) || mask.Has(isaac::runtime::kCallbackPostPlayerRender) ||
-           mask.Has(isaac::runtime::kCallbackPostPickupRender) || mask.Has(isaac::runtime::kCallbackPostTearInit) ||
+           mask.Has(isaac::runtime::kCallbackPostPickupRender) ||
            mask.Has(isaac::runtime::kCallbackPostTearUpdate) || mask.Has(isaac::runtime::kCallbackPostTearRender) ||
            mask.Has(isaac::runtime::kCallbackPostProjectileInit) ||
            mask.Has(isaac::runtime::kCallbackPostProjectileRender) || mask.Has(isaac::runtime::kCallbackPostLaserInit) ||
            mask.Has(isaac::runtime::kCallbackPostLaserUpdate) || mask.Has(isaac::runtime::kCallbackPostLaserRender) ||
            mask.Has(isaac::runtime::kCallbackPostKnifeInit) || mask.Has(isaac::runtime::kCallbackPostKnifeUpdate) ||
-           mask.Has(isaac::runtime::kCallbackPostKnifeRender) || mask.Has(isaac::runtime::kCallbackPostEffectInit) ||
+           mask.Has(isaac::runtime::kCallbackPostKnifeRender) ||
            mask.Has(isaac::runtime::kCallbackPostEffectUpdate) || mask.Has(isaac::runtime::kCallbackPostEffectRender) ||
            mask.Has(isaac::runtime::kCallbackPostBombInit) || mask.Has(isaac::runtime::kCallbackPostBombUpdate) ||
            mask.Has(isaac::runtime::kCallbackPostBombRender) || mask.Has(isaac::runtime::kCallbackPostPickupInit) ||
@@ -4816,20 +4844,8 @@ void DispatchFamiliarEntityEvents(EntityEventScan* scan, std::uintptr_t entity,
     }
 }
 
-void DispatchTearInitialization(std::uintptr_t entity, std::int64_t filter) noexcept {
-    if (!isaac::runtime::EntityTearInitialized(entity)) {
-        LuaCallbackInvoker invoker = LuaCallbackInvoker::ForEntity(entity);
-        isaac::runtime::CallbackDispatcher dispatcher{g_CallbackRegistry, invoker};
-        static_cast<void>(dispatcher.DispatchFiltered(isaac::runtime::kCallbackPostTearInit,
-                                              isaac::runtime::ThreadAffinity::Any, filter));
-    }
-}
-
 void DispatchTearEntityEvents(EntityEventScan* scan, std::uintptr_t entity,
                              std::int64_t filter) noexcept {
-    if (!scan->renderPhase && scan->registered.Has(isaac::runtime::kCallbackPostTearInit)) {
-        DispatchTearInitialization(entity, filter);
-    }
     if (!scan->renderPhase && scan->registered.Has(isaac::runtime::kCallbackPostTearUpdate)) {
         LuaCallbackInvoker invoker = LuaCallbackInvoker::ForEntity(entity);
         isaac::runtime::CallbackDispatcher dispatcher{g_CallbackRegistry, invoker};
@@ -4907,20 +4923,8 @@ void DispatchKnifeEntityEvents(EntityEventScan* scan, std::uintptr_t entity,
     }
 }
 
-void DispatchEffectInitialization(std::uintptr_t entity, std::int64_t filter) noexcept {
-    if (!isaac::runtime::EntityEffectInitialized(entity)) {
-        LuaCallbackInvoker invoker = LuaCallbackInvoker::ForEntity(entity);
-        isaac::runtime::CallbackDispatcher dispatcher{g_CallbackRegistry, invoker};
-        static_cast<void>(dispatcher.DispatchFiltered(isaac::runtime::kCallbackPostEffectInit,
-                                              isaac::runtime::ThreadAffinity::Any, filter));
-    }
-}
-
 void DispatchEffectEntityEvents(EntityEventScan* scan, std::uintptr_t entity,
                              std::int64_t filter) noexcept {
-    if (!scan->renderPhase && scan->registered.Has(isaac::runtime::kCallbackPostEffectInit)) {
-        DispatchEffectInitialization(entity, filter);
-    }
     if (!scan->renderPhase && scan->registered.Has(isaac::runtime::kCallbackPostEffectUpdate)) {
         LuaCallbackInvoker invoker = LuaCallbackInvoker::ForEntity(entity);
         isaac::runtime::CallbackDispatcher dispatcher{g_CallbackRegistry, invoker};
@@ -5130,7 +5134,7 @@ bool DispatchFrameEvents(bool initialOnly = false) {
     // 一种都没登记就整段跳过：这条路径每帧都要读房间身份，有实体时还要扫实体表，
     // "没人听"的时候一律不做（不白花每帧的引擎读取与 `svcQueryMemory`）。
     if (!initialOnly && !wantsEntityScan && !wantsRoom && !wantsLevel &&
-        !isaac::runtime::HasPendingMinimapPickupReroll()) {
+        !isaac::runtime::HasPendingCompatibilityAdapters()) {
         return true;
     }
 
@@ -5166,11 +5170,9 @@ bool DispatchFrameEvents(bool initialOnly = false) {
                 roomLoadGeneration == g_FrameEventState.roomLoadGeneration,
             g_FrameEventState.initialRoomPending);
         enteredNewLevel = decision.newLevel;
-        // Initial startup mutations after NoteGameStarted belong to this run.
-        // Later floor changes discard work recorded against the previous map.
-        if (enteredNewLevel && g_FrameEventState.levelKnown != 0)
-            isaac::runtime::ResetMinimapPickupCache();
-        if (!isaac::runtime::FlushMinimapPickupCache(g_LuaState)) return false;
+        // The native floor-entry boundary already discarded the old scope.
+        // Preserve mutations completed on this floor before managed observation.
+        isaac::runtime::PumpCompatibilityAdapters(g_LuaState);
         initialRoomConsumed = decision.initialRoomConsumed;
         acceptedLocation = true;
         if (decision.newRoom) {
@@ -5195,7 +5197,6 @@ bool DispatchFrameEvents(bool initialOnly = false) {
         // 现在的口径：**开局那一间房补派一次**（由 `initialRoomPending` 驱动，见上面派发处）；
         // 只有"运行时在该层中途才加载"（没有 `initialRoomPending`）时才不判变化。
     }
-    if (!acceptedLocation && isaac::runtime::HasPendingMinimapPickupReroll()) return false;
 
     // 先扫实体与玩家，再派发"换房/换层"。顺序是照 PC 的观感定的：换层时模组先收到
     // `POST_NEW_LEVEL`、再收到 `POST_NEW_ROOM`，而实体的 INIT/UPDATE 属于"新房间已经在了"
@@ -5214,14 +5215,12 @@ bool DispatchFrameEvents(bool initialOnly = false) {
     // （按实体派发的那一族要遍历实体表/玩家向量，只在有人登记时才做 ⇒ 它们的计数
     //   只代表"有人听的时候"）。
     // ★ 2026-10-14 更正：上面的历史顺序注释写反了；PC 官方明确 NEW_LEVEL 总在 NEW_ROOM 之后。
-    // MinimapAPI 在 NEW_ROOM 刷新 cache.RoomDescriptor/Stage，NEW_LEVEL 重建地图并读取这些缓存；
-    // 因此必须先换房再换层，避免换层地图仍读到上一层。实体扫描与 GAME_STARTED 顺序不改。
-    // Entity callbacks can also reroll pickups. Flush before MiniMAPI snapshots
-    // the departing room, and consume lifecycle identities only after success.
-    if (!isaac::runtime::FlushMinimapPickupCache(g_LuaState)) return false;
+    // Entity callbacks can also mutate world contents. Give compatibility
+    // consumers their isolated attempt before room snapshot callbacks run.
+    if (acceptedLocation) isaac::runtime::PumpCompatibilityAdapters(g_LuaState);
     if (acceptedLocation) {
         // A same-stage Init owns a fresh starting room. Publish it with the
-        // accepted lifecycle identity only after cache invalidation succeeds.
+        // accepted lifecycle identity after compatibility consumers had a turn.
         if (enteredNewLevel) g_LevelStartRoom.Reset();
         if (enteredNewLevel || g_FrameEventState.levelKnown == 0) {
             g_LevelStartRoom.Observe(location.stage, location.stageType, location.roomIndex);
@@ -5294,7 +5293,8 @@ void DispatchPostUpdate() {
     }
     // 新房间的初始化必须先于它的第一次POST_UPDATE；否则模组仍拿上一房间的
     // 追踪状态处理新房间。复用本帧已有扫描，且在认领simulation帧后才允许Lua重入。
-    if (!DispatchFrameEvents() || !isaac::runtime::FlushMinimapPickupCache(g_LuaState)) return;
+    if (!DispatchFrameEvents()) return;
+    isaac::runtime::PumpCompatibilityAdapters(g_LuaState);
     if (isaac::runtime::BuiltinCallbackEnabled(isaac::runtime::kCallbackPostUpdate)) {
         LuaCallbackInvoker invoker{0, false, true};
         isaac::runtime::CallbackDispatcher dispatcher{g_CallbackRegistry, invoker};
@@ -5318,17 +5318,31 @@ void DispatchNativePlayerInit(std::uintptr_t player) noexcept {
                                                    isaac::runtime::ThreadAffinity::Any, variant));
 }
 
+void DispatchNativeTearInit(std::uintptr_t tear) noexcept {
+    if (!IsReady() || g_LuaState == nullptr || tear == 0 ||
+        !isaac::runtime::BuiltinCallbackEnabled(isaac::runtime::kCallbackPostTearInit)) return;
+    const ManagedEngineDispatchScope dispatchScope;
+    std::int64_t variant{};
+    if (isaac::runtime::ClassifyCallbackEntity(tear, &variant) !=
+        isaac::runtime::CallbackEntityClass::Tear) return;
+    LuaCallbackInvoker invoker = LuaCallbackInvoker::ForEntity(tear);
+    isaac::runtime::CallbackDispatcher dispatcher{g_CallbackRegistry, invoker};
+    static_cast<void>(dispatcher.DispatchFiltered(isaac::runtime::kCallbackPostTearInit,
+                                              isaac::runtime::ThreadAffinity::Any, variant));
+}
+
 void DispatchNativeEffectInit(std::uintptr_t effect) noexcept {
     if (!IsReady() || g_LuaState == nullptr || effect == 0 ||
-        !isaac::runtime::ShouldDispatchManagedCallbacks() ||
         !isaac::runtime::BuiltinCallbackEnabled(isaac::runtime::kCallbackPostEffectInit)) return;
     const ManagedEngineDispatchScope dispatchScope;
     std::int64_t variant{};
     if (isaac::runtime::ClassifyCallbackEntity(effect, &variant) !=
         isaac::runtime::CallbackEntityClass::Effect) return;
-    // SpawnEx has completed derived Init and published Spawner/Position/Velocity.
-    // Dispatch before the first native Update can remove an effect with no animation.
-    DispatchEffectInitialization(effect, variant);
+    // Derived fields are complete; SpawnEx has not performed this entity's Add.
+    LuaCallbackInvoker invoker = LuaCallbackInvoker::ForEntity(effect);
+    isaac::runtime::CallbackDispatcher dispatcher{g_CallbackRegistry, invoker};
+    static_cast<void>(dispatcher.DispatchFiltered(isaac::runtime::kCallbackPostEffectInit,
+                                              isaac::runtime::ThreadAffinity::Any, variant));
 }
 
 // load_room can finish on a transition frame that renders before the next
@@ -5336,20 +5350,22 @@ void DispatchNativeEffectInit(std::uintptr_t effect) noexcept {
 // or mods write the destination's pickups into their cached previous room.
 bool PrepareRoomEventsForRender() {
     if (isaac::runtime::NativeLevelInitializing()) return false;
+    const ManagedEngineDispatchScope dispatchScope;
     if (g_PendingGameStarted.load(std::memory_order_acquire) != 0 ||
         g_FrameEventState.roomKnown == 0 ||
         (isaac::runtime::NativeRoomLoadGeneration() == g_FrameEventState.roomLoadGeneration &&
          isaac::runtime::NativeLevelInitGeneration() == g_FrameEventState.levelInitGeneration)) {
-        return isaac::runtime::FlushMinimapPickupCache(g_LuaState);
+        isaac::runtime::PumpCompatibilityAdapters(g_LuaState);
+        return true;
     }
-    const ManagedEngineDispatchScope dispatchScope;
     DispatchFrameEvents(true); // Room lifecycle only; never synthesize entity updates in render.
     // A failed read, incomplete new level, or another load inside a callback
     // must retry before any renderer consumes the still-stale room cache.
-    return !isaac::runtime::NativeLevelInitializing() &&
+    const bool ready = !isaac::runtime::NativeLevelInitializing() &&
         isaac::runtime::NativeRoomLoadGeneration() == g_FrameEventState.roomLoadGeneration &&
-        isaac::runtime::NativeLevelInitGeneration() == g_FrameEventState.levelInitGeneration &&
-        isaac::runtime::FlushMinimapPickupCache(g_LuaState);
+        isaac::runtime::NativeLevelInitGeneration() == g_FrameEventState.levelInitGeneration;
+    if (ready) isaac::runtime::PumpCompatibilityAdapters(g_LuaState);
+    return ready;
 }
 
 void DispatchPostRender(uintptr_t manager) {
@@ -5827,24 +5843,15 @@ void DispatchPostGameEnd(bool isGameOver) {
 // with Incubus.」实参 `(EntityTear)`，可选实参 `-`（无过滤），返回 void。
 // 调用点（`EntryRelayFireTearCallback`）在**原函数返回之后**派发 —— 泪弹是它的返回值。
 void DispatchPostFireTear(std::uintptr_t tear) {
-    if (!IsReady() || g_LuaState == nullptr ||
-        !isaac::runtime::ShouldDispatchManagedCallbacks()) {
+    if (!IsReady() || g_LuaState == nullptr || tear == 0) {
         return;
     }
-    const bool wantsInit = isaac::runtime::BuiltinCallbackEnabled(isaac::runtime::kCallbackPostTearInit);
     const bool wantsFire = isaac::runtime::BuiltinCallbackEnabled(isaac::runtime::kCallbackPostFireTear);
-    if (!wantsInit && !wantsFire) return;
+    if (!wantsFire) return;
     const ManagedEngineDispatchScope dispatchScope;
     std::int64_t variant{};
     if (isaac::runtime::ClassifyCallbackEntity(tear, &variant) !=
         isaac::runtime::CallbackEntityClass::Tear) return;
-    if (wantsInit) {
-        // Native FireTear returns before the next scene scan; deliver its INIT first.
-        DispatchTearInitialization(tear, variant);
-        // A failed argument allocation or destruction in INIT must not produce FIRE first.
-        if (!isaac::runtime::EntityTearInitialized(tear)) return;
-    }
-    if (!wantsFire) return;
     LuaCallbackInvoker invoker = LuaCallbackInvoker::ForEntity(tear);
     isaac::runtime::CallbackDispatcher dispatcher{g_CallbackRegistry, invoker};
     static_cast<void>(dispatcher.Dispatch(isaac::runtime::kCallbackPostFireTear,
@@ -6645,7 +6652,7 @@ bool UnloadManifestMods() noexcept {
 bool ShutdownForModReload() noexcept {
     // 先确认线程，再读Lua栈；没有VM时重复调用不需要触碰任何Lua对象。
     if (!g_LuaState && !g_ShuttingDownForModReload) {
-        isaac::runtime::ResetMinimapPickupCache();
+        isaac::runtime::ResetCompatibilityAdapters(nullptr);
         return true;
     }
     if (!IsOnGameThread()) {
@@ -6684,8 +6691,8 @@ bool ShutdownForModReload() noexcept {
     g_Ready.store(false,std::memory_order_release);
     // lua_close负责完整运行Font/Sprite和其它userdata终结器；绑定仍须有效。
     isaac::runtime::ResetEntityLifetimeState();
+    isaac::runtime::ResetCompatibilityAdapters(state);
     lua_close(state);
-    isaac::runtime::ResetMinimapPickupCache();
     g_LuaState = nullptr;
     // 用户终结器可能再次访问过GetData，关闭之后再解除一次外部缓存。
     isaac::runtime::ResetEntityLifetimeState();
