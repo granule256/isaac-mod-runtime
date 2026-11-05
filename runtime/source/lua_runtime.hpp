@@ -301,6 +301,10 @@ struct InputActionOutcome {
                                                      std::uint32_t controllerIndex,
                                                      std::int32_t inputHook,
                                                      std::uintptr_t entity);
+// Platform commands without an engine action-table row already have a PC code.
+[[nodiscard]] InputActionOutcome DispatchLogicalInputAction(std::uint32_t luaAction,
+                                                            std::int32_t inputHook,
+                                                            std::uintptr_t entity);
 
 // --- 批次 392（2026-10-07）：`Input` 类读取必须**绕开**上面那条覆盖 -----------------------------
 //

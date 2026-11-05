@@ -372,6 +372,7 @@ EntryRelayBinding BindingOf(HookId id) noexcept {
         case HookId::RoomConfigLoadStageBinary:
         case HookId::ConsoleLifecycle:
         case HookId::NativeInputPoll:
+        case HookId::NativeRestartInput:
         case HookId::LevelLoadRoom:
         case HookId::LevelInit:
         case HookId::EntityInit:

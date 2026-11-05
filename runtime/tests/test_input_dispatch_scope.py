@@ -21,7 +21,8 @@ class InputDispatchScopeTests(unittest.TestCase):
     def test_real_dispatch_preserves_nested_cache_and_closes_owned_window(self):
         text = (ROOT/'runtime/source/lua_runtime.cpp').read_text()
         scope = definition(text, 'class ManagedEngineDispatchScope final') + ';'
-        body = definition(text, 'InputActionOutcome DispatchInputAction(')
+        body = definition(text, 'InputActionOutcome DispatchInputAction(') + '\n' + definition(
+            text, 'InputActionOutcome DispatchLogicalInputAction(')
         source = r'''
 #include <atomic>
 #include <cassert>
@@ -30,11 +31,14 @@ class InputDispatchScopeTests(unittest.TestCase):
 #include "interfaces/lua/input_action_map.hpp"
 static bool ready=true,enabled=true,world=true,reenter=false;
 static unsigned calls{},worldReads{};
-struct Arguments {void AddEntity(std::uintptr_t){} void AddNil(){} void AddInteger(std::int64_t){}};
+static unsigned expectedAction=4;static bool modifying=false,truth=false;
+static std::int64_t lastArgument{};
+struct Arguments {void AddEntity(std::uintptr_t){} void AddNil(){} void AddInteger(std::int64_t v){lastArgument=v;}};
 struct LuaCallbackInvoker {Arguments arguments;LuaCallbackInvoker(int,bool,bool){}};
 namespace LuaRuntime {
 struct InputActionOutcome{bool overridden{},boolean{};float value{};};
 InputActionOutcome DispatchInputAction(unsigned,unsigned,int,std::uintptr_t);
+InputActionOutcome DispatchLogicalInputAction(unsigned,int,std::uintptr_t);
 }
 namespace isaac::runtime {
 bool BuiltinCallbackEnabled(unsigned){return enabled;}
@@ -44,10 +48,10 @@ struct CallbackDispatchOutcome{bool anyNonNil{},hasNumber{},hasInteger{},anyTrut
 struct CallbackDispatcher {
  CallbackDispatcher(int,LuaCallbackInvoker&){}
  CallbackDispatchOutcome DispatchModifying(unsigned,ThreadAffinity,std::int64_t){
-  ++calls;assert(EngineGuardDispatchActive().load()==1);
+  ++calls;assert(EngineGuardDispatchActive().load()==1);assert(lastArgument==expectedAction);
   if(reenter){reenter=false;const auto before=worldReads;
    LuaRuntime::DispatchInputAction(4,0,0,0);assert(worldReads==before);}
-  return {};
+  return {modifying,false,false,truth,0,0};
  }
 };
 }
@@ -76,6 +80,12 @@ int main(){
  assert(calls==3 && EngineGuardDispatchActive().load()==0);
  enabled=false;const auto reads=worldReads;LuaRuntime::DispatchInputAction(4,0,0,0);
  assert(worldReads==reads && EngineGuardDispatchActive().load()==0);
+ enabled=true;world=true;expectedAction=20;LuaRuntime::DispatchInputAction(17,0,0,0);
+ expectedAction=18;modifying=true;
+ const auto blocked=LuaRuntime::DispatchLogicalInputAction(18,0,0);
+ assert(blocked.overridden&&!blocked.boolean);
+ truth=true;const auto forced=LuaRuntime::DispatchLogicalInputAction(18,0,0);
+ assert(forced.overridden&&forced.boolean);
 }
 '''.replace('SCOPE', scope).replace('BODY', body)
         with tempfile.TemporaryDirectory(prefix='input-dispatch-scope-') as folder:

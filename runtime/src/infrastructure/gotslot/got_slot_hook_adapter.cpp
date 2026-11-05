@@ -9,6 +9,7 @@
 #include "console_lifecycle_hook.hpp"
 #include "input_poll_hook.hpp"
 #include "infrastructure/gotslot/level_pickup_reroll_hook.hpp"
+#include "infrastructure/gotslot/restart_input_hook.hpp"
 
 #include <algorithm>
 #include <cstring>
@@ -47,6 +48,11 @@ Status GotSlotHookAdapter::Install(HookId id, const HookTarget& target) noexcept
     // 走到这里的其它 `HookId` 是配置错误，**响亮失败**而不是静默成功。
     if (id == HookId::NativeInputPoll) {
         const auto result = InstallNativeInputPollHook(target);
+        if (result.ok()) installed_[index] = true;
+        return result;
+    }
+    if (id == HookId::NativeRestartInput) {
+        const auto result = InstallNativeRestartInputHook(target);
         if (result.ok()) installed_[index] = true;
         return result;
     }

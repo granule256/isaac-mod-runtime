@@ -116,6 +116,7 @@ Status ExlaunchHookAdapter::Install(HookId id, const HookTarget& target) noexcep
         case HookId::RoomConfigLoadStageBinary:
         case HookId::ConsoleLifecycle:
         case HookId::NativeInputPoll:
+        case HookId::NativeRestartInput:
         case HookId::LevelLoadRoom:
         case HookId::LevelInit:
         case HookId::GameRerollLevelPickups:

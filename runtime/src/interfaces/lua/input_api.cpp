@@ -33,6 +33,7 @@
 // 批次 230：模组（PC）的**动作号** → Switch 引擎**内部**动作号 的映射表（纯换算，逐行证据在那个头文件）。
 // 没有它就会出现"推摇杆下 = 按左"：PC 的 `ACTION_MENULEFT(20)` 在 Switch 引擎里是"菜单下"。
 #include "interfaces/lua/input_action_map.hpp"
+#include "interfaces/lua/restart_input_chord.hpp"
 #include "interfaces/lua/remaining_api.hpp"
 #include "interfaces/lua/vector_api.hpp"
 
@@ -688,7 +689,12 @@ int InputIsButtonTriggered(lua_State* state) {
     //   数据源已改成"采样时对 0..17 **逐个问引擎**"（那格 `+0x30` 不是引擎用的按键位图），
     //   但**判定仍是纯读**（边沿由 `InputFrameEdges` 一帧一份地差分，第三个实参仍 `nullptr`）。
     const std::uint32_t frame = CurrentInputFrame();
-    const bool triggered = g_ButtonEdge.Triggered(static_cast<std::uint32_t>(code), controller, frame);
+    // The reserved platform chord is one logical command. Keep physical held
+    // state, but do not also deliver its components as standalone button edges.
+    const bool reservedChord = NativeRestartChordButton(static_cast<std::uint32_t>(code)) &&
+                               g_ActionEdge.Pressed(kLuaRestartAction, kNsAnyInputDevice, frame);
+    const bool triggered = !reservedChord &&
+                          g_ButtonEdge.Triggered(static_cast<std::uint32_t>(code), controller, frame);
     // 批次 218：记"这次问的现场"（见那四个数组的声明处）。
     g_InputButtonAskedFrame[static_cast<std::uint32_t>(code) & 31u].store(frame,
                                                                          std::memory_order_relaxed);
@@ -1039,7 +1045,9 @@ int InputGetActionValue(lua_State* state) {
     const std::uint32_t code = static_cast<std::uint32_t>(lua_tointeger(state, 1));
     // 批次 230：**先翻译动作号**（与 `IsActionPressed/Triggered` 同一个口径）；Switch 上没有的动作 ⇒ 0。
     const std::uint32_t engine_action = TranslateActionForEngine(code);
-    const float value = engine_action != kNoEngineAction
+    const float value = code == kLuaRestartAction
+                            ? (g_ActionEdge.Pressed(code, target.device_id, CurrentInputFrame()) ? 1.0f : 0.0f)
+                        : engine_action != kNoEngineAction
                             ? query(nullptr, engine_action, target.device_id, nullptr)
                             : 0.0f;
     // 批次 217：见 `g_InputActionAskedFrame` 的声明处；kind=2 的 answer 存**浮点原始位**。
@@ -1698,6 +1706,9 @@ void SampleInputFrame(std::uint32_t frame) noexcept {
         } else {
             g_InputSampleFailures.fetch_add(1, std::memory_order_relaxed);
         }
+        // Restart has no native action-table row: compose it from the same raw
+        // sample as the button queries, before folding physical devices together.
+        actionPressed[kLuaRestartAction] = NativeRestartChordHeld(buttonPressed);
         // ★ 批次 406：动作侧同理 —— 不在这里写边沿表，只 OR 进"本槽"与"任意设备"缓冲。
         for (std::uint32_t code = 0; code < kSampleActionCodeCount; ++code) {
             slotActionPressed[slot][code] = slotActionPressed[slot][code] || actionPressed[code];
@@ -1725,6 +1736,9 @@ void SampleInputFrame(std::uint32_t frame) noexcept {
     // "任意设备"聚合槽（`0xFFFFFFFF & 31 = 31`）：模组问 `0xFFFFFFFF` 时读它。
     // ★ 边沿同样由本类按帧自己差分（第三个实参 `nullptr`，理由见上面按键侧那段）。
     g_ButtonEdge.SampleRow(kNsAnyInputDevice, frame, aggButtonPressed, nullptr);
+    // The native restart gate queries each component with "any device", so
+    // its global action may span controllers. Per-device actions stay separate.
+    aggActionPressed[kLuaRestartAction] = NativeRestartChordHeld(aggButtonPressed);
     g_ActionEdge.SampleRow(kNsAnyInputDevice, frame, aggActionPressed, nullptr);
 
     g_InputSampleCalls.store(calls, std::memory_order_relaxed);

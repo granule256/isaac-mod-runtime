@@ -5952,8 +5952,14 @@ std::uint64_t DispatchPostGetCollectible(void* itemPool, std::uint32_t itemPoolT
 //   ② 下面这道重入守卫只管"派发正在进行中"这一种情形（例如模组的处理器里再问输入）。
 InputActionOutcome DispatchInputAction(std::uint32_t action, std::uint32_t controllerIndex,
                                        std::int32_t inputHook, std::uintptr_t entity) {
-    InputActionOutcome outcome{};
     static_cast<void>(controllerIndex);  // PC回调不暴露此参数，真实Entity由原生独立提供。
+    return DispatchLogicalInputAction(isaac::runtime::TranslateEngineActionToLuaAction(action),
+                                      inputHook, entity);
+}
+
+InputActionOutcome DispatchLogicalInputAction(std::uint32_t luaAction,
+                                               std::int32_t inputHook, std::uintptr_t entity) {
+    InputActionOutcome outcome{};
     if (!IsReady() || g_LuaState == nullptr) return outcome;
     if (!isaac::runtime::BuiltinCallbackEnabled(isaac::runtime::kCallbackInputAction)) {
         return outcome;  // ★ 快路径（绝大多数帧走这里）
@@ -5985,8 +5991,7 @@ InputActionOutcome DispatchInputAction(std::uint32_t action, std::uint32_t contr
     // 用 `forcingActionPressed[controlleIndex][buttonAction]` 存"要强制的动作"——存的是 PC 号。
     // 逐行映射、来源与两处口径说明见 `interfaces/lua/input_action_map.hpp` 的反表。
     // 越界号（引擎不会给；见那张表的注释）**原样透传**，不编造一个 PC 号。
-    invoker.arguments.AddInteger(static_cast<std::int64_t>(
-        isaac::runtime::TranslateEngineActionToLuaAction(action)));
+    invoker.arguments.AddInteger(static_cast<std::int64_t>(luaAction));
     isaac::runtime::CallbackDispatcher dispatcher{g_CallbackRegistry, invoker};
     inInputActionDispatch = true;
     // ★★★ 2026-10-07（批次 390 修复）：下面这一条的**过滤器实参必须是 `inputHook`**，
