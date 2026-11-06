@@ -8,7 +8,7 @@
 
 面向 NX 版《以撒的结合：忏悔》的 PC Lua 模组兼容层，提供模组菜单、游戏 API、回调、资源加载与配置持久化，尽可能保留原模组的调用方式和行为。
 
-当前正式版为 **v1.1.0**，目标游戏版本为 **1.7.9b** 的指定构建。兼容层免费，赞赏自愿且不影响使用。为防止倒卖，公告部分的代码未开源。
+当前正式版为 **v1.1.1**，目标游戏版本为 **1.7.9b** 的指定构建。兼容层免费，赞赏自愿且不影响使用。为防止倒卖，公告部分的代码未开源。
 
 ## 功能
 
@@ -28,11 +28,11 @@
 
 ## 下载与安装
 
-下载 [isaac-runtime-v1.1.0.zip](https://github.com/granule256/isaac-mod-runtime/releases/download/v1.1.0/isaac-runtime-v1.1.0.zip)。包内附英文 `INSTALL.txt`，不包含游戏、Atmosphère 或第三方模组。版本更新记录见 [Releases](https://github.com/granule256/isaac-mod-runtime/releases)。
+下载 [isaac-runtime-v1.1.1.zip](https://github.com/granule256/isaac-mod-runtime/releases/download/v1.1.1/isaac-runtime-v1.1.1.zip)。包内附英文 `INSTALL.txt`，不包含游戏、Atmosphère 或第三方模组。版本更新记录见 [Releases](https://github.com/granule256/isaac-mod-runtime/releases)。
 
 1. 准备已配置大气层的设备和受支持的游戏构建，备份存档并完全关闭游戏。
 2. 解压安装包，将整个 `atmosphere/` 文件夹复制到 SD 卡根目录，合并目录并覆盖同名文件。核心、资源和补丁一起安装，避免混用版本。
-3. 启动游戏，确认兼容层说明显示 `v1.1.0`。
+3. 启动游戏，确认兼容层说明显示 `v1.1.1`。
 4. 将每个模组的完整文件夹单独放入以下目录，避免多套一层文件夹：
 
    ```text
@@ -89,7 +89,7 @@ QQ群：**1124953430** · [Discord](https://discord.gg/JMQc2jMsve)。也可通�
 
 A community compatibility layer for running PC Lua mods in **The Binding of Isaac: Repentance on NX**. It provides a mod menu, game APIs, callbacks, resource loading and configuration persistence while aiming to preserve original mod calls and behavior.
 
-The current stable version is **v1.1.0**, targeting the supported **1.7.9b** game build. The layer is free; donations are optional and do not affect access. To prevent resale, the notice-related code is not open source.
+The current stable version is **v1.1.1**, targeting the supported **1.7.9b** game build. The layer is free; donations are optional and do not affect access. To prevent resale, the notice-related code is not open source.
 
 ## Features
 
@@ -109,11 +109,11 @@ The timing fix does not imply a general rendering frame-rate improvement. Patche
 
 ## Download and install
 
-Download [isaac-runtime-v1.1.0.zip](https://github.com/granule256/isaac-mod-runtime/releases/download/v1.1.0/isaac-runtime-v1.1.0.zip). It includes an English `INSTALL.txt`; the game, Atmosphère and third-party mods are not bundled. See [Releases](https://github.com/granule256/isaac-mod-runtime/releases) for version changes.
+Download [isaac-runtime-v1.1.1.zip](https://github.com/granule256/isaac-mod-runtime/releases/download/v1.1.1/isaac-runtime-v1.1.1.zip). It includes an English `INSTALL.txt`; the game, Atmosphère and third-party mods are not bundled. See [Releases](https://github.com/granule256/isaac-mod-runtime/releases) for version changes.
 
 1. Use an NX device configured for Atmosphère and the supported game build. Back up your saves and fully close the game.
 2. Extract the package and copy its entire `atmosphere/` folder to the SD card root. Merge folders and overwrite matching files. Install the core, resources and patches together and avoid mixing versions.
-3. Launch the game and check that the compatibility-layer notice displays `v1.1.0`.
+3. Launch the game and check that the compatibility-layer notice displays `v1.1.1`.
 4. Place each complete mod folder in the following directory without an extra nested folder:
 
    ```text
