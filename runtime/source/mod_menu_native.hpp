@@ -45,6 +45,7 @@ struct TargetModule;
 namespace isaac::runtime::modmenu {
 // 本体STB加载成功后的原生模组房间收尾；仅在同一游戏线程调用。
 void LoadEngineModRoomsAfterStage(void* config, int stage, int mode) noexcept;
+void LoadEngineModItemPools(void* pool) noexcept;
 extern std::uint32_t g_ModRoomLoadState[8];
 
 //: **常驻状态面**：真机读数的抓手（读数工具 `tools/read_device_state_via_gdb.py` 按名字取这个符号）。

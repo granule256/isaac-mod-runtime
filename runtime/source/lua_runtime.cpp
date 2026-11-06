@@ -1111,7 +1111,7 @@ int Require(lua_State* state) {
     // 失败文本要按 PC 的形状给出"尝试过的路径"（见 `BuildRequireNotFoundMessage`），
     // 所以先把这块缓冲准备好：模块名不安全/太长时同样要能拼出文本。
     std::array<char, kStage13RequirePathCapacity * 2> notFoundText{};
-    const char* const notFound = BuildRequireNotFoundMessage(
+    const char* notFound = BuildRequireNotFoundMessage(
         &notFoundText, modRoot, modRootLength,
         moduleName != nullptr ? moduleName : "", moduleName != nullptr ? moduleLength : 0);
     if (moduleName == nullptr || moduleLength == 0 || moduleName[0] == '.' ||
@@ -1165,9 +1165,32 @@ int Require(lua_State* state) {
     ++g_Stage13RequireDepth;
 
     std::size_t length = 0;
-    const auto readResult = GameFileReader::ReadTextFile(
+    auto readResult = GameFileReader::ReadTextFile(
         g_Stage13Bindings, path.data(), reinterpret_cast<u8*>(g_Stage13RequireSource.data()),
         g_Stage13RequireSource.size(), &length);
+    // PC's resolver @0x7FB740 also uses the active script context (set by
+    // @0x80B3AF). A library can require room data owned by the mod loading it.
+    // Only a missing file permits this second lookup; read/compile/run errors
+    // in a found library module must keep their original path and diagnostic.
+    if (readResult == GameFileReader::TextReadResult::OpenFailed &&
+        g_Stage13ModRootLength && std::strcmp(modRoot, g_Stage13ModRoot.data()) != 0) {
+        const auto relativeBytes = pathLength - modRootLength; // suffix + NUL
+        const auto activeLength = g_Stage13ModRootLength;
+        if (activeLength + relativeBytes + 1 <= path.size()) {
+            std::memmove(path.data() + activeLength + 1,
+                         path.data() + modRootLength + 1, relativeBytes);
+            std::memcpy(path.data(), g_Stage13ModRoot.data(), activeLength);
+            path[activeLength] = '/';
+            pathLength = activeLength + relativeBytes;
+            modRoot = g_Stage13ModRoot.data();
+            modRootLength = activeLength;
+            notFound = BuildRequireNotFoundMessage(&notFoundText, modRoot, modRootLength,
+                                                   moduleName, moduleLength);
+            readResult = GameFileReader::ReadTextFile(
+                g_Stage13Bindings, path.data(), reinterpret_cast<u8*>(g_Stage13RequireSource.data()),
+                g_Stage13RequireSource.size(), &length);
+        }
+    }
     if (readResult != GameFileReader::TextReadResult::Success) {
         --g_Stage13RequireDepth;
         if (readResult == GameFileReader::TextReadResult::OpenFailed) {
@@ -5773,7 +5796,8 @@ void DispatchEvaluateCache(std::uintptr_t player, std::int32_t cacheFlag) {
 // 批次 397（2026-10-07）：`MC_POST_ENTITY_KILL`(68)。
 // 契约原文（`ModCallbacks.md`）：「Called right before a death animation is triggered for an
 // Entity.」实参 `(Entity)`，可选实参（过滤器）= `EntityType`，返回 void（返回值无效果）。
-// 调用点（`EntryRelayEntityKillCallback`）在**入口**派发 —— 那正好是"死亡动画被触发之前"。
+// PC Entity::Kill @0x6848B0 sets the dead flag and emits blood effects before
+// callback68 @0x802C50. A listener can revive without Kill overwriting it.
 void DispatchPostEntityKill(std::uintptr_t entity, std::int32_t entityType) {
     // ★ 重入守卫（`g_InPostEntityKillDispatch` 的说明在上面的声明处）：模组在自己这条回调里
     //   又调 `entity:Kill()` 时**跳过派发**（不跳过原函数 —— 那由调用点照常做）。
@@ -5877,7 +5901,7 @@ void DispatchPostFireTear(std::uintptr_t tear) {
 // 批次 397（2026-10-07）：`MC_POST_ENTITY_KILL`(68)。
 // 契约原文（`ModCallbacks.md`）：「Called right before a death animation is triggered for an
 // Entity.」实参 `(Entity)`，可选实参（过滤器）= `EntityType`，返回 void（返回值无效果）。
-// 调用点（`EntryRelayEntityKillCallback`）在**入口**派发 —— 那正好是"死亡动画被触发之前"。
+// The native dead transition completes before these listeners run.
 
 
 // 批次 397（2026-10-07）：`MC_POST_NPC_DEATH`(29)。

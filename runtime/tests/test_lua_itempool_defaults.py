@@ -26,8 +26,9 @@ static std::uint32_t Collect(void* object,std::uint32_t type,std::uint32_t seed,
     const std::uint32_t expected[][4]={
         {7,100,1,0},{7,101,1,0},{8,102,0,0},{9,103,1,13},
         {7,0,1,0},{8,12,0,13},{7,13,1,0},
+        {7,0xffffffffU,1,0},{7,0,1,0},{7,3,1,0},
     };
-    if(object!=pool||calls>=7)return 0;
+    if(object!=pool||calls>=10)return 0;
     const auto& row=expected[calls++];
     return type==row[0]&&seed==row[1]&&noDecrease==row[2]&&fallback==row[3]?701:0;
 }
@@ -46,8 +47,13 @@ int main() {
         assert(p:GetCollectible(7,false,0)==701)
         assert(p:GetCollectible(8,true,12,13)==701)
         assert(p:GetCollectible(7,false,13,nil)==701)
-        for _,args in ipairs({{}, {7,false,'bad'}, {7,false,-1},
-            {7,false,4294967296}, {7,false,1,-1}, {7,false,1,0,0}}) do
+        -- PC's integer conversion preserves the low 32 seed bits, including
+        -- signed Room:GetSpawnSeed() values used by revival and boss scripts.
+        assert(p:GetCollectible(7,false,-1)==701)
+        assert(p:GetCollectible(7,false,4294967296)==701)
+        assert(p:GetCollectible(7,false,8589934595)==701)
+        for _,args in ipairs({{}, {7,false,'bad'},
+            {7,false,1,-1}, {7,false,1,0,0}}) do
             assert(not pcall(function()p:GetCollectible(table.unpack(args))end))
         end
         local mod=RegisterMod('PoolDefaults',1)
@@ -56,7 +62,7 @@ int main() {
     const auto result=LuaRuntime::InitializeFromBuffer(script,std::strlen(script),"@pool-defaults.lua");
     char error[1024]{};(void)LuaRuntime::CopyLastLuaErrorText(error,sizeof(error));
     std::printf("status=%u calls=%u random=%u error=%s\n",unsigned(result),calls,randomCalls,error);
-    return result==LuaRuntime::LuaInitResult::Success&&calls==7&&randomCalls==4?0:1;
+    return result==LuaRuntime::LuaInitResult::Success&&calls==10&&randomCalls==4?0:1;
 }
 '''
 

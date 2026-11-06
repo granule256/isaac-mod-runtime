@@ -114,6 +114,7 @@ Status ExlaunchHookAdapter::Install(HookId id, const HookTarget& target) noexcep
         case HookId::NpcUpdateAi:
         case HookId::HudRender:
         case HookId::RoomConfigLoadStageBinary:
+        case HookId::ItemPoolLoadPools:
         case HookId::ConsoleLifecycle:
         case HookId::NativeInputPoll:
         case HookId::NativeRestartInput:

@@ -749,6 +749,9 @@ local function verifyFindByType()
   checkArray(Isaac.FindByType(), 0, 'FindByType no arguments')
   checkArray(Isaac.FindByType('nope', -1, -1), 0, 'FindByType non-integer type')
   checkArray(Isaac.FindByType(20), 1, 'FindByType default wildcards')
+  checkSet(Isaac.FindByType(20, nil), { 'enemyA' }, 'nil variant defaults to wildcard')
+  checkSet(Isaac.FindByType(20, nil, nil), { 'enemyA' }, 'nil subtype defaults to wildcard')
+  checkSet(Isaac.FindByType(20, 5, nil), { 'enemyA' }, 'nil subtype preserves explicit variant')
 end
 
 -- ===== CountEnemies / CountBosses =====

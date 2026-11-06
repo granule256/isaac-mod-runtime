@@ -57,3 +57,32 @@ int main(){
 }
 '''
         self.build_run(harness)
+
+    def test_destroy_grid_ignores_extra_source_and_uses_lua_boolean_conversion(self):
+        harness=entity.HARNESS.split('int main(',1)[0]
+        harness=harness.replace('*room = nullptr;\n    return GameRoomObservation::GameNull;',
+                                '*room = g_GameBytes.data();\n    return GameRoomObservation::Success;')
+        harness+=r'''
+int main(){
+ PublishFakeWorld(0x1111,0x2222);
+ std::memcpy(g_ModuleBytes.data()+kRoomDestroyGridOffset,&kRoomDestroyGridEntryWord,4);
+ LuaRuntime::SetGameBindings(AddressOf(g_OwnerSlotBytes),0x3030);
+ const char*script=R"lua(
+ local result=Game():GetRoom():DestroyGrid(17,true,0,EntityRef(Isaac.GetPlayer(0)),{},'ignored')
+ assert(type(result)=='boolean')
+ local m=RegisterMod('grid destroy args',1);m:AddCallback(1,function()end)
+ )lua";
+ if(LuaRuntime::InitializeFromBuffer(script,std::strlen(script),"@destroy-grid-extra.lua")!=LuaRuntime::LuaInitResult::Success){
+  char error[512]{};(void)LuaRuntime::CopyLastLuaErrorText(error,sizeof(error));
+  std::fprintf(stderr,"%s\n",error);return 1;
+ }
+ if(g_HostEngineCallTrampolineCalls!=1 ||
+    g_HostEngineCallTrampolineLastTarget!=g_EngineBase+kRoomDestroyGridOffset ||
+    g_HostEngineCallTrampolineLastIntegers[0]!=AddressOf(g_GameBytes) ||
+    g_HostEngineCallTrampolineLastIntegers[1]!=17 ||
+    g_HostEngineCallTrampolineLastIntegers[2]!=1 ||
+    g_HostEngineCallTrampolineLastIntegers[3]!=1)return 2;
+ return 0;
+}
+'''
+        self.build_run(harness)

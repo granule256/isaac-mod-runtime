@@ -5688,7 +5688,8 @@ inline constexpr std::array<u8, 16> kEntityPlayerEvaluateItemsExpectedBytes = {
 // ---------------------------------------------------------------------------
 // 三条的 PC 契约原文（`analysis/isaacdocs-snapshot/docs/enums/ModCallbacks.md`）：
 //   * `MC_POST_ENTITY_KILL`(68)：「Called **right before a death animation is triggered**
-//     for an Entity.」⇒ 挂 `Entity::Kill()` 的**入口**正好就是"动画被触发之前"。
+//     for an Entity.」PC Entity::Kill @0x6848B0 先置死亡标记、执行血花，再在
+//     @0x6848E3 调用回调68包装 @0x802C50。中继必须在原函数完成后派发，允许复活。
 //   * `MC_POST_NPC_DEATH`(29)：「Gets called **after the Death animation is played**.」
 //     ⇒ `Entity_NPC::trigger_death_remove()` 是"死亡动画播完之后"的那个汇合点。
 //   * `MC_POST_GAME_END`(16)：「called when the game over screen appears, or when an ending

@@ -15,20 +15,20 @@ HARNESS = r'''
 using namespace isaac::runtime;
 static ResolvedManifestModBatch batch;
 static int reads;
-static const char* labels[] = {"z", "!! MCM", "! A", "A B", "a", "A", "A0", "0", "！全角", "中文", "!", "A"};
+static const char* labels[] = {"z", "!! MCM", "! A", "A B", "a", "A", "A0", "0", "！全角", "中文", "!", "A", " Custom Stage API", "!CuerLib"};
 bool Reader(void*, const char* path, char* out, std::size_t cap, std::size_t* n) {
     ++reads;
     unsigned i = 99;
-    if (std::sscanf(path, "isaac_mods/mods/d%u/metadata.xml", &i) != 1 || i >= 12) return false;
+    if (std::sscanf(path, "isaac_mods/mods/d%u/metadata.xml", &i) != 1 || i >= 14) return false;
     *n = std::snprintf(out, cap, "<metadata><name>%s</name></metadata>", labels[i]);
     return true;
 }
 int main() {
-    const char* expected[] = {"!", "! A", "!! MCM", "0", "A", "A", "A B", "A0", "a", "d12", "z", "中文", "！全角"};
+    const char* expected[] = {"Custom Stage API", "!", "! A", "!! MCM", "!CuerLib", "0", "A", "A", "A B", "A0", "a", "d14", "z", "中文", "！全角"};
     for (unsigned round = 0; round < 33; ++round) {
-        batch.count = 13;
+        batch.count = 15;
         for (unsigned i = 0; i < batch.count; ++i) {
-            unsigned id = (i + round) % 13;
+            unsigned id = (i + round) % 15;
             auto& p = batch.paths[i];
             std::snprintf(p.modRoot.data(), p.modRoot.size(), "rom:/isaac_mods/mods/d%u", id);
             std::snprintf(p.entryPath.data(), p.entryPath.size(), "entry%u", id);
@@ -39,7 +39,7 @@ int main() {
         char arena[8192]{}, path[kModPageMetadataPathCapacity]{}, xml[kModPageMetadataCapacity]{};
         reads = 0;
         if (!CollectAndSortPcModNames(batch, Reader, nullptr, names, arena, sizeof(arena), path, xml)) return 1;
-        if (reads != 13) return 2;
+        if (reads != 15) return 2;
         for (unsigned i = 0; i < batch.count; ++i) {
             if (std::strcmp(names[i].displayName, expected[i])) { std::printf("name %u: %s\n", i, names[i].displayName); return 3; }
             unsigned id = 99;
@@ -60,8 +60,8 @@ int main() {
         } files;
         ModToggleService toggles(files);
         if (!toggles.SetEnabled("d10", false).ok() || !toggles.SetEnabled("d0", false).ok()) return 8;
-        if (toggles.ApplyToBatch(&batch) != 2 || batch.count != 11) return 12;
-        if (std::strcmp(batch.mods[0].modRoot, "rom:/isaac_mods/mods/d2")) return 13;
+        if (toggles.ApplyToBatch(&batch) != 2 || batch.count != 13) return 12;
+        if (std::strcmp(batch.mods[0].modRoot, "rom:/isaac_mods/mods/d12")) return 13;
         for (std::size_t i = 0; i < batch.count; ++i) {
             unsigned id = 99;
             std::sscanf(batch.mods[i].modRoot, "rom:/isaac_mods/mods/d%u", &id);
@@ -76,6 +76,22 @@ int main() {
     if (CollectAndSortPcModNames(batch, Reader, nullptr, names, arena, sizeof(arena), path, xml) || batch.mods[0].modRoot != first) return 10;
     batch.count = 0;
     if (!CollectAndSortPcModNames(batch, Reader, nullptr, names, arena, sizeof(arena), path, xml)) return 11;
+    // Published display names must outlive path compaction after filtering.
+    batch.count=2;
+    for(unsigned i=0;i<2;++i){
+        std::snprintf(batch.paths[i].modRoot.data(),batch.paths[i].modRoot.size(),"rom:/isaac_mods/mods/d%u",i);
+        batch.mods[i]={"",batch.paths[i].modRoot.data(),"",0,false};
+    }
+    auto whitespace=[](void*,const char* file,char* out,std::size_t cap,std::size_t* n){
+        const char* label=std::strstr(file,"d0/")?"  ":"z";
+        *n=std::snprintf(out,cap,"<name>%s</name>",label);return true;
+    };
+    char stable[256]{};
+    if(!CollectAndSortPcModNames(batch,whitespace,nullptr,names,stable,sizeof(stable),path,xml))return 15;
+    auto published=names[0].displayName;
+    if(std::strcmp(published,"d0"))return 16;
+    std::strcpy(batch.paths[0].modRoot.data(),"rom:/isaac_mods/mods/other");
+    if(std::strcmp(published,"d0"))return 17;
     std::puts("PC_MOD_ORDER_PASSED");
 }
 '''

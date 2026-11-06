@@ -11,6 +11,7 @@
 #include "lua_runtime.hpp"
 #include "runtime_constants.hpp"
 #include "mod_room_guards.hpp"
+#include "room_descriptor_layout.hpp"
 #include "interfaces/lua/opaque_scalar_value.hpp"
 #include "interfaces/lua/object_identity_registry.hpp"
 #include <cstring>
@@ -523,6 +524,32 @@ int TryPushApi500DescriptorField(lua_State* L,std::uintptr_t p,const char* name)
     return Push(L,p,*field);
 }
 bool TryWriteApi500DescriptorField(lua_State* L,std::uintptr_t p,const char* name) {
+    if(name && !std::strcmp(name,"Data")) {
+        if(!p)luaL_error(L,"RoomDescriptor reference is no longer available");
+        // PC setter @0x85CF10 borrows the native pointer (nil clears it).
+        // RoomSet keeps ownership; OverrideData and descriptor flags stay intact.
+        const std::uintptr_t data=lua_isnil(L,3)?0:LiveRoom(L,3);
+        Write(L,p,layout::kRoomDescriptorDataOffset,data);
+        return true;
+    }
+    // Legacy descriptor getters live in RoomDescriptorIndex. PC also exposes
+    // these writable scalar slots; StageAPI needs them when installing a room.
+    constexpr Field coreFields[]={
+        {"GridIndex",layout::kRoomDescriptorGridIndexOffset,Kind::Int,Group::Descriptor,0},
+        {"SafeGridIndex",layout::kRoomDescriptorSafeGridIndexOffset,Kind::Int,Group::Descriptor,0},
+        {"ListIndex",0x8,Kind::Int,Group::Descriptor,0},
+        {"DisplayFlags",layout::kRoomDescriptorDisplayFlagsOffset,Kind::UInt,Group::Descriptor,0},
+        {"VisitedCount",layout::kRoomDescriptorVisitedCountOffset,Kind::Int,Group::Descriptor,0},
+        {"Flags",layout::kRoomDescriptorFlagsOffset,Kind::UInt,Group::Descriptor,0},
+        {"Clear",layout::kRoomDescriptorFlagsOffset,Kind::Bit,Group::Descriptor,0},
+    };
+    for(const auto& field:coreFields) {
+        if(name && !std::strcmp(name,field.name)) {
+            if(!p)luaL_error(L,"RoomDescriptor reference is no longer available");
+            Store(L,p,field);
+            return true;
+        }
+    }
     if(IsAllowedDoors(name)) {
         AllowedDoorsGuard(L);
         if(!p)luaL_error(L,"RoomDescriptor reference is no longer available");

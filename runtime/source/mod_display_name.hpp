@@ -40,7 +40,8 @@ inline bool IsXmlSpace(char c) noexcept {
 //: 把 `xml` 里第一个 `<name>` 的文本写进 `buffer`（NUL 结尾），返回是否成功。
 //: 失败（找不到/空/放不下）返回 false，调用方退回目录名。`buffer` 为 nullptr 或容量为 0 也返回 false。
 [[nodiscard]] inline bool ExtractModDisplayName(std::string_view xml, char* buffer,
-                                               std::size_t capacity) noexcept {
+                                               std::size_t capacity,
+                                               bool trimWhitespace = true) noexcept {
     if (buffer == nullptr || capacity < 2) {
         return false;
     }
@@ -74,10 +75,10 @@ inline bool IsXmlSpace(char c) noexcept {
     // 去首尾空白。
     std::size_t first = cursor;
     std::size_t last = end;
-    while (first < last && detail::IsXmlSpace(xml[first])) {
+    while (trimWhitespace && first < last && detail::IsXmlSpace(xml[first])) {
         ++first;
     }
-    while (last > first && detail::IsXmlSpace(xml[last - 1])) {
+    while (trimWhitespace && last > first && detail::IsXmlSpace(xml[last - 1])) {
         --last;
     }
     if (first == last) {

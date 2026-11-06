@@ -370,6 +370,7 @@ EntryRelayBinding BindingOf(HookId id) noexcept {
         case HookId::NpcUpdateAi:
         case HookId::HudRender:
         case HookId::RoomConfigLoadStageBinary:
+        case HookId::ItemPoolLoadPools:
         case HookId::ConsoleLifecycle:
         case HookId::NativeInputPoll:
         case HookId::NativeRestartInput:

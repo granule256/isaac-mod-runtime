@@ -6,6 +6,7 @@
 #include "mod_unload_hook.hpp"
 #include "card_hook.hpp"
 #include "mod_room_hook.hpp"
+#include "mod_itempool_hook.hpp"
 #include "console_lifecycle_hook.hpp"
 #include "input_poll_hook.hpp"
 #include "infrastructure/gotslot/level_pickup_reroll_hook.hpp"
@@ -73,6 +74,11 @@ Status GotSlotHookAdapter::Install(HookId id, const HookTarget& target) noexcept
     }
     if (id == HookId::GameRerollLevelPickups || id == HookId::GameRerollLevelCollectibles) {
         const auto result=InstallLevelPickupRerollPointerHook(id,target);
+        if(result.ok())installed_[index]=true;
+        return result;
+    }
+    if (id == HookId::ItemPoolLoadPools) {
+        const auto result=InstallModItemPoolPointerHook(target);
         if(result.ok())installed_[index]=true;
         return result;
     }

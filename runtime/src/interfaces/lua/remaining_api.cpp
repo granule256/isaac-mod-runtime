@@ -2286,7 +2286,6 @@ int ItemPoolGetCollectible(lua_State* state) {
     lua_Integer seed = randomSeed ? 0 : lua_tointegerx(state, 4, nullptr);
     const lua_Integer defaultItem = lua_isnoneornil(state, 5) ? 0 : lua_tointegerx(state, 5, nullptr);
     if (poolType < 0 || static_cast<std::uint64_t>(poolType) > std::numeric_limits<std::uint32_t>::max() ||
-        seed < 0 || static_cast<std::uint64_t>(seed) > std::numeric_limits<std::uint32_t>::max() ||
         defaultItem < 0 || static_cast<std::uint64_t>(defaultItem) > std::numeric_limits<std::uint32_t>::max()) {
         return luaL_error(state, "ItemPool:GetCollectible integer arguments are outside uint32 range");
     }
@@ -2307,6 +2306,8 @@ int ItemPoolGetCollectible(lua_State* state) {
     }
     using GetCollectibleFn = std::uint32_t (*)(void*, std::uint32_t, std::uint32_t, std::uint32_t,
                                                std::uint32_t);
+    // PC's Lua wrapper forwards the low 32 integer bits. Room:GetSpawnSeed()
+    // returns a signed int, so rejecting negative seeds aborts valid callbacks.
     const auto result = isaac::runtime::engine_call::AsFunction<GetCollectibleFn>(method)(
         itemPool, static_cast<std::uint32_t>(poolType), static_cast<std::uint32_t>(seed),
         lua_toboolean(state, 3) ? 0u : 1u, static_cast<std::uint32_t>(defaultItem));
@@ -4481,8 +4482,7 @@ int RoomDescriptorListIndex(lua_State* state) {
 // 详见 `remaining_api.hpp` 的说明。两件事要注意：
 //   1. **绝不能报错**：这些赋值往往出现在绘制/传送路径上，抛错会把整条回调摘掉
 //      （GoodTrip 就是这样"静默不传送"的）；
-//   2. **不能猜偏移去写引擎**：`EnterDoor`/`LeaveDoor` 的偏移没有证据，猜一个写进去
-//      会踩坏引擎对象；所以这里只记一笔"有人想写什么"，不动引擎。
+//   2. 已确认偏移的字段真实写入；其余只记录，不猜测引擎布局。
 extern "C" {
 //: 被忽略的字段写入次数（诊断面）。
 std::atomic<std::uint32_t> g_IsaacIgnoredFieldWriteCount{0};
@@ -4554,6 +4554,15 @@ bool TryWriteGameTimeCounter(lua_State* state) noexcept {
 int IgnoredObjectFieldWrite(lua_State* state) {
     const char* key=lua_tostring(state,2);
     const char* owner=luaL_testudata(state,1,LuaRuntime::kGameMetatable)?"Game":luaL_testudata(state,1,LuaRuntime::kLevelMetatable)?"Level":nullptr;
+    if(owner && !std::strcmp(owner,"Level") && key && !std::strcmp(key,"EnterDoor")) {
+        // PC setter @0x5699D0 is a plain i32 store. Native ChangeRoom's
+        // @0x3D9E9C store proves the same slot used by the existing getter.
+        const auto door=static_cast<std::uint32_t>(luaL_checkinteger(state,3));
+        std::uintptr_t level{};
+        if(!ResolveCurrentLevel(&level) || !engine_memory::WriteField(level,kLevelEnterDoorOffset,
+            door,engine_memory::EngineMemoryWritable))return luaL_error(state,"Level reference is unavailable");
+        return 0;
+    }
     if(owner&&IsApi600WorldField(owner,key)){std::uintptr_t p{};if(ResolveCurrentLevel(&p)&&TryWriteApi600WorldField(state,p,owner,key))return 0;}
     // BUG-014：`Game.TimeCounter` 是 PC 契约里**唯一**还没真写的可写标量字段（另外两个
     // `BlueWombParTime`/`BossRushParTime` 走上面的 api600 表；`Difficulty`/`ScreenShakeOffset`

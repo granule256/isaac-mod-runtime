@@ -29,7 +29,7 @@ inline int ComparePcModNames(const char* left, const char* right) noexcept {
         order[i] = i;
     }
     if (CollectModPageSources(names, capacity, directories, batch.count, nullptr, nullptr,
-                             reader, context, arena, arenaBytes, scratchPath, scratchText)
+                             reader, context, arena, arenaBytes, scratchPath, scratchText, false)
         != batch.count) return false;
     // 同名只保持输入顺序，不凭目录、开关或 MCM 身份另加优先级。
     for (std::size_t i = 1; i < batch.count; ++i) {
@@ -69,6 +69,21 @@ inline int ComparePcModNames(const char* left, const char* right) noexcept {
         mod.modRoot = batch.paths[i].modRoot.data();
         mod.entryPath = mod.hasEntry ? batch.paths[i].entryPath.data() : "";
         mod.chunkName = mod.hasEntry ? batch.paths[i].chunkName.data() : "";
+        // PC ListMods @0x870F35 copies the raw XML name, including leading
+        // spaces, before sorting. Trim the UI name only after that decision.
+        auto* target = const_cast<char*>(names[i].displayName); // owned by arena
+        auto* first = target;
+        while (detail::IsXmlSpace(*first)) ++first;
+        auto* last = first + std::strlen(first);
+        while (last > first && detail::IsXmlSpace(last[-1])) --last;
+        *last = '\0';
+        if (first != last) names[i].displayName = first;
+        else {
+            const auto* slash = std::strrchr(mod.modRoot, '/');
+            const auto* directory = slash ? slash + 1 : mod.modRoot;
+            std::memcpy(target, directory, std::strlen(directory) + 1);
+            names[i].displayName = target;
+        }
     }
     return true;
 }

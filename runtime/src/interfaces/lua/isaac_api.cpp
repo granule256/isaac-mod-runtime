@@ -7112,10 +7112,10 @@ int IsaacFindByType(lua_State* state) {
     lua_Integer subType = -1;
     bool valid = argumentCount >= 1 && argumentCount <= 5 &&
                  ReadIntegerArgument(state, 1, &type);
-    if (valid && argumentCount >= 2) {
+    if (valid && argumentCount >= 2 && !lua_isnil(state, 2)) {
         valid = ReadIntegerArgument(state, 2, &variant);
     }
-    if (valid && argumentCount >= 3) {
+    if (valid && argumentCount >= 3 && !lua_isnil(state, 3)) {
         valid = ReadIntegerArgument(state, 3, &subType);
     }
     lua_newtable(state);
@@ -8630,10 +8630,11 @@ constexpr EngineCallShapeRow kEngineCallShapes[] = {
     {3, {EngineArgKind::Int, EngineArgKind::Int, EngineArgKind::Int, EngineArgKind::Int,
          EngineArgKind::Int, EngineArgKind::Int, EngineArgKind::Int, EngineArgKind::Int},
      EngineReturnKind::Bool, FieldReceipt::Entity, IntArgumentGuard::None, 1, {0, 0, 0}},
-    // 14 BoolIntBoolBool：`bool(this, i32, bool, bool)`，尾部 2 个可省 —— `Room:DestroyGrid`
+    // 14: PC DestroyGrid wrapper @0x84E790 reads index and two truth values,
+    // defaults missing booleans to false, and ignores any trailing arguments.
     {3, {EngineArgKind::Int, EngineArgKind::Bool, EngineArgKind::Bool, EngineArgKind::Int,
          EngineArgKind::Int, EngineArgKind::Int, EngineArgKind::Int, EngineArgKind::Int},
-     EngineReturnKind::Bool, FieldReceipt::Entity, IntArgumentGuard::None, 2, {0, 0, 0}},
+     EngineReturnKind::Bool, FieldReceipt::Entity, IntArgumentGuard::None, 2, {0, 1, 0}},
     // 15 Float0：`float(this)` —— `Level:GetPlanetariumChance`（返回走 `d0`）
     {0, {EngineArgKind::Int, EngineArgKind::Int, EngineArgKind::Int, EngineArgKind::Int,
          EngineArgKind::Int, EngineArgKind::Int, EngineArgKind::Int, EngineArgKind::Int},
@@ -10896,8 +10897,9 @@ int SpawnEntityCommon(lua_State* state, std::int32_t type, std::int32_t variant,
         lua_pushnil(state);
         return 1;
     }
-    PushEntityHandle(state, engine_memory::AddressOf(entity),
-                     EntityViewMetatableForPointer(engine_memory::AddressOf(entity)));
+    // Both public spawn functions return Entity on PC. Typed properties (such
+    // as NPC.CanShutDoors) require an explicit ToNPC() cast by the consumer.
+    PushEntityHandle(state, engine_memory::AddressOf(entity), kEntityMetatable);
     return 1;
 }
 

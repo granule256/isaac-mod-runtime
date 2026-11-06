@@ -75,7 +75,7 @@ enum class MountedReadResult : std::uint32_t {
     ModPageEntrySource* out, std::uint32_t capacity, const char* const* directories,
     std::uint32_t directoryCount, const bool* enabledFlags, const bool* outdatedFlags,
     ModPageTextReader reader, void* readerContext, char* nameArena, std::size_t nameArenaSize,
-    char* scratchPath, char* scratchText) noexcept {
+    char* scratchPath, char* scratchText, bool trimNames = true) noexcept {
     if (out == nullptr || directories == nullptr || reader == nullptr || nameArena == nullptr ||
         scratchPath == nullptr || scratchText == nullptr || capacity == 0) {
         return 0;
@@ -127,9 +127,13 @@ enum class MountedReadResult : std::uint32_t {
             if (available < need) {
                 return 0;
             }
-            if (ExtractModDisplayName(xml, target, available)) {
+            if (ExtractModDisplayName(xml, target, available, trimNames)) {
                 chosen = target;
-                arenaCursor += std::strlen(target) + 1;
+                const auto nameLength = std::strlen(target);
+                // Raw sort keys may contain only whitespace. Reserve room for
+                // the directory fallback that the UI will need after sorting.
+                arenaCursor += (!trimNames && directoryLength > nameLength
+                    ? directoryLength : nameLength) + 1;
             }
         }
         if (chosen == directory) {
