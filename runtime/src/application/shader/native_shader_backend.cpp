@@ -39,7 +39,7 @@ bool Verified() {
  const auto base=LuaRuntime::EngineModuleBase();if(!base)return false;if(base==g_VerifiedBase)return true;
  for(const auto* entry : {&kCtor,&kDtor,&kInitialize,&kTarget,&kGetTarget,&kClear,&kCreateImage,&kReleaseImage,
      &kRender,&kBlend,&kWidth,&kHeight,&kPaddedWidth,&kPaddedHeight,&kFlush,&kSync,
-     &kBufferVerify,&kBufferSwap,&kFlushPending}) {
+     &kBufferVerify,&kBufferSwap,&kFlushPending,&kClearDepthStencil,&kSetRenderTargets,&kViewportScissor}) {
   if(base>UINTPTR_MAX-entry->offset||!engine_call::VerifyEntryBytes(base+entry->offset,entry->bytes.data(),entry->bytes.size(),engine_memory::EngineMemoryReadable))return false;
  }
  g_VerifiedBase=base;return true;
@@ -139,7 +139,24 @@ void Draw(const ShaderTarget& source,void* raw,const float* vertices,unsigned co
  Method<DrawFn>(kRender)(source.image,blend,program->shader,vertices,static_cast<int>(count),stride,indices,6);
 }
 void FlushPending(){PerfScope perf(5);Method<void(*)(void*)>(kFlushPending)(Graphics());}
-constexpr ShaderBackend kBackend{Compile,Destroy,FrameInfo,Create,Release,Target,Clear,Standard,Draw,Drain,FlushPending};
+void PrepareCallbackDraw(){
+ const auto graphics=engine_memory::AddressOf(Graphics());std::uintptr_t image{},command{};
+ if(!graphics||!At(graphics+0x20,&image)||!image||!At(graphics+0x3A30,&command)||!command)return;
+ FlushPending();
+ auto* cmd=engine_memory::AsObject(command);
+ const auto* depthView=engine_memory::AsObject(graphics+0x37F8);
+ const void* colorView=engine_memory::AsObject(image+0x530);
+ // begin_scene@4F39AC/4F3A10: depth=0, stencil=0, mode=1, range=null.
+ // main NSO@854AC..854D4 confirms mode 1 enables depth and uses stencil mask 0.
+ using ClearDepthFn=void(*)(void*,const void*,float,int,unsigned,const void*);
+ Method<ClearDepthFn>(kClearDepthStencil)(cmd,depthView,0.f,0,1,nullptr);
+ // The SDK clear temporarily binds only depth and expands scissor. Restore
+ // the source color target and its viewport, as begin_scene@4F3A2C/4F3978 do.
+ using TargetsFn=void(*)(void*,int,const void* const*,const void*);
+ Method<TargetsFn>(kSetRenderTargets)(cmd,1,&colorView,depthView);
+ Method<void(*)(void*,const void*)>(kViewportScissor)(cmd,engine_memory::AsObject(image+0x578));
+}
+constexpr ShaderBackend kBackend{Compile,Destroy,FrameInfo,Create,Release,Target,Clear,Standard,Draw,Drain,FlushPending,PrepareCallbackDraw};
 }
 const ShaderBackend& NativeShaderBackend() noexcept{return kBackend;}
 }

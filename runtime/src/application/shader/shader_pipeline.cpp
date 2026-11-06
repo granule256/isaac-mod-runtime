@@ -321,6 +321,7 @@ void FinishShaderFrame(std::uintptr_t manager) noexcept {
   float standardBefore[4*14];
   if(p->identity!=shader_identity::Kind::None)
    for(unsigned i=0;i<4;++i)std::memcpy(standardBefore+i*14,p->vertices+i*p->view.strideFloats,14*sizeof(float));
+  if(g_State.values&&backend.prepareCallbackDraw)backend.prepareCallbackDraw();
   const bool valuesOk=!g_State.values||g_State.values(p->view,p->vertices,manager);
   if(!valuesOk){
    ++g_State.valueFailures;g_State.error=ShaderPipelineError::Values;
