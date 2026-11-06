@@ -4574,7 +4574,7 @@ bool g_GameStartedInCurrentVm{};
 isaac::runtime::ManagedUpdateSnapshot g_LastManagedUpdate{};
 bool g_HasManagedUpdate{};
 
-// 两个明确相关的派发入口复用同一窗口，嵌套GAME_STARTED不清空外层缓存。
+// 嵌套回调沿用外层窗口，只有最外层负责开关，避免重入返回后关闭权限缓存。
 class ManagedEngineDispatchScope final {
 public:
     ManagedEngineDispatchScope() noexcept
@@ -4693,6 +4693,8 @@ struct FrameEventState {
     std::uint32_t seenPlayerCount{0};
     std::uintptr_t seenNpcs[kSeenNpcCapacity]{};
     std::uint32_t seenNpcCount{0};
+    std::uint64_t npcRoomLoadGeneration{0};
+    bool npcRoomGenerationKnown{false};
     std::uintptr_t seenFamiliars[kSeenFamiliarCapacity]{};
     std::uint32_t seenFamiliarCount{0};
     std::uintptr_t seenProjectiles[kSeenProjectileCapacity]{};
@@ -4748,6 +4750,15 @@ void ClearSeenEntities(std::uint32_t* count) noexcept {
     }
 }
 
+void SyncNpcSeenRoomGeneration(std::uint64_t generation, bool changedWithoutNativeLoad = false) noexcept {
+    if (changedWithoutNativeLoad || !g_FrameEventState.npcRoomGenerationKnown ||
+        generation != g_FrameEventState.npcRoomLoadGeneration) {
+        ClearSeenEntities(&g_FrameEventState.seenNpcCount);
+        g_FrameEventState.npcRoomLoadGeneration = generation;
+        g_FrameEventState.npcRoomGenerationKnown = true;
+    }
+}
+
 // 这一帧"哪些回调有人登记"的位图（下标 = 回调 id，0..127）。
 //
 // 为什么要有它：实体族的派发点有三十来处，每处都问一次 `CountOf` 就是每帧把登记表线性扫
@@ -4781,7 +4792,7 @@ RegisteredCallbackMask BuildRegisteredCallbackMask() noexcept {
 //: id 表这种写法离"表驱动派发"只有一步，而派发点必须逐个显式写（门禁靠它把设备侧报出来的
 //: 名单与代码里的真实派发对上）。
 [[nodiscard]] bool AnyEntityFamilyRegistered(const RegisteredCallbackMask& mask) noexcept {
-    return mask.Has(isaac::runtime::kCallbackNpcUpdate) || mask.Has(isaac::runtime::kCallbackPostPeffectUpdate) ||
+    return mask.Has(isaac::runtime::kCallbackPostPeffectUpdate) ||
            mask.Has(isaac::runtime::kCallbackFamiliarUpdate) || mask.Has(isaac::runtime::kCallbackFamiliarInit) ||
            mask.Has(isaac::runtime::kCallbackPostFamiliarRender) || mask.Has(isaac::runtime::kCallbackPostNpcInit) ||
            mask.Has(isaac::runtime::kCallbackPostPlayerUpdate) || mask.Has(isaac::runtime::kCallbackPostPlayerRender) ||
@@ -4825,21 +4836,17 @@ void DispatchNpcEntityEvents(EntityEventScan* scan, std::uintptr_t entity,
     if (scan->renderPhase) {
         return;  // `MC_POST_NPC_RENDER` 不在本批（台账里是 needs_hook），见批次 010 的记录。
     }
-    if (scan->registered.Has(isaac::runtime::kCallbackPostNpcInit) &&
-        NoteNewEntity(g_FrameEventState.seenNpcs, kSeenNpcCapacity, &g_FrameEventState.seenNpcCount,
+    if (!scan->registered.Has(isaac::runtime::kCallbackPostNpcInit)) return;
+    // Native AI can initialize an NPC before the room lifecycle is observed.
+    // Both paths claim the same load generation, so the later scan keeps it.
+    SyncNpcSeenRoomGeneration(isaac::runtime::NativeRoomLoadGeneration());
+    if (NoteNewEntity(g_FrameEventState.seenNpcs, kSeenNpcCapacity, &g_FrameEventState.seenNpcCount,
                       entity)) {
         LuaCallbackInvoker invoker = LuaCallbackInvoker::ForEntity(entity);
         isaac::runtime::CallbackDispatcher dispatcher{g_CallbackRegistry, invoker};
         static_cast<void>(dispatcher.DispatchFiltered(isaac::runtime::kCallbackPostNpcInit,
                                               isaac::runtime::ThreadAffinity::Any, filter));
     }
-    if (scan->registered.Has(isaac::runtime::kCallbackNpcUpdate)) {
-        LuaCallbackInvoker invoker = LuaCallbackInvoker::ForEntity(entity);
-        isaac::runtime::CallbackDispatcher dispatcher{g_CallbackRegistry, invoker};
-        static_cast<void>(dispatcher.DispatchFiltered(isaac::runtime::kCallbackNpcUpdate,
-                                              isaac::runtime::ThreadAffinity::Any, filter));
-    }
-
 }
 
 void DispatchFamiliarEntityEvents(EntityEventScan* scan, std::uintptr_t entity,
@@ -5204,7 +5211,9 @@ bool DispatchFrameEvents(bool initialOnly = false) {
             // 实体（掉落物、跟班、敌人…）会各自收到一次 INIT（见文件上方"代价与已知差异"）。
             // 玩家那张表**不清**：玩家跨房间存活，清了会让同一个玩家每次换房都收到一次 INIT。
             ClearSeenEntities(&g_FrameEventState.seenPickupCount);
-            ClearSeenEntities(&g_FrameEventState.seenNpcCount);
+            SyncNpcSeenRoomGeneration(roomLoadGeneration,
+                g_FrameEventState.roomKnown != 0 &&
+                roomLoadGeneration == g_FrameEventState.roomLoadGeneration);
             ClearSeenEntities(&g_FrameEventState.seenFamiliarCount);
             ClearSeenEntities(&g_FrameEventState.seenProjectileCount);
             ClearSeenEntities(&g_FrameEventState.seenLaserCount);
@@ -5668,6 +5677,27 @@ void DispatchPostProjectileUpdate(std::uintptr_t projectile) {
     DispatchProjectileNativeEvent(isaac::runtime::kCallbackPostProjectileUpdate,projectile);
 }
 
+void DispatchPostNpcUpdate(std::uintptr_t npc) {
+    if (!IsReady() || g_LuaState == nullptr || !isaac::runtime::ShouldDispatchManagedCallbacks()) return;
+    const bool init = isaac::runtime::BuiltinCallbackEnabled(isaac::runtime::kCallbackPostNpcInit);
+    const bool update = isaac::runtime::BuiltinCallbackEnabled(isaac::runtime::kCallbackNpcUpdate);
+    if (!init && !update) return;
+    std::int64_t type{};
+    if (isaac::runtime::ClassifyCallbackEntity(npc, &type) !=
+        isaac::runtime::CallbackEntityClass::Npc) return;
+    const ManagedEngineDispatchScope dispatchScope;
+    if (init) {
+        EntityEventScan scan{};
+        scan.registered.low = 1ULL << isaac::runtime::kCallbackPostNpcInit;
+        DispatchNpcEntityEvents(&scan, npc, type);
+    }
+    if (!update) return;
+    auto invoker = LuaCallbackInvoker::ForEntity(npc);
+    isaac::runtime::CallbackDispatcher dispatcher{g_CallbackRegistry, invoker};
+    static_cast<void>(dispatcher.DispatchFiltered(isaac::runtime::kCallbackNpcUpdate,
+        isaac::runtime::ThreadAffinity::Any, type));
+}
+
 void DispatchPostManualEntityUpdate(std::uintptr_t entity) {
     if (!IsReady() || g_LuaState == nullptr ||
         !isaac::runtime::ShouldDispatchManagedCallbacks()) return;
@@ -5676,8 +5706,6 @@ void DispatchPostManualEntityUpdate(std::uintptr_t entity) {
     switch (isaac::runtime::ClassifyCallbackEntity(entity, &filter)) {
         case isaac::runtime::CallbackEntityClass::Player:
             id = isaac::runtime::kCallbackPostPlayerUpdate; break;
-        case isaac::runtime::CallbackEntityClass::Npc:
-            id = isaac::runtime::kCallbackNpcUpdate; break;
         case isaac::runtime::CallbackEntityClass::Familiar:
             id = isaac::runtime::kCallbackFamiliarUpdate; break;
         case isaac::runtime::CallbackEntityClass::Pickup:
@@ -5692,8 +5720,9 @@ void DispatchPostManualEntityUpdate(std::uintptr_t entity) {
             id = isaac::runtime::kCallbackPostEffectUpdate; break;
         case isaac::runtime::CallbackEntityClass::Bomb:
             id = isaac::runtime::kCallbackPostBombUpdate; break;
-        // Projectile.Update has a native completion relay. Slot6 has no standard
+        // NPC AI and Projectile.Update have native callbacks. Slot6 has no standard
         // post-update callback. Neither may be fed into another entity family.
+        case isaac::runtime::CallbackEntityClass::Npc:
         case isaac::runtime::CallbackEntityClass::Projectile:
         case isaac::runtime::CallbackEntityClass::None:
             return;
@@ -5753,7 +5782,7 @@ bool DispatchEntityTakeDamage(std::uintptr_t entity, float amount, std::uint64_t
     if (!isaac::runtime::BuiltinCallbackEnabled(isaac::runtime::kCallbackEntityTakeDmg)) {
         return false;
     }
-    isaac::runtime::EngineGuardEnterDispatch();
+    const ManagedEngineDispatchScope dispatchScope;
     LuaCallbackInvoker invoker{0, false, false};
     // PC 签名：`(Entity, Amount [float], DamageFlags [int], Source [EntityRef], CountdownFrames [int])`。
     invoker.arguments.AddEntity(entity);
@@ -5768,7 +5797,6 @@ bool DispatchEntityTakeDamage(std::uintptr_t entity, float amount, std::uint64_t
         dispatcher.DispatchModifying(isaac::runtime::kCallbackEntityTakeDmg,
                                      isaac::runtime::ThreadAffinity::Any,
                                      static_cast<std::int64_t>(entityType));
-    isaac::runtime::EngineGuardLeaveDispatch();
     return outcome.anyNonNil && !outcome.anyTruthy;
 }
 
@@ -5782,7 +5810,14 @@ void DispatchEvaluateCache(std::uintptr_t player, std::int32_t cacheFlag) {
     if (!isaac::runtime::BuiltinCallbackEnabled(isaac::runtime::kCallbackEvaluateCache)) {
         return;
     }
-    isaac::runtime::EngineGuardEnterDispatch();
+    const ManagedEngineDispatchScope dispatchScope;
+    // EvaluateItems has already derived the terrain layer before our callbacks.
+    // Settle a mod's final CanFly change after all flying-cache listeners run.
+    namespace memory = isaac::runtime::engine_memory;
+    std::uint8_t originalFlight = 0;
+    const bool settleFlight = cacheFlag == 128 &&
+        memory::ReadField(player, kEntityPlayerCanFlyOffset, &originalFlight,
+                          &memory::EngineMemoryReadable);
     LuaCallbackInvoker invoker{0, false, false};
     AddPlayerArgument(&invoker.arguments, player);
     invoker.arguments.AddInteger(static_cast<std::int64_t>(cacheFlag));
@@ -5790,7 +5825,17 @@ void DispatchEvaluateCache(std::uintptr_t player, std::int32_t cacheFlag) {
     static_cast<void>(dispatcher.DispatchFiltered(isaac::runtime::kCallbackEvaluateCache,
                                                   isaac::runtime::ThreadAffinity::Any,
                                                   static_cast<std::int64_t>(cacheFlag)));
-    isaac::runtime::EngineGuardLeaveDispatch();
+    std::uint8_t finalFlight = 0;
+    if (settleFlight &&
+        memory::ReadField(player, kEntityPlayerCanFlyOffset, &finalFlight,
+                          &memory::EngineMemoryReadable) &&
+        (originalFlight != 0) != (finalFlight != 0)) {
+        // Native CACHE_FLYING: 0x286914 writes walking=5; 0x286c2c writes flying=3.
+        // Leave native/custom layers intact when callbacks retain native flight.
+        const std::int32_t layer = finalFlight != 0 ? 3 : 5;
+        static_cast<void>(memory::WriteField(player, kEntityFlyingLayerOffset, layer,
+                                            &memory::EngineMemoryWritable));
+    }
 }
 
 // 批次 397（2026-10-07）：`MC_POST_ENTITY_KILL`(68)。
@@ -6334,13 +6379,12 @@ std::uint32_t DispatchGetTrinket(std::int32_t selected,
 std::int32_t DispatchGetPillColor(std::uint32_t seed, std::int32_t selected) {
     if (!IsReady() || g_LuaState == nullptr || !isaac::runtime::ShouldDispatchManagedCallbacks() ||
         !isaac::runtime::BuiltinCallbackEnabled(isaac::runtime::kCallbackGetPillColor)) return selected;
-    isaac::runtime::EngineGuardEnterDispatch();
+    const ManagedEngineDispatchScope dispatchScope;
     LuaCallbackInvoker invoker{0, false, false};
     invoker.arguments.AddInteger(seed);
     isaac::runtime::CallbackDispatcher dispatcher{g_CallbackRegistry, invoker};
     const auto result = dispatcher.DispatchModifying(isaac::runtime::kCallbackGetPillColor,
         isaac::runtime::ThreadAffinity::Any, isaac::runtime::CallbackRegistry::kNoCallbackFilter);
-    isaac::runtime::EngineGuardLeaveDispatch();
     return result.hasInteger && result.integer >= INT32_MIN && result.integer <= INT32_MAX
         ? static_cast<std::int32_t>(result.integer) : selected;
 }
@@ -6447,7 +6491,7 @@ EntitySpawnOverride DispatchPreEntitySpawn(std::int32_t type, std::uint32_t vari
     const auto previousScope = g_InManagedCallbackDispatch.load(std::memory_order_acquire);
     g_ErrorContextCallbackId = isaac::runtime::kCallbackPreEntitySpawn;
     g_InManagedCallbackDispatch.store(true, std::memory_order_release);
-    isaac::runtime::EngineGuardEnterDispatch();
+    const ManagedEngineDispatchScope dispatchScope;
     lua_pushcfunction(g_LuaState, CollectPreEntitySpawn);
     lua_pushlightuserdata(g_LuaState, &context);
     const int status = lua_pcallk(g_LuaState, 1, 0, 0, 0, nullptr);
@@ -6457,7 +6501,6 @@ EntitySpawnOverride DispatchPreEntitySpawn(std::int32_t type, std::uint32_t vari
         g_CallbackError.store(true, std::memory_order_release);
         context.result = original; // 非法最终表明确报错，不发布半张表的修改。
     }
-    isaac::runtime::EngineGuardLeaveDispatch();
     g_ErrorContextOwner = previousOwner;
     g_ErrorContextCallbackId = previousId;
     g_InManagedCallbackDispatch.store(previousScope, std::memory_order_release);
@@ -6554,12 +6597,11 @@ namespace LuaRuntime {
 void DispatchPostEntityRemove(std::uintptr_t entity, std::int32_t entityType) {
     if (!IsReady() || g_LuaState == nullptr ||
         !isaac::runtime::BuiltinCallbackEnabled(isaac::runtime::kCallbackPostEntityRemove)) return;
-    isaac::runtime::EngineGuardEnterDispatch();
+    const ManagedEngineDispatchScope dispatchScope;
     LuaCallbackInvoker invoker = LuaCallbackInvoker::ForEntity(entity);
     isaac::runtime::CallbackDispatcher dispatcher{g_CallbackRegistry, invoker};
     static_cast<void>(dispatcher.DispatchFiltered(isaac::runtime::kCallbackPostEntityRemove,
         isaac::runtime::ThreadAffinity::Any,static_cast<std::int64_t>(entityType)));
-    isaac::runtime::EngineGuardLeaveDispatch();
 }
 }
 

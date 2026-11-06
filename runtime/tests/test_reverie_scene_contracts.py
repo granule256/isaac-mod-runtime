@@ -29,6 +29,10 @@ int main(int argc,char**argv){
  std::vector<unsigned char> grid(0x100);
  WriteWord(grid,0,g_EngineBase+kGridEntityVtableOffset);
  WriteWord(g_RoomBytes,kRoomGridEntityTableOffset,AddressOf(grid));
+ // The 448-entry grid array ends exactly where the separate door table begins.
+ WriteWord(g_RoomBytes,kRoomGridEntityTableOffset+447*8,AddressOf(grid));
+ WriteWord(g_RoomBytes,kRoomGridEntityTableOffset+448*8,AddressOf(grid));
+ WriteWord(g_RoomBytes,kRoomGridEntityTableOffset+456*8,1); // adjacent door indices are not pointers
  const std::string scene=argv[1];std::string script="local m=RegisterMod('scene contracts',1);";
  if(scene=="familiar")script+=R"lua(
  local f=Isaac.FindByType(3,5)[1];assert(f and f.AddToOrbit==nil and type(f:ToFamiliar().AddToOrbit)=='function')
@@ -52,6 +56,10 @@ int main(int argc,char**argv){
  else if(scene=="grid")script+=R"lua(
  local room=Game():GetRoom();assert(type(room:GetGridEntity(0))=='userdata');assert(room:GetGridEntity(-1)==nil)
  assert(room:GetGridEntity(-2147483648)==nil)
+ assert(type(room:GetGridEntity(447))=='userdata')
+ assert(room:GetDoor(0),'the neighboring door table is deliberately occupied')
+ assert(room:GetGridEntity(448)==nil,'grid queries must not alias the door table')
+ for _,i in ipairs({449,456,476,2147483647})do assert(room:GetGridEntity(i)==nil)end
  assert(not pcall(function()room:GetGridEntity({})end))
  )lua";
  else if(scene=="curse")script+="Game():GetLevel():AddCurse(1);Game():GetLevel():AddCurse(1,nil)";

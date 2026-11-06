@@ -66,6 +66,7 @@ constexpr Field kFields[]={
     {"Shape",0x5c,Kind::Int,Group::RoomConfig,0},
     // PC828253登记eVariant；NS385fb8及play_animation384698/3846d0确认历史Variant。
     {"PreviousVariant",0x314,Kind::DoorVariant,Group::Door,0},
+    {"VarData",0x1c,Kind::Int,Group::Grid,0},
 };
 api100_native::Cache g_Caches[9]{};
 constexpr char kDescMeta[]="IsaacRuntime.GridEntityDesc";
@@ -237,6 +238,7 @@ const Field* Find(const char* name,Group group) {
         break;
     case Hash("VarData"):
         if(group==Group::GridDesc)field=&kFields[37];
+        if(group==Group::Grid)field=&kFields[41];
         break;
     case Hash("Shape"):
         if(group==Group::RoomConfig)field=&kFields[39];
@@ -317,6 +319,7 @@ bool GridCandidate(const char* name) {
     case 0x4672:return !std::strcmp(name,"FrameCnt");
     case 0x5469:return !std::strcmp(name,"Timeout");
     case 0x5072:return !std::strcmp(name,"PreviousVariant");
+    case 0x5661:return !std::strcmp(name,"VarData");
     default:return false;
     }
 }

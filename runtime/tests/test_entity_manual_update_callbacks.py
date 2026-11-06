@@ -1,7 +1,7 @@
 """Real Lua Entity.Update binding: post callbacks per explicit update, not per frame.
 
-The native trampoline records receiver/target on the host. Projectile completion
-is invoked separately to represent its existing native tail relay; it must not
+The native trampoline records receiver/target on the host. NPC AI and projectile
+callbacks are invoked separately to represent their native hooks; they must not
 also be dispatched by the generic Entity.Update binding.
 """
 from pathlib import Path
@@ -74,9 +74,11 @@ int main(int argc,char**argv){
   LuaRuntime::DispatchPostUpdate();Check();assert(Number("calls")==3&&Number("regular")==1);
   LuaRuntime::DispatchPostUpdate();Check();assert(Number("calls")==3&&Number("regular")==1);
   ++nativeFrame;LuaRuntime::DispatchPostUpdate();Check();assert(Number("calls")==4&&Number("regular")==2);
- }else if(mode=="projectile"){
+ }else if(mode=="projectile"||mode=="npc"){
   assert(Number("calls")==0); // host native stub has not reached the real tail
-  LuaRuntime::DispatchPostProjectileUpdate(AddressOf(g_ParentBytes));Check();assert(Number("calls")==1);
+  if(mode=="npc")LuaRuntime::DispatchPostNpcUpdate(AddressOf(g_ParentBytes));
+  else LuaRuntime::DispatchPostProjectileUpdate(AddressOf(g_ParentBytes));
+  Check();assert(Number("calls")==1);
  }else{
   const double expected=(mode=="slot"||mode=="empty")?0:(mode=="twice"||mode=="nested")?2:1;
   if(Number("calls")!=expected){std::fprintf(stderr,"manual callback count %g expected %g mode=%s\n",Number("calls"),expected,mode.c_str());return 3;}

@@ -1487,7 +1487,9 @@ void PushGridEntityHandle(lua_State* state, std::uintptr_t entity) {
 //: ★ `index` 上界：`Room:GetGridEntity` 的实参**没有**范围检查（`RoomGridIndexArgument` 只判
 //:   是不是整数）⇒ 这里必须自己挡回绕，否则在宿主上（可读判定恒真）会读飞内存。
 int PushGridEntityAtSlot(lua_State* state, std::uintptr_t room, std::int64_t index) {
-    if (index < 0) {
+    // PC GetGridEntity @ 0x4276e0 returns nil above 447. The native grid
+    // array has 448 entries; the following memory belongs to the door table.
+    if (index < 0 || index > 0x1bf) {
         lua_pushnil(state);
         return 1;
     }
@@ -1897,9 +1899,7 @@ int GridEntityDoorOpen(lua_State* state) {
 // ★ `Force` **不是摆设**：反汇编 `0x382110` 是 `tbnz w1, #0, 0x382120` —— variant==1 且
 //   "不强制"时直接返回，其余才真去关门（见常量段）。所以参数照传，不做任何取舍。
 int GridEntityDoorClose(lua_State* state) {
-    if (lua_gettop(state) != 2 || lua_type(state, 2) != LUA_TBOOLEAN) {
-        return luaL_error(state, "GridEntityDoor:Close expects a boolean");
-    }
+    // PC converts Force with Lua truthiness; StageAPI uses Close() with no Force.
     void* entityPointer = LiveDoorArgument(state, 1);
     if (entityPointer == nullptr) {
         return luaL_error(state, "GridEntityDoor:Close expects a door");
