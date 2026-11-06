@@ -11,8 +11,8 @@ extern "C" {
 #include "lauxlib.h"
 #include "lualib.h"
 }
-int matchref=0;unsigned calls=0;
-void hook(lua_State*L,lua_Debug*ar){lua_getinfo(L,"f",ar);lua_rawgeti(L,LUA_REGISTRYINDEX,matchref);if(lua_rawequal(L,-1,-2))++calls;lua_pop(L,2);}
+int matchref=0,iteratorref=0;unsigned calls=0,iteratorCalls=0;
+void hook(lua_State*L,lua_Debug*ar){lua_getinfo(L,"f",ar);lua_rawgeti(L,LUA_REGISTRYINDEX,matchref);if(lua_rawequal(L,-1,-2))++calls;lua_pop(L,1);lua_rawgeti(L,LUA_REGISTRYINDEX,iteratorref);if(lua_rawequal(L,-1,-2))++iteratorCalls;lua_pop(L,2);}
 int noop(lua_State*){return 0;}
 int invoke(lua_State*L){int n=lua_gettop(L);lua_getfield(L,2,"Function");lua_getfield(L,2,"Mod");for(int i=3;i<=n;++i)lua_pushvalue(L,i);lua_call(L,n-1,1);return 1;}
 int ownermatches(lua_State*L){lua_getfield(L,1,"id");lua_pushboolean(L,lua_tointeger(L,-1)==lua_tointeger(L,2));return 1;}
@@ -20,6 +20,7 @@ bool run(lua_State*L,const char*s){if(luaL_dostring(L,s)){std::fprintf(stderr,"%
 int main(){
  auto*L=luaL_newstate();luaL_requiref(L,"_G",luaopen_base,1);lua_pop(L,1);luaL_requiref(L,"table",luaopen_table,1);lua_pop(L,1);
  if(!run(L,"Isaac={SetBuiltInCallbackState=function()end};CallbackPriority={DEFAULT=0};ModCallbacks={MC_PRE_MOD_UNLOAD=79};debug={getinfo=function()return{name='test'}end}"))return 1;
+ if(!run(L,"defaultIterator=ipairs({})"))return 1;lua_getglobal(L,"defaultIterator");iteratorref=luaL_ref(L,LUA_REGISTRYINDEX);
  const auto&s=isaac::runtime::kPcCallbackBootstrap;if(luaL_loadbuffer(L,s,sizeof(s)-1,"@pc/callbacks.lua"))return 2;
  lua_pushcfunction(L,invoke);lua_pushcfunction(L,noop);lua_pushcfunction(L,ownermatches);if(lua_pcall(L,3,4,0))return 3;
  lua_setglobal(L,"owner_run");lua_settop(L,0);
@@ -27,6 +28,7 @@ int main(){
  lua_getglobal(L,"expected");matchref=luaL_ref(L,LUA_REGISTRYINDEX);lua_sethook(L,hook,LUA_MASKCALL,0);
  if(!run(L,"Isaac.RunCallbackWithParam(0,160)"))return 5;lua_sethook(L,nullptr,0,0);
  if(calls){std::fprintf(stderr,"default matcher called %u times",calls);return 6;}
+ if(iteratorCalls){std::fprintf(stderr,"default iterator called %u times",iteratorCalls);return 8;}
  const char*checks=R"lua(
 local values={{},{false},{true},{-1},{0},{1},{160},{'160'}}
 for _,a in ipairs(values)do for _,b in ipairs(values)do
@@ -43,6 +45,20 @@ assert(owner_run(4,nil,1)==nil);local ok,e=pcall(owner_run,4,nil,2);assert(not o
 local list=Isaac.GetCallbacks(5,true);local count=0
 list[1]={Mod=m,Function=function()list[2].Param=160;list[2].Function=function()count=count+7 end end}
 list[2]={Mod=m,Param=200,Function=function()count=count+1 end};Isaac.RunCallbackWithParam(5,160);assert(count==7)
+local sequence='';local custom=Isaac.GetCallbacks(6,true)
+for i=1,3 do local label=i;custom[i]={Mod=m,Function=function()sequence=sequence..label end}end
+local originalIpairs=ipairs;local setups,steps=0,0
+ipairs=function(t) setups=setups+1;return function(state,index)
+ steps=steps+1;index=index+2;if state[index] then return index,state[index]end
+end,t,-1 end
+Isaac.RunCallback(6);assert(sequence=='13' and setups==1 and steps==3)
+sequence='';ipairs=function(t)setups=setups+1;return originalIpairs(t)end
+Isaac.RunCallback(6);assert(sequence=='123' and setups==2);ipairs=originalIpairs
+custom[2]=nil;sequence='';Isaac.RunCallback(6);assert(sequence=='1')
+setmetatable(custom,{__matchParams=expected,__index=function(_,key)
+ if key==2 then return {Mod=m,Function=function()sequence=sequence..'X'end}end
+end})
+sequence='';Isaac.RunCallback(6);assert(sequence=='1X3')
 )lua";
  if(!run(L,checks))return 7;lua_close(L);return 0;
 }

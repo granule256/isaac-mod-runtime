@@ -30,6 +30,8 @@ local defaultCallbackMeta = {
 }
 
 local originalDefaultMatch = defaultCallbackMeta.__matchParams
+-- Keep custom ipairs iterators live; only the fixed Lua array iterator uses the direct loop.
+local standardIterator = ipairs({})
 
 local function MakeRunner(invoke)
  return function(callbackId, param, ...)
@@ -37,17 +39,38 @@ local function MakeRunner(invoke)
     if callbacks then
         local matchFunc = getmetatable(callbacks).__matchParams or defaultCallbackMeta.__matchParams
         local useDefault = matchFunc == originalDefaultMatch
-        for _, v in ipairs(callbacks) do
-            local p = v.Param
-            local matched
-            if useDefault then
-                matched = not param or not p or param == -1 or p == -1 or param == p
-            else
-                matched = matchFunc(param, p)
+        local iterator, iteratorState, iteratorIndex = ipairs(callbacks)
+        if iterator == standardIterator and iteratorState == callbacks and iteratorIndex == 0 then
+            local index = 0
+            while true do
+                index = index + 1
+                local v = callbacks[index]
+                if v == nil then break end
+                local p = v.Param
+                local matched
+                if useDefault then
+                    matched = not param or not p or param == -1 or p == -1 or param == p
+                else
+                    matched = matchFunc(param, p)
+                end
+                if matched then
+                    local result = invoke(callbackId, v, ...)
+                    if result ~= nil then return result end
+                end
             end
-            if matched then
-                local result = invoke(callbackId, v, ...)
-                if result ~= nil then return result end
+        else
+            for _, v in iterator, iteratorState, iteratorIndex do
+                local p = v.Param
+                local matched
+                if useDefault then
+                    matched = not param or not p or param == -1 or p == -1 or param == p
+                else
+                    matched = matchFunc(param, p)
+                end
+                if matched then
+                    local result = invoke(callbackId, v, ...)
+                    if result ~= nil then return result end
+                end
             end
         end
     end
