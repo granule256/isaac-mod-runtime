@@ -1,60 +1,10 @@
 #!/usr/bin/env python3
-"""把"当前这一版"打成可直接拷进 SD 卡的发布包（目录树 + SHA256SUMS + zip）。
+"""组装兼容层运行时、配套资源和补丁，并生成安装包。
 
-## 为什么要有它
-
-之前的发布包是手工拼的（`dist/isaac-eid-release-20260917/` 那种：`atmosphere/` 树 + `SHA256SUMS.txt` +
-`安装说明.md`），每次都得重新"找来源、拷文件、算哈希"，容易漏。这里把流程固定成一条命令。
-
-## 它做什么
-
-1. 按参数把 **运行时**（`subsdk9` + `main.npdm` + **romfs 覆盖层**）与若干 **模组目录** 拷进 `<输出>/atmosphere/...`；
-2. 可选：把一个 **EID 配置 JSON** 放进 `<输出>/EID配置/eid-config.json`（附应用方法见安装说明）；
-3. 生成 `SHA256SUMS.txt`（`hash  相对路径`，与上一版发布包同格式）；
-4. 打成 `<输出>.zip`（zip 里以输出目录名为根，便于直接解压到 SD 卡根）。
-
-命令行默认原样保留模组脚本与配置：先安装完整原模组，再单独覆盖补丁包。
-仅显式传 `--apply-mod-patches` 才在整包中合入已核对的历史替换文件。
-
-## ★ 运行时那份 **romfs 覆盖层** 也必须进包（2026-09-23 修正）
-
-构建会往部署树里写 `atmosphere/contents/<id>/romfs/rp_patch/…`（`runtime/Makefile` 的
-`mod-row-art` 步骤，22 个文件）。它是**主菜单那一列里「模组」那一行**的来源：
-引擎那份菜单动画原本只有 12 层（Switch 版把 PC 本来就有的第 13 层 `Item6` 删了），
-把第 13 层补回去之后**引擎才会把那一行画出来**（批次 075 的真机验收形态）。
-
-**缺了它的后果是静默的**：引擎只有 12 层 ⇒ 那一行退回"我们自己画字" ⇒
-屏幕上有那一行、但**不是验收过的那张原图**。所以本工具把它当**硬要求**
-（缺了直接拒绝打包，而不是打个警告继续）。
-
-## ★ `atmosphere/nro_patches/`：**只带一份，别的一律不带**（2026-09-22 修正）
-
-两类补丁的期望**正好相反**，这里必须分开说：
-
-* **5 份旧 IPS 后端遗留**（`manager-update-relay` / `manager-render-relay` / `pre-get-collectible-relay` /
-  `rebuild-mount-points-relay` / `render-present-relay`）：**不许带**。现在的运行时装入口中继前要逐字节
-  核对**原版**入口，带上它们会 ⇒ **一个挂点都装不上、所有模组连带我们自己的菜单全消失**
-  （2026-09-20 真实事故，失败码 2 = `EntryMismatch`）。
-* **`isaac-repentance-lifecycle-relay`：必须带**。它是"游戏开局"挂点唯一的实现方式
-  （`HookBackend::RelaySlot`，见 `hook_catalog.hpp`）：补丁把 `Game::Start` /
-  `Game::StartFromSavedState` 的调用点改成 `b <代码洞>`，运行时只往代码洞后面的槽里发布回调。
-  **卡上缺了它 ⇒ 开局事件永远不来 ⇒ EID 的套装查找表建不起来 ⇒ 套装进度恒 `0/3`**
-  （2026-09-17 查了很久的那次；2026-09-22 又在卡上复现，证据：两处调用点仍是原版 `bl`、回调槽 = 0）。
-  注意这一路是 `required=false` ⇒ 装不上**只记 Skipped、不计入失败**，
-  所以"挂点全装好、零失败"这句话**不能**用来判断它是不是好的。
-
-本工具因此只把 `REQUIRED_RELAY_PATCHES` 里那几份写进包，并在安装说明里写明"这一份不能删"。
-
-## 用法
-
-    python3 tools/build_deploy_package.py --name isaac-switch-release-20260920 \\
-        --runtime runtime/.gdbsym-artifacts/deploy \\
-        --mod "dist/isaac-eid-release-20260917/atmosphere/contents/010021C000B6A000/romfs/isaac_mods/mods/external item descriptions_836319872" \\
-        --mod /tmp/goodtripfixed --mod /tmp/q4-items \\
-        --config /tmp/eid-config-from-device.json
-
-    # 只校验（把包里的每个文件与卡上同名文件比大小；再对 --hash-sample 里点名的文件比 sha256）
-    python3 tools/build_deploy_package.py --verify-device dist/isaac-switch-release-20260920
+运行时必须包含 subsdk9、main.npdm、菜单覆盖资源及配套生命周期、静态回调和
+内存预算补丁。检查并排除与当前挂钩机制冲突的旧入口中继补丁。
+模组目录通过 --mod 单独指定；默认保留作者原件，覆盖补丁需显式启用。
+支持生成文件摘要，以及对设备上已安装文件进行大小和选定哈希核对。
 """
 
 from __future__ import annotations
@@ -76,11 +26,11 @@ from mod_lua_performance_patches import approved_patch as approved_lua_performan
 
 CONTENT_ID = "010021C000B6A000"
 MODS_RELATIVE = Path("atmosphere/contents") / CONTENT_ID / "romfs/isaac_mods/mods"
-#: ★ 2026-09-21 新增：模组清单。运行时读的路径是**写死的**
+#: 2026-09-21 新增：模组清单。运行时读的路径是写死的
 #: （`runtime_constants.hpp`/`manifest_service.hpp` 的 `kRomfsModManifestPath =
 #: "rom:/isaac_mods/manifest.json"`，由 `ManifestService` 解析）。
 #:
-#: ★★ 2026-09-21 晚更正一句**过期结论**（原注释写的是"干净卡上一个模组都不加载"，不准确）：
+#: 2026-09-21 晚更正一句过期结论（原注释写的是"干净卡上一个模组都不加载"，不准确）：
 #: **没有清单并不会让模组全都不加载** —— `ManifestService::ResolveAll` 读不到/解析不了清单时
 #: （`failure.step == ManifestRead|ManifestParse`），`hook_manager.cpp` 会转走"方案 A"：
 #: `ModDiscoveryService::Discover()` 扫 `isaac_mods/mods/` 的子目录、按名字升序全部当模组
@@ -98,7 +48,7 @@ MANIFEST_RELATIVE = (Path("atmosphere/contents") / CONTENT_ID
 EXEFS_RELATIVE = Path("atmosphere/contents") / CONTENT_ID / "exefs"
 #: 运行时构建产物里要带上的文件（exefs 里那两个；补丁见 `REQUIRED_RELAY_PATCHES`）
 RUNTIME_FILES = ("subsdk9", "main.npdm")
-#: ★ 2026-09-23（批次 077）：运行时构建产物里还有一份 **romfs 覆盖层**必须进包
+#: 2026-09-23：运行时构建产物里还有一份 romfs 覆盖层必须进包
 #: （`<runtime>/atmosphere/contents/<id>/romfs/`，构建的 `mod-row-art` 步骤写进去的
 #: `rp_patch/…`；理由与后果见模块 docstring 那一节）。
 #:
@@ -501,7 +451,7 @@ def build(args: argparse.Namespace) -> int:
                           apply_patches=args.apply_mod_patches)
         total += count
         mod_sources.append(source)
-        # ★ 不管有没有丢 `.pcx`，都要体检"PNG 转不转得了"（2026-09-21）：
+        # 不管有没有丢 `.pcx`，都要体检"PNG 转不转得了"（2026-09-21）：
         # 丢了 `.pcx` 之后贴图全走运行时转码，"转不了"就等于"这张图空白、还不报错"。
         unconvertible = check_png_convertibility(source)
         if unconvertible and not args.allow_asset_problems:

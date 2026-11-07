@@ -2,7 +2,7 @@
 
 #include "application/mod/mod_load_step.hpp"
 
-// 批次 235（2026-09-30）：只在诊断包里逐模组计时（正式包零代价、零符号）。
+// 只在诊断包里逐模组计时（正式包零代价、零符号）。
 #include "load_phase_probe.hpp"
 #if EXL_DIAGNOSTIC_PROBES
 #include "interfaces/lua/runtime_perf.hpp"
@@ -125,7 +125,7 @@ Status ModLoadService::LoadAll(const ResolvedManifestModBatch& batch,
         request.entryCapacity = entryCapacity;
         ModLoadFailure perModFailure{};
 #if EXL_DIAGNOSTIC_PROBES
-        // 批次 235：逐模组计时（"读入口脚本 + 执行它"这一段）。
+        // 逐模组计时（"读入口脚本 + 执行它"这一段）。
         const std::uint64_t modLoadStartTick = RuntimePerfTick();
 #endif
         const Result<ModLoadOutcome> loaded = Load(request, &perModFailure);

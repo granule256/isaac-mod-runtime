@@ -49,8 +49,8 @@ NRO = (
 )
 CONSTANTS = ROOT / "runtime" / "source" / "runtime_constants.hpp"
 TABLE = ROOT / "tools" / "engine_symbol_signatures.json"
-#: ★ 2026-09-19 修：原来只认 `uintptr_t`，而 `runtime_constants.hpp` 里两种写法**都有**
-#: （批次 050 起新加的常量写成 `std::uintptr_t`）⇒ 那些常量被**静默漏掉**：它们不进签名表，
+#: 2026-09-19 修：原来只认 `uintptr_t`，而 `runtime_constants.hpp` 里两种写法都有
+#: （起新加的常量写成 `std::uintptr_t`）⇒ 那些常量被静默漏掉：它们不进签名表，
 #: 于是 ABI 体检看不见它们、覆盖率数字虚高。两种写法都要认。
 CONST_RE = re.compile(
     r"^inline constexpr (?:std::)?uintptr_t (k[A-Za-z0-9]+Offset) = (0x[0-9A-Fa-f]+);", re.M)

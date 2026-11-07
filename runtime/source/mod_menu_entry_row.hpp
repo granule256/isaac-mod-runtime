@@ -49,11 +49,11 @@
 
 namespace isaac::runtime {
 
-//: 这一列一共有几格（含我们插进去的那一格）。
+// 这一列一共有几格（含我们插进去的那一格）。
 inline constexpr std::uint32_t kMenuGameEntryCount = 6;
-//: 我们那一格落在第几格（0 起）。**3 = CHALLENGES 与 STATS 之间**。
+// 我们那一格落在第几格（0 起）。3 = CHALLENGES 与 STATS 之间。
 inline constexpr std::uint32_t kModEntrySlot = 3;
-//: 引擎自己认的条目数（上界 4）。
+// 引擎自己认的条目数（上界 4）。
 inline constexpr std::uint32_t kMenuGameEngineEntryCount = 5;
 
 static_assert(kModRowSlotCount == kMenuGameEntryCount,
@@ -61,33 +61,33 @@ static_assert(kModRowSlotCount == kMenuGameEntryCount,
 static_assert(kModRowEngineRowCount == kMenuGameEngineEntryCount,
               "生成的布局与这里的引擎行数不一致（重新跑 tools/gamemenu_mod_row.py）");
 
-//: 行图在 ANM2 里的 layer id：`Item1` = 1（0 是 Main 背景）。
+// 行图在 ANM2 里的 layer id：`Item1` = 1（0 是 Main 背景）。
 inline constexpr std::uint32_t kMenuGameFirstRowLayer = 1;
-//: 光标层 id。
+// 光标层 id。
 inline constexpr std::uint32_t kMenuGameCursorLayer = 6;
 
-//: 图层的位置偏移是一个 `Vector2`：**`+0x48` 是 X、`+0x4C` 是 Y**。
-//:
-//: ★★ 这一条是**真机换来的**（2026-09-22 傍晚，第一次上卡）：我先把「下挪」写进了 `+0x48`，
-//: 用户看到的现象是「**最后两格统计数据和选项偏到右侧了**」—— 正好证明 `+0x48` 是 X。
-//: 为什么静态看不出来：`Menu_Game::Render` **自己只碰 `+0x48`**
-//: （它对每日挑战那几层做 `s0=[layer+0x48]; s0+=15; [layer+0x48]=s0`，那是横向滑动），
-//: 它从来没写过 Y —— 所以「Y 在哪」只能靠真机试出来。
+// 图层的位置偏移是一个 `Vector2`：`+0x48` 是 X、`+0x4C` 是 Y。
+//
+// 这一条是真机换来的（2026-09-22 傍晚，第一次上卡）：我先把「下挪」写进了 `+0x48`，
+// 用户看到的现象是「最后两格统计数据和选项偏到右侧了」—— 正好证明 `+0x48` 是 X。
+// 为什么静态看不出来：`Menu_Game::Render` 自己只碰 `+0x48`
+// （它对每日挑战那几层做 `s0=[layer+0x48]; s0+=15; [layer+0x48]=s0`，那是横向滑动），
+// 它从来没写过 Y —— 所以「Y 在哪」只能靠真机试出来。
 inline constexpr std::uintptr_t kAnm2LayerOffsetXField = 0x48;
 inline constexpr std::uintptr_t kAnm2LayerOffsetYField = 0x4C;
-//: 图层的"可见"字节（`Menu_Game` 里 `strb w19, [layer, #0x7c]`）。
+// 图层的"可见"字节（`Menu_Game` 里 `strb w19, [layer, #0x7c]`）。
 inline constexpr std::uintptr_t kAnm2LayerVisibleField = 0x7c;
 
-//: 行图的高度（128×48 的 48）。
+// 行图的高度（128×48 的 48）。
 inline constexpr float kMenuGameRowHeight = 48.0F;
 
 // ---------------------------------------------------------------------------
 // 按游戏语言码挑一套布局
 // ---------------------------------------------------------------------------
 
-//: 挑布局：`code` 是 `Manager::GetLanguageCode()` 给的两字符码（`"zh"` / `"de"` / …）。
-//: 八个语言都支持（`en/de/es/fr/jp/kr/ru/zh`）；**其它语言码（`it`/`pt`/`pl`…）用 `en` 那套** ——
-//: 引擎那边也是这么办的：只有这八个有 `resources.<code>` 语言包，其余的走基础资源。
+// 挑布局：`code` 是 `Manager::GetLanguageCode()` 给的两字符码（`"zh"` / `"de"` / …）。
+// 八个语言都支持（`en/de/es/fr/jp/kr/ru/zh`）；其它语言码（`it`/`pt`/`pl`…）用 `en` 那套 ——
+// 引擎那边也是这么办的：只有这八个有 `resources.<code>` 语言包，其余的走基础资源。
 [[nodiscard]] inline const ModRowLayout* ModRowLayoutForLanguage(const char* code) noexcept {
     const ModRowLayout* fallback = &kModRowLayouts[0];
     for (std::uint32_t index = 0; index < kModRowLayoutCount; ++index) {
@@ -107,8 +107,8 @@ inline constexpr float kMenuGameRowHeight = 48.0F;
 // 引擎索引：绝不越界
 // ---------------------------------------------------------------------------
 
-//: 第 `slot` 格的**引擎行号**（0..4）。我们那一格**借用引擎第 4 行**（索引 3 = STATS 原位），
-//: 插点以下的格子顺延一位（第 5 格 = 引擎第 4 行 STATS、第 6 格 = 引擎第 5 行 OPTIONS）。
+// 第 `slot` 格的引擎行号（0..4）。我们那一格借用引擎第 4 行（索引 3 = STATS 原位），
+// 插点以下的格子顺延一位（第 5 格 = 引擎第 4 行 STATS、第 6 格 = 引擎第 5 行 OPTIONS）。
 [[nodiscard]] constexpr std::uint32_t EngineRowForSlot(std::uint32_t slot) noexcept {
     if (slot >= kMenuGameEntryCount) {
         return kMenuGameEngineEntryCount;
@@ -123,7 +123,7 @@ inline constexpr float kMenuGameRowHeight = 48.0F;
 // 引擎自己说"这一项可不可选"：**继续游戏**（引擎行 1）是唯一有这种状态的格子
 // ---------------------------------------------------------------------------
 //
-// 由来（2026-09-27 批次 159，用户真机报的 bug）：没有可继续的局时，引擎把"继续游戏"那一行
+// 由来（2026-09-27 ，用户真机报的 bug）：没有可继续的局时，引擎把"继续游戏"那一行
 // 画成灰帧、并在**它自己的**导航里跳过它 —— `Menu_Game::Update @0x40D5E0` 三处读
 // `Manager + 0x2B688` 的两个字节：
 //   * `0x40D7C0`（上键）/ `0x40D84C`（下键）：**两个都为 0 ⇒ 跳过 index 1**；
@@ -137,10 +137,10 @@ inline constexpr float kMenuGameRowHeight = 48.0F;
 //
 // 判据与引擎**逐条一致**：`byte0 != 0 || byte1 != 0` ⇒ 可选（引擎只在**两个都是 0** 时跳过）。
 
-//: 引擎那 5 项里"继续游戏"的行号。
+// 引擎那 5 项里"继续游戏"的行号。
 inline constexpr std::uint32_t kContinueEngineRow = 1;
 
-//: 第 `slot` 格在**引擎看来**可不可选。只有"继续游戏"会不可选；我们那一格与其余格子恒可选。
+// 第 `slot` 格在引擎看来可不可选。只有"继续游戏"会不可选；我们那一格与其余格子恒可选。
 [[nodiscard]] constexpr bool SlotSelectableByEngine(std::uint32_t slot,
                                                     bool continueAvailable) noexcept {
     if (slot >= kMenuGameEntryCount) {
@@ -149,8 +149,8 @@ inline constexpr std::uint32_t kContinueEngineRow = 1;
     return EngineRowForSlot(slot) != kContinueEngineRow || continueAvailable;
 }
 
-//: 上下键推进：**跳过引擎说不可选的格子**（引擎自己就是这么走的：0 ↔ 2）。
-//: 最多绕一圈；万一整列都不可选（不可能发生）就停在原地。
+// 上下键推进：跳过引擎说不可选的格子（引擎自己就是这么走的：0 ↔ 2）。
+// 最多绕一圈；万一整列都不可选（不可能发生）就停在原地。
 [[nodiscard]] constexpr std::uint32_t AdvanceSlotSkipping(std::uint32_t slot, bool down,
                                                           bool continueAvailable) noexcept {
     if (kMenuGameEntryCount == 0) {
@@ -168,22 +168,22 @@ inline constexpr std::uint32_t kContinueEngineRow = 1;
     return start;
 }
 
-//: **写回引擎前的最后一道保险**：引擎说"继续游戏"不可选时，那一行**绝不许写回 1**
-//: （引擎的确认分支读的就是写回去的这一格；写 1 = 走"载入存档"那条路 ⇒ 无存档时进局即死）。
-//: 入参是**引擎行号**（调用方先过 `EngineRowForSlot` 与 0..4 的夹取）—— 这样"写回的是行号"
-//: 那条 2026-09-23 的教训仍然写在调用点里看得见。
+// 写回引擎前的最后一道保险：引擎说"继续游戏"不可选时，那一行绝不许写回 1
+// （引擎的确认分支读的就是写回去的这一格；写 1 = 走"载入存档"那条路 ⇒ 无存档时进局即死）。
+// 入参是引擎行号（调用方先过 `EngineRowForSlot` 与 0..4 的夹取）—— 这样"写回的是行号"
+// 那条 2026-09-23 的教训仍然写在调用点里看得见。
 [[nodiscard]] constexpr std::uint32_t GuardContinueRowForWrite(std::uint32_t engineRow,
                                                                bool continueAvailable) noexcept {
     return (engineRow == kContinueEngineRow && !continueAvailable) ? 0 : engineRow;
 }
 
-//: 引擎索引该写成什么：**夹在 0..4**。引擎只认 5 项，越界有风险；
-//: 我们的第 6 格（slot 5）在引擎看来"停在最后一项（OPTIONS）上"，光标位置由我们自己给。
+// 引擎索引该写成什么：夹在 0..4。引擎只认 5 项，越界有风险；
+// 我们的第 6 格（slot 5）在引擎看来"停在最后一项（OPTIONS）上"，光标位置由我们自己给。
 [[nodiscard]] constexpr std::uint32_t EngineIndexClampedForSlot(std::uint32_t slot) noexcept {
     return slot < kMenuGameEngineEntryCount ? slot : kMenuGameEngineEntryCount - 1;
 }
 
-//: 上下键推进：`down` = 往下走。按格子数取模。
+// 上下键推进：`down` = 往下走。按格子数取模。
 [[nodiscard]] constexpr std::uint32_t AdvanceSlot(std::uint32_t slot, bool down) noexcept {
     if (kMenuGameEntryCount == 0) {
         return 0;
@@ -197,24 +197,24 @@ inline constexpr std::uint32_t kContinueEngineRow = 1;
 // 布局（全部取自生成的那一套）
 // ---------------------------------------------------------------------------
 
-//: 第 `engineRow` 行要挪多少（给探针用：它把这个值加到图层 `+0x4C` 上，画完再减回去）。
+// 第 `engineRow` 行要挪多少（给探针用：它把这个值加到图层 `+0x4C` 上，画完再减回去）。
 [[nodiscard]] constexpr float MenuGameRowShiftFor(const ModRowLayout& layout,
                                                  std::uint32_t engineRow) noexcept {
     return engineRow < kMenuGameEngineEntryCount ? layout.rowShiftY[engineRow] : 0.0F;
 }
 
-//: 第 `engineRow` 行要**横向**挪多少（给探针用：它把这个值加到图层 `+0x48` 上，画完再减回去）。
-//:
-//: ★ 2026-09-22 深夜补（用户："模组似乎偏左了一点"）：只搬 PC 的 Y、横向留本语言自己的框 x
-//: 是不够的 —— 中文那样排出来"字左"是 185/187/192/**189**/195/199（模组比它上面的挑战还靠左
-//: 3 格），而 PC 中文自己那一列是 183/184/187/**189**/196/199（模组在挑战右边 2 格）。
-//: 两边的图集是同一块美术（每行"框内字左"逐行相等），差别只在 ANM2 里的框 x ⇒ 照搬 x 就对了。
+// 第 `engineRow` 行要横向挪多少（给探针用：它把这个值加到图层 `+0x48` 上，画完再减回去）。
+//
+// 2026-09-22 深夜补（用户："模组似乎偏左了一点"）：只搬 PC 的 Y、横向留本语言自己的框 x
+// 是不够的 —— 中文那样排出来"字左"是 185/187/192/189/195/199（模组比它上面的挑战还靠左
+// 3 格），而 PC 中文自己那一列是 183/184/187/189/196/199（模组在挑战右边 2 格）。
+// 两边的图集是同一块美术（每行"框内字左"逐行相等），差别只在 ANM2 里的框 x ⇒ 照搬 x 就对了。
 [[nodiscard]] constexpr float MenuGameRowShiftXFor(const ModRowLayout& layout,
                                                    std::uint32_t engineRow) noexcept {
     return engineRow < kMenuGameEngineEntryCount ? layout.rowShiftX[engineRow] : 0.0F;
 }
 
-//: 第 `engineRow` 行挪完之后的框顶。
+// 第 `engineRow` 行挪完之后的框顶。
 [[nodiscard]] constexpr float MenuGameRowTop(const ModRowLayout& layout,
                                             std::uint32_t engineRow) noexcept {
     return engineRow < kMenuGameEngineEntryCount
@@ -222,24 +222,24 @@ inline constexpr std::uint32_t kContinueEngineRow = 1;
                : 0.0F;
 }
 
-//: 第 `slot` 格的锚点（页面坐标 y）：引擎行 = 挪完之后的框顶，我们那一格 = 贴图顶。
+// 第 `slot` 格的锚点（页面坐标 y）：引擎行 = 挪完之后的框顶，我们那一格 = 贴图顶。
 [[nodiscard]] constexpr float MenuGameSlotTop(const ModRowLayout& layout,
                                              std::uint32_t slot) noexcept {
     return slot < kMenuGameEntryCount ? layout.slotTop[slot] : 0.0F;
 }
 
-//: 第 `slot` 格的横向锚点（页面坐标 x）：**就是 PC 的框 x**（横向照搬 PC）。
+// 第 `slot` 格的横向锚点（页面坐标 x）：就是 PC 的框 x（横向照搬 PC）。
 [[nodiscard]] constexpr float MenuGameSlotLeft(const ModRowLayout& layout,
                                                std::uint32_t slot) noexcept {
     return slot < kMenuGameEntryCount ? layout.slotLeft[slot] : 0.0F;
 }
 
-//: 第 `slot` 格的光标帧号（由生成器给出：我们插一行的语言是 `0,1,2,3,3,4`，
-//: 原版自己就有六行的语言是 `0..5`）。
-//:
-//: ⚠️ 这里容易写错（第一版就写成"帧号 = 格子号"）：原版那五帧是按**它自己的五行**画的，
-//: 而我们的六格是"把第 4 格换成模组、后面两格顺延" ⇒ 第 5、6 格（STATS/OPTIONS）对应的是
-//: 原版第 **4、5** 帧，不是第 5、6 帧。写错的表现就是"光标比格子低一格"。
+// 第 `slot` 格的光标帧号（由生成器给出：我们插一行的语言是 `0,1,2,3,3,4`，
+// 原版自己就有六行的语言是 `0..5`）。
+//
+// ⚠️ 这里容易写错（第一版就写成"帧号 = 格子号"）：原版那五帧是按它自己的五行画的，
+// 而我们的六格是"把第 4 格换成模组、后面两格顺延" ⇒ 第 5、6 格（STATS/OPTIONS）对应的是
+// 原版第 4、5 帧，不是第 5、6 帧。写错的表现就是"光标比格子低一格"。
 [[nodiscard]] constexpr std::uint32_t CursorFrameForSlot(const ModRowLayout& layout,
                                                         std::uint32_t slot) noexcept {
     if (slot >= kMenuGameEntryCount) {
@@ -249,8 +249,8 @@ inline constexpr std::uint32_t kContinueEngineRow = 1;
     return frame < kMenuGameEntryCount ? frame : 0;
 }
 
-//: 第 `slot` 格要加到光标层 `+0x4C` 上的量 = 目标 y − **该格所用帧**的原生 y。
-//: 对引擎那五格，这个差值**必须等于该格对应那一行的位移**（行挪多少光标挪多少）—— 宿主门禁钉住。
+// 第 `slot` 格要加到光标层 `+0x4C` 上的量 = 目标 y − 该格所用帧的原生 y。
+// 对引擎那五格，这个差值必须等于该格对应那一行的位移（行挪多少光标挪多少）—— 宿主门禁钉住。
 [[nodiscard]] constexpr float CursorDeltaYForSlot(const ModRowLayout& layout,
                                                  std::uint32_t slot) noexcept {
     if (slot >= kMenuGameEntryCount) {

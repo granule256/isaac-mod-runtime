@@ -121,7 +121,7 @@ bool EngineSaveFileAdapter::ResolveMount(const Calls& calls, std::array<char, 32
 alignas(0x1000) char EngineSaveFileAdapter::buffer_[EngineSaveFileAdapter::kMaximumFileBytes];
 
 const EngineSaveFileAdapter::Calls* EngineSaveFileAdapter::Resolve() noexcept {
-    // ★ 线程硬闸先判、且**不缓存**这次"没被允许"：在游戏线程打开它之前，任何操作都以
+    // 线程硬闸先判、且不缓存这次"没被允许"：在游戏线程打开它之前，任何操作都以
     // `Unsupported`（能力不可用，不是失败）返回，绝不碰 `nn::fs`。见头文件 `AllowFromGameThread()`。
     if (!allowed_) {
         return nullptr;

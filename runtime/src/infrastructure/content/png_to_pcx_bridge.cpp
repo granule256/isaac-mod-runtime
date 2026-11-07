@@ -4,7 +4,7 @@
 // 不引第三方库、不 vendoring stb_image：PNG 解码靠注入的 `InflateFn`（形状 = zlib `uncompress`），
 // PCX 编码纯手写。跨 TU 的 `PngToPcx` 放在 `isaac::runtime::content` 命名空间（不放匿名命名空间）。
 //
-// ★★★ 批次 402（2026-10-07，真机崩溃 `01791381539` 换来的）：
+// （2026-10-07，真机崩溃 `01791381539` 换来的）：
 //   `PngToPcx` 是 `noexcept`，但内部原来用 `std::vector` / `operator new`。模块假堆只有 128 MiB，
 //   一旦分配失败，`std::vector` 走 `__throw_bad_alloc` ⇒ 抛 `std::bad_alloc` ⇒ 穿过 `noexcept`
 //   边界 ⇒ `std::terminate` ⇒ **整个游戏 abort**（现象：选模组角色进局、停在加载画面退回 HOME）。
@@ -33,7 +33,7 @@ constexpr std::size_t kPngSignatureSize = 8;
 constexpr std::uint8_t kPngSignature[kPngSignatureSize] = {0x89, 0x50, 0x4E, 0x47,
                                                            0x0D, 0x0A, 0x1A, 0x0A};
 
-// 无异常的小缓冲（批次 402）。本模块的构建**关掉了 C++ 异常**：`std::vector` 的分配失败会走
+// 无异常的小缓冲。本模块的构建关掉了 C++ 异常：`std::vector` 的分配失败会走
 // `__throw_bad_alloc` ⇒ 直接 abort（这正是 2026-10-07 崩溃的根因）。所以这里全用
 // `new (std::nothrow)` + 显式判空：失败 = `Resize` 返回 false = 调用方 `return false`，进程不受影响。
 class NothrowBytes {
@@ -43,7 +43,7 @@ public:
     NothrowBytes& operator=(const NothrowBytes&) = delete;
     ~NothrowBytes() { delete[] data_; }
 
-    //: 申请 `n` 字节（**不清零**）。失败返回 false 且对象保持原状（调用方据此 return false）。
+    // 申请 `n` 字节（不清零）。失败返回 false 且对象保持原状（调用方据此 return false）。
     [[nodiscard]] bool Resize(std::size_t n) {
         if (n == size_) {
             return true;
@@ -152,7 +152,7 @@ void ExpandChannels(const uint8_t* line, int width, int channels, int color_type
             b = line[at + 2];
             a = line[at + 3];
         }
-        // ★ 2026-10-26（BUG-018）：**预乘 alpha**。
+        // 2026-10-26（BUG-018）：预乘 alpha。
         //
         // 引擎的 PCX 读取路径是按**预乘**解释通道的 —— 本体自己的资源就是预乘的：随机抽查
         // `resources/gfx/spotlight.pcx` 的 34498 个半透明像素，`max(R,G,B) > a` 的有 **0** 个，
@@ -180,7 +180,7 @@ void ExpandChannels(const uint8_t* line, int width, int channels, int color_type
 
 // 逐平面 RLE 编码一行的一个通道（与 Python `_encode_pcx` 内层一致）。
 //
-// ★ 2026-09-26（批次 135）：原来是"直接往 `std::vector body` 里 push"，而 `body` 按
+// 2026-09-26：原来是"直接往 `std::vector body` 里 push"，而 `body` 按
 //   **最坏情况 8 字节/像素**预留（`width*height*4*2`），最后还要再拷一份进结果缓冲 ——
 //   一张 1404×933 的图峰值就是 20·W×H ≈ 26 MB，而本模块自己的堆（假堆）总共约 32 MB，
 //   撞满就是 `bad_alloc`（2026-09-25/26 两次真机事故的根因）。
@@ -213,7 +213,7 @@ size_t WalkPlaneRuns(const uint8_t* row, int width, int plane, uint8_t* out) {
     return written;
 }
 
-//: 只数：第 `y` 行四个平面的 RLE 字节数（第一遍用，零额外内存）。
+// 只数：第 `y` 行四个平面的 RLE 字节数（第一遍用，零额外内存）。
 size_t PlaneRowRunBytes(const uint8_t* row, int width) {
     size_t total = 0;
     for (int plane = 0; plane < 4; ++plane) {
@@ -222,7 +222,7 @@ size_t PlaneRowRunBytes(const uint8_t* row, int width) {
     return total;
 }
 
-//: 写入：把第 `y` 行四个平面写进 `out`（第二遍用），返回写入字节数（与上面数出的一致）。
+// 写入：把第 `y` 行四个平面写进 `out`（第二遍用），返回写入字节数（与上面数出的一致）。
 size_t WritePlaneRowRuns(const uint8_t* row, int width, uint8_t* out) {
     size_t written = 0;
     for (int plane = 0; plane < 4; ++plane) {
@@ -288,7 +288,7 @@ static bool Convert(const uint8_t* png, size_t png_size, InflateFn inflate_one, 
     if (idat_bytes == 0) return false;
 
     const int row_bytes = width * channels;
-    // ★★★ 批次 402：进任何分配之前先做**峰值闸门**（公式与预算都在 `.hpp` 里，与调用方预检同源）。
+    // 进任何分配之前先做峰值闸门（公式与预算都在 `.hpp` 里，与调用方预检同源）。
     //   旧的单一"解码后上限"是 256 MiB —— 比整个假堆（128 MiB）还大，等于没设限。
     //   现在按"整条路最坏要同时活着多少"算：`2·n + raw + 2·行字节 + 4·W + 128 + 8·W·H`。
     const std::uint64_t raw_size =
@@ -305,7 +305,7 @@ static bool Convert(const uint8_t* png, size_t png_size, InflateFn inflate_one, 
         return false;  // 超预算：拒绝（宁可这次不转，也别冒 bad_alloc 的险）
     }
 
-    // ★★★ 402：全部缓冲**一次性 nothrow 分配**，逐条判空 ⇒ 任一失败都只是 `return false`。
+    // 全部缓冲一次性 nothrow 分配，逐条判空 ⇒ 任一失败都只是 `return false`。
     *failure=PngToPcxFailure::Allocation;
     NothrowBytes idat;
     if (!idat.Resize(idat_bytes)) return false;
@@ -345,7 +345,7 @@ static bool Convert(const uint8_t* png, size_t png_size, InflateFn inflate_one, 
         return false;  // 解压失败或没写满
     }
 
-    // ★ 批次 135：**不再留整幅 RGBA**（原来那一份是 4·W×H）。逐行解码包成一个 lambda，
+    // 不再留整幅 RGBA（原来那一份是 4·W×H）。逐行解码包成一个 lambda，
     //   两个 pass（先数尺寸、再写输出）都调它 —— 同一份"解过滤 + 通道展开"逻辑，不会漂移。
     const auto decode_bytes = [&](const uint8_t* row) -> bool {
         const int filter_type = row[0];
@@ -447,7 +447,7 @@ static bool Convert(const uint8_t* png, size_t png_size, InflateFn inflate_one, 
     }
     const auto decode_row=[&](int y) { return decode_bytes(raw.data()+static_cast<size_t>(y)*(row_bytes+1)); };
 
-    // ★ 两遍式（批次 135）：第一遍只**数** body 精确字节数（零额外内存），
+    // 两遍式：第一遍只数 body 精确字节数（零额外内存），
     //   第二遍直接写进**唯一**的输出缓冲 —— 既不再按"最坏情况 8 字节/像素"预留，
     //   也不再先攒一个 `std::vector body` 再拷一份。
     //   峰值因此从约 20·W×H 降到约 5·W×H（`raw` + 精确的 body）。

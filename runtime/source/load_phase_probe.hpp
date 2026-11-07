@@ -1,7 +1,7 @@
 #pragma once
 
 // ============================================================================
-// 启动期"读模组"分段计时（批次 235，2026-09-30）
+// 启动期"读模组"分段计时
 // ============================================================================
 //
 // **要回答的问题**：用户实测 —— 卡上放 `no-lua.on`（跳过读模组/Lua）时开场**零延迟**；
@@ -33,13 +33,13 @@
 #include <cstddef>
 #include <cstdint>
 
-//: `mod_load_service.cpp` 记一个模组的加载耗时（微秒）—— **按调用顺序追加**到
-//: `g_ModLoadMicros[g_ModLoadCount++]`。**走函数调用**，不跨 TU 摸全局量
-//: —— 那是项目里踩过的事故（跨 TU 热路径全局量走数据 GOT 槽，运行期槽是 0 ⇒ Data Abort）。
-//: 定义在 `hook_manager.cpp`。
-//:
-//: ★ 批次 236：拆帧之后每次 `LoadAll` 只喂**一个**模组，所以这里不再按下标写、改成追加
-//: （下标恒为 0 的话，那个数组永远只有第一格有值）。
+// `mod_load_service.cpp` 记一个模组的加载耗时（微秒）—— 按调用顺序追加到
+// `g_ModLoadMicros[g_ModLoadCount++]`。走函数调用，不跨 TU 摸全局量
+// —— 那是项目里踩过的事故（跨 TU 热路径全局量走数据 GOT 槽，运行期槽是 0 ⇒ Data Abort）。
+// 定义在 `hook_manager.cpp`。
+//
+// 拆帧之后每次 `LoadAll` 只喂一个模组，所以这里不再按下标写、改成追加
+// （下标恒为 0 的话，那个数组永远只有第一格有值）。
 extern "C" void IsaacRuntime_RecordModLoadMicros(std::uint32_t micros);
 
 #endif  // EXL_DIAGNOSTIC_PROBES

@@ -1,69 +1,9 @@
 #!/usr/bin/env python3
-"""把"模组"那一行做成**贴图**（而不是用字体画），并生成可覆盖本体的两份美术文件。
+"""生成游戏主菜单的模组行贴图、布局常量和 ANM2 覆盖资源。
 
-## 为什么走贴图（2026-09-22 用户定案，原话）
-
-> 「你不能看看其他的行代码是这么写的，按它们的来写吗？为什么要自己一个个调？」
-
-答案：**那五行根本不是"代码画的"，是 `gamemenu.anm2` 的五张手绘贴图**（`Item1`~`Item5`），
-引擎只是渲染 ANM2。所以我们这一行也应该是**一层贴图** —— 位置/大小/倾角/跟着纸滑全部自动一致，
-运行时的那些手调（挪行、画字、字号）全部可以删掉。
-
-## 那"模组"这两个字从哪来
-
-**从游戏自己的美术里剪**：每个语言包的**模组页**（`modsmenu.pcx`）标题条上，
-就画着那个语言的"模组/MODS"手绘字（实测：`zh` = 「模组」、`kr` = 韩文、`de`/`fr`/`ru`/`es` = 拉丁字母那套），
-和选择界面那五行是**同一套笔**。⇒ 不需要自己画，也不需要 PC 版资源（本机 PC 目录里没有美术）。
-
-## 生成什么
-
-**贴图就是游戏自己画的那一行 —— 不剪、不缩放、不旋转。**
-
-整份游戏资源里**只有法语**把这一行登记进了 ANM2（`<Layer Name="Item6" Id="12" .../>`，
-帧 `XCrop=195 YCrop=475 80×39`、pivot `(16,16)`，画的就是那个语言的「模组/MODS」）；
-**其它语言的 ANM2 里没有这一层，但图集里那一块美术照样在**（只有法语引用它）
-⇒ 拿法语那一帧的 crop 当模板，去**每个语言自己的图集**里取同一块。
-
-> 这一条是用户点出来的（"你确定你找对了……正确的图片资源吗"）。之前我找错了：
-> 用的是**模组页标题纸带**上的字（另一张版面、更大、更斜），再缩放 + 旋转去凑周围几行，
-> 凑出来就是"像截图贴在纸上"。现在用的是游戏自己写在纸上的那两个字，1:1 取用。
-
-然后排位置：**六个格子的页内位置一个字都不算** —— 直接照搬 PC 版**同一语言**那份
-`gamemenu.anm2` 里写死的坐标（见下一节）。本语言自己的 `gamemenu.anm2` 只用来回答
-"引擎那五行原本在哪、光标有几帧"（行要挪多少 = PC 的位置 − 本语言的原始位置）。
-
-产物：`--emit-layouts <path>` 生成运行时头文件 `runtime/source/mod_row_generated.hpp`
-（八个语言各一套：那一块贴图的 PCX 字节 + 布局常量）。运行时按游戏的语言码挑一套，
-**不依赖任何可被关闭的模组、也不在卡上放文件**。
-
-## 排版的"真值源"：**PC 版同一语言**的那份 `gamemenu.anm2`（`reference-pc/lang/<语言>/`）
-
-用户的要求（2026-09-22 晚）："你不要改了，先查清楚 pc 到底是如何处理的"。
-
-查清楚的结果是：**PC 不做任何"算间距"这件事** —— 它在 `gamemenu.anm2` 里把六行写死成绝对坐标：
-
-| 行 | 图层 | 位置 (X,Y) | 轴心 | 画在页面的哪一块 |
-| --- | --- | --- | --- | --- |
-| 新游戏 | Item1 | 177,34 | 0,0 | 34 起 |
-| 继续游戏 | Item2 | 177,59 | 0,0 | 59 起 |
-| 挑战 | Item3 | 180,87 | 0,0 | 87 起 |
-| **模组** | **Item6** | 201,139 | **16,16** | **123..162** |
-| 统计数据 | Item4 | 187,150 | 0,0 | 150 起 |
-| 选项 | Item5 | 192,177 | 0,0 | 177 起 |
-
-也就是说：**"模组"在 PC 里不是插进去的，它本来就占着一格**；挑战(87) 与统计数据(150) 之间
-那 63 格的空档就是留给它的。Switch 版**删掉了 `Item6` 这一层**，并把剩下五行重新压成
-39/68/103/138/172（法语那份 Switch 资源是 PC 的原件，没被改过 ⇒ 它是"开关被删之前"的样子）。
-
-所以本工具的做法是：**八个语言各自读 PC 版同一语言的 `gamemenu.anm2`，把六个页内 y 照搬下来**
-（`pc_language_layout()`），一个字都不自己算。各语言的 X 也照搬 PC 的框（`Item6` 的
-`201−16 = 185`）。
-
-用法（`reference-pc/lang/` 缺了就会直接报错并说明去哪取，见 `docs/PC-主菜单参考资源.md`）：
-    python3 tools/gamemenu_mod_row.py --dump-root "<游戏 dump>/Program #0/1" \
-        --emit-layouts runtime/source/mod_row_generated.hpp     # 八个语言一次生成
-    python3 tools/gamemenu_mod_row.py --dump-root "<游戏 dump>/Program #0/1" \
-        --language zh --mockup /tmp/menu-zh.png                 # 离线看"这一列长什么样"
+各语言使用自己的菜单图集；坐标、轴心和动画层布局取自同语言 PC 菜单，
+避免缩放手绘文字或用字体替代原图。Switch 菜单补入 Item6 层后可由引擎正常绘制。
+游戏素材通过 --dump-root 指定，生成资源写入 --tree，布局写入 --emit-layouts。
 """
 
 from __future__ import annotations
@@ -421,7 +361,7 @@ def _extra_row_frame(xml: str) -> dict | None:
     return None
 
 
-#: ★★ PC 版主菜单的**字位置**与光标六帧 —— 2026-09-22 晚从 PC 文件里读出来的真值
+#: PC 版主菜单的字位置与光标六帧 —— 2026-09-22 晚从 PC 文件里读出来的真值
 #: （用户要求："你不能做到一次性获取 pc 上如何处理的间距然后复用吗" ⇒ 能）。
 #:
 #: 来源（可复核）：用游戏自带的官方解包器（`tools/ResourceExtractor/macOS/ResourceExtractor`）
@@ -454,7 +394,7 @@ PC_ROW_TOP = (34.0, 59.0, 87.0, 123.0, 150.0, 177.0)
 PC_CURSOR_Y = (68.0, 94.0, 122.0, 152.0, 181.0, 211.0)
 #: PC 参考文件在仓库里的位置（游戏数据，已 gitignore）。存在时门禁会重新读一遍核对上面的数字。
 PC_REFERENCE_DIR = os.path.join(REPO_ROOT, "reference-pc", "gfx", "ui", "main menu")
-#: ★ 排版的真值源：**PC 版每个语言**的主菜单资源（`reference-pc/lang/<语言>/gfx/ui/main menu/`）。
+#: 排版的真值源：PC 版每个语言的主菜单资源（`reference-pc/lang/<语言>/gfx/ui/main menu/`）。
 #: 取法见 `docs/PC-主菜单参考资源.md`（要先用游戏自带的解包器解 `repentance_<语言>.a`）。
 PC_LANGUAGE_ROOT = os.path.join(REPO_ROOT, "reference-pc", "lang")
 
@@ -489,7 +429,7 @@ def pc_layout(pc_anm2_path: str) -> dict:
     rows = []
     for layer_id in sorted(frames):
         name = names.get(layer_id, "")
-        # ★ 只认 `Item*` 命名的图层：`DailyText`（118×64）之类按尺寸也会"像一行"，
+        # 只认 `Item*` 命名的图层：`DailyText`（118×64）之类按尺寸也会"像一行"，
         #   按名字认才干净（两边的命名约定一样：Item1..Item5 + 多出来的那一行）。
         if not name.startswith("Item"):
             continue
@@ -837,7 +777,7 @@ def build_language(dump_root: str, language: str, output_root: str | None = None
     if art is None:
         raise ArtError(f"{language}：图集里找不到第 6 行那一块，而且没有可借的语言")
     sprite, ink_rel = art
-    row = sprite                      # ★ 1:1：贴图就是那一块本身（80×39 那种尺寸）
+    row = sprite                      # 1:1：贴图就是那一块本身（80×39 那种尺寸）
     ink_left, ink_top = float(ink_rel[0]), float(ink_rel[1])
     ink_bottom = float(ink_rel[3])
     ink_height = ink_bottom - ink_top + 1.0
@@ -878,7 +818,7 @@ def build_language(dump_root: str, language: str, output_root: str | None = None
     # 六帧用的是同一块裁切、只差位置，而位置由我们设的那个 y 决定 ⇒ 夹帧不影响样子。
     cursor_frame = [min(slot, max(len(frames) - 1, 0)) for slot in range(SLOT_COUNT)]
     shifts = [plan[index]["y"] - rows[index]["y"] for index in range(ENGINE_ROW_COUNT)]
-    # ★ 横向也照搬 PC 的框 x（用户 2026-09-22 深夜："模组似乎偏左了一点"）。
+    # 横向也照搬 PC 的框 x（用户 2026-09-22 深夜："模组似乎偏左了一点"）。
     #   只搬 Y 的时候，中文那一列的字左是 185/187/192/**189**/195/199 ——「模组」比它上面
     #   那行挑战(192)还靠左 3 格，所以看着偏左；而 PC 中文自己那一列是
     #   183/184/187/**189**/196/199（模组在挑战右边 2 格）。两边的图集是同一块美术
@@ -1140,7 +1080,7 @@ def emit_layouts(results: list[dict], header_name: str) -> str:
                              ("slotTop", result["slot_tops"]),
                              ("cursorFrameY", frames)):
             lines.extend(_array(name, values, indent="        "))
-        # ★ 顺序必须与上面 `ModRowLayout` 的声明一致（聚合初始化按顺序吃）
+        # 顺序必须与上面 `ModRowLayout` 的声明一致（聚合初始化按顺序吃）
         lines.append("        // cursorFrame")
         lines.append("        {" + ", ".join(str(v) for v in result["cursor_frame"]) + "},")
         lines.extend(_array("cursorY", result["cursor_y"], indent="        "))
@@ -1489,7 +1429,7 @@ def main() -> int:
         try:
             bands = measure_paper_bands(args.dump_root)
             region = sixth_row_region(args.dump_root)
-            # ★ 排版真值源：PC 版**同一语言**的 ANM2（八份各读一次，不做任何推导）
+            # 排版真值源：PC 版同一语言的 ANM2（八份各读一次，不做任何推导）
             layouts = pc_language_layouts(args.pc_root)
             for language in sorted(LANGUAGE_ROOTS):
                 results.append(build_language(args.dump_root, language, None,

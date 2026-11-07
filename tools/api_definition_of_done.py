@@ -1,96 +1,9 @@
 #!/usr/bin/env python3
-"""每条 API 的**完成定义（Definition of Done）**台账：契约依据 / 边界判据 / 成熟度。
+"""核对 API 的契约、边界行为和成熟度台账。
 
-## 为什么要有它（2026-09-21，用户提出的问题）
-
-这个项目的验收基准一直是三维：① 存在、② 语义、③ 派发时机。前两维此前**各有各的账**：
-
-* "存在" ⇒ `runtime/src/interfaces/lua/api_catalog.cpp`（目录行就是真值源）；
-* "语义" ⇒ `api_deviation.cpp` 那张**偏离**台账（只有"与 PC 不同"的地方才登记）。
-
-问题出在**中间那一大片**：一条新 API 加进来时，"它凭什么说自己是 PC 的那个语义"、
-"边界/异常输入是什么口径"这两件事**没有任何地方强制交代** —— 想写就写在实现处的注释里，
-不写也没人问。注释不会被门禁读、不会被读数带出来、更不会拦住下一个人。
-
-⇒ 所以把"实现一条 API 时**必须交代**的三件事"做成一份台账 + 一条**会红的**门禁：
-
-1. **契约依据**：这条 API 在 `tools/pc_contract_docs/<页>.md` 的哪一行（行号 + 那一行的原文片段）；
-2. **边界判据**：至少一条"边界/异常输入"的判据 —— 写明**输入形状**（越界下标 / nil 参数 / 空表 /
-   同帧重复调用 …）**并**点名一个仓库里真实存在的测试文件；
-3. **成熟度**：四态之一（`HardwareVerified` / `HostVerified` / `Experimental` / `Disabled`），
-   并且要在 `tools/api_maturity_evidence.json` 里**有登记**（"凭什么这么说"写在那份台账里）。
-
-## ★ 为什么要加第 4 栏「真值来源」（2026-09-25，批次 127）
-
-上面三栏**都回答不了一个问题：这条 API 的返回值凭什么算引擎真值？** 实测过的洞（有代码为证）：
-
-* `Isaac:WorldToScreen` / `WorldToRenderPosition` 是**恒等变换**（直接返回同值 Vector），
-  模组拿它做屏幕定位会得到错坐标，不报错不崩；它们当时在桩台账与偏离台账里**都没有**；
-* `EntityPlayer:HasTrinket` / `HasGoldenBomb` / `HasPlayerForm` / `CanPickRedHearts` / `IsSubPlayer`
-  是**恒 false**；`Input.IsButtonPressed` / `IsButtonTriggered` / `GetButtonValue` 是**恒 false/0**
-  （前者的理由只写在 `input_api.cpp` 的一段注释里）—— 八个都**没有登记**；
-  ★ 2026-09-28 批次 177：其中 `EntityPlayer:HasPlayerForm` 与 `CanPickRedHearts` 已经换成
-  **引擎方法数据行**（值来自引擎，不再是恒 false）—— 这一段保留的是 2026-09-25 当时的实况，
-  不是现状；现状以 `tools/lua_api_stub_ledger.json` 为准。
-* 三栏旧判据一条都拦不住：契约依据只要"引文里出现 API 的名字"、边界判据只要"某种异常输入有测试"、
-  成熟度只要求"有登记"。⇒ 一条 `lua_pushboolean(state, 0); return 1;` 
-  可以三栏齐备、门禁全绿，而模组拿到的是恒 false。
-
-⇒ 所以第 4 栏要求**说清返回值从哪来**，并且证据**可核对**（不是一句形容词）：
-
-| `kind` | 必须给什么 | 门禁怎么核 |
-| --- | --- | --- |
-| `engine_call` | `offsets`（`runtime_constants.hpp` 里的常量名或 `0x` 字面量） | 逐个在**那个头文件**里找得到 |
-| `engine_field` | 同上 + `field`（`<Struct>.<字段>`） | 还要在 `tools/layout_tables/*.json` 里有 `confidence == confirmed` 的行（批次 047 的教训） |
-| `engine_constant` / `platform_absent` | 承认"这不是引擎真值" | **必须**在 `api_deviation.cpp` 偏离台账里有条目（写明"偏离后果：…"与判据） |
-| `lua_side` | `judgement`（仓库里真实存在的测试模块） | 纯 Lua 侧逻辑（Vector 数学、常量表）要一条"输入 → 输出"的等价性判据 |
-
-**强制范围**：与另外三栏一致 —— **基线之外的新 API 四栏齐备**；基线内的老条目 grandfather
-（但一旦写了 `provenance` 就要合格）。存量里"返回假值却没登记"的那些由**桩检测器 + 偏离台账**
-那一对负责（判据见 `tools/lua_api_stub_report.py` 文件头）。
-
-## 为什么是**新开一份**台账，而不是扩展 `api_maturity_evidence.json`
-
-* **口径不同**：成熟度台账的口径是"**宣称真机验证过的**必须有依据"（所以它只有 30 条、`Experimental`
-  的反而不进去）；而本台账的口径是"**每条新 API 都必须交代**"（默认全量）。两者的行集故意不一样，
-  混在一起之后"台账多少条"会同时表示两件事，这正是项目里被咬过两次的那种口径混淆。
-* **生命周期不同**：成熟度会**升降格**（`Level:IsAscent` 就降过），契约依据与边界口径则是
-  **实现时一次定死**、之后只在真的变了才改。混在一起会让人不敢动成熟度（怕碰坏契约那栏）。
-* **不变式不同**：成熟度台账要求"台账 ⊆ catalog"；本台账还要求"**catalog 里的新条目 ⊆ 台账**"
-  （反方向的那一半），这是本门禁存在的全部意义。
-
-## 判据（改宽改窄都会红）
-
-* **基线冻结**：`baseline.ids` 是**本门禁建立之前**就已经存在的那批 API 的**快照**，
-  它们 grandfather 掉（不要求补三件事，补了的按下面的规则一并校验）。基线**只读**：
-  门禁核对"基线 ⊆ 当前 catalog"（不许偷偷删 API）、"基线条数/摘要不变"（不许把新 API 塞进基线来躲门禁）。
-* **基线之外的每一个 catalog id** 都必须在本台账 `rows` 里有条目，且三件事齐备 —— 缺哪件报哪件（`[新接口]`）。
-* `rows` 里出现的每一个 key 都必须**真实存在于 catalog**（打错名字 = 死账，`[死账]`）。
-* `contract`：页必须在 `tools/pc_contract_docs/` 或 `tools/pc_enum_docs/` 下**且真的存在**
-  （契约源必须在仓库里 —— 批次 111 的教训：`analysis/` 是 gitignore 的，指向那里等于对别人不可做）、
-  行号在范围内、`quote` 必须**逐字出现在那一行里**、并且**引文里要出现这条 API 的名字**
-  （抄错行、凭记忆写一句、随手抄另一条 API 的那一行，都过不去）。
-  文档里确实没有这一条时写 `"missing": "文档里没有 <说明>"` —— 明确写出来也算数，但不许留空。
-* `boundary`：`kind` 必须取自受控词表；`judgement` 必须是**真实存在**的 `runtime/tests/**.py`，
-  **并且那个文件里必须真的提到这条 API**（按接口名或 id 十六进制找）—— 否则"判据"是随便指的一个文件；
-  `detail` 必须写清钉住了什么输入形状（不许 `暂无`/`TODO` 占位）。
-* `maturity`：本台账里写的必须与 `api_catalog.cpp` 里的**逐字一致**（真值源仍是 catalog），
-  且**基线之外**的 API 必须在 `api_maturity_evidence.json` 里有条目、成熟度也一致（三处一致）。
-
-## 用法
-
-    python3 tools/api_definition_of_done.py                 # 现状：台账条数、覆盖、缺口（不判红）
-    python3 tools/api_definition_of_done.py --check         # 跑判据；有问题则退出码 1（门禁用）
-    python3 tools/api_definition_of_done.py --gaps          # 列出基线里还没台账条的 API（按 owner 分组）
-    python3 tools/api_definition_of_done.py --template "Room:GetDoor"   # 打印一份可粘贴的条骨架
-
-新加一条 API 时的动作顺序（**四件事**都做完，门禁才会绿）：
-
-    1. 在 catalog 里加目录行；
-    2. `--template "<Owner:Name>"` 拿骨架 → 填 `contract`/`boundary`/`provenance` → 粘进 `tools/api_definition_of_done.json` 的 `rows`；
-    3. 在 `tools/api_maturity_evidence.json` 的 `rows` 里加同名条目（成熟度与 catalog 一致）；
-    4. 若 `provenance.kind` 是 `engine_constant` / `platform_absent`，**同时**在
-       `runtime/src/interfaces/lua/api_deviation.cpp` 里登记那条偏离（否则模组拿到假值却没人知道）。
+将目录行、偏离说明及布局依据交叉核对，报告缺失或占位的验证信息。
+接口存在不代表语义和派发时序已验证；只有具备相应依据的条目才能标记成熟。
+提供检查、模板生成和机器可读报告入口。
 """
 
 from __future__ import annotations
@@ -110,7 +23,7 @@ MATURITY_LEDGER = ROOT / "tools" / "api_maturity_evidence.json"
 
 #: 域名 → 数值（用于把 `MakeId(...)` 还原成完整 id）。
 #:
-#: ★ 这张表与 `runtime/src/interfaces/api_descriptor.hpp` 的 `enum class ApiDomain` 必须一致 ——
+#: 这张表与 `runtime/src/interfaces/api_descriptor.hpp` 的 `enum class ApiDomain` 必须一致 ——
 #: 门禁 `test_api_definition_of_done.py::test_domain_table_matches_the_cpp_enum` 会直接解析那个
 #: 头文件来比对，加了新域名却忘了同步这里会当场红（**口径只有一份，漂移要被抓住**）。
 #: （`runtime/tests/contract/test_api_deviation.py` 里也有一张同形的表，但它少了 `ModMenu`，
@@ -119,7 +32,7 @@ DOMAIN_VALUES = {
     "Global": 0, "Mod": 1, "Game": 2, "Level": 3, "Room": 4, "ItemPool": 5,
     "Music": 6, "Rng": 7, "Persistence": 8, "Input": 9, "Diagnostic": 10,
     "Font": 11, "Vector": 12, "Sprite": 13, "Isaac": 14, "Seed": 15, "ModMenu": 16,
-    # 批次 207（2026-09-29）：`Hud` = `Game:GetHUD()` 的返回值（域 17）。**真值源**是
+    # `Hud` = `Game:GetHUD()` 的返回值（域 17）。真值源是
     # `runtime/src/interfaces/lua/api_descriptor.hpp` 的 `ApiDomain`；这张表是它的副本之一。
     "Hud": 17,
 }
@@ -142,14 +55,14 @@ BOUNDARY_KINDS = (
 #: 判据文件的形态：必须是仓库里的测试模块。
 JUDGEMENT_RE = re.compile(r"^(?:runtime/)?tests/[A-Za-z0-9_./-]+\.py$")
 
-#: 真值来源的受控词表（★ 2026-09-25 起为**第 4 栏**，见文件头《为什么是四栏》）。
+#: 真值来源的受控词表（2026-09-25 起为第 4 栏，见文件头《为什么是四栏》）。
 #:
 #: 前三维（存在 / 语义 / 成熟度）都回答不了那个最要命的问题：**这条 API 的返回值凭什么算引擎真值？**
 #: 已经真出过事：`Isaac:WorldToScreen` 是恒等变换、`EntityPlayer:HasTrinket` 恒 false、
 #: `EntityPlayer:GetPill` 恒 0 —— 三个都有目录行、都能被调用，模组拿到的是假值，不报错不崩。
 PROVENANCE_KINDS = (
     # 调引擎自己的方法（要给偏移证据）。
-    # ★ 2026-09-29（批次 207）把口径写死：**"直读引擎内存里一个已取证的偏移、但 PC 侧没有
+    # 2026-09-29把口径写死："直读引擎内存里一个已取证的偏移、但 PC 侧没有
     #   同名的 confirmed 布局表行"也归在这里** —— 校验强度一点没变（偏移必须能在
     #   `runtime_constants.hpp` 里找得到），区别只是**不冒充 `engine_field` 的具名字段**。
     #   为什么需要这一档：`Entity:HasEntityFlags`（读 `+0x1B8` 的 64 位标志字）、
@@ -297,7 +210,7 @@ def contract_problems(entry: CatalogEntry, contract, root: Path) -> list[str]:
             f"{tag}：{page_text}:{line_text} 那一行里没有「{quote}」—— 引用与文档对不上。\n"
             f"        那一行实际是：{lines[line_text - 1][:160]!r}"
         ]
-    # ★ 反向的那一半：引文里必须出现**这条 API 的名字**。
+    # 反向的那一半：引文里必须出现这条 API 的名字。
     #   为什么：只核对"片段真的在那一行里"挡不住"随手抄另一条 API 的那一行" —— 那也是假通过
     #   （与 099 那次"关键词恰好出现"是同一族）。PC 文档里每条 API 都有自己的规格行
     #   （形如 `#### int GetGridPath ( int Index )`），所以这条在实践中总能满足；
@@ -337,7 +250,7 @@ def boundary_problems(entry: CatalogEntry, boundary, root: Path) -> list[str]:
         problems.append(f"{tag}：判据指向不存在的测试文件：{judgement}")
         return problems
 
-    # ★ 反"随手指一个测试文件"：那个文件里必须真的提到这条 API（按接口名或 id 找）。
+    # 反"随手指一个测试文件"：那个文件里必须真的提到这条 API（按接口名或 id 找）。
     content = path.read_text(encoding="utf-8", errors="replace")
     if not any(form in content for form in identifier_forms(entry)):
         problems.append(
@@ -615,7 +528,7 @@ def template(key: str, catalog: dict[str, CatalogEntry]) -> str:
                 "judgement": "runtime/tests/<测试模块>.py",
                 "detail": "<说清钉住了哪种异常输入、期望是什么>",
             },
-            # ★ 第 4 栏（2026-09-25 起）：**返回值凭什么算引擎真值**。
+            # 第 4 栏（2026-09-25 起）：返回值凭什么算引擎真值。
             # 按 kind 二选一填 —— 详细判据见文件头与 `provenance_problems()`：
             #   engine_call  ⇒ {"kind":"engine_call","detail":"…","offsets":["kXxxOffset"]}
             #   engine_field ⇒ {"kind":"engine_field","detail":"…","offsets":["kXxxOffset"],

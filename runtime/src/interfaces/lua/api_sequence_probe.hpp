@@ -27,18 +27,18 @@ namespace isaac::runtime {
 // 位表（低 64 位 = 渲染/查询主干；高 64 位 = 其余可能在提前 return 路径上的调用）：
 //   bits 0..15  `Game`：0 `IsPaused`、1 `IsGreedMode`、2 `GetLevel`、3 `GetItemPool`、
 //               4 `GetRoom`、5 `GetNumPlayers`、6 `GetFrameCount`、7 `GetSeeds`、8 `GetVictoryLap`、
-//               9 `GetHUD`（批次 207）
+//               9 `GetHUD`
 //   bits 16..31 `Isaac`：16 `GetPlayer`、17 `GetItemConfig`、18 `FindInRadius`、19 `FindByType`、
-//               20 `CountEnemies`、21 `CountBosses`、22 `CountEntities`（批次 268）、
-//               23 `RunCallbackWithParam`（批次 268）
+//               20 `CountEnemies`、21 `CountBosses`、22 `CountEntities`、
+//               23 `RunCallbackWithParam`
 //   bits 32..47 `Font`：32 `DrawString`、33 `DrawStringScaled`、34 `DrawStringUTF8`、
 //               35 `DrawStringScaledUTF8`
 //   bits 48..63 `Sprite`：48 `Render`、49 `RenderLayer`、50 `GetTexel`
 //   —— 高位（secondary）——
 //   bits 0..15  `EntityPlayer`：0 `HasCollectible`、1 `GetPlayerType`、2 `GetData`
 //   bits 16..31 `Room`/`Level`/`Seeds`/`HUD`：16 `Room.GetType`、17 `Level.GetStage`、
-//               18 `Seeds.IsCustomRun`、19 `HUD.IsVisible`（批次 207）、
-//               20 `HUD.SetVisible`（批次 207）
+//               18 `Seeds.IsCustomRun`、19 `HUD.IsVisible`、
+//               20 `HUD.SetVisible`
 //   bits 32..47 `Input`：32 `IsActionPressed`
 //   filterMask（第三张掩码，2026-09-12 第八轮，EID 的"实体要不要进描述表"过滤器链）：
 //     0 `Entity.GetData`、1 `Entity.GetSprite`、2 `Entity:ToPickup`、
@@ -83,8 +83,8 @@ inline ApiSequenceState& ApiSequence() noexcept {
 
 // 低 64 位的位号（家族组号 × 16 + 组内序号）。
 inline void RecordApiSequence(std::uint32_t bit) noexcept {
-    (void)bit;  // 批次 232：生产构建里这段被编译掉 ⇒ 参数必然用不上
-#if EXL_DIAGNOSTIC_PROBES  // 批次 232 探针总开关（口径见 probe_gate.hpp）
+    (void)bit;  // 生产构建里这段被编译掉 ⇒ 参数必然用不上
+#if EXL_DIAGNOSTIC_PROBES  // 探针总开关（口径见 probe_gate.hpp）
     if (bit >= 64) {
         return;
     }
@@ -97,8 +97,8 @@ inline void RecordApiSequence(std::uint32_t bit) noexcept {
 
 // 高 64 位的位号。
 inline void RecordApiSequenceSecondary(std::uint32_t bit) noexcept {
-    (void)bit;  // 批次 232：生产构建里这段被编译掉 ⇒ 参数必然用不上
-#if EXL_DIAGNOSTIC_PROBES  // 批次 232 探针总开关（口径见 probe_gate.hpp）
+    (void)bit;  // 生产构建里这段被编译掉 ⇒ 参数必然用不上
+#if EXL_DIAGNOSTIC_PROBES  // 探针总开关（口径见 probe_gate.hpp）
     if (bit >= 64) {
         return;
     }
@@ -108,8 +108,8 @@ inline void RecordApiSequenceSecondary(std::uint32_t bit) noexcept {
 
 // `Font:DrawString*` 的次数与累计文本字节数（与位掩码互证）。
 inline void RecordApiSequenceDraw(std::size_t textBytes) noexcept {
-    (void)textBytes;  // 批次 232：生产构建里这段被编译掉 ⇒ 参数必然用不上
-#if EXL_DIAGNOSTIC_PROBES  // 批次 232 探针总开关（口径见 probe_gate.hpp）
+    (void)textBytes;  // 生产构建里这段被编译掉 ⇒ 参数必然用不上
+#if EXL_DIAGNOSTIC_PROBES  // 探针总开关（口径见 probe_gate.hpp）
     detail::ApiSequence().drawCalls.fetch_add(1, std::memory_order_relaxed);
     detail::ApiSequence().drawBytes.fetch_add(static_cast<std::uint32_t>(textBytes),
                                               std::memory_order_relaxed);
@@ -120,8 +120,8 @@ inline void RecordApiSequenceDraw(std::size_t textBytes) noexcept {
 // 用 `EID:hasDescription(entity)`（内部走它）决定实体要不要进描述表；恒未命中的话
 // `descriptionsToPrint` 永远为空、`renderString` 永远不会被调用。
 inline void RecordItemConfigResult(bool found) noexcept {
-    (void)found;  // 批次 232：生产构建里这段被编译掉 ⇒ 参数必然用不上
-#if EXL_DIAGNOSTIC_PROBES  // 批次 232 探针总开关（口径见 probe_gate.hpp）
+    (void)found;  // 生产构建里这段被编译掉 ⇒ 参数必然用不上
+#if EXL_DIAGNOSTIC_PROBES  // 探针总开关（口径见 probe_gate.hpp）
     if (found) {
         detail::ApiSequence().itemConfigFound.fetch_add(1, std::memory_order_relaxed);
     } else {
@@ -132,8 +132,8 @@ inline void RecordItemConfigResult(bool found) noexcept {
 
 // 过滤器链的位号（0..5，见上方位表）。
 inline void RecordFilterChain(std::uint32_t bit) noexcept {
-    (void)bit;  // 批次 232：生产构建里这段被编译掉 ⇒ 参数必然用不上
-#if EXL_DIAGNOSTIC_PROBES  // 批次 232 探针总开关（口径见 probe_gate.hpp）
+    (void)bit;  // 生产构建里这段被编译掉 ⇒ 参数必然用不上
+#if EXL_DIAGNOSTIC_PROBES  // 探针总开关（口径见 probe_gate.hpp）
     if (bit >= 64) {
         return;
     }

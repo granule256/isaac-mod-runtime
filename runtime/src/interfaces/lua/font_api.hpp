@@ -105,16 +105,16 @@ struct FontChainProbe {
 [[nodiscard]] std::string_view NormalizeModResourcePathForProbe(const char* path,
                                                               std::string& storage) noexcept;
 
-//: ★★ 批次 425（2026-10-10）：Font 块**当前活着**的块数（`g_FontStorageLive` 的只读壳）。
-//:
-//: 为什么需要壳、而不是让调用方直接读那个 `std::atomic`：它定义在 `font_api.cpp` 的
-//: `isaac::runtime` 命名空间里（外部链接），把 `std::atomic<std::uint32_t>` 这个类型
-//: 铺到每个消费者头上没必要；而且**只留这一个出口**，将来换口径只改一处。
-//: ★ 用途（425）：Lua 的 GC **看不见**这笔内存 —— 那 128 KiB 的块走的是 `lua_getallocf`
-//:   拿到的**裸 `frealloc`**，绕过了 `luaM_realloc_` 里的 `g->GCdebt` 记账 ⇒
-//:   GC 的触发判断永远看不到它 ⇒ 模组每帧一个 Font 会攒到 500+ 块（63 MB）才被顺手收掉。
-//:   由我们把这个数**补报**给 GC：见 `lua_runtime_state.hpp` 的
-//:   `NudgeLuaGcIfFontBlocksHigh()`。
+// Font 块当前活着的块数（`g_FontStorageLive` 的只读壳）。
+//
+// 为什么需要壳、而不是让调用方直接读那个 `std::atomic`：它定义在 `font_api.cpp` 的
+// `isaac::runtime` 命名空间里（外部链接），把 `std::atomic<std::uint32_t>` 这个类型
+// 铺到每个消费者头上没必要；而且只留这一个出口，将来换口径只改一处。
+// 用途（425）：Lua 的 GC 看不见这笔内存 —— 那 128 KiB 的块走的是 `lua_getallocf`
+// 拿到的裸 `frealloc`，绕过了 `luaM_realloc_` 里的 `g->GCdebt` 记账 ⇒
+// GC 的触发判断永远看不到它 ⇒ 模组每帧一个 Font 会攒到 500+ 块（63 MB）才被顺手收掉。
+// 由我们把这个数补报给 GC：见 `lua_runtime_state.hpp` 的
+// `NudgeLuaGcIfFontBlocksHigh()`。
 [[nodiscard]] std::uint32_t FontStorageLiveBlocks() noexcept;
 
 } // namespace isaac::runtime

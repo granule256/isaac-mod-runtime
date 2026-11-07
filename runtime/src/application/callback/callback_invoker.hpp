@@ -18,23 +18,23 @@ namespace isaac::runtime {
 struct CallbackReturn {
     // 表引用由Lua适配器保留到整次派发结束，此处只汇总是否返回有效表。
     bool hasTable{false};
-    //: 这条回调确实被调到了（`InvokeCollecting` 在状态无效时保持 false）。
+    // 这条回调确实被调到了（`InvokeCollecting` 在状态无效时保持 false）。
     bool called{false};
-    //: 返回了任何非 nil 值（含 false、0）。
+    // 返回了任何非 nil 值（含 false、0）。
     bool nonNil{false};
-    //: 返回了 Lua 的 `true`。
+    // 返回了 Lua 的 `true`。
     bool truthy{false};
-    //: 返回了一个整数（Lua 的 integer 子类型；`3.0` 这类浮点不算 —— 与既有
-    //: `DispatchPreGetCollectible` 的口径一致，那一条是真机验过的）。
+    // 返回了一个整数（Lua 的 integer 子类型；`3.0` 这类浮点不算 —— 与既有
+    // `DispatchPreGetCollectible` 的口径一致，那一条是真机验过的）。
     bool hasInteger{false};
-    //: `hasInteger` 为真时的值。
+    // `hasInteger` 为真时的值。
     std::int64_t integer{0};
-    //: 返回了一个**数字**（Lua 的 `number`，整数与浮点都算）。
-    //: ★ 2026-10-07（批次 390）：为 `MC_INPUT_ACTION` 的 `GET_ACTION_VALUE` 加 —— 那一条的覆盖值是
-    //: **0.0~1.0 的 float**，而 `hasInteger` 只认整数子类型（Lua 里 `0.0` 是 float、`0` 是 integer）。
-    //: 模组通常写 `return 0`（整数），所以两条通道都要有；用哪条由调用方按自己的语义决定。
+    // 返回了一个数字（Lua 的 `number`，整数与浮点都算）。
+    // 2026-10-07：为 `MC_INPUT_ACTION` 的 `GET_ACTION_VALUE` 加 —— 那一条的覆盖值是
+    // 0.0~1.0 的 float，而 `hasInteger` 只认整数子类型（Lua 里 `0.0` 是 float、`0` 是 integer）。
+    // 模组通常写 `return 0`（整数），所以两条通道都要有；用哪条由调用方按自己的语义决定。
     bool hasNumber{false};
-    //: `hasNumber` 为真时的值。
+    // `hasNumber` 为真时的值。
     double number{0.0};
 };
 

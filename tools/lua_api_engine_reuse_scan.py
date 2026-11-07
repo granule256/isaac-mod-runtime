@@ -70,7 +70,7 @@ DOMAIN_BYTES = {
     "Global": 0, "Mod": 1, "Game": 2, "Level": 3, "Room": 4, "ItemPool": 5, "Music": 6,
     "Rng": 7, "Persistence": 8, "Input": 9, "Diagnostic": 10, "Font": 11, "Vector": 12,
     "Sprite": 13, "Isaac": 14, "Seed": 15, "ModMenu": 16,
-    # 批次 207（2026-09-29）：`Hud`（域 17，`Game:GetHUD()` 的返回值）。真值源见
+    # `Hud`（域 17，`Game:GetHUD()` 的返回值）。真值源见
     # `runtime/src/interfaces/lua/api_descriptor.hpp` 的 `ApiDomain`。
     "Hud": 17,
 }
@@ -90,7 +90,7 @@ REAL_MARKERS = (
 #: 恒值标记（比台账多两条**布尔/整数**的恒假——台账的 `STUB_MARKERS` 原本只认
 #: `PushZero(`/`Stub::`，于是 `EntityPlayer:HasPlayerForm`（`lua_pushboolean(state, 0)`）这类
 #: 逃过了台账；2026-09-28 已把这两类补进台账词表，这里保持同步。
-#: ★ 同一天（批次 177）本节列出的 7 条 `stub+engine` 靶子里，**5 条已改成引擎方法数据行**
+#: 同一天本节列出的 7 条 `stub+engine` 靶子里，5 条已改成引擎方法数据行
 #: （`EntityPlayer` 的 `GetPill`/`GetCard`/`GetZodiacEffect`/`HasPlayerForm`/`CanPickRedHearts`）
 #: ⇒ 本扫描器的 `stub+engine` 一档应当只剩 **2 条**（`EntityPlayer:GetGlyphOfBalanceDrop` 与
 #: `SFXManager:IsPlaying`，两条各自缺前置取证、理由见桩台账里的 `note`）。

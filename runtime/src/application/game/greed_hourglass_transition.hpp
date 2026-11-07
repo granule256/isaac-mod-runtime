@@ -10,8 +10,8 @@ enum class HourglassTransitionResult {
     Forwarded, Rerouted, StateUnreadable, RoomUnavailable, OriginalUnavailable
 };
 
-//: 要读的引擎字段偏移。生产侧传 `runtime_constants.hpp` 的具名常量；宿主测试可以换成
-//: 自己那块伪造内存的偏移 —— 判定逻辑本身**不写死任何偏移**。
+// 要读的引擎字段偏移。生产侧传 `runtime_constants.hpp` 的具名常量；宿主测试可以换成
+// 自己那块伪造内存的偏移 —— 判定逻辑本身不写死任何偏移。
 struct HourglassFieldOffsets {
     std::uintptr_t stage;        // `Level.Stage`（`Game + 0x00`）
     std::uintptr_t difficulty;   // `Game.Difficulty`
@@ -20,23 +20,23 @@ struct HourglassFieldOffsets {
     std::uintptr_t playerEnd;
 };
 
-//: `StageTransition::eAnimation` 的 **6**。PC 契约 `Game.md` 的 `StartStageTransition` 一节逐字为
-//:   "6: Home Glowing Hourglass. Progress towards Home, regardless of the current floor."
-//: ⇒ 这是"发光沙漏去 Home"，与 `RoomTransitionAnim` 的 6（DEAD_CAT）**不是同一个枚举**。
+// `StageTransition::eAnimation` 的 6。PC 契约 `Game.md` 的 `StartStageTransition` 一节逐字为
+// "6: Home Glowing Hourglass. Progress towards Home, regardless of the current floor."
+// ⇒ 这是"发光沙漏去 Home"，与 `RoomTransitionAnim` 的 6（DEAD_CAT）不是同一个枚举。
 inline constexpr int kHomeHourglassStageAnimation = 6;
-//: `RoomTransitionAnim::TELEPORT = 3`（枚举表 `RoomTransitionAnim.md`）。
+// `RoomTransitionAnim::TELEPORT = 3`（枚举表 `RoomTransitionAnim.md`）。
 inline constexpr int kErrorRoomTransitionAnimation = 3;
-//: 引擎自己的错误房传送参数：`Entity_Player::UseCard` 里 "空白卡 + 下一层可用" 的分支就是
-//:   `StartRoomTransition(-2, -1, 3, player, -1)`（反汇编 `0x2EA1C8-0x2EA1E4`）。
-//: ★ `-2` 这个房间索引的**语义**（是否等价于 I AM ERROR）本轮没有独立取证，
-//:   只确认"引擎自己在用这一组参数"；真机表现是唯一判据（见交接文档）。
+// 引擎自己的错误房传送参数：`Entity_Player::UseCard` 里 "空白卡 + 下一层可用" 的分支就是
+// `StartRoomTransition(-2, -1, 3, player, -1)`（反汇编 `0x2EA1C8-0x2EA1E4`）。
+// `-2` 这个房间索引的语义（是否等价于 I AM ERROR）本轮没有独立取证，
+// 只确认"引擎自己在用这一组参数"；真机表现是唯一判据（见交接文档）。
 inline constexpr int kErrorRoomIndex = -2;
 inline constexpr int kNativeRoomDimension = -1;
-//: `GameStateFlag` 4：Repo 起语义是 **"left from starting room"**（是否离开过起始房间）。
-//: 引擎自己那条 Home 分流正是拿它当条件之一（`ldrb [Game+0x26FA50]; tbnz #4` 跳走）。
+// `GameStateFlag` 4：Repo 起语义是 "left from starting room"（是否离开过起始房间）。
+// 引擎自己那条 Home 分流正是拿它当条件之一（`ldrb [Game+0x26FA50]; tbnz #4` 跳走）。
 inline constexpr unsigned kLeftStartingRoomStateFlag = 4;
 
-//: 读一个 `GameStateFlag`（位数组，每字节 8 个标志）。
+// 读一个 `GameStateFlag`（位数组，每字节 8 个标志）。
 [[nodiscard]] inline bool ReadHourglassStateFlag(std::uintptr_t game, std::uintptr_t flagsOffset,
                                                 unsigned flag,
                                                 engine_memory::ReadableCheck readable,
@@ -52,7 +52,7 @@ inline constexpr unsigned kLeftStartingRoomStateFlag = 4;
     return true;
 }
 
-//: 取第 0 个玩家（沙漏这条路径引擎自己传的是 `nullptr`，但换房需要真实玩家）。
+// 取第 0 个玩家（沙漏这条路径引擎自己传的是 `nullptr`，但换房需要真实玩家）。
 [[nodiscard]] inline bool ReadHourglassFirstPlayer(std::uintptr_t game,
                                                   const HourglassFieldOffsets& offsets,
                                                   engine_memory::ReadableCheck readable,
@@ -78,7 +78,7 @@ inline constexpr unsigned kLeftStartingRoomStateFlag = 4;
     return true;
 }
 
-//: Repentance+ 公布的贪婪规则移植：**只**拦截"初始沙漏选中的首层 Home 过渡"。
+// Repentance+ 公布的贪婪规则移植：只拦截"初始沙漏选中的首层 Home 过渡"。
 //
 // 判据全部来自固定 NRO 的反汇编（`dist/auri-greed-fix-20261026/`），逐条可复核：
 //   ① `Game::StartRoomTransition` 在 `Animation == 12(GLOWING_HOURGLASS)` 且 `Level.Stage == 1`

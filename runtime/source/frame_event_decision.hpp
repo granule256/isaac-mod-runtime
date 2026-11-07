@@ -21,7 +21,7 @@
 // 1. **开局起始房间**：`initialRoomPending != 0` 且这一帧读到了身份 ⇒ 补派 `NEW_LEVEL` + `NEW_ROOM`
 //    各一次，并告诉调用方"标志可以清了"。**顺序照 PC**：先 `NEW_LEVEL` 再 `NEW_ROOM`
 //    （调用方按本结构体的字段顺序派发）。
-// ★ 2026-10-14 更正：上述历史顺序写反；PC 官方要求先 NEW_ROOM 再 NEW_LEVEL。
+// 2026-10-14 更正：上述历史顺序写反；PC 官方要求先 NEW_ROOM 再 NEW_LEVEL。
 //    字段布局仅存判定结果，实际派发顺序由 DispatchFrameEvents 保证。
 // 2. **中途读不到身份**：`haveLocation == false` ⇒ 什么都不派发，且**不清标志**
 //    （下一帧重试；一次瞬时读失败不该把开局那次补派吞掉）。
@@ -32,15 +32,15 @@
 
 namespace isaac::runtime {
 
-//: 一帧的判定结果。字段顺序就是**派发顺序**（`newLevel` 在前，照 PC 的观感）。
-// ★ 2026-10-14 更正：上述字段顺序不代表派发顺序；实际先 newRoom 再 newLevel，字段布局保留。
+// 一帧的判定结果。字段顺序就是派发顺序（`newLevel` 在前，照 PC 的观感）。
+// 2026-10-14 更正：上述字段顺序不代表派发顺序；实际先 newRoom 再 newLevel，字段布局保留。
 struct FrameRoomDecision {
-    bool newLevel;              //: 派发 `MC_POST_NEW_LEVEL`
-    bool newRoom;               //: 派发 `MC_POST_NEW_ROOM`
-    bool initialRoomConsumed;   //: 调用方据此清掉"开局起始房间还没补派"的标志
+    bool newLevel;              // 派发 `MC_POST_NEW_LEVEL`
+    bool newRoom;               // 派发 `MC_POST_NEW_ROOM`
+    bool initialRoomConsumed;   // 调用方据此清掉"开局起始房间还没补派"的标志
 };
 
-//: 纯判定：不读全局、不碰内存，只按传进来的事实回答"这一帧派什么"。
+// 纯判定：不读全局、不碰内存，只按传进来的事实回答"这一帧派什么"。
 [[nodiscard]] constexpr FrameRoomDecision DecideFrameRoomEvents(
     bool haveLocation, bool roomKnown, bool levelKnown, bool sameStage, bool sameRoom,
     std::uint32_t initialRoomPending) noexcept {

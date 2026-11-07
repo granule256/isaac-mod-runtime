@@ -7,29 +7,10 @@ extern "C" {
 #include <lua.h>
 }
 
-// Shared Runtime state for the Lua API family translation units.
-//
-// The family units (`runtime/src/interfaces/lua/*_api.cpp`) own the handlers,
-// while `lua_runtime.cpp` still owns the Lua state, the managed-callback
-// dispatcher, the native binding slots and the metatable registration. This
-// header is the single transitional place both sides agree on, so a family can
-// move out without reaching into another translation unit's internals.
-//
-// It lives in the legacy source root on purpose: non-layered/probe builds do
-// not have `runtime/src` on their include path.
-//
-// Every accessor here is a stepping stone towards a real port/service
-// (`IGameMemoryPort`, callback scope, ...); the declarations stay until the
-// owning subsystem moves.
-// --- Managed callback registry -------------------------------------------
-//
-// Declared outside `namespace LuaRuntime` on purpose: this header is included
-// from inside `namespace LuaRuntime` in `lua_runtime.cpp`, so anything that must
-// belong to the global `isaac::runtime` namespace has to be declared before that
-// namespace opens (otherwise it lands in `LuaRuntime::isaac::runtime`).
-//
-// Forward declarations only: this header must stay includable from host tests
-// that do not compile the callback registry.
+// Shared state and native bindings for the Lua API translation units.
+// lua_runtime.cpp owns the Lua state, callback registry and metatable setup;
+// API handlers access that state through the declarations in this header.
+// Forward declarations keep host fixtures independent of registry definitions.
 namespace isaac::runtime {
 class CallbackRegistry;
 struct ModHandle;
@@ -157,7 +138,7 @@ inline constexpr int kStage13CallbackValue = 1;
 void SetEngineModuleBase(std::uintptr_t base) noexcept;
 [[nodiscard]] std::uintptr_t GameIsGreedModeThunk() noexcept;
 [[nodiscard]] std::uintptr_t LevelIsAscentThunk() noexcept;
-// 批次 8（2026-09-15）：`Level` 家族另外两个方法入口。0 表示"没通过安装期守卫 ⇒ 不可用"。
+// `Level` 家族另外两个方法入口。0 表示"没通过安装期守卫 ⇒ 不可用"。
 [[nodiscard]] std::uintptr_t LevelGetAbsoluteStageThunk() noexcept;
 // 2026-09-16：`Room:GetFrameCount()` 要调的引擎函数（`Room::GetFrameCount @ 0x470B0C`）。
 // 0 表示"没通过安装期守卫 ⇒ 不可用"；handler 那时报"绑定不可用"，**不返回编造的帧数**
@@ -175,7 +156,7 @@ using RoomFrameCountHostFunction = std::int32_t (*)(const void* room);
 using GridEntityPositionHostFunction = void (*)(const void* entity, float* x, float* y);
 [[nodiscard]] GridEntityPositionHostFunction GetGridEntityGetPositionHostFunction() noexcept;
 #endif
-// 批次 10（2026-09-15）：`Room:WorldToScreenPosition()` 要调的引擎函数（PLT 桩地址，
+// `Room:WorldToScreenPosition()` 要调的引擎函数（PLT 桩地址，
 // 由 hook_manager 校验 16 字节入口后发布）。
 [[nodiscard]] std::uintptr_t GetRenderPositionThunk() noexcept;
 void SetGetRenderPositionBinding(std::uintptr_t method);
@@ -190,13 +171,13 @@ using RenderPositionHostFunction = void (*)(const float* input, float* output, b
 [[nodiscard]] std::uintptr_t MusicGetCurrentMusicIdThunk() noexcept;
 [[nodiscard]] std::uintptr_t MusicPauseThunk() noexcept;
 [[nodiscard]] std::uintptr_t MusicResumeThunk() noexcept;
-// 批次 137：`MusicManager:UpdateVolume()` 的单方法绑定取址助手（形态与 `Music*Thunk` 相同）。
+// `MusicManager:UpdateVolume()` 的单方法绑定取址助手（形态与 `Music*Thunk` 相同）。
 [[nodiscard]] std::uintptr_t MusicUpdateVolumeThunk() noexcept;
-// 批次 138：`MusicManager:Play(ID, Volume)` 的取址助手（同上）。
+// `MusicManager:Play(ID, Volume)` 的取址助手（同上）。
 [[nodiscard]] std::uintptr_t MusicPlayThunk() noexcept;
 [[nodiscard]] std::uintptr_t RngSetSeedThunk() noexcept;
 [[nodiscard]] std::uintptr_t RngNextThunk() noexcept;
-// 批次 195（2026-09-29）：`RNG:RandomInt(Max)` / `RNG:RandomFloat()` 的取址助手
+// `RNG:RandomInt(Max)` / `RNG:RandomFloat()` 的取址助手
 // （形态与上面两条相同：取到 0 = 没发布 ⇒ handler 报"绑定不可用"，不编一个随机数）。
 [[nodiscard]] std::uintptr_t RngRandomUintThunk() noexcept;
 [[nodiscard]] std::uintptr_t RngRandomThunk() noexcept;
@@ -207,71 +188,71 @@ using RenderPositionHostFunction = void (*)(const float* input, float* output, b
 // 入口可能已是本运行时中继，消费者不能再次按原序言逐字拒绝。
 [[nodiscard]] std::uintptr_t InputIsActionPressedBinding() noexcept;
 
-//: 批次 417（2026-10-08）：**Lua 状态自己占了多少内存**（字节）。
-//:
-//: 为什么加它：真机上本模块堆"已用 122.8 MB / 空闲 5.2 MB"（415 读数）把 `whatsmydps`
-//: 每帧要的 128 KiB 挡在门外，而"这 122 MB 是谁吃的"当时只能靠猜。这一格把
-//: **Lua 侧**（模组的表/字符串 —— EID 的语言包光源码就有 8 MB）与
-//: **其它**（`malloc` 出来的：Font 块、贴图转码缓冲、挂载表、名字层…）分开：
-//:   其它 = 状态面 `heapUsedBytes`（[59]）− 本格。
-//: 口径 = `lua_gc` 的 `LUA_GCCOUNT` + `LUA_GCCOUNTB`；拿不到状态时返回 0。
-//: ★ 只读、只记录：没有任何行为跟着它变。
-//: ★★ 声明放**这个头**（而不是 `lua_runtime.hpp`）的原因：消费方
-//:    `mod_menu_native.cpp` 包含的是这一份；放错头会得到
-//:    `'LuaStateMemoryBytes' is not a member of 'LuaRuntime'`（2026-10-08 本批实撞）。
+// Lua 状态自己占了多少内存（字节）。
+//
+// 为什么加它：真机上本模块堆"已用 122.8 MB / 空闲 5.2 MB"（415 读数）把 `whatsmydps`
+// 每帧要的 128 KiB 挡在门外，而"这 122 MB 是谁吃的"当时只能靠猜。这一格把
+// Lua 侧（模组的表/字符串 —— EID 的语言包光源码就有 8 MB）与
+// 其它（`malloc` 出来的：Font 块、贴图转码缓冲、挂载表、名字层…）分开：
+// 其它 = 状态面 `heapUsedBytes`（[59]）− 本格。
+// 口径 = `lua_gc` 的 `LUA_GCCOUNT` + `LUA_GCCOUNTB`；拿不到状态时返回 0。
+// 只读、只记录：没有任何行为跟着它变。
+// 声明放这个头（而不是 `lua_runtime.hpp`）的原因：消费方
+// `mod_menu_native.cpp` 包含的是这一份；放错头会得到
+// `'LuaStateMemoryBytes' is not a member of 'LuaRuntime'`（2026-10-08 本批实撞）。
 [[nodiscard]] std::uint32_t LuaStateMemoryBytes() noexcept;
-//: ★★★ 批次 425（2026-10-10）：**把"Lua 的 GC 看不见的那笔内存"补给 GC 看**。
-//:
-//: **起因**：`whatsmydps` 在 `MC_POST_RENDER` 里每帧 `Font()` 一个对象、用完即弃
-//: （真机实测 **`MC_POST_RENDER` 派发次数 : Font 分配次数 = 1 : 1**）。
-//: 后果：**Font 存活块数一路锯到 507 块**（× 128 KiB = **63 MB**），
-//: 而它**每约 250 帧才被 GC 收一次**。
-//:
-//: **★★ 为什么 GC 不收它 —— 415 批留下的那句前提是错的**：
-//: 那 128 KiB 的块走的是 `lua_getallocf` 拿到的**裸 `frealloc`**
-//: （`lapi.c:1169` 就是 `return G(L)->frealloc;`），而 Lua **只在
-//: `luaM_realloc_` 里更新 `g->GCdebt`**（`lmem.c:97`）。
-//: ⇒ **直接调 `frealloc` 绕过了这笔账** ⇒ 这块内存**不进 Lua 的用量统计**
-//: ⇒ GC 的触发条件（`GCdebt` 对 `GCthreshold`）**永远看不到它**
-//: ⇒ 只能等**别的**分配顺手把 GC 触发起来，而那时已经攒了 500+ 块。
-//: （415 的原话是"它计入 Lua 的 GC 账 ⇒ GC 按需回收" —— **实测不成立**，本批订正。）
-//:
-//: **修法**：这笔内存**我们自己看得见**（`g_FontStorageLive`）⇒
-//: 由我们把它**补报**给 GC：存活块数超过软上限就催一次全量 GC。
-//:
-//: `frames` = 调用方的单调帧号（用来限速，**不要传 0**）；
-//: `liveFontBlocks` = `isaac::runtime::FontStorageLiveBlocks()` 的值。
-//: ★ 为什么要调用方把块数**传进来**、而不是这里自己去读那个 `std::atomic`：
-//:   本文件在 `namespace LuaRuntime` 里写 `namespace isaac::runtime {…}` 会**造出
-//:   `LuaRuntime::isaac::runtime`**，而这个名字会**抢走本 TU 后面所有 `isaac::runtime::X`
-//:   的查找**（2026-10-10 本批实撞：`lua_runtime.cpp` 一次性报了 15 个
-//:   `'CallbackRegistry' in namespace 'LuaRuntime::isaac::runtime' does not name a type`）。
-//:   ⇒ **不要在 `LuaRuntime` 里再开 `isaac`**；要读那边的量就从参数进来。
-//: 返回 **1** = 这一拍真的走了 GC 步进；**0** = 没到阈值 / 没到起拍间隔 / 状态没建 /
-//: **上一轮没收掉东西**（见实现里那条"自停"判据）。
-//: ★ 调用点必须在**不在 Lua 执行中**的地方（本批放在 `ModMenuNativeUpdate()` 的每帧路径）——
-//:   GC 会跑终结器，在 Lua 里乱插一脚是不安全的。
-//:
-//: ★★★ 2026-10-10 当晚（批次 426）：**从"全量 GC"改成"按时间预算切片的增量步进"**。
-//: 425 用的是 `LUA_GCCOLLECT`（**全量、stop-the-world**），一秒左右一次
-//: ⇒ 用户当晚就报「**掉一下回 60，然后再掉一下回 60**，一直这样」——**那是我上一批造的**。
-//: ★ 教训：425 只权衡了"一次收干净"，**没权衡"单次最长停顿"**；
-//:   改性能相关的选择，**"单次最长耗时"必须是一等判据**。
-//: 现在一拍之内反复走 `LUA_GCSTEP, 0`（**单步、有界**），
-//: 直到 ①一轮走完 或 ②花掉 1 ms 预算 或 ③撞步数上限 ⇒ 单次停顿有界、肉眼不可见；
-//: 同样的总工作量摊到 ~30 拍/秒上（≈3% CPU）。
-//: ★ `LUA_GCSTEP` 的 `data` **必须传 0**：`data != 0` 时它按"债"一路还完（≈全量，见
-//:   `lapi.c:1066-1078` + `luaC_step` 的 `do…while (debt > -GCSTEPSIZE)`）——**一样不可控**。
+// 把"Lua 的 GC 看不见的那笔内存"补给 GC 看。
+//
+// 起因：`whatsmydps` 在 `MC_POST_RENDER` 里每帧 `Font()` 一个对象、用完即弃
+// （真机实测 `MC_POST_RENDER` 派发次数 : Font 分配次数 = 1 : 1）。
+// 后果：Font 存活块数一路锯到 507 块（× 128 KiB = 63 MB），
+// 而它每约 250 帧才被 GC 收一次。
+//
+// 为什么 GC 不收它 —— 415 批留下的那句前提是错的：
+// 那 128 KiB 的块走的是 `lua_getallocf` 拿到的裸 `frealloc`
+// （`lapi.c:1169` 就是 `return G(L)->frealloc;`），而 Lua 只在
+// `luaM_realloc_` 里更新 `g->GCdebt`（`lmem.c:97`）。
+// ⇒ 直接调 `frealloc` 绕过了这笔账 ⇒ 这块内存不进 Lua 的用量统计
+// ⇒ GC 的触发条件（`GCdebt` 对 `GCthreshold`）永远看不到它
+// ⇒ 只能等别的分配顺手把 GC 触发起来，而那时已经攒了 500+ 块。
+// （415 的原话是"它计入 Lua 的 GC 账 ⇒ GC 按需回收" —— 实测不成立，本批订正。）
+//
+// 修法：这笔内存我们自己看得见（`g_FontStorageLive`）⇒
+// 由我们把它补报给 GC：存活块数超过软上限就催一次全量 GC。
+//
+// `frames` = 调用方的单调帧号（用来限速，不要传 0）；
+// `liveFontBlocks` = `isaac::runtime::FontStorageLiveBlocks()` 的值。
+// 为什么要调用方把块数传进来、而不是这里自己去读那个 `std::atomic`：
+// 本文件在 `namespace LuaRuntime` 里写 `namespace isaac::runtime {…}` 会造出
+// `LuaRuntime::isaac::runtime`，而这个名字会抢走本 TU 后面所有 `isaac::runtime::X`
+// 的查找（2026-10-10 本批实撞：`lua_runtime.cpp` 一次性报了 15 个
+// `'CallbackRegistry' in namespace 'LuaRuntime::isaac::runtime' does not name a type`）。
+// ⇒ 不要在 `LuaRuntime` 里再开 `isaac`；要读那边的量就从参数进来。
+// 返回 1 = 这一拍真的走了 GC 步进；0 = 没到阈值 / 没到起拍间隔 / 状态没建 /
+// 上一轮没收掉东西（见实现里那条"自停"判据）。
+// 调用点必须在不在 Lua 执行中的地方（本批放在 `ModMenuNativeUpdate()` 的每帧路径）——
+// GC 会跑终结器，在 Lua 里乱插一脚是不安全的。
+//
+// 2026-10-10 当晚：从"全量 GC"改成"按时间预算切片的增量步进"。
+// 425 用的是 `LUA_GCCOLLECT`（全量、stop-the-world），一秒左右一次
+// ⇒ 用户当晚就报「掉一下回 60，然后再掉一下回 60，一直这样」——那是我上一批造的。
+// 教训：425 只权衡了"一次收干净"，没权衡"单次最长停顿"；
+// 改性能相关的选择，"单次最长耗时"必须是一等判据。
+// 现在一拍之内反复走 `LUA_GCSTEP, 0`（单步、有界），
+// 直到 ①一轮走完 或 ②花掉 1 ms 预算 或 ③撞步数上限 ⇒ 单次停顿有界、肉眼不可见；
+// 同样的总工作量摊到 ~30 拍/秒上（≈3% CPU）。
+// `LUA_GCSTEP` 的 `data` 必须传 0：`data != 0` 时它按"债"一路还完（≈全量，见
+// `lapi.c:1066-1078` + `luaC_step` 的 `do…while (debt > -GCSTEPSIZE)`）——一样不可控。
 [[nodiscard]] std::uint32_t NudgeLuaGcIfFontBlocksHigh(std::uint32_t frames,
                                                        std::uint32_t liveFontBlocks) noexcept;
 [[nodiscard]] std::uintptr_t InputIsActionTriggeredThunk() noexcept;
 [[nodiscard]] std::uintptr_t InputGetActionValueThunk() noexcept;
-//: 批次 195（2026-09-29）：**按键号**那三条查询的入口（`KAGE::Input::ManagerBase`）。
-//: 与上面三条**动作**查询不是同一个东西（入口在 KAGE 的输入管理器上，不在
-//: `IsaacRepentance::Manager` 的跳板上）。取到 0 = 没发布（守卫不符）⇒ handler 报"绑定不可用"，
-//: **不编一个 false/0.0** 把"偏移写串"伪装成"没按下"。
-//: ★ 只有**两条**：`IsButtonTriggered` 不登记（引擎那条的语义不是 PC 的上升沿，我们不用它，
-//: 见 `runtime_constants.hpp` 里那段说明）。
+// 按键号那三条查询的入口（`KAGE::Input::ManagerBase`）。
+// 与上面三条动作查询不是同一个东西（入口在 KAGE 的输入管理器上，不在
+// `IsaacRepentance::Manager` 的跳板上）。取到 0 = 没发布（守卫不符）⇒ handler 报"绑定不可用"，
+// 不编一个 false/0.0 把"偏移写串"伪装成"没按下"。
+// 只有两条：`IsButtonTriggered` 不登记（引擎那条的语义不是 PC 的上升沿，我们不用它，
+// 见 `runtime_constants.hpp` 里那段说明）。
 [[nodiscard]] std::uintptr_t InputIsButtonPressedThunk() noexcept;
 [[nodiscard]] std::uintptr_t InputGetButtonValueThunk() noexcept;
 // --- 引擎入口的"声明类型"：唯一一份（2026-09-17）-----------------------------
@@ -330,24 +311,24 @@ using SpriteGetTexelFn = SpriteTexelColor (*)(void*, SpriteTexelVector, SpriteTe
 using SpriteUpdateFn = void (*)(void*);
 using SpriteIsPlayingFn = bool (*)(const void*, const char*);
 using SpriteIsFinishedFn = bool (*)(const void*, const char*);
-//: 批次 279：overlay 三条。`PlayOverlay`/`SetOverlayFrame` 都选 **`char const*` 重载**
-//: （避开 libc++ `std::string` 桥）；`SetLastFrame()` 无参。
+// overlay 三条。`PlayOverlay`/`SetOverlayFrame` 都选 `char const*` 重载
+// （避开 libc++ `std::string` 桥）；`SetLastFrame()` 无参。
 using SpritePlayOverlayFn = void (*)(void*, const char*, bool);
 using SpriteSetLastFrameFn = void (*)(void*);
 using SpriteSetOverlayFrameFn = void (*)(void*, const char*, int);
-//: 批次 280：`ANM2::Stop()`（0 参）。
+// `ANM2::Stop()`（0 参）。
 using SpriteStopFn = void (*)(void*);
-//: 批次 283：四条「按名字查询」—— 引擎侧统一 `bool ANM2::Xxx(std::string const&) const`。
-//: 第二个参数是 **libc++ 的 24 字节 `std::string` 对象**（`sprite_api.cpp` 里
-//: `BuildNativeString` 交出来的那一块），所以按 `const void*` 传 —— 与 `SpriteLoadFn` /
-//: `SpriteReplaceSpritesheetFn` 同一条口径（我们对布局的假设只有"全零 = 空短串"这一条，
-//: 内容由游戏自己的 `assign` 桩填，不去猜 libc++ 的字段）。
+// 四条「按名字查询」—— 引擎侧统一 `bool ANM2::Xxx(std::string const&) const`。
+// 第二个参数是 libc++ 的 24 字节 `std::string` 对象（`sprite_api.cpp` 里
+// `BuildNativeString` 交出来的那一块），所以按 `const void*` 传 —— 与 `SpriteLoadFn` /
+// `SpriteReplaceSpritesheetFn` 同一条口径（我们对布局的假设只有"全零 = 空短串"这一条，
+// 内容由游戏自己的 `assign` 桩填，不去猜 libc++ 的字段）。
 using SpriteIsOverlayPlayingFn = bool (*)(const void*, const void*);
 using SpriteIsOverlayFinishedFn = bool (*)(const void*, const void*);
 using SpriteIsEventTriggeredFn = bool (*)(const void*, const void*);
 using SpriteWasEventTriggeredFn = bool (*)(const void*, const void*);
-//: 批次 214：`ANM2::Reset()`（`void Reset(ANM2*)`）—— 中文版 MCM 的 `filepathhelper.lua`
-//: 在探测 anm2 路径之后会调它（`anm2Tester:Reset()`，**不在 pcall 里**）。
+// `ANM2::Reset()`（`void Reset(ANM2*)`）—— 中文版 MCM 的 `filepathhelper.lua`
+// 在探测 anm2 路径之后会调它（`anm2Tester:Reset()`，不在 pcall 里）。
 using SpriteResetFn = void (*)(void*);
 using SpriteRenderFn = void (*)(void*, const void*, const void*, const void*);
 using SpriteRenderLayerFn = void (*)(void*, int, const void*, const void*, const void*);
@@ -390,13 +371,13 @@ using GameOperatorDeleteFn = void (*)(void*);
 [[nodiscard]] SpriteGetTexelFn SpriteGetTexelThunk() noexcept;
 [[nodiscard]] SpriteUpdateFn SpriteUpdateThunk() noexcept;
 [[nodiscard]] SpriteIsPlayingFn SpriteIsPlayingThunk() noexcept;
-//: 批次 279：overlay 三条的 thunk。
+// overlay 三条的 thunk。
 [[nodiscard]] SpritePlayOverlayFn SpritePlayOverlayThunk() noexcept;
 [[nodiscard]] SpriteSetLastFrameFn SpriteSetLastFrameThunk() noexcept;
 [[nodiscard]] SpriteSetOverlayFrameFn SpriteSetOverlayFrameThunk() noexcept;
-//: 批次 280：`Stop`。
+// `Stop`。
 [[nodiscard]] SpriteStopFn SpriteStopThunk() noexcept;
-//: 批次 283：四条「按名字查询」的 thunk。
+// 四条「按名字查询」的 thunk。
 [[nodiscard]] SpriteIsOverlayPlayingFn SpriteIsOverlayPlayingThunk() noexcept;
 [[nodiscard]] SpriteIsOverlayFinishedFn SpriteIsOverlayFinishedThunk() noexcept;
 [[nodiscard]] SpriteIsEventTriggeredFn SpriteIsEventTriggeredThunk() noexcept;
@@ -431,13 +412,13 @@ using GameOperatorDeleteFn = void (*)(void*);
                                                  std::uintptr_t* music) noexcept;
 [[nodiscard]] bool ResolveMusicPause(std::uintptr_t method, std::uintptr_t* music) noexcept;
 [[nodiscard]] bool ResolveMusicResume(std::uintptr_t method, std::uintptr_t* music) noexcept;
-// 批次 137：`MusicManager:UpdateVolume()` 的接收者解析（与上面三条同一个入口守卫机制）。
+// `MusicManager:UpdateVolume()` 的接收者解析（与上面三条同一个入口守卫机制）。
 [[nodiscard]] bool ResolveMusicUpdateVolume(std::uintptr_t method,
                                             std::uintptr_t* music) noexcept;
-// 批次 138：`MusicManager:Play(ID, Volume)` 的接收者解析（同上）。
+// `MusicManager:Play(ID, Volume)` 的接收者解析（同上）。
 [[nodiscard]] bool ResolveMusicPlay(std::uintptr_t method, std::uintptr_t* music) noexcept;
 
-// 批次 185（2026-09-28）：`SFXManager:IsPlaying(ID)` 的接收者解析 ——
+// `SFXManager:IsPlaying(ID)` 的接收者解析 ——
 // **与上面 Music 那一族共用同一个 Manager**（"当前回调的 Manager"或"本帧 `Manager::Update` 的 self"），
 // 只是子对象的偏移不同：`Manager + kManagerSoundEffectsOffset`（`0x364A8`，
 // 反汇编证据见 `runtime_constants.hpp` 里那条常量）。`false` = "原生绑定不可用"，
@@ -448,18 +429,18 @@ using GameOperatorDeleteFn = void (*)(void*);
 [[nodiscard]] bool ResolveSoundEffectsForCall(std::uintptr_t method,
                                               std::uintptr_t* soundEffects) noexcept;
 
-//: 批次 408（2026-10-08）：`SFXManager:Play(...)` 的接收者解析 —— **与上一条同一个核心**，
-//: 差别只有入口 16 字节指纹（`SoundEffects::Play` @ `0x4A2FD0` vs `IsPlaying` @ `0x4A38AC`）。
-//: 多一个出参 `failureCode`：0 = 成功；1 = 不在托管回调派发里 / 2 = Manager 或子对象读不到 /
-//: 3 = 方法地址或期望字节缺失 / 4 = 入口指纹不符（与 `g_MusicResolveFailure` 同一套语义）。
-//: ★ 单独开出参而不写共享的 `g_MusicResolveFailure`：`IsPlaying` 与 `Play` 可能同帧都被调，
-//:   共用一格会让"最近一次失败"分不清是谁的（见 `music_api.cpp` 里 Play 的探针注释）。
-//: `false` = "原生绑定不可用"，Play 处理器据此**安静地什么都不做**（PC 的 `void`，不报错）。
+// `SFXManager:Play(...)` 的接收者解析 —— 与上一条同一个核心，
+// 差别只有入口 16 字节指纹（`SoundEffects::Play` @ `0x4A2FD0` vs `IsPlaying` @ `0x4A38AC`）。
+// 多一个出参 `failureCode`：0 = 成功；1 = 不在托管回调派发里 / 2 = Manager 或子对象读不到 /
+// 3 = 方法地址或期望字节缺失 / 4 = 入口指纹不符（与 `g_MusicResolveFailure` 同一套语义）。
+// 单独开出参而不写共享的 `g_MusicResolveFailure`：`IsPlaying` 与 `Play` 可能同帧都被调，
+// 共用一格会让"最近一次失败"分不清是谁的（见 `music_api.cpp` 里 Play 的探针注释）。
+// `false` = "原生绑定不可用"，Play 处理器据此安静地什么都不做（PC 的 `void`，不报错）。
 [[nodiscard]] bool ResolveSoundEffectsPlayForCall(std::uintptr_t method,
                                                   std::uintptr_t* soundEffects,
                                                   std::uint32_t* failureCode) noexcept;
 
-// 批次 149（2026-09-26）：`false` 上面的那四条**为什么**是 `false`。
+// `false` 上面的那四条为什么是 `false`。
 //
 // 以前它们只有一句 "native bindings are unavailable"，把三种完全不同的原因混在一起：
 //   * 不在托管回调派发里（模组在文件作用域/非回调里调）；
@@ -474,20 +455,20 @@ using GameOperatorDeleteFn = void (*)(void*);
 // object is the Lua userdata itself, not a native pointer.
 [[nodiscard]] bool ValidateRngSetSeedBinding(std::uintptr_t address) noexcept;
 [[nodiscard]] bool ValidateRngNextBinding(std::uintptr_t address) noexcept;
-//: 批次 195：`RNG::Random(uint)` / `RNG::Random()` 的入口指纹核对（16 字节，同上一族）。
+// `RNG::Random(uint)` / `RNG::Random()` 的入口指纹核对（16 字节，同上一族）。
 [[nodiscard]] bool ValidateRngRandomUintBinding(std::uintptr_t address) noexcept;
 [[nodiscard]] bool ValidateRngRandomBinding(std::uintptr_t address) noexcept;
 
-//: 批次 195：`KAGE::Input::ManagerBase` 上按**按键号**查询的三条入口。
-//: ★ 这三条（连同同族的动作查询共四条）的**头 32 字节完全相同** ⇒ 序言指纹只能证明"模块基址对"。
-//: 区分它们的是各自那条"取虚表槽"的指令（`entry+0xE0` 的 4 字节：本文件里 Pressed 与
-//: Triggered 各有自己的那 4 字节常量）⇒ 这两个校验器比对的是**更严的**判据（见实现处）。
+// `KAGE::Input::ManagerBase` 上按按键号查询的三条入口。
+// 这三条（连同同族的动作查询共四条）的头 32 字节完全相同 ⇒ 序言指纹只能证明"模块基址对"。
+// 区分它们的是各自那条"取虚表槽"的指令（`entry+0xE0` 的 4 字节：本文件里 Pressed 与
+// Triggered 各有自己的那 4 字节常量）⇒ 这两个校验器比对的是更严的判据（见实现处）。
 [[nodiscard]] bool ValidateInputIsButtonPressedBinding(std::uintptr_t address) noexcept;
 [[nodiscard]] bool ValidateInputGetButtonValueBinding(std::uintptr_t address) noexcept;
 
 [[nodiscard]] isaac::runtime::CallbackRegistry& ManagedCallbackRegistry() noexcept;
 
-// ---- 批次 106：`Level:GetStartingRoomIndex()` 的派生记账 ------------------------
+// ---- `Level:GetStartingRoomIndex()` 的派生记账 ------------------------
 //
 // 模型：**本层第一次被看到的那个房间索引**就是"起始房间"（引擎里没有这个函数/字段的符号，
 // 取证过程见 `level_start_room.hpp` 顶部与 `api_deviation.cpp` 的 0x03010011 那条）。
@@ -521,9 +502,9 @@ void NoteCurrentLocationForStartRoom() noexcept;
 //      `luaL_error` 的消息就是最终文本（含 `file:line:` 前缀），所以这样记录下来的
 //      就是**消息本体**，不再依赖 `lua_tostring` 的成功与否。
 //
-// ★ 为什么宏写在头文件里：本项目有多个 TU 调用 `luaL_error`（约 34 处），逐个改容易漏。
+// 为什么宏写在头文件里：本项目有多个 TU 调用 `luaL_error`（约 34 处），逐个改容易漏。
 // 宏只在**包含本头文件之后**生效，且用 `push_macro/pop_macro` 保证不泄漏。
-// ★ **已知不覆盖**：直接调 `lua_error`（不走 `luaL_error`）的路径；本项目目前没有这种调用，
+// 已知不覆盖：直接调 `lua_error`（不走 `luaL_error`）的路径；本项目目前没有这种调用，
 // 若以后出现，需要一并包装。
 void RecordLuaErrorValue(lua_State* state) noexcept;
 int ReportAndRecordLuaError(lua_State* state, const char* format, ...);

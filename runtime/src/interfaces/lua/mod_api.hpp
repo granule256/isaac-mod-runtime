@@ -43,7 +43,7 @@ void RecordCallbackTableRegistration(std::uint32_t id) noexcept;
 // `RegisterNamedCallback` 从栈顶取两个值：先 `Function`（回调函数），再 `Mod`（Mod 对象），
 // 两者都会被消费（`lua_pop`）。成功返回 true。
 //
-// `filterIndex`（批次 268 新增）：**可选过滤值**在同一个栈上的下标（0 = 这一条没有过滤值）。
+// `filterIndex`（新增）：可选过滤值在同一个栈上的下标（0 = 这一条没有过滤值）。
 // 它在 PC 上是 `Mod:AddCallback(id, fn, entityId)` 的第三个实参 —— 对字符串回调名，
 // 这个值的用途由 `Isaac.RunCallbackWithParam` 定义：**只有"过滤值对得上"的登记才会被调到**
 // （见 `RunNamedCallbacksWithFilter`）。存进条目的字段名取 PC 回调表那一栏的名字
@@ -93,13 +93,13 @@ int RunNamedCallbacksWithFilter(lua_State* state, const char* name, int filterIn
 int ModSaveData(lua_State* state);
 int ModLoadData(lua_State* state);
 
-// `Isaac.HasModData(modRef)`（批次 261，2026-10-01，语料 API 恢复的 `glue_compose` 桶）。
+// `Isaac.HasModData(modRef)`（，2026-10-01，语料 API 恢复的 `glue_compose` 桶）。
 //
 // PC 契约 `tools/pc_contract_docs/Isaac.md:491`：`#### boolean HasModData ( table modRef )`，
 // 正文逐字：Returns "true" if your mod has Data stored using the "SaveModData()" function.
 // Aka. if there is a "saveX.dat" file in your mod folder.
 //
-// ★ 与 `Mod:HasData()` 是**同一件事**（同一份 `saveX.dat`、同一个判定），所以这里**直接转调**
+// 与 `Mod:HasData()` 是同一件事（同一份 `saveX.dat`、同一个判定），所以这里直接转调
 // `Mod:HasData` 的处理器 —— 作业单第三节第 7 条明确要求不许另写一份判定
 // （`ModPersistence::HasModData` 是唯一实现）。
 //

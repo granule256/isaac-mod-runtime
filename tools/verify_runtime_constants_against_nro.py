@@ -46,7 +46,7 @@ DEFAULT_NRO = (
 )
 DEFAULT_CONSTANTS = "runtime/source/runtime_constants.hpp"
 OFFSET_PATTERN = re.compile(r"inline constexpr (?:std::)?uintptr_t (k\w+?) = (0x[0-9A-Fa-f]+);")
-#: 数组侧认的后缀（批次 210 从两个扩到四个）。
+#: 数组侧认的后缀（从两个扩到四个）。
 #: `Discriminator`：只用 4 字节区分"形同一模一样的入口"（`KAGE::Input` 那四条），
 #: 比的位置是"**入口偏移 + 判别式偏移**"，不是入口本身 ── 见 `DISCRIMINATOR_OFFSETS`。
 #: `ExpectedOriginal`：打补丁前原始镜像里的字节（中继入口那一族）。

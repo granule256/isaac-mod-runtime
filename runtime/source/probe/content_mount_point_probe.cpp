@@ -278,7 +278,7 @@ IsaacModRuntime_ProbeContentMountPoint() {
     // --- Mod 加载失败：探针口径要求“到点必须直接报错” ---
     // 成功不崩（会话继续跑，画面本身就是证据），失败必崩并把普查字装进寄存器。
     //
-    // ★ 判据只看诊断字 [11] 的**低 8 位**：0 = 带脚本加载成功，1..4 = 失败在哪一步，
+    // 判据只看诊断字 [11] 的低 8 位：0 = 带脚本加载成功，1..4 = 失败在哪一步，
     // **5 = 纯资源型 Mod 已挂载**（清单没写 `entry`，或 entry 指向的文件包内不存在：
     // 内容挂载点照常注册、Lua 刻意不初始化、`InitializeDefaultManifestMod` 返回成功）。
     // 只判 `!= 0` 会把"资源型 Mod 正常加载"当失败，下一轮探针就会在正常情况上崩掉。
@@ -733,7 +733,7 @@ IsaacModRuntime_ProbeContentMountPoint() {
 }
 
 
-// --- 引擎 ItemConfig 链探针（批次 2b，2026-09-13 修正）------------------------
+// --- 引擎 ItemConfig 链探针（b，2026-09-13 修正）------------------------
 //
 // 反汇编定位出来的偏移（`runtime_constants.hpp` 里有完整表）在 `Isaac.GetItemConfig()` 上线后
 // 必须真机确认。证据口径**只走栈转储**：2026-09-12 第三轮实测 `x2`/`x3`/`x4` 一直正确，而
@@ -765,7 +765,7 @@ bool ReadProbeWord(std::uint64_t address, std::uint64_t* value) {
     return true;
 }
 
-// 触发判定用：`players[0]` 是不是活的（批次 2 已真机确认，见 `ISAACGP1` 的报告）。
+// 触发判定用：`players[0]` 是不是活的（已真机确认，见 `ISAACGP1` 的报告）。
 // 只做"进局了没有"的判断，链路上任何一步不可读都算"还没进局"，因此这里不需要负载。
 bool ProbePlayer0IsAlive(std::uint64_t base) {
     std::uint64_t gameSlot = 0;
@@ -819,7 +819,7 @@ bool ReadProbeWordInto(std::uint64_t address, volatile std::uint64_t* slot) {
         state |= 1ULL << 1;
     }
 
-    // ★ 关键修正：这里是**加法**，没有第三次解引用 —— `ItemConfig` 是 `Manager` 内部的子对象。
+    // 关键修正：这里是加法，没有第三次解引用 —— `ItemConfig` 是 `Manager` 内部的子对象。
     // 上一版读的是 `*(u64*)(M + 0x36538)`（实际是 `collectibles.begin()`），把 begin/end 当成了
     // `items[0]/items[1]`，ItemConfig 那部分读数因此全废。
     payload[2] = payload[1] + kManagerItemConfigOffset;
@@ -958,7 +958,7 @@ bool ReadProbeWordInto(std::uint64_t address, volatile std::uint64_t* slot) {
     __builtin_unreachable();
 }
 
-// --- 回调 Lua 错误探针（批次 2c，`ISAACERR`）--------------------------------
+// --- 回调 Lua 错误探针（c，`ISAACERR`）--------------------------------
 //
 // 要解释的现象：EID 在 Switch 上能加载、游戏不崩，但屏幕上不显示任何描述文字。已知的派发器
 // 行为（`lua_runtime.cpp`，本探针只读、不改一行）：某次回调的 `lua_pcallk` 返回非 `LUA_OK` 时，
@@ -1015,7 +1015,7 @@ struct CallbackErrorProbeInputs {
     std::uint32_t registryCount;
     std::uint32_t diagnostics[16];
     // 动作一（`Sprite:GetTexel`）与动作三（`Level:GetCurses` / `Pickup.Touched`）的读数。
-    // ★ **必须是扁平的基本类型成员，不能在报告函数里声明结构体局部量**：报告函数的栈帧要压在
+    // 必须是扁平的基本类型成员，不能在报告函数里声明结构体局部量：报告函数的栈帧要压在
     // `Stack Dump` 窗口 `[SP, SP+0x100)` 以内，而一个 `SpriteGetTexelProbeView`（4 字段）
     // 加一个 `GameCursesProbe`（5 字段）就吃掉 0x40 字节，直接把 `payload[16]` 顶到
     // `sp+0x130` —— 真机报告 `01789223416` 就是这么丢掉整个负载的（X[02] 在 SP+0x130，
@@ -1032,7 +1032,7 @@ struct CallbackErrorProbeInputs {
     std::uint32_t touchedReads{0};
     std::uint32_t touchedTrue{0};
     std::uint32_t touchedLastRaw{0};
-    // ★ **所有探针快照一律在这里扁平化**（2026-09-12 第四轮）。
+    // 所有探针快照一律在这里扁平化（2026-09-12 第四轮）。
     //
     // 为什么：`ReportCallbackErrorSnapshot` 里只要声明结构体局部量
     // （`FindInRadiusProbe`/`ApiSequenceProbe`/`FrameCountProbe`/`EntityFieldProbe`/
@@ -1111,7 +1111,7 @@ struct CallbackErrorProbeInputs {
     volatile std::uint64_t payload[16] = {0};
     // "错误文本过短 ⇒ 不可信"（bit11）在这里算，因为 `payload[0]` 马上就要用到它。
     const bool errorTextUntrustworthy = inputs->errorLength != 0 && inputs->errorLength < 4;
-    // ★ **`payload[0]` 只能写一次**（2026-09-12 第五稿的教训）：函数末尾还有一段
+    // `payload[0]` 只能写一次（2026-09-12 第五稿的教训）：函数末尾还有一段
     // `if (errorTextUntrustworthy) payload[0] = inputs->status | (1<<11);`，
     // 而这里若再用 `inputs->status` 重写一次，就会把那一位**覆盖掉** —— 解码器于是把
     // "错误文本只有 1 字节、不可信"的残留内容当成真消息（真机报告 `01789226944` 就撞上了）。
@@ -1130,7 +1130,7 @@ struct CallbackErrorProbeInputs {
                                                                          : inputs->replaceCalls)
                                              & 0xFFu)
                   << 56);
-    // ★ `Isaac.GetItemConfig()` 的探针**不能写在这里**：下面 `[3]` 还有一次整字赋值，
+    // `Isaac.GetItemConfig()` 的探针不能写在这里：下面 `[3]` 还有一次整字赋值，
     // 会把这里写的高 32 位覆盖掉（真机报告 `01789228056` 读出"调用 258 次但四个分支位全 0"
     // 就是这个原因）。它现在写在 `[3]` 整字赋值**之后**，见文本布局末尾。
     payload[1] = inputs->errorLength;
@@ -1154,7 +1154,7 @@ struct CallbackErrorProbeInputs {
         // 后续成功的那次覆盖了。读数必须与报错同一时刻才可信。
         //   标志位 bit0 向量可读、bit1 向量为空、bit2 首元素非空、
         //   bit3 vptr == 模块基址 + `Entity_Player` vtable 偏移
-        // ★ **为什么是 8 个字（64 字节）而不是 11 个**（2026-09-12 第二轮真机教训）：
+        // 为什么是 8 个字（64 字节）而不是 11 个（2026-09-12 第二轮真机教训）：
         // 崩溃报告只 dump `[SP, SP+0x100)`，而实测 `payload` 落在 **SP+0x130**（比设计的
         // +0xc0 高 0x70：这条分支里 `inputs->errorText`（176 字节）与引擎读数链路的分支
         // 一起把帧推大了）。于是只有 `payload[0..6]` 能读回来 —— `[13]/[14]` 上的
@@ -1163,7 +1163,7 @@ struct CallbackErrorProbeInputs {
         //   `[2..9]`  错误文本前 64 字节（文件路径 60 字节 + 行号足够）
         //   `[10]`    `Sprite:GetTexel` 紧凑读数（动作一）
         //   `[11]`    诅咒紧凑读数（动作三）
-        // ★★ **为什么关键读数在 `[2]`/`[3]` 而不是 `[10]`/`[11]`**（2026-09-12 第三轮真机定案）：
+        // 为什么关键读数在 `[2]`/`[3]` 而不是 `[10]`/`[11]`（2026-09-12 第三轮真机定案）：
         // 崩溃报告只 dump `[SP, SP+0x100)`，而实测 `payload[16]` 落在 **SP+0xd0** ——
         // 于是**只有前 48 字节（`payload[0..5]`）能读回来**，`[6]` 之后全部在窗口外。
         // 这一点被三份报告连续证实（`01789223416`/`01789223748`/`01789224092` 都只覆盖
@@ -1174,7 +1174,7 @@ struct CallbackErrorProbeInputs {
         //   `[3]`    诅咒 + `Pickup.Touched` 紧凑读数（动作三）
         //   `[4..5]` 错误文本前 16 字节（能读到多少算多少；实测这条通道常只记到 1 字节）
         //   `[6..12]` 错误文本其余部分 —— **在窗口外，只为排版完整保留**
-        // ★★ **本布局只保证前 3 个字可达**（2026-09-12 第五轮，实测 + 自描述）。
+        // 本布局只保证前 3 个字可达（2026-09-12 第五轮，实测 + 自描述）。
         //
         // 实测：崩溃报告的 `Stack Dump` 覆盖 `[SP, SP+0x100)`，而负载在真机上只有前 48 字节
         // （`payload[0..5]`）落在窗口内 —— 本地反汇编算出来的偏移（`sp+0x30`）与真机不符，
@@ -1231,7 +1231,7 @@ struct CallbackErrorProbeInputs {
                      (static_cast<std::uint64_t>(
                           (inputs->touchedTrue > 0xFFu ? 0xFFu : inputs->touchedTrue) & 0xFFu)
                       << 56);
-        // ★ **必须在上面那次整字赋值之后补写**（`|=`）：上一稿把它写在整字赋值之前，被覆盖。
+        // 必须在上面那次整字赋值之后补写（`|=`）：上一稿把它写在整字赋值之前，被覆盖。
         // **规则：文本布局里每个槽只允许一次整字赋值，其余一律 `|=` 且排在其后。**
         // 高 32 位：bit0 链路解析成功、bit1 向量可读、bit2 因向量未建立而返回对象、
         // bit3 因参数非法而返回 nil、bits8..31 调用次数。
@@ -1429,7 +1429,7 @@ IsaacModRuntime_ProbeCallbackError() {
 
     // 主口径之一：派发器见过回调 Lua 错误（粘性，见上面的选择理由）。
     const bool callbackError = LuaRuntime::CallbackErrorPending();
-    // ★★ **"历史上记到过错误文本"不再参与触发判定**（2026-09-12 第九稿）。
+    // "历史上记到过错误文本"不再参与触发判定（2026-09-12 第九稿）。
     //
     // 那个标志是**粘性**的：加载期只要记到过一次错误文本，它永远是 1。于是探针会在
     // "刚进主界面"几秒内触发、把游戏关掉 —— 用户实测正是如此（"从加载界面进主界面，
@@ -1484,7 +1484,7 @@ IsaacModRuntime_ProbeCallbackError() {
         inputs.entityStringReads = fields.stringReads;
         inputs.entityLastStringHead = fields.lastStringHead;
     }
-    // ★ 其余探针快照也**全部在这里**取（2026-09-12 第四轮）。理由见 `CallbackErrorProbeInputs`
+    // 其余探针快照也全部在这里取（2026-09-12 第四轮）。理由见 `CallbackErrorProbeInputs`
     // 里那批扁平字段的注释：报告函数里一出现结构体局部量，帧就被撑到 0x1a0，负载掉出 dump 窗口。
     // 本函数不是报错点，帧多大都无所谓。
     {
@@ -1712,7 +1712,7 @@ IsaacModRuntime_ProbeCallbackError() {
 // 触发口径（与上一轮一致）：**每帧检查，只有 `players[0]` 非空才报错**，外加调用次数兜底，
 // 每会话最多一次。负载与报错都在 `ReportItemConfigSnapshot` 里（见那里的注释）。
 //
-// 批次 2c（2026-09-13）：本探针**先给回调错误探针让路** —— 让路开关是头文件里的
+// c（2026-09-13）：本探针先给回调错误探针让路 —— 让路开关是头文件里的
 // `kEnginePlayerProbeDeferUntilErrorProbe`（当前 `true`）。触发时机本身没动（仍是每帧判一次
 // `players[0]`），只是在它前面加了一句"错误探针报过了吗"。上一轮的故障是：本探针一进房间就
 // `svcBreak`，会话在 EID 的回调错误发生之前就结束，于是拿不到错误信息。
@@ -1759,9 +1759,9 @@ IsaacModRuntime_ProbeEnginePlayers() {
     ReportItemConfigSnapshot(base, calls, havePlayer ? 1U : 0U);
 }
 
-// --- 房间实体容器探针（批次 4 真机确认，`ISAACEL1`）--------------------------------
+// --- 房间实体容器探针（真机确认，`ISAACEL1`）--------------------------------
 //
-// 静态结论（`runtime_constants.hpp` 的「房间实体容器」段、`docs/问题与解决记录.md` 批次 4）：
+// 静态结论（`runtime_constants.hpp` 的「房间实体容器」段、`docs/问题与解决记录.md` ）：
 //
 //   slot = *(u64*)(base + 0xAAC698) → Game = *(u64*)slot → Room = *(u64*)(Game + 0x21550)
 //   EL   = Room + 0x1950   ← **内嵌对象，加法**：既不是指针，也不是 `std::vector`
@@ -1784,7 +1784,7 @@ IsaacModRuntime_ProbeEnginePlayers() {
 // "两级链与容器指纹全部成立 + 活表 count > 0 + `players[0]` 非空"；兜底 = 已经在局内
 // （`players[0]` 非空）但主口径始终不成立（理由见头文件 `kEntityListProbeFallbackCalls`）。
 //
-// ★ 与其它探针的先后关系：一次会话只允许一个探针真正报错（`svcBreak` 直接结束会话）。本探针
+// 与其它探针的先后关系：一次会话只允许一个探针真正报错（`svcBreak` 直接结束会话）。本探针
 // 排在最后，并且在触发前显式检查既有的一次性标志（`g_callbackErrorProbeReported` 与
 // `g_probeTaken`），它们一旦置位就让路。**本探针由此可能被更早的会话结束者抢在前头**
 // （`ISAACERR` 的 600 次兜底、内容挂载点的 600 帧绘制口径、通用探针 break 的 1500 渲染帧），
@@ -2018,7 +2018,7 @@ __attribute__((noinline)) std::uint32_t TraverseEntityLiveTable(
                payload[2] == 0) {
         status = 3;
     } else {
-        // ★ 这里是**加法**：`EntityList` 内嵌在 `Room` 里，不存在指向它的指针。
+        // 这里是加法：`EntityList` 内嵌在 `Room` 里，不存在指向它的指针。
         payload[3] = payload[2] + kRoomEntityListOffset;
     }
 
@@ -2130,7 +2130,7 @@ IsaacModRuntime_ProbeEntityList() {
 
     std::uint64_t liveCount = 0;
     const std::uint32_t status = EvaluateEntityListStatus(base, &liveCount);
-    // `players[0]` 的取法与 `IsaacModRuntime_ProbeEnginePlayers` 完全相同（批次 2 已真机确认）。
+    // `players[0]` 的取法与 `IsaacModRuntime_ProbeEnginePlayers` 完全相同（已真机确认）。
     const bool havePlayer = ProbePlayer0IsAlive(base);
     const bool primaryReady = status == 0 && liveCount > 0 && havePlayer;
     // 兜底：已经在局内（`players[0]` 非空）却始终不满足主口径 —— 说明容器判据不成立，

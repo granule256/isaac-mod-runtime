@@ -20,9 +20,9 @@
 
 namespace isaac::runtime {
 
-//: 候选上限：自学习值 + 玩家值 + 任意手柄 + 0..3 + 32..35 = 最多 10 个。
+// 候选上限：自学习值 + 玩家值 + 任意手柄 + 0..3 + 32..35 = 最多 10 个。
 inline constexpr std::uint32_t kActionControllerCapacity = 10;
-//: 引擎自己菜单用的"任意手柄"。
+// 引擎自己菜单用的"任意手柄"。
 inline constexpr std::uint32_t kAnyController = 0xFFFFFFFFu;
 
 struct ActionControllerCandidates {
@@ -30,8 +30,8 @@ struct ActionControllerCandidates {
     std::uint32_t count{0};
 };
 
-//: 按口径拼候选表：**自学习值最先**（学到就不再靠猜）→ 玩家自己的值 → `0xFFFFFFFF` → 兜底 0..3、32..35。
-//: 重复值只留第一次出现的位置（重复查询只会白花时间，而且会让"学到了哪个值"记错）。
+// 按口径拼候选表：自学习值最先（学到就不再靠猜）→ 玩家自己的值 → `0xFFFFFFFF` → 兜底 0..3、32..35。
+// 重复值只留第一次出现的位置（重复查询只会白花时间，而且会让"学到了哪个值"记错）。
 [[nodiscard]] inline ActionControllerCandidates BuildActionControllerCandidates(
     std::uint32_t learned, bool hasLearned, std::uint32_t playerIndex,
     bool hasPlayer) noexcept {
@@ -63,11 +63,11 @@ struct ActionControllerCandidates {
     return out;
 }
 
-//: 逐个候选问过去；谁答"是"就返回它（写进 `*learned`，之后优先问它），全否返回 false。
-//: `query` 的调用形状与 `input_api.cpp` 一致：接收者被跳板覆盖，实参是（动作号, controller, 出参）。
-//: `context` 原样传给 `query` 的第一个参数。真机上那个参数会被引擎跳板**覆盖**（所以传什么都行），
-//: 但把它透传出来是必须的 —— 否则宿主用例没法给假实现传状态（本项目刚踩过一次：传 `nullptr`
-//: 让假实现去解引用空指针，用例直接崩而不是判红）。
+// 逐个候选问过去；谁答"是"就返回它（写进 `*learned`，之后优先问它），全否返回 false。
+// `query` 的调用形状与 `input_api.cpp` 一致：接收者被跳板覆盖，实参是（动作号, controller, 出参）。
+// `context` 原样传给 `query` 的第一个参数。真机上那个参数会被引擎跳板覆盖（所以传什么都行），
+// 但把它透传出来是必须的 —— 否则宿主用例没法给假实现传状态（本项目刚踩过一次：传 `nullptr`
+// 让假实现去解引用空指针，用例直接崩而不是判红）。
 [[nodiscard]] inline bool PollActionPressed(
     bool (*query)(void*, std::uint32_t, std::uint32_t, void*), void* context,
     std::uint32_t action, const ActionControllerCandidates& candidates,

@@ -55,7 +55,7 @@ constexpr char kSpriteOwner[] = "Sprite";
 constexpr std::size_t kSpriteStorageSlack = kSpriteObjectAlignment;
 
 // 引擎字段读取原语：先确认可读再 `memcpy`（指针猜错必须变成"读不到"而不是"读了就崩"）。
-// 「这段地址可读吗」：**唯一实现在引擎内存访问层里**（2026-09-24 批次 102 收敛）。
+// 「这段地址可读吗」：唯一实现在引擎内存访问层里（2026-09-24 收敛）。
 // 此前四个 API 族各有一份逐字相同的拷贝（去掉注释后各 781 字符）；判决条件一条没改，
 // 只是"实现在几处"从 4 变成了 1。**函数名保留** —— `test_lua_missing_members_batch028`
 // 按这个名字核对四个手写处理器体里有没有做可读性检查。
@@ -63,7 +63,7 @@ bool IsEngineMemoryReadable(std::uintptr_t address, std::size_t length) noexcept
     return isaac::runtime::engine_memory::EngineMemoryReadable(address, length);
 }
 
-// 2026-09-24（批次 114）：**实现搬进引擎内存访问层**（`engine_memory::ReadAt`）—— 本 TU 只剩一行
+// 2026-09-24：实现搬进引擎内存访问层（`engine_memory::ReadAt`）—— 本 TU 只剩一行
 // 委托，与写侧的 `WriteEngine`、以及 `isaac_api.cpp` 里的同名原语同例。判据一条没改：
 // 先可读、再取值；失败时**不写**出参。
 template <typename T>
@@ -71,7 +71,7 @@ bool ReadEngine(std::uintptr_t address, T* value) noexcept {
     return engine_memory::ReadAt(address, value, &IsEngineMemoryReadable);
 }
 
-// 引擎字段**写**原语（2026-09-16，与上面的读原语成对；2026-09-24 批次 103 收敛进访问层）。
+// 引擎字段写原语（2026-09-16，与上面的读原语成对；2026-09-24 收敛进访问层）。
 //
 // 为什么不能直接 `*reinterpret_cast<float*>(address) = value`：这里的地址来自**引擎对象**
 // （`ANM2`、`Entity_Player`），任何一次"猜错的地址"都会变成对别人的内存的破坏，而且是静默的。
@@ -93,14 +93,14 @@ bool WriteEngine(std::uintptr_t address, const T& value) noexcept {
     return isaac::runtime::engine_memory::WriteAt(address, value, &IsEngineMemoryWritable);
 }
 
-// --- 所有权与来源（批次 5）-----------------------------------------------------
+// --- 所有权与来源-----------------------------------------------------
 //
 // `SpriteHandle` 有两种来源，释放语义相反（详见 `lua_object_handles.hpp` 的注释）：
 //
 //   RuntimeOwned（Lua 的 `Sprite()`）—— 内存由本模块 `malloc`，`__gc` 必须 `~ANM2()` + `free`；
 //   EngineEntity（`Entity:GetSprite()`）—— 内存是**引擎实体**的成员，`__gc` 什么都不做。
 //
-// ★ 这里只有一条纪律：**任何**访问都先走 `ResolveSpriteObject`，绝不再直接读 `handle->sprite`
+// 这里只有一条纪律：任何访问都先走 `ResolveSpriteObject`，绝不再直接读 `handle->sprite`
 // 去解引用。引擎实体随时可能随换房间/死亡消失，所以引擎来源的地址**每次重新算**（`owner` →
 // 校验实体活着 → `owner + kEntitySpriteOffset`），句柄里缓存的地址只当身份。
 void* ResolveSpriteObject(const SpriteHandle* handle) noexcept {
@@ -117,7 +117,7 @@ void* ResolveSpriteObject(const SpriteHandle* handle) noexcept {
         }
         return engine_memory::AsObject(owner + kEntitySpriteOffset);
     }
-    // 批次 298：网格实体借出的 sprite（`GridEntity:GetSprite()`）。**同一个形状**，
+    // 网格实体借出的 sprite（`GridEntity:GetSprite()`）。同一个形状，
     // 只换存活判据与偏移 —— 网格实体随时可能被销毁（石头炸掉、换房间重建），
     // 所以每次访问都要重新算 `owner + kGridEntitySpriteOffset`。
     if (handle->source == kSpriteSourceEngineGridEntity) {
@@ -134,10 +134,10 @@ void* ResolveSpriteObject(const SpriteHandle* handle) noexcept {
 // 所以我们**不**做无界 `strlen`：逐字节确认可读、遇到 0 或到达上限就停。
 constexpr std::size_t kAnimationNameCapacity = 64;
 
-//: **文件名**的字节上限（批次 309）。比动画名宽：模组可以给出很长的 `gfx/...` 路径
-//: （契约 `Sprite.md:79` 的例子是 `gfx/001.000_Player.anm2`，而模组自己的路径可能长得多）。
-//: ★ 超限**不截断**（见 `ReadLibcxxStringAt` 的长度校验）：宁可答空串，也不答一个"看着像真的"
-//:   被砍掉尾巴的文件名 —— 语料里 `customgrids.lua` 拿它当字典键，错键会静默走错分支。
+// 文件名的字节上限。比动画名宽：模组可以给出很长的 `gfx/...` 路径
+// （契约 `Sprite.md:79` 的例子是 `gfx/001.000_Player.anm2`，而模组自己的路径可能长得多）。
+// 超限不截断（见 `ReadLibcxxStringAt` 的长度校验）：宁可答空串，也不答一个"看着像真的"
+// 被砍掉尾巴的文件名 —— 语料里 `customgrids.lua` 拿它当字典键，错键会静默走错分支。
 constexpr std::size_t kFilenameCapacity = 256;
 
 // --- `Sprite:GetTexel` 的探针（2026-09-12，动作一）-------------------------------
@@ -161,10 +161,10 @@ int SpriteTexelError(lua_State* state, std::uint32_t reason, const char* message
 }
 
 void RecordSpriteGetTexelForProbe(float red, float green, bool enginePath) noexcept {
-    (void)red;  // 批次 232：生产构建里这段被编译掉 ⇒ 参数必然用不上
-    (void)green;  // 批次 232：生产构建里这段被编译掉 ⇒ 参数必然用不上
-    (void)enginePath;  // 批次 232：生产构建里这段被编译掉 ⇒ 参数必然用不上
-#if EXL_DIAGNOSTIC_PROBES  // 批次 232 探针总开关（口径见 probe_gate.hpp）
+    (void)red;  // 生产构建里这段被编译掉 ⇒ 参数必然用不上
+    (void)green;  // 生产构建里这段被编译掉 ⇒ 参数必然用不上
+    (void)enginePath;  // 生产构建里这段被编译掉 ⇒ 参数必然用不上
+#if EXL_DIAGNOSTIC_PROBES  // 探针总开关（口径见 probe_gate.hpp）
     if (enginePath) {
         g_SpriteGetTexelCalls.fetch_add(1, std::memory_order_relaxed);
         std::uint32_t redBits = 0;
@@ -181,7 +181,7 @@ void RecordSpriteGetTexelForProbe(float red, float green, bool enginePath) noexc
 //
 // 读法与引擎自己的 `ANM2::IsPlaying(char const*)`（`private:kSpriteIsPlayingOffset`）逐条一致：对象指针为 0 → 无动画；
 // 首字节最低位 = long 标志 → 长串取 `+0x10` 的数据指针、短串取 `+1` 的内联数据。
-// 批次 214：把"读一个 libc++ `std::string`（含 SSO）"抽成可复用的一处实现 ——
+// 把"读一个 libc++ `std::string`（含 SSO）"抽成可复用的一处实现 ——
 // 中文版 MCM 要的 `Sprite:GetDefaultAnimationName()` 得读 **ANM2 动画表里某条记录的名字**，
 // 与 `Sprite:GetAnimation()` 读 `ANM2+0x38` 是同一件事（同一套常量、同一套判据）。
 bool ReadLibcxxStringAt(std::uintptr_t nameObject, char* out, std::size_t capacity) noexcept {
@@ -202,12 +202,12 @@ bool ReadLibcxxStringAt(std::uintptr_t nameObject, char* out, std::size_t capaci
     } else {
         data = nameObject + kLibcxxStringShortDataOffset;
     }
-    //: ★ 批次 309：先把 SSO 头里**声明的长度**读出来，再判"缓冲装得下吗" —— 装不下就**判读不到**
-    //: （调用方会答空串），**不做静默截断**。原先这里把上限再夹一次 `kAnimationNameCapacity`，
-    //: 于是"文件名比 63 字节长"会被静默砍尾巴，得到一个**看着像真的错值**（模组拿它当字典键
-    //: 会静默走错分支 —— 本项目点名的"看起来像真值的错值"那一类）。
-    //: ★ 口径与 `isaac_api.cpp` 的 `ResolveLibcxxString` 逐字一致：短串长度 = 首字节 >> 1、
-    //:   长串长度在 `+0x8`（那里同样用字面量 `8`，见该函数）。
+    // 先把 SSO 头里声明的长度读出来，再判"缓冲装得下吗" —— 装不下就判读不到
+    // （调用方会答空串），不做静默截断。原先这里把上限再夹一次 `kAnimationNameCapacity`，
+    // 于是"文件名比 63 字节长"会被静默砍尾巴，得到一个看着像真的错值（模组拿它当字典键
+    // 会静默走错分支 —— 本项目点名的"看起来像真值的错值"那一类）。
+    // 口径与 `isaac_api.cpp` 的 `ResolveLibcxxString` 逐字一致：短串长度 = 首字节 >> 1、
+    // 长串长度在 `+0x8`（那里同样用字面量 `8`，见该函数）。
     std::size_t declared = 0;
     if ((firstByte & kLibcxxStringLongFlag) != 0) {
         std::uint64_t length = 0;
@@ -221,7 +221,7 @@ bool ReadLibcxxStringAt(std::uintptr_t nameObject, char* out, std::size_t capaci
     if (declared == 0 || declared > capacity - 1) {
         return false;
     }
-    //: 上限**由调用方给**（`GetAnimation` 传 64 字节的缓冲、`GetFilename` 传 256 字节）。
+    // 上限由调用方给（`GetAnimation` 传 64 字节的缓冲、`GetFilename` 传 256 字节）。
     const std::size_t limit = capacity - 1;
     std::size_t length = 0;
     while (length < limit) {
@@ -284,7 +284,7 @@ int ResolveSprite(lua_State* state, const char* apiName, void** sprite) {
             return luaL_error(
                 state, "%s: the engine entity this Sprite belongs to is no longer alive", apiName);
         }
-        // 批次 298：网格实体那条同样把原因说清楚（否则真机日志会把"网格实体没了"
+        // 网格实体那条同样把原因说清楚（否则真机日志会把"网格实体没了"
         // 误读成"我们自己把 Sprite 释放了"）。
         if (handle->source == kSpriteSourceEngineGridEntity) {
             return luaL_error(
@@ -303,7 +303,7 @@ VectorHandle* CheckVector(lua_State* state, int index) {
     return RequireVectorArgument(state,index);
 }
 
-// --- 批次 3：可写属性（`Scale`/`Color`/`FlipX`）与字段读取 ----------------------
+// --- 可写属性（`Scale`/`Color`/`FlipX`）与字段读取 ----------------------
 //
 // 为什么需要 `__index`/`__newindex`：`Sprite` 的 userdata 只有元表里的 `__gc` 与 `__index`
 // 方法表；给 userdata 赋值而元表没有 `__newindex` 时，Lua 直接抛
@@ -479,7 +479,7 @@ void ReleaseNativeString(unsigned char* object) noexcept {
     if (deallocate == 0) {
         return;
     }
-    // 两处取值都走访问层（批次 114）：这个字符串对象是**引擎的**分配器给的（下面 `deallocate`
+    // 两处取值都走访问层：这个字符串对象是引擎的分配器给的（下面 `deallocate`
     // 就是它的 `operator delete`），所以读的是引擎内存里的字段，不再用裸指针算术 + 转换。
     std::uint64_t headerWord = 0;
     if (!engine_memory::LoadVerifiedAt(engine_memory::AddressOf(object), 0, &headerWord) ||
@@ -500,7 +500,7 @@ void ReleaseNativeString(unsigned char* object) noexcept {
 // 返回一块已填好该路径的 libc++ 字符串对象；失败（路径过长、缓存满、绑定缺失）返回 nullptr。
 // 缓存满时**先释放最旧一条**再复用（原来是直接失败；这条路径在真实 Mod 会话里也可能被走到）。
 //
-// ★ `allowEmpty`（2026-09-12，真机报告 `01789225234` 定案）：**空串是合法参数，不是错误**。
+// `allowEmpty`（2026-09-12，真机报告 `01789225234` 定案）：空串是合法参数，不是错误。
 //
 // 真机证据：那两份报告的负载里，错误文本残留片段是
 // `Sprite:ReplaceSpritesheet could not build a native file name string`——
@@ -569,9 +569,9 @@ std::atomic<std::uint64_t> g_ReplaceSpritesheetNameHead{0};
 std::atomic<std::uint32_t> g_ReplaceSpritesheetCalls{0};
 
 void RecordSpriteReplaceSpritesheetForProbe(std::uint32_t length, const char* name) noexcept {
-    (void)length;  // 批次 232：生产构建里这段被编译掉 ⇒ 参数必然用不上
-    (void)name;  // 批次 232：生产构建里这段被编译掉 ⇒ 参数必然用不上
-#if EXL_DIAGNOSTIC_PROBES  // 批次 232 探针总开关（口径见 probe_gate.hpp）
+    (void)length;  // 生产构建里这段被编译掉 ⇒ 参数必然用不上
+    (void)name;  // 生产构建里这段被编译掉 ⇒ 参数必然用不上
+#if EXL_DIAGNOSTIC_PROBES  // 探针总开关（口径见 probe_gate.hpp）
     g_ReplaceSpritesheetCalls.fetch_add(1, std::memory_order_relaxed);
     g_ReplaceSpritesheetNameLength.store(length, std::memory_order_relaxed);
     std::uint64_t head = 0;
@@ -585,23 +585,23 @@ void RecordSpriteReplaceSpritesheetForProbe(std::uint32_t length, const char* na
 #endif  // EXL_DIAGNOSTIC_PROBES
 }
 
-// --- 批次 283：四条「按名字查询」共用的参数处理 ----------------------------------
+// --- 四条「按名字查询」共用的参数处理 ----------------------------------
 //
 // 这四条的引擎签名统一是 `bool ANM2::Xxx(std::string const&) const` ⇒ 参数必须是
 // **libc++ 的 24 字节 `std::string` 对象**（`BuildNativeString` 交出来的正是它）。
-// ★ 与 overlay 那三条的差别就在这里：那三条挑的是 `char const*` 重载，而这四条
+// 与 overlay 那三条的差别就在这里：那三条挑的是 `char const*` 重载，而这四条
 //   **dynsym 里只有 `std::string const&` 这一份**，没有可选的重载 ⇒ 桥是必需的，不是可选的。
-// ★ `allowEmpty = true`：空名字是合法输入（引擎会返回 `false`），**不抛错** —— 与
+// `allowEmpty = true`：空名字是合法输入（引擎会返回 `false`），不抛错 —— 与
 //   `ReplaceSpritesheet` 对空串的口径一致，避免把调用方那条回调整条打断。
 //
-// ★★ `argumentOptional`（`IsOverlayPlaying` / `IsOverlayFinished` 专用）：
+// `argumentOptional`（`IsOverlayPlaying` / `IsOverlayFinished` 专用）：
 //   PC 给这两条各写了**两个重载**（`tools/pc_contract_docs/Sprite.md` 第 133/135 行与
 //   140/142 行）：`(string AnimationName)` 与 `()`。省参数该怎么落，**不是猜的** ——
 //   引擎那条入口对**空名字**有专门分支，两条正好互补：
 //     * `IsOverlayPlaying`  @`0xAC04`：名字为空 ⇒ `mov w0, #1`（有 overlay 在播就为真）；
 //     * `IsOverlayFinished` @`0xACF0`：名字为空 ⇒ `mov w0, #1`（没有 overlay 在播就为真）。
 //   ⇒ 省参数时传空串，语义就是 PC 那个无参重载「当前有没有 overlay 在播」。
-//   ★ 与既有的 `IsPlaying` / `IsFinished` 是**同一条口径**（那条注释里写着"真实 Mod 有省参数的
+//   与既有的 `IsPlaying` / `IsFinished` 是同一条口径（那条注释里写着"真实 Mod 有省参数的
 //     写法"，我们曾因为拒掉省参数而误伤过一个真机诊断）。
 template <typename ThunkType>
 int SpriteNameBooleanQuery(lua_State* state, const char* apiName, bool argumentOptional,
@@ -646,12 +646,12 @@ int SpriteUpdate(lua_State* state);
 int SpriteIsPlaying(lua_State* state);
 int SpriteIsFinished(lua_State* state);
 int SpritePlayRandom(lua_State* state);
-// 批次 279（2026-10-02）：overlay 三条（`PlayOverlay` 12 处 / `SetLastFrame` 6 处 / `SetOverlayFrame` 1 处）。
-// ★ 三条都走 `char const*` 重载，所以落在这张「只收 char const*/数值」的绑定表里（不需要 std::string 桥）。
+// overlay 三条（`PlayOverlay` 12 处 / `SetLastFrame` 6 处 / `SetOverlayFrame` 1 处）。
+// 三条都走 `char const*` 重载，所以落在这张「只收 char const*/数值」的绑定表里（不需要 std::string 桥）。
 int SpritePlayOverlay(lua_State* state);
 int SpriteSetLastFrame(lua_State* state);
 int SpriteSetOverlayFrame(lua_State* state);
-// ★ 批次 280 的三条函数**定义在匿名命名空间之外**（那个 `}  // namespace` 在第 1139 行，
+// 的三条函数定义在匿名命名空间之外（那个 `}  // namespace` 在第 1139 行，
 //   而它们在第 1266 行往后）⇒ 声明必须放在 `sprite_api.hpp` 的命名空间作用域里，
 //   与 `SpriteGetAnimation` 同一条处理（在匿名命名空间里再声明一遍只会变成"另一个函数"、
 //   链接期报 `has internal linkage but is not defined`。本批真踩过一次）。
@@ -685,26 +685,26 @@ constexpr LuaHandlerBinding kSpriteHandlers[] = {
     // "id 唯一" 校验立刻失败 —— 这个门禁正是为了拦这种手抄错误）。
     {0x0D010012, &SpriteGetTexel},
     {0x0D01000D, &SpriteIsLoaded},
-    // 批次 5：`Sprite:GetAnimation()`（纯读 `ANM2+0x38`，没有引擎调用）。
+    // `Sprite:GetAnimation()`（纯读 `ANM2+0x38`，没有引擎调用）。
     {0x0D010011, &SpriteGetAnimation},
-    // 批次 214：中文版 MCM 的 `filepathhelper.lua` 要的三条（缺任一条都会打断调用方回调）。
+    // 中文版 MCM 的 `filepathhelper.lua` 要的三条（缺任一条都会打断调用方回调）。
     {0x0D010013, &SpriteReset},
     {0x0D010014, &SpriteGetLayerCount},
     {0x0D010015, &SpriteGetDefaultAnimationName},
-    // 批次 279：overlay 三条（取号 = 域内下一个空号 0x16/0x17/0x18）。
+    // overlay 三条（取号 = 域内下一个空号 0x16/0x17/0x18）。
     {0x0D010016, &SpritePlayOverlay},
     {0x0D010017, &SpriteSetLastFrame},
     {0x0D010018, &SpriteSetOverlayFrame},
-    // 批次 280：`GetDefaultAnimation` / `Stop`（取号 = 域内下一个空号 0x19/0x1A）。
+    // `GetDefaultAnimation` / `Stop`（取号 = 域内下一个空号 0x19/0x1A）。
     {0x0D010019, &SpriteGetDefaultAnimation},
     {0x0D01001A, &SpriteStop},
-    // 批次 283：四条「按名字查询」（取号 = 域内下一个空号 0x1B/0x1C/0x1D/0x1E）。
-    // ★ 这四条走 libc++ `std::string` 桥（引擎没有 `char const*` 重载），与 `Load` 同一族。
+    // 四条「按名字查询」（取号 = 域内下一个空号 0x1B/0x1C/0x1D/0x1E）。
+    // 这四条走 libc++ `std::string` 桥（引擎没有 `char const*` 重载），与 `Load` 同一族。
     {0x0D01001B, &SpriteIsOverlayPlaying},
     {0x0D01001C, &SpriteIsOverlayFinished},
     {0x0D01001D, &SpriteIsEventTriggered},
     {0x0D01001E, &SpriteWasEventTriggered},
-    // 批次 309（2026-10-03）：`Sprite:GetFilename()`（取号 = 域内下一个空号 0x1F）。
+    // `Sprite:GetFilename()`（取号 = 域内下一个空号 0x1F）。
     {0x0D01001F, &SpriteGetFilename},
 };
 
@@ -844,7 +844,7 @@ int SpriteSetAnimation(lua_State* state) {
 // 语料 **12 处**（IsaacOnTwitchReloaded 的进度条用它轮流播 overlay 动画；两种形状都出现：
 // `PlayOverlay("Anim0", false)` 与 `PlayOverlay("Anim" .. sector, true)`）。
 //
-// 引擎入口 `ANM2::PlayOverlay(char const*, bool)` @ `private:kSpritePlayOverlayOffset`。★ 同一族还有一个
+// 引擎入口 `ANM2::PlayOverlay(char const*, bool)` @ `private:kSpritePlayOverlayOffset`。同一族还有一个
 // `PlayOverlay(std::string const&, bool)` @ `0xA9E4` —— 我们**选 `char const*` 那个**，
 // 与这张绑定表既有的策略一致（第一步只收 `char const*`/数值，避开 libc++ `std::string` 的 ABI 桥）。
 int SpritePlayOverlay(lua_State* state) {
@@ -885,7 +885,7 @@ int SpriteSetLastFrame(lua_State* state) {
 
 // `Sprite:SetOverlayFrame(string AnimationName, int FrameNum)` —— 同页契约 `:396`，语料 1 处。
 // 引擎入口 `ANM2::SetOverlayFrame(char const*, int)` @ `0xAEF8`（同样避开 `std::string` 重载）。
-// ★ 帧号用 `IntegerArgumentAt`（接受 `3.0` 这类整值浮点）—— 与 `Sprite:SetFrame` 同一条理由：
+// 帧号用 `IntegerArgumentAt`（接受 `3.0` 这类整值浮点）—— 与 `Sprite:SetFrame` 同一条理由：
 //   Lua 的 `/` 永远产生浮点，用"只认整数子类型"会比 PC 严（2026-09-18 真机踩过）。
 int SpriteSetOverlayFrame(lua_State* state) {
     void* sprite = nullptr;
@@ -915,7 +915,7 @@ int SpriteSetFrame(lua_State* state) {
     }
     const int argumentCount = lua_gettop(state);
     lua_Integer frameNumber = 0;
-    // ★ 帧号用"整值数"判据而不是"只认整数子类型"那个判据：PC 的绑定走 `luaL_checkinteger`，
+    // 帧号用"整值数"判据而不是"只认整数子类型"那个判据：PC 的绑定走 `luaL_checkinteger`，
     // 它接受 `3.0` 这类整值浮点，而 Lua 的 `/` **永远**产生浮点 ⇒ 用"只认整数子类型"会比 PC 严，
     // 模组只要把帧号算过一次除法就会在我们这里报错（2026-09-18 真机：EID 渲染药丸描述时
     // 被这条拒掉，屏幕上"什么信息都没有"）。判据与理由见 `lua_integer_argument.hpp`。
@@ -1229,13 +1229,13 @@ int SpriteRenderLayer(lua_State* state) {
 
 }  // namespace
 
-// --- 批次 283（2026-10-02）：`Sprite` 的四条「按名字查询」-------------------------------
+// --- `Sprite` 的四条「按名字查询」-------------------------------
 //
 // 引擎入口都在 `ANM2` 上，签名统一 `bool ANM2::Xxx(std::string const&) const`。
-// ★ 这四条以前在 `BOIStageAPI15` 里报 `attempt to call a nil value`（共 6 处）。
+// 这四条以前在 `BOIStageAPI15` 里报 `attempt to call a nil value`（共 6 处）。
 //   它们的**接收者早就有**（`Sprite` 句柄与元表都在），缺的只是引擎入口本身 + libc++ 字符串那一跳。
 //
-// ★★ `IsOverlayPlaying` / `IsOverlayFinished` 与 `IsEventTriggered` / `WasEventTriggered`
+// `IsOverlayPlaying` / `IsOverlayFinished` 与 `IsEventTriggered` / `WasEventTriggered`
 //   是**两对孪生函数**，前 16 字节守卫两两**逐字节完全相同**。证据链、以及"凭什么说它们是
 //   两个不同的函数"写在 `runtime_constants.hpp` 那一批常量上方 —— **那一段必须留着**：
 //   不留的话，后来者只看守卫会以为这里配错了（两条一样的守卫指向两个不同偏移）。
@@ -1251,13 +1251,13 @@ int SpriteIsOverlayFinished(lua_State* state) {
 }
 
 int SpriteIsEventTriggered(lua_State* state) {
-    // ★ 这一条 PC **没有**无参重载（`Sprite.md` 只有 115 行那一份）⇒ 参数必给。
+    // 这一条 PC 没有无参重载（`Sprite.md` 只有 115 行那一份）⇒ 参数必给。
     return SpriteNameBooleanQuery(state, "Sprite:IsEventTriggered", false,
                                   &LuaRuntime::SpriteIsEventTriggeredThunk);
 }
 
 int SpriteWasEventTriggered(lua_State* state) {
-    // ★ 同 `IsEventTriggered`：PC 只有 418 行那一份，没有无参重载。
+    // 同 `IsEventTriggered`：PC 只有 418 行那一份，没有无参重载。
     return SpriteNameBooleanQuery(state, "Sprite:WasEventTriggered", false,
                                   &LuaRuntime::SpriteWasEventTriggeredThunk);
 }
@@ -1283,7 +1283,7 @@ int SpriteIsLoaded(lua_State* state) {
     return 1;
 }
 
-// `Entity:GetSprite()` 的句柄（批次 5）。调用方（`isaac_api.cpp` 的 `EntityGetSprite`）已经
+// `Entity:GetSprite()` 的句柄。调用方（`isaac_api.cpp` 的 `EntityGetSprite`）已经
 // 用 `ValidatedEntity` 校验过 `entity`，这里只负责建句柄 + 打上**非拥有**标记。
 int PushEngineEntitySpriteHandle(lua_State* state, void* entity) {
     if (entity == nullptr) {
@@ -1315,11 +1315,11 @@ int PushEngineEntitySpriteHandle(lua_State* state, void* entity) {
     return 1;
 }
 
-// `GridEntity:GetSprite()` / `GridEntityRock:GetSprite()` 的句柄（批次 298）。
+// `GridEntity:GetSprite()` / `GridEntityRock:GetSprite()` 的句柄。
 // 与 `PushEngineEntitySpriteHandle` **逐字同形**，只有两处不同：
 //   * `kGridEntitySpriteOffset`（`0x48`，网格实体的内嵌 ANM2）；
 //   * `kSpriteSourceEngineGridEntity`（`ResolveSpriteObject` 据此换用网格实体的存活判据）。
-// ★ 调用方（`remaining_api.cpp` 的 `GridEntityGetSprite`）已经用 `IsLiveGridEntityPointer`
+// 调用方（`remaining_api.cpp` 的 `GridEntityGetSprite`）已经用 `IsLiveGridEntityPointer`
 //   校验过句柄。
 int PushEngineGridEntitySpriteHandle(lua_State* state, void* gridEntity) {
     if (gridEntity == nullptr) {
@@ -1417,19 +1417,19 @@ int SpriteGetAnimation(lua_State* state) {
 // `Sprite:GetFilename()` —— 契约 `tools/pc_contract_docs/Sprite.md:68/70`
 // （`#### string GetFilename ( )`；同页 `:79` 的例子逐字给出返回值形如 `gfx/001.000_Player.anm2`）。
 //
-// ★★ **它就是一个字段读**：文件名住在 `Sprite + kSpriteFilenameOffset`（`+0x08`）那个
+// 它就是一个字段读：文件名住在 `Sprite + kSpriteFilenameOffset`（`+0x08`）那个
 //    libc++ `std::string` 里 —— 两处具名证据见 `runtime_constants.hpp` 的同名常量段：
 //      ① `Sprite::LoadAnimationsFile(char const*, char const*) @ 0x4A48B4`：`add x0, x0, #0x8`
 //         + `bl std::string::assign(char const*)` ⇒ 传进来的路径**整串**落在 `+0x08`；
 //      ② 构造函数 `Sprite::Sprite() @ 0x4A4658` 的 `stp x8, xzr, [x0]` 把 `+0x08` 清成空串。
-// ★ 读法**复用**本文件里唯一那份 `ReadLibcxxStringAt`（libc++ SSO 口径只有一份），
+// 读法复用本文件里唯一那份 `ReadLibcxxStringAt`（libc++ SSO 口径只有一份），
 //   不另抄一遍短串/长串的判断。
 //
-// ★★ **读不到 / 没加载过 ⇒ 返回空串 `""`，不是 nil**：PC 的返回类型是 `string`，而语料里
+// 读不到 / 没加载过 ⇒ 返回空串 `""`，不是 nil：PC 的返回类型是 `string`，而语料里
 //   `customgrids.lua:547` 正是拿 `sprite:GetFilename() == ""` 判"这个 Sprite 还没加载"、
 //   `callbacks.lua:292` 拿它当**字典键**（`t[nil]` 会直接报错 ⇒ 整条回调被摘掉）。
 //   这与 `Sprite:GetAnimation()` 的降级口径**逐条相同**。
-// ★ 2026-10-23更正：前述+8来自不同Sprite类；Lua Sprite是ANM2，文件名在+0。
+// 2026-10-23更正：前述+8来自不同Sprite类；Lua Sprite是ANM2，文件名在+0。
 // 复用同一SSO读取，无新缓存；依据ANM2::Load0xC9C4以及短/长串真机原生布局。
 int SpriteGetFilename(lua_State* state) {
     void* sprite = nullptr;
@@ -1462,7 +1462,7 @@ int SpriteGetDefaultAnimationName(lua_State* state) {
 }
 
 // `Sprite:GetDefaultAnimation()` —— PC 契约 `Sprite.md:36`，语料 **5 处**。
-// ★ 契约页在 `GetDefaultAnimationName` 那段里明说两者"seems to be the same"
+// 契约页在 `GetDefaultAnimationName` 那段里明说两者"seems to be the same"
 //   （原文见上面那个助手的注释）⇒ 这里**转调同一份读法**，不另写一遍。
 int SpriteGetDefaultAnimation(lua_State* state) {
     void* sprite = nullptr;
@@ -1496,16 +1496,16 @@ int SpriteStop(lua_State* state) {
 }
 
 // ---------------------------------------------------------------------------
-// 批次 214（2026-09-30）：中文版 MCM（`!!Mod Config Menu Chinese`，工坊 2494192799）要用的三条
+// 中文版 MCM（`!!Mod Config Menu Chinese`，工坊 2494192799）要用的三条
 // ---------------------------------------------------------------------------
 //
 // 它新增的 `scripts/filepathhelper.lua` 用这三条判断"这条路径是不是一个真 anm2"
 // （`anm2Tester:GetDefaultAnimationName() ~= "" or anm2Tester:GetLayerCount() > 0`，
 //  紧接着 `anm2Tester:Reset()`）——它靠这个给**中文字体**找资源路径。
-// ★ 那三行**不在 `pcall` 里**（只有 `Load` 被包着）⇒ 缺任何一条都会抛错、把调用方整条回调打断
+// 那三行不在 `pcall` 里（只有 `Load` 被包着）⇒ 缺任何一条都会抛错、把调用方整条回调打断
 //   （症状与"菜单画不出来"完全一样）。所以这三条必须齐。
 //
-// ★ 这三条 PC 的**文档里没有**（`mod_api_gap_report` 报 `PC 状态=unknown`）——
+// 这三条 PC 的文档里没有（`mod_api_gap_report` 报 `PC 状态=unknown`）——
 //   它们是 **REPENTOGON** 一侧的 API。语义按引擎自己的实现取证（见各条注释）。
 
 // `Sprite:Reset()` = 原版ANM2::Reset @0x65B8；旧0x4A4724属于不同的Sprite类。
@@ -1550,15 +1550,15 @@ int SpriteGetLayerCount(lua_State* state) {
 }
 
 // `Sprite:GetDefaultAnimationName()` —— REPENTOGON 语义：ANM2 的"默认动画"名字。
-// ★ 引擎里**没有**这条函数，也没有专门的"默认动画名"字段可用（`ANM2::SetAnimation` 找不到名字时
+// 引擎里没有这条函数，也没有专门的"默认动画名"字段可用（`ANM2::SetAnimation` 找不到名字时
 //   只打日志、不回落）⇒ 我们按**动画表里第一条**（`ANM2+0x98` 数组、`+0xA0` 个数、步长 `0x150`，
 //   名字是该记录开头那个 libc++ `std::string`）回答，并在偏离台账里写明这条口径。
 //   对调用方（`filepathhelper` 只判"非空"）来说两者等价：能 Load 出动画表就非空。
-//: 读"当前 anm2 的默认动画名"（= 动画表**第一条**的名字）。批次 280 抽出来共用：
-//: 契约页 `Sprite.md:54-56` 在 `GetDefaultAnimationName` 下面直接写着
-//: 「Returns the `DefaultAnimation` value from the currently loaded anm2 file.」
-//: 「This function seems to be the same as `GetDefaultAnimation()`.」
-//: ⇒ `Sprite:GetDefaultAnimation()` 与它**是同一件东西**，两处必须用同一份读法（否则日后会漂开）。
+// 读"当前 anm2 的默认动画名"（= 动画表第一条的名字）。抽出来共用：
+// 契约页 `Sprite.md:54-56` 在 `GetDefaultAnimationName` 下面直接写着
+// 「Returns the `DefaultAnimation` value from the currently loaded anm2 file.」
+// 「This function seems to be the same as `GetDefaultAnimation()`.」
+// ⇒ `Sprite:GetDefaultAnimation()` 与它是同一件东西，两处必须用同一份读法（否则日后会漂开）。
 void PushSpriteDefaultAnimationName(lua_State* state, void* sprite) {
     const std::uintptr_t base = engine_memory::AddressOf(sprite);
     std::array<char, kAnimationNameCapacity> name{};
@@ -1712,7 +1712,7 @@ void SetSpritePropertyApplyHostImplementation(
 
 int DestroySpriteHandle(lua_State* state) {
     auto* handle = static_cast<SpriteHandle*>(luaL_checkudata(state, 1, kSpriteMetatable));
-    // ★ 引擎实体借出的 `Sprite`（`Entity:GetSprite()`）：这块 `ANM2` 是**引擎实体的成员**，
+    // 引擎实体借出的 `Sprite`（`Entity:GetSprite()`）：这块 `ANM2` 是引擎实体的成员，
     // 不是本模块分配的。所以这里**什么都不做** —— 既不调 `~ANM2()`（那会把引擎对象的成员拆掉），
     // 也不 `free`（`handle->sprite` 不是 malloc 基址，`ReleaseSpriteStorage` 会把
     // `sprite-8` 里的字节当指针去 free）。

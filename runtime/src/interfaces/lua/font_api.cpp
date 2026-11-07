@@ -15,7 +15,7 @@
 #include "lua_runtime.hpp"
 #include "runtime_constants.hpp"
 
-// 批次 415：Font 存储改走 **Lua 状态自己的分配器**（`lua_getallocf`）—— 不再需要额外头文件
+// Font 存储改走 Lua 状态自己的分配器（`lua_getallocf`）—— 不再需要额外头文件
 // （`lua_getallocf` / `lua_Alloc` 由 `lua.h` 提供，已经通过 `lauxlib.h` 拿得到）。
 
 #include <atomic>
@@ -33,7 +33,7 @@ extern "C" {
 // "窗口内我们自己的图像层花了多少、引擎自己花多少"。跨 TU 只走函数调用（数据 GOT 那条坑见
 // `interfaces/lua/runtime_perf.hpp` 顶部）。
 //
-// ★ 挂在 `EXL_DIAGNOSTIC_PROBES` 门控里（与批次 262 把诊断开销收进门控同一口径）：
+// 挂在 `EXL_DIAGNOSTIC_PROBES` 门控里（与把诊断开销收进门控同一口径）：
 //   这是纯量具，正式包不需要；而且宿主夹具里**只链 Lua 运行时、不链贴图桥**
 //   （`test_lua_font_resources` 的 harness 就是这么编的），不加门控会直接链接失败。
 #if EXL_DIAGNOSTIC_PROBES
@@ -65,7 +65,7 @@ std::atomic<std::uint32_t> g_FontDrawAlpha{0};
 std::atomic<std::uint32_t> g_FontDrawScaleX{0};
 
 // ---------------------------------------------------------------------------
-// 批次 414（2026-10-08）：`Font` 的实例存储先试过"固定块池"；**415 改成走 Lua 分配器**。
+// `Font` 的实例存储先试过"固定块池"；415 改成走 Lua 分配器。
 // ---------------------------------------------------------------------------
 // 现场与结论（414 的真机读数把根因钉出来了，见 `dist/change-archive-20261008/414-*/README.md`）：
 //   414 用"固定块池 + 我们自己的 malloc"，池本身工作正常（**成功发出过 384 块**、峰值满负荷），
@@ -76,7 +76,7 @@ std::atomic<std::uint32_t> g_FontDrawScaleX{0};
 //
 // 415 的修法 = 这笔内存**从 Lua 状态自己的分配器拿**（`lua_getallocf`）：
 //   它计入 Lua 的 GC 账 ⇒ GC 按需回收 ⇒ 288 个活 Font 那种堆积不会再发生。
-//   ★★ **2026-10-10（批次 425）订正：上面那句"它计入 Lua 的 GC 账"是错的。**
+//   2026-10-10订正：上面那句"它计入 Lua 的 GC 账"是错的。
 //     走 `lua_getallocf` 拿到的是**裸 `frealloc`**（`lapi.c:1169` = `return G(L)->frealloc;`），
 //     而 Lua **只在 `luaM_realloc_` 里更新 `g->GCdebt`**（`lmem.c:97`）⇒
 //     **直接调 `frealloc` 恰好绕过了这笔账** ⇒ 这些块**不进 Lua 的用量统计** ⇒
@@ -87,22 +87,22 @@ std::atomic<std::uint32_t> g_FontDrawScaleX{0};
 //       这笔内存**我们自己看得见**（`g_FontStorageLive`）⇒ 由我们把它**补报**给 GC。
 //     （415 换到 Lua 分配器这条路**仍然是对的**——比自己开池子好得多，池那版连
 //      "谁在还"都追不到；只是它**不足以**让 GC 主动回收。）
-//   ★ 池的"固定尺寸复用"思想本身没错，但它的块**对 GC 不可见**，正好是病因 ⇒ 撤掉池接线
+//   池的"固定尺寸复用"思想本身没错，但它的块对 GC 不可见，正好是病因 ⇒ 撤掉池接线
 //     （池的实现与其用例一并删除，不留死代码）。
 //
-// ★ 参数与对齐口径与最早那版一致（那两条与 GC 无关，仍然成立）：
+// 参数与对齐口径与最早那版一致（那两条与 GC 无关，仍然成立）：
 //   块对 **16 字节对齐**（`Font` 要求 16，而分配器只保证 8），**原始指针存在对象前面 8 字节**，
 //   归还时读回来交给同一个分配器（`osize` 与分配时一致、`nsize = 0` = 释放）。
-// ★ 探针量仍是**外部链接**（写在 `namespace {` 之前）：读数工具按符号名读
+// 探针量仍是外部链接（写在 `namespace {` 之前）：读数工具按符号名读
 //   （技能 `isaac-switch-probe-batch` §11，本项目已因此栽过 5 次）。
 std::atomic<std::uint32_t> g_FontStorageAllocations{0};  // 累计分配次数
-std::atomic<std::uint32_t> g_FontStorageLive{0};         // 当前活着（未归还）的 Font 数 ★ 关键判据
+std::atomic<std::uint32_t> g_FontStorageLive{0};         // 当前活着（未归还）的 Font 数 关键判据
 std::atomic<std::uint32_t> g_FontStorageLivePeak{0};     // 峰值
 std::atomic<std::uint32_t> g_FontStorageFailures{0};     // 分配失败次数（拿不到分配器 / 分配返回空）
 
-//: ★★ 批次 425：只读壳（**外部链接**，与上面那四个计数一样写在 `namespace {` 之外）。
-//: 调用方是 `mod_menu_native.cpp` 的每帧路径 —— 它把这个数交给
-//: `LuaRuntime::NudgeLuaGcIfFontBlocksHigh()` 去催 GC（原因见 `font_api.hpp` 里那段）。
+// 只读壳（外部链接，与上面那四个计数一样写在 `namespace {` 之外）。
+// 调用方是 `mod_menu_native.cpp` 的每帧路径 —— 它把这个数交给
+// `LuaRuntime::NudgeLuaGcIfFontBlocksHigh()` 去催 GC（原因见 `font_api.hpp` 里那段）。
 std::uint32_t FontStorageLiveBlocks() noexcept {
     return g_FontStorageLive.load(std::memory_order_relaxed);
 }
@@ -138,7 +138,7 @@ FontWidthCache g_FontWidthCache{};
 // every instance the game constructs is 16-byte aligned, so we keep 16. `malloc` only promises 8
 // here, therefore the block carries one alignment slot plus room for the raw pointer, which is
 // stored in the 8 bytes immediately before the object and read back on release.
-// ★ 2026-10-08（批次 414 → **415**）更正链：这一段最早是"`malloc` 一块、把原始指针存在对象前面
+// 2026-10-08（→ 415）更正链：这一段最早是"`malloc` 一块、把原始指针存在对象前面
 //   （`kFontStorageSlack`）"；414 改成固定块池（想治"每帧 128 KiB 撞碎片"）；**415 改成走
 //   Lua 状态自己的分配器** —— 因为真机读数证明根因是 **GC 看不见这笔内存**（见文件顶部那段）。
 //   **上面两段原始推导一字未删**，留着看历史；池的实现与用例已随 415 删除（不留死代码）。
@@ -644,7 +644,7 @@ int FontSetMissingCharacter(lua_State* state) {
 
 
 int DrawStringVariant(lua_State* state, const char* apiName, bool scaled, bool unicode) {
-    // 批次 087/093：整个处理器由**挂载处的中央包装**计时；这里只保留 apiId，
+    // 整个处理器由挂载处的中央包装计时；这里只保留 apiId，
     // 用来给"**引擎调用那一段**"单独记一笔（键盘高位标记区分，见 `runtime_perf.hpp`）。
     // catalog id：`DrawString`=0x0B01000A、`+1` 缩放、`+2` UTF-8（与本文件的绑定表一致，门禁核对）。
     const std::uint32_t apiId =
@@ -701,7 +701,7 @@ int DrawStringVariant(lua_State* state, const char* apiName, bool scaled, bool u
     const char* text = lua_tostring(state, 2);
     const float x = static_cast<float>(lua_tonumber(state, 3));
     const float y = static_cast<float>(lua_tonumber(state, 4));
-    // ★ 2026-09-18 批次 037 修正：这几条读数以前写在**未缩放**那个分支里，于是
+    // 2026-09-18 修正：这几条读数以前写在未缩放那个分支里，于是
     // `Font:DrawStringScaled*`（EID、q4-items、自带菜单、我们自己的 `Isaac.RenderScaledText`
     // **全都走这条**）一次都不计数 ⇒ 读数里永远是"画字 0 次"，而它被当成过"屏幕上什么都没画"
     // 的证据（当天差点把一个探针自身的毛病误判成运行时缺陷）。现在四条变体**共用**这几个计数点，
@@ -724,7 +724,7 @@ int DrawStringVariant(lua_State* state, const char* apiName, bool scaled, bool u
                 0xFFFFu,
             std::memory_order_relaxed);
     }
-    // 批次 087：单独量"引擎调用那一段"。有了它就能算
+    // 单独量"引擎调用那一段"。有了它就能算
     // `整个 handler 的耗时 − 引擎调用耗时 = 我们自己（解析 / 守卫 / 搬运）的开销`。
     const std::uint64_t engineStart = isaac::runtime::RuntimePerfTick();
     if (scaled) {
@@ -759,7 +759,7 @@ int FontDrawStringScaledUTF8(lua_State* state) {
 
 } // namespace
 
-// --- `Isaac.RenderScaledText` 用的"运行时默认字体"（批次 026）------------------------
+// --- `Isaac.RenderScaledText` 用的"运行时默认字体"------------------------
 //
 // PC 上 `Isaac.RenderScaledText(str, X, Y, ScaleX, ScaleY, R, G, B, A)`（`Isaac.md:545`）
 // 用**游戏默认字体**在屏幕上画一段文字。我们没有"游戏默认字体"的证据，所以这里加载一份
@@ -783,7 +783,7 @@ bool PushDefaultScreenFont(lua_State* state) {
     if (state == nullptr || lua_gettop(state) != 0) {
         return false;
     }
-    // ★ 批次 269：先问"原生绑定在不在"。`CreateFontHandle` 在构造/析构 thunk 缺失时会
+    // 先问"原生绑定在不在"。`CreateFontHandle` 在构造/析构 thunk 缺失时会
     // **直接 `luaL_error`**（宿主 harness 与"引擎基址没解析到"都是这种情况），
     // 而这一条链要的是"没有可用字体 ⇒ false"，不是把错误抛回模组（那会摘掉整条回调）。
     if (LuaRuntime::FontCtorThunk() == 0 || LuaRuntime::FontDestructorThunk() == 0) {
@@ -800,7 +800,7 @@ bool PushDefaultScreenFont(lua_State* state) {
             return false;
         }
         lua_pushstring(state, path);         // 栈：font, path
-        // ★ 批次 269：`FontLoad` **用受保护调用**，不直接调。
+        // `FontLoad` 用受保护调用，不直接调。
         // 理由：`FontLoad`（Lua 侧那个 `Font:Load` 处理器）在**原生绑定缺失**时会 `luaL_error`
         // （宿主 harness 就是这种情况：没装字体 thunk），而"这一条候选路径装不上"与
         // "整个调用出错"是两件事 —— 直接调会让错误一路抛回模组（`isaac_api.cpp` 的
@@ -830,7 +830,7 @@ bool PushDefaultScreenFont(lua_State* state) {
 
 // 文本里有没有非 ASCII 字节 ⇒ 决定走 `*UTF8` 那条引擎入口。
 //
-// ★ 抽成一个助手（批次 269）：**绘制（`Isaac.RenderText`/`RenderScaledText`）与量宽
+// 抽成一个助手：绘制（`Isaac.RenderText`/`RenderScaledText`）与量宽
 // （`Isaac.GetTextWidth`）必须用同一个判据** —— 两处各写一份循环，将来只改一处就会
 // 让"画出来的"和"量出来的"用不同字体函数对同一段文本，而那种偏差在屏幕上只表现为"对不齐"。
 bool TextHasNonAsciiByte(const char* text, std::size_t length) {
@@ -906,7 +906,7 @@ bool MeasureTextWithDefaultFont(lua_State* state, const char* text, std::size_t 
         return false;
     }
     lua_pushlstring(state, text, length);    // 栈：font, text
-    // ★ 批次 269：与 `PushDefaultScreenFont` 里的 `FontLoad` 同一个理由 —— 量宽的原生绑定
+    // 与 `PushDefaultScreenFont` 里的 `FontLoad` 同一个理由 —— 量宽的原生绑定
     // 缺失时 `Font:GetStringWidth*` 会 `luaL_error`，而这条 API 要的是"量不出来 ⇒ -1"，
     // 不是把错误抛回模组（那会摘掉调用它的整条回调）。用受保护调用把它变成 false。
     const bool unicode = TextHasNonAsciiByte(text, length);
@@ -1005,9 +1005,9 @@ FontChainProbe FontChainProbeSnapshot() noexcept {
 }
 
 void RecordFontLoadForProbe(const std::string_view handedToEngine, bool accepted) noexcept {
-    (void)handedToEngine;  // 批次 232：生产构建里这段被编译掉 ⇒ 参数必然用不上
-    (void)accepted;  // 批次 232：生产构建里这段被编译掉 ⇒ 参数必然用不上
-#if EXL_DIAGNOSTIC_PROBES  // 批次 232 探针总开关（口径见 probe_gate.hpp）
+    (void)handedToEngine;  // 生产构建里这段被编译掉 ⇒ 参数必然用不上
+    (void)accepted;  // 生产构建里这段被编译掉 ⇒ 参数必然用不上
+#if EXL_DIAGNOSTIC_PROBES  // 探针总开关（口径见 probe_gate.hpp）
     // 一个字：
     //   bit0        引擎侧接受了这个名字（`Font:Load` 的返回值）
     //   bit1        名字是非空内容挂载点相对名（不含 `rom:/`、不以 `/` 开头、不含 `/../`）

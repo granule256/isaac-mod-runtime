@@ -24,7 +24,7 @@ enum class HookId : std::uint8_t {
     // 游戏开局：引擎在 `Game::Start` / `Game::StartFromSavedState` **返回之后**通知我们。
     // 模组的 `MC_POST_GAME_STARTED` 依赖它（没有它，EID 的开局初始化永远不执行）。
     GameStart,
-    // --- 回调面补齐（2026-09-20 批次 102）：EID / GoodTrip 在等的四个事件 -----------
+    // --- 回调面补齐（2026-09-20 ）：EID / GoodTrip 在等的四个事件 -----------
     //
     // 四条都走 `EntryRelay`（零占洞：改目标函数入口 16 字节），四个靶点的偏移与 16 字节守卫
     // 在 `runtime_constants.hpp`（那里的注释写了实参映射的依据）。
@@ -34,7 +34,7 @@ enum class HookId : std::uint8_t {
     UseCard,
     UsePill,
     GameExit,
-    // 批次 103（第 2 期）：掉落物碰撞（`MC_PRE_PICKUP_COLLISION`）。
+    // （第 2 期）：掉落物碰撞（`MC_PRE_PICKUP_COLLISION`）。
     PickupCollision,
     // 71精确挂在FixSpawnEntry内部预转换之后；用Internal，不再在Roomspawn入口通知。
     RoomEntitySpawn,
@@ -50,7 +50,7 @@ enum class HookId : std::uint8_t {
     // 贴图桥 v4：`IContentManager::GetMountedFilePath` —— 让"文件不在任何挂载点"的 `.pcx`
     // 也能被引擎自己那条加载链走通（返回合成的 `.pcx` 路径）。见 runtime_constants 的 v4 段。
     ContentGetMountedFilePath,
-    // --- 模组页搬生产（2026-09-23，批次 076）：三个入口中继 -------------------------
+    // --- 模组页搬生产（2026-09-23，）：三个入口中继 -------------------------
     //
     // 由来：`docs/设计-模组页搬生产-20260923.md`。行为真值源是探针
     // `runtime/source/probe/native_mods_menu_probe.cpp`（那三个入口在探针里已逐字节核过、
@@ -65,12 +65,12 @@ enum class HookId : std::uint8_t {
     MenuGameRender,
     MenuTitleRender,
     MenuManagerSetState,
-    // 成就闸门（2026-09-24 批次 098 从 `TryUnlock` 挪到这里）：`SetReadOnly` 是**唯一**写
+    // 成就闸门（2026-09-24 从 `TryUnlock` 挪到这里）：`SetReadOnly` 是唯一写
     // "只读位"（`PGD+0x1`）的地方，也是每局开局设一次"本局给不给成就"的关卡。
     // 我们在它入口上按 PC 的规则把参数改成「引擎原参数 OR 该禁」⇒ 禁与不禁都交回引擎。
     // `required = false`：装不上只是"开模组时不再禁成就"（退回 Switch 原生行为），不影响游戏。
     PersistentGameDataSetReadOnly,
-    // 引擎那条"模组 content 加载"路的闸门（2026-09-26 批次 147）：`ModManager::LoadConfigs`
+    // 引擎那条"模组 content 加载"路的闸门（2026-09-26 ）：`ModManager::LoadConfigs`
     // 逐条读 `ModEntry + 0x139` 决定读不读这个模组的 `content/*.xml`（皮肤 `costumes2.xml`、
     // 曲子 `music.xml`…）。我们在它入口按**存在存档分区里的**模组开关把这一字节改成该启用/该禁用，
     // 再放行原函数 ⇒ 引擎用它自己的解析器把模组内容加载进来。
@@ -82,9 +82,9 @@ enum class HookId : std::uint8_t {
     // `required = false`：装不上只是"模组的皮肤/音乐又回到进不来"（即今天之前的行为），
     // 不该因此让整个 Mod 加载失败。
     ModManagerLoadConfigs,
-    // 批次 363（2026-10-04）：`ANM2::Load` 入口中继（见 `kHookCatalog` 里那一行的注释）。
+    // `ANM2::Load` 入口中继（见 `kHookCatalog` 里那一行的注释）。
     Anm2Load,
-    // --- 批次 390（2026-10-07）：`MC_INPUT_ACTION` 的三处**引擎查询入口** -------------------
+    // --- `MC_INPUT_ACTION` 的三处引擎查询入口 -------------------
     //
     // 契约（`analysis/isaacdocs-snapshot/docs/enums/ModCallbacks.md:347-367`）：**引擎每次轮询某个
     // `ButtonAction` 时**触发一次（官方"执行信息"栏写 **每秒约 1470 次**），且**返回值可以覆盖**
@@ -96,7 +96,7 @@ enum class HookId : std::uint8_t {
     ManagerIsActionPressed,
     ManagerIsActionTriggered,
     ManagerGetActionValue,
-    // --- 批次 396（2026-10-07）：`MC_ENTITY_TAKE_DMG`(11) 的四条 + `MC_EVALUATE_CACHE`(8) ---
+    // --- `MC_ENTITY_TAKE_DMG`(11) 的四条 + `MC_EVALUATE_CACHE`(8) ---
     //
     // 受伤为什么要四条：引擎里只有基类 `Entity::TakeDamage` 一份通用实现，而
     // `Entity_Player` / `Entity_Pickup` / `Entity_Slot` 三个子类**不回跳基类**
@@ -111,11 +111,11 @@ enum class HookId : std::uint8_t {
     // `Entity_Player::EvaluateItems()` —— 玩家属性重算的唯一总闸（入口不带 CacheFlag 实参，
     // 由中继从 `+0x1958` 掩码解位，见 `runtime_constants.hpp`）。
     EvaluateItems,
-    // --- 批次 397（2026-10-07）：补全回调（第 2 批）—— 三条 hookable 的新入口中继 ---
+    // --- 补全回调（第 2 批）—— 三条 hookable 的新入口中继 ---
     //
-    // 三条的靶点与语义依据见 `runtime_constants.hpp` 的「批次 397」那段：
+    // 三条的靶点与语义依据见 `runtime_constants.hpp` 的「」那段：
     //   * `Entity::Kill`：`MC_POST_ENTITY_KILL`（"death animation 被触发之前"）——
-    //     ★ 只挂基类一条即全覆盖（NPC/跟班两个覆写都回跳基类，逐条反汇编核对过）；
+    //     只挂基类一条即全覆盖（NPC/跟班两个覆写都回跳基类，逐条反汇编核对过）；
     //   * `Entity_NPC::trigger_death_remove`：`MC_POST_NPC_DEATH`（"死亡动画播完之后"）；
     //   * `Game::End`：`MC_POST_GAME_END`（`IsGameOver` 由 `eEnding` 推，见那边的两项证据）。
     // 三条都 `required = false`：装不上只让对应回调静默不派发（与改造前一样）。
@@ -124,7 +124,7 @@ enum class HookId : std::uint8_t {
     NpcDeathRemove,
     GameEnd,
     // `Entity_Player::FireTear(...)`：`MC_POST_FIRE_TEAR`（"玩家开火"，Incubus 那条路也汇入这里）。
-    // 靶点与整套 ABI 取证见 `runtime_constants.hpp` 的「批次 337」+「批次 397」两段。
+    // 靶点与整套 ABI 取证见 `runtime_constants.hpp` 的「」+「」两段。
     FireTear,
     FamiliarCollision,
     NpcCollision,
@@ -219,10 +219,10 @@ inline constexpr std::array<HookDescriptor, kHookIdCount> kHookCatalog = {{
     {HookId::MenuManagerSetState, "MenuManagerSetState", HookBackend::EntryRelay, false},
     {HookId::PersistentGameDataSetReadOnly, "PersistentGameDataSetReadOnly", HookBackend::EntryRelay,
      false},
-    // 批次 147（2026-09-26）：模组 content 加载闸门。名字与读数工具 `read_device_state_via_gdb.py`
+    // 模组 content 加载闸门。名字与读数工具 `read_device_state_via_gdb.py`
     // 的 `HOOK_NAMES` 必须逐字一致（那张表按 HookId 顺序读 `g_hookCallbacks`）。
     {HookId::ModManagerLoadConfigs, "ModManagerLoadConfigs", HookBackend::EntryRelay, false},
-    // 批次 363（2026-10-04）：模组覆盖本体资源的最后一环。靶点是 `ANM2::Load` 的入口
+    // 模组覆盖本体资源的最后一环。靶点是 `ANM2::Load` 的入口
     // （`0xC970`，16 字节守卫见 `runtime_constants.hpp` 那一段取证）。挂在这里是因为
     // 引擎开机时自己就把 `gfx/ui/minimap1.anm2` 这类共享路径按"本体层"读进了动画缓存，
     // 而缓存查找是"挂载点前缀 + 路径哈希、先命中先生效"⇒ 模组那份永远轮不到。
@@ -230,20 +230,20 @@ inline constexpr std::array<HookDescriptor, kHookIdCount> kHookCatalog = {{
     // `required = false`：装不上只是"共享路径仍旧吃本体那份"（即今天之前的行为），
     // 不该因此让整个 Mod 加载失败。
     {HookId::Anm2Load, "Anm2Load", HookBackend::EntryRelay, false},
-    // 批次 390（2026-10-07）：`MC_INPUT_ACTION` 的三处查询入口。名字与读数工具
+    // `MC_INPUT_ACTION` 的三处查询入口。名字与读数工具
     // `read_device_state_via_gdb.py` 的 `HOOK_NAMES` 必须逐字一致（它按 HookId 顺序读 `g_hookCallbacks`）。
     // ⚠️ `IsActionPressed` 与 `IsActionTriggered` 的 16 字节守卫**逐字节相同** ⇒ 守卫挡不住"两者互换"。
     {HookId::ManagerIsActionPressed, "ManagerIsActionPressed", HookBackend::EntryRelay, false},
     {HookId::ManagerIsActionTriggered, "ManagerIsActionTriggered", HookBackend::EntryRelay, false},
     {HookId::ManagerGetActionValue, "ManagerGetActionValue", HookBackend::EntryRelay, false},
-    // 批次 396（2026-10-07）：`MC_ENTITY_TAKE_DMG` 的四条入口中继 + `MC_EVALUATE_CACHE`。
+    // `MC_ENTITY_TAKE_DMG` 的四条入口中继 + `MC_EVALUATE_CACHE`。
     // 名字与读数工具 `read_device_state_via_gdb.py` 的 `HOOK_NAMES` 必须逐字一致。
     {HookId::EntityTakeDamage, "EntityTakeDamage", HookBackend::EntryRelay, false},
     {HookId::EntityPlayerTakeDamage, "EntityPlayerTakeDamage", HookBackend::EntryRelay, false},
     {HookId::EntityPickupTakeDamage, "EntityPickupTakeDamage", HookBackend::EntryRelay, false},
     {HookId::EntitySlotTakeDamage, "EntitySlotTakeDamage", HookBackend::EntryRelay, false},
     {HookId::EvaluateItems, "EvaluateItems", HookBackend::EntryRelay, false},
-    // 批次 397（2026-10-07）：补全回调（第 2 批）的三条。名字与读数工具的 `HOOK_NAMES` 逐字一致。
+    // 补全回调（第 2 批）的三条。名字与读数工具的 `HOOK_NAMES` 逐字一致。
     {HookId::EntityKill, "EntityKill", HookBackend::EntryRelay, false},
     {HookId::NpcDeathRemove, "NpcDeathRemove", HookBackend::EntryRelay, false},
     {HookId::GameEnd, "GameEnd", HookBackend::EntryRelay, false},

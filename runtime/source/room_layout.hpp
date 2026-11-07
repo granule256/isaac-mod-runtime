@@ -18,10 +18,10 @@ inline constexpr std::uint8_t kRoomBuildId[20] = {
     0x91, 0xC7, 0x3F, 0xDD, 0x57, 0x50, 0x61, 0x31, 0x8D, 0x68, 0x88, 0x63, 0x16, 0xAF, 0xEA, 0xC7, 0x23, 0x88, 0xB2, 0xAB
 };
 
-// **这间房是不是第一次进**（PC 侧 `Room:IsFirstVisit()` 读的就是这一格）。★ 在 `Room` 对象**头 4 字节**里、是**一个字节** —— 与描述符上的 `RoomDescriptor.VisitedCount`（`+0x4C` 的 4 字节计数）不是同一格，拿 `VisitedCount != 0` 去模拟会答错。PC 契约 `tools/pc_contract_docs/Room.md:670` 只有签名（没有散文），语义由下面三条具名读者定（confirmed）
-//   证据：0x0045ccd4 —— ★ **置位条件**：本条 `mov w8, #0x1` 紧跟在 0x45CCBC 的 `ldr w8, [x20, #0x4c]`（描述符的 `VisitedCount`）+ 0x45CCC8 的 `cbz w8` 之后 ⇒ **只有『访问次数还是 0』才把本格置 1**。下一句 0x45CCD8 就是 `strb w8, [x19, #0x1]`（本行的 access 证据）
+// 这间房是不是第一次进（PC 侧 `Room:IsFirstVisit()` 读的就是这一格）。在 `Room` 对象头 4 字节里、是一个字节 —— 与描述符上的 `RoomDescriptor.VisitedCount`（`+0x4C` 的 4 字节计数）不是同一格，拿 `VisitedCount != 0` 去模拟会答错。PC 契约 `tools/pc_contract_docs/Room.md:670` 只有签名（没有散文），语义由下面三条具名读者定（confirmed）
+//   证据：0x0045ccd4 —— 置位条件：本条 `mov w8, #0x1` 紧跟在 0x45CCBC 的 `ldr w8, [x20, #0x4c]`（描述符的 `VisitedCount`）+ 0x45CCC8 的 `cbz w8` 之后 ⇒ 只有『访问次数还是 0』才把本格置 1。下一句 0x45CCD8 就是 `strb w8, [x19, #0x1]`（本行的 access 证据）
 //   证据：0x0045ccd8 —— 进房间初始化把它写成 1（`strb w8, [x19, #0x1]`）—— 与上一条合起来：`VisitedCount == 0` ⇒『第一次进』
-//   证据：0x00488b28 —— ★ **清零方**（`Room::RespawnEnemies`）：本条 `strb wzr, [x19, #0x1]` 之前两三条刚把描述符的 `VisitedCount` 加一（0x488B0C `ldr w9, [x8, #0x4c]` → 0x488B10 `add w9, w9, #0x1` → 0x488B14 `str w9, [x8, #0x4c]`）⇒ 再次进房时本格不再为真，与 `VisitedCount` 是同一条时间线
+//   证据：0x00488b28 —— 清零方（`Room::RespawnEnemies`）：本条 `strb wzr, [x19, #0x1]` 之前两三条刚把描述符的 `VisitedCount` 加一（0x488B0C `ldr w9, [x8, #0x4c]` → 0x488B10 `add w9, w9, #0x1` → 0x488B14 `str w9, [x8, #0x4c]`）⇒ 再次进房时本格不再为真，与 `VisitedCount` 是同一条时间线
 //   证据：0x00451e9c —— **第三处独立读者**（`Room::PlayMusic`）：`ldrb w8, [x19, #0x1]` 后紧跟 `cbz w8`（0x451EA0）—— 只有非零时才 `Random(4)` 抽曲子（0x451EA8）⇒ 引擎自己按『是不是首次』分支
 inline constexpr std::uintptr_t kRoomFirstVisitOffset = 0x1;
 inline constexpr std::uintptr_t kRoomFirstVisitWidth = 1;
@@ -31,7 +31,7 @@ inline constexpr std::uintptr_t kRoomFirstVisitWidth = 1;
 //   证据：0x004645e0 —— 同一分支的另一条轴：`ldr s2, [x0, #0x20]` + Margin 作 y 的下界（0x464608 读 0x28 做减法作上界）⇒ `0x1C`(X) 与 `0x20`(Y) 是**同一格 Vector2** 的两半，这就是本行 `width` 记 8 的来历
 //   证据：0x0048437c —— `ldp s0, s1, [x19, #0x1c]` —— 一条指令把 0x1C 与 0x20 **成对**读进 s0/s1（8 字节一个 Vector2）；随后加/减四个 Margin 形参，把这一对当 **min**、把 0x484384 的 `ldp s2, s3, [x19, #0x24]` 那一对当 **max** 交给 `Vector2::Clamped`
 //   证据：0x0045b9ec —— 本函数的**第一个**写入目标：`add x21, x19, #0x1c` 取本格地址，0x45B9FC 用 `Vector2::operator=` 把『按网格位置算出来的角』写进去。函数符号名就是 `Room::RecomputeRoomBounds`（重算房间边界）
-//   证据：0x0045ba04 —— ★ 判『哪一格是左上、哪一格是右下』的关键一步：本函数先把按网格位置算出的角写进 `Room+0x1C`（0x45B9EC/0x45B9FC），随后 `ldp w8, w9, [x19, #0x14]` 取网格宽高、各 `sub … #0x2`（本条）得到墙内跨度，0x45BA28 再以 `&Room+0x1C` 为被加数做 `Vector2::operator+`、0x45BA40 把结果赋给 `&Room+0x24` ⇒ **0x24 = 0x1C + 正的跨度** ⇒ 0x1C 是左上、0x24 是右下
+//   证据：0x0045ba04 —— 判『哪一格是左上、哪一格是右下』的关键一步：本函数先把按网格位置算出的角写进 `Room+0x1C`（0x45B9EC/0x45B9FC），随后 `ldp w8, w9, [x19, #0x14]` 取网格宽高、各 `sub … #0x2`（本条）得到墙内跨度，0x45BA28 再以 `&Room+0x1C` 为被加数做 `Vector2::operator+`、0x45BA40 把结果赋给 `&Room+0x24` ⇒ 0x24 = 0x1C + 正的跨度 ⇒ 0x1C 是左上、0x24 是右下
 //   证据：0x004562cc —— `Room::GetCenterPos()`（函数名即『房间中心』，PC 契约 `Room.md:139`；`Room::Update` 在 0x46F5EC 起**内联**了同一段）同时取 `&Room+0x1C`（0x4562BC）与 `&Room+0x24`（0x4562C0）两格做 `Vector2::operator-`（本格作**减数**），再乘本条加载的 `0x3f000000`（= 0.5f），最后加回 `0x1C` ⇒ 两格是同一矩形的一对**对角**、其连线中点就是房间中心
 //   证据：0x0045ef08 —— 第三处独立读者（`Room::Init` 摆随机位置）：`ldr s8, [x19, #0x1c]` 取本格作**基点**，`ldr s1, [x19, #0x24]` 减 `ldr s2, [x19, #0x1c]` 得**正**跨度，再做 `rand × 跨度 + 基点` ⇒ 本格是被当作『原点』的那一角（同处 0x45EF14/0x45EF28 对 0x20/0x28 做同一件事）
 inline constexpr std::uintptr_t kRoomTopLeftOffset = 0x1C;
@@ -42,17 +42,17 @@ inline constexpr std::uintptr_t kRoomTopLeftWidth = 8;
 //   证据：0x00464608 —— 另一条轴的上界：`ldr s2, [x0, #0x28]` 做减法后 `fcmp`/`cset ls` ⇒ `0x24`(X) 与 `0x28`(Y) 是**同一格 Vector2** 的两半（本行 `width` 记 8 的来历）
 //   证据：0x00484384 —— `ldp s2, s3, [x19, #0x24]` —— 一条指令把 0x24 与 0x28 **成对**读进 s2/s3，随后两个分量都做 `fsub`（**减** Margin）当上界，交给 `Vector2::Clamped` 当 **max**（0x48437C 的 `ldp s0, s1, [x19, #0x1c]` 那一对是 min）
 //   证据：0x0045ba30 —— 本函数的**第二个**写入目标：`add x20, x19, #0x24` 取本格地址，0x45BA40 用 `Vector2::operator=` 把『0x1C 那一角 + 墙内跨度』写进去（跨度是 `(W−2, H−2) × 40`，两个分量都为正）⇒ 本格是加号那一端
-//   证据：0x0045ba04 —— ★ 与 `TopLeft` 行同一条锚点的另一半：`sub w8, w8, #0x2`（本条）算出墙内跨度后，0x45BA28 的 `Vector2::operator+` 以 `&Room+0x1C` 为被加数、0x45BA40 把结果写进 `&Room+0x24` ⇒ 本格 = 0x1C 那一格 + **正的**跨度 ⇒ 本格是右下
+//   证据：0x0045ba04 —— 与 `TopLeft` 行同一条锚点的另一半：`sub w8, w8, #0x2`（本条）算出墙内跨度后，0x45BA28 的 `Vector2::operator+` 以 `&Room+0x1C` 为被加数、0x45BA40 把结果写进 `&Room+0x24` ⇒ 本格 = 0x1C 那一格 + 正的跨度 ⇒ 本格是右下
 //   证据：0x004562cc —— `Room::GetCenterPos()` 里 `&Room+0x24`（0x4562C0）是 `Vector2::operator-` 的**被减数**、`&Room+0x1C`（0x4562BC）是减数（`mov x1, x19`），差值乘本条加载的 `0x3f000000`（0.5f）、最后加回 0x1C ⇒ 『本格 − 0x1C 那一格』是**正的**尺寸向量，两格是矩形的对角
 //   证据：0x0045ef28 —— 第三处独立读者（同一条『rand × 正跨度 + 基点』的 y 轴）：`ldr s1, [x19, #0x28]` 减 `ldr s2, [x19, #0x20]` 得**正**跨度 ⇒ 本格（连同 0x24）是较大的那一端
 inline constexpr std::uintptr_t kRoomBottomRightOffset = 0x24;
 inline constexpr std::uintptr_t kRoomBottomRightWidth = 8;
 
-// **这一间房的『染色石头』在哪一格**（网格索引，u32）。PC 侧 `Room:GetTintedRockIdx()` 读的就是这一格（PC 在 `Room+0x764`；★ 数值不许平移，两边 `Room` 布局不同）。★ **为什么能定案（三条独立证据）**：① 镜像里它的写入点是 `Room::Init` 中 `RNG::Next()` → `Room::GetRandomTileIndex(int)` 的返回值（房间初始化时随机挑一格）；② 具名消费者 `Room::spawn_entity` 拿它跟『当前要生成的格子索引』比较；③ PC 侧 `GetTintedRockIdx`(=`Room+0x764`) 与 `GetDungeonRockIdx`(=`Room+0x768`) **相邻、tinted 在低地址**，而 Switch 的 `Room::GetDungeonRockIdx()` 读 `Room+0xE94` ⇒ 同序 ⇒ tinted 就是本格。★ 与 `Room+0xE94`（`DungeonRockIdx`）**只差 4 字节**，引用时必须带基对象与名字说清。（confirmed）
+// 这一间房的『染色石头』在哪一格（网格索引，u32）。PC 侧 `Room:GetTintedRockIdx()` 读的就是这一格（PC 在 `Room+0x764`；数值不许平移，两边 `Room` 布局不同）。为什么能定案（三条独立证据）：① 镜像里它的写入点是 `Room::Init` 中 `RNG::Next()` → `Room::GetRandomTileIndex(int)` 的返回值（房间初始化时随机挑一格）；② 具名消费者 `Room::spawn_entity` 拿它跟『当前要生成的格子索引』比较；③ PC 侧 `GetTintedRockIdx`(=`Room+0x764`) 与 `GetDungeonRockIdx`(=`Room+0x768`) 相邻、tinted 在低地址，而 Switch 的 `Room::GetDungeonRockIdx()` 读 `Room+0xE94` ⇒ 同序 ⇒ tinted 就是本格。与 `Room+0xE94`（`DungeonRockIdx`）只差 4 字节，引用时必须带基对象与名字说清。（confirmed）
 //   证据：0x0045d000 —— **写入点（语义锚点）**：紧接 `bl RNG::Next()` → `mov w1,w0` → `bl Room::GetRandomTileIndex(int)` 之后的 `str w0, [x19, #0xe90]` —— 房间初始化时**随机挑一个格子索引**存进这一格，这正是『染色石头在哪一格』
 //   证据：0x00453a34 —— **具名读者**：`ldr w9, [x20, #0xe90]` 紧跟 `cmp w9, w19`（与当前要生成的格子索引比较）⇒ 生成网格实体时用它判『这一格是不是被标记的那一格』（同函数另有两处：`0x453b38` / `0x454a14`）
 //   证据：0x0048920c —— **旁证（同族顺序）**：同族的 `Room::GetDungeonRockIdx()` 读的是**相邻的** `Room+0xE94`；PC 侧两格相邻且 tinted 在低地址（`0x764` < `0x768`）⇒ Switch 同序 ⇒ tinted = `0xE90`（本行）
-//   证据：0x0045d000 —— **命名锚点**：这一格的写入值是 `bl RNG::Next()`（`0x45CFF0`）→ `Room::GetRandomTileIndex(int)`（`0x45CFFC` 的 `bl 0x671740`）的返回值，紧接本行 `str w0, [x19, #0xe90]` ⇒ 它是**房间初始化时随机挑出来的一个格子索引**；同一函数稍后（`0x45D468`..`0x45D480`）把相邻的 `Room+0xE94`（`DungeonRockIdx`）写成另一个值 ⇒ 两格是同一族的『石头格子索引』。★ 与 PC 侧的**顺序证据**（`GetTintedRockIdx`=`Room+0x764`、`GetDungeonRockIdx`=`Room+0x768`，**相邻且 tinted 在低地址**）合起来，本格就是 tinted 那一格。★ 消费侧另有一条独立证据（见 access 条目：`Room::spawn_entity` 拿它跟『当前要生成的格子索引』比较）。
+//   证据：0x0045d000 —— 命名锚点：这一格的写入值是 `bl RNG::Next()`（`0x45CFF0`）→ `Room::GetRandomTileIndex(int)`（`0x45CFFC` 的 `bl 0x671740`）的返回值，紧接本行 `str w0, [x19, #0xe90]` ⇒ 它是房间初始化时随机挑出来的一个格子索引；同一函数稍后（`0x45D468`..`0x45D480`）把相邻的 `Room+0xE94`（`DungeonRockIdx`）写成另一个值 ⇒ 两格是同一族的『石头格子索引』。与 PC 侧的顺序证据（`GetTintedRockIdx`=`Room+0x764`、`GetDungeonRockIdx`=`Room+0x768`，相邻且 tinted 在低地址）合起来，本格就是 tinted 那一格。消费侧另有一条独立证据（见 access 条目：`Room::spawn_entity` 拿它跟『当前要生成的格子索引』比较）。
 inline constexpr std::uintptr_t kRoomTintedRockIdxOffset = 0xE90;
 inline constexpr std::uintptr_t kRoomTintedRockIdxWidth = 4;
 
@@ -67,45 +67,45 @@ inline constexpr std::uintptr_t kRoomEnterFrameCountWidth = 4;
 inline constexpr std::uintptr_t kRoomRenderScrollOffsetOffset = 0x1938;
 inline constexpr std::uintptr_t kRoomRenderScrollOffsetWidth = 16;
 
-// **房间里第一个 Boss 的 boss id**（PC 侧 `Room:GetBossID()` 读的就是这一格）。PC 契约 `tools/pc_contract_docs/Room.md:109`：`#### int GetBossID ( )` —— 「Returns the boss ID of the **first boss** in the room. Returns 0 otherwise.」「A boss ID is **NOT** equal to the entity Type, but is defined as a separate value in the entities2.xml file inside the 'bossID' attribute.」★ 与 `RoomConfig::Room` 上的字段不是一回事：这一格在 `Room` 对象上、由房间里生成的实体反填（confirmed）
-//   证据：0x0045c6c4 —— ★ **写入方是具名函数**（`Room::Init`）：同一段代码对房间里每个生成实体取它的 `EntityConfig`（`bl EntityConfig::GetEntity(type,variant,subtype)`）、读 `EntityConfig::Entity + 0x34`（= entities2.xml 的 `bossID` 属性），**第一个非零**的写进本格（本条 `str w8, [x19, #0x1fc0]`），**第二个不同的**写进 `+0x1FC4`（0x45C6BC）—— 与契约『the **first** boss in the room』逐字吻合
+// 房间里第一个 Boss 的 boss id（PC 侧 `Room:GetBossID()` 读的就是这一格）。PC 契约 `tools/pc_contract_docs/Room.md:109`：`#### int GetBossID ( )` —— 「Returns the boss ID of the first boss in the room. Returns 0 otherwise.」「A boss ID is NOT equal to the entity Type, but is defined as a separate value in the entities2.xml file inside the 'bossID' attribute.」与 `RoomConfig::Room` 上的字段不是一回事：这一格在 `Room` 对象上、由房间里生成的实体反填（confirmed）
+//   证据：0x0045c6c4 —— 写入方是具名函数（`Room::Init`）：同一段代码对房间里每个生成实体取它的 `EntityConfig`（`bl EntityConfig::GetEntity(type,variant,subtype)`）、读 `EntityConfig::Entity + 0x34`（= entities2.xml 的 `bossID` 属性），第一个非零的写进本格（本条 `str w8, [x19, #0x1fc0]`），第二个不同的写进 `+0x1FC4`（0x45C6BC）—— 与契约『the first boss in the room』逐字吻合
 //   证据：0x00499674 —— **第二处独立读者**（`RoomTransition::change_room`）：`ldr w1, [x0, #0x1fc0]` 把它当作 `RoomTransition::StartBossIntro(eBossId, eBossId)` 的**第 1 个实参**（0x499698 的 `bl`；第 2 个实参来自 `+0x1FC4`，0x499690）—— 契约里『这个值用来决定进房时显示的 Boss 头像』说的就是它
 //   证据：0x00451948 —— **第三处独立读者**（`Room::PlayMusic`）：`ldr w8, [x19, #0x1fc0]` 取本格后立刻夹到取值区间再索引一张静态表挑 Boss 曲子
-//   证据：0x00451950 —— ★ **取值锚点**：`sub w8, w8, #0x6` + 本条 `cmp w8, #0x52` + `b.hi` ⇒ 有效区间是 **6..88**（0x52+6）。这个区间与语料里模组实际比较的那些 Boss id 逐条落在里面（`boss_id == 6 / 8 / 24 / 55 / 62 / 63 / 88`，见 `MusicModCallback/scripts/mmc/repentance.lua`、`MinimapAPI/.../nicejourney.lua`、`Enhanced-Boss-Bars/main.lua`）⇒ 这一格是 Boss id，不是别的计数
+//   证据：0x00451950 —— 取值锚点：`sub w8, w8, #0x6` + 本条 `cmp w8, #0x52` + `b.hi` ⇒ 有效区间是 6..88（0x52+6）。这个区间与语料里模组实际比较的那些 Boss id 逐条落在里面（`boss_id == 6 / 8 / 24 / 55 / 62 / 63 / 88`，见 `MusicModCallback/scripts/mmc/repentance.lua`、`MinimapAPI/.../nicejourney.lua`、`Enhanced-Boss-Bars/main.lua`）⇒ 这一格是 Boss id，不是别的计数
 inline constexpr std::uintptr_t kRoomBossIdOffset = 0x1FC0;
 inline constexpr std::uintptr_t kRoomBossIdWidth = 4;
 
-// **这个房间的背景类型**（`BackdropType` 枚举，0..60）。PC 侧 `Room:GetBackdropType()` 读的就是这一格（PC 在 `Room+0x1E84`）；★ 它其实是**内嵌的 `Backdrop` 子对象里的那一个字段**：`Backdrop` 内嵌在 `Room+0x1FE0`，而 `Backdrop::Init(eBackdrop, bool)` 把 eBackdrop 存进 `Backdrop+0x1D0` ⇒ `0x1FE0 + 0x1D0 = 0x21B0`（两个偏移都在本表/本条注释里给出，不是推的）。★ 与 `Music+0x1D0`（`Music::Crossfade/EnableLayer` 读写的那一格）**同偏移不同基对象** —— 所以引用这一格时必须带基对象说清（confirmed）
+// 这个房间的背景类型（`BackdropType` 枚举，0..60）。PC 侧 `Room:GetBackdropType()` 读的就是这一格（PC 在 `Room+0x1E84`）；它其实是内嵌的 `Backdrop` 子对象里的那一个字段：`Backdrop` 内嵌在 `Room+0x1FE0`，而 `Backdrop::Init(eBackdrop, bool)` 把 eBackdrop 存进 `Backdrop+0x1D0` ⇒ `0x1FE0 + 0x1D0 = 0x21B0`（两个偏移都在本表/本条注释里给出，不是推的）。与 `Music+0x1D0`（`Music::Crossfade/EnableLayer` 读写的那一格）同偏移不同基对象 —— 所以引用这一格时必须带基对象说清（confirmed）
 //   证据：0x0045ae1c —— **具名读者一**（`Room::LoadBackdropGraphics` = 装载房间背景图）：`ldr w8, [x20, #0x21b0]` 之后按这张枚举去挑背景图资源（同一函数 0x45ABF4 起还 `ldr w1,[x8,#0x64]` 取种子、把 `Room+0x1FE0` 当 `this` 调 `Backdrop::SetSeed`/`Backdrop::Init`）
 //   证据：0x00461f90 —— **具名读者二**（`Room::HasLava() const` = 这间房有没有熔岩）：整个函数就只有 `ldr w8,[x0,#0x21b0]` + 与若干 backdrop 值比较后 `cset` —— 函数名即语义（熔岩只出现在特定的几层）
 //   证据：0x004646a8 —— **具名读者三**（`Room::init_rain()`）：按背景类型决定要不要起雨（雨中/淹水层才下）
 //   证据：0x0047f030 —— **具名读者四**（`Room::pre_render_pits()` = 画坑之前）：先看这一格是不是矿层，再（0x47F048）看 `Flags` 的 bit5 决定画不画水坑 —— 与本表 `Flags` 行的 `HAS_WATER` 是同一段判据的两半
-//   证据：0x0047f034 —— ★ **取值锚点（1/2）**：`cmp w8, #0x20` —— 0x20 = **32 = `BackdropType.MINES`**（PC 文档枚举页 `tools/pc_enum_docs/BackdropType.md`，本批已把那张表生成进运行时）⇒ 这一格拿的是 `BackdropType` 的值，不是随便一个计数
-//   证据：0x0045cc90 —— ★ **取值锚点（2/2）**：`cmp w8, #0x10` —— 0x10 = **16 = `BackdropType.DARKROOM`**（紧邻的 0x45CCA0 还比了一个 0x23 = 35 = `PLANETARIUM`）；两个数都在 0..60 的合法 backdrop 域内
-//   证据：0x00026e9c —— ★★ **写入方的边界**：`Backdrop::Init(Backdrop::eBackdrop, bool)` 在 0x26E9C `cmp w1, #0x3c`（60）+ 0x26EA4 `csinc w8, w1, wzr, ls` + 0x26EA8 `str w8, [x0, #0x1d0]` ⇒ **eBackdrop 存进 `Backdrop+0x1D0`，且 > 60 一律夹成 0**（60 = `DARK_CLOSET`，是最后一个真正的背景；61/62/63 是 `DEATHMATCH`/`LIL_PORTAL`/`NUM_BACKDROPS`）⇒ 这一格的取值域被引擎自己钉在 **0..60**
+//   证据：0x0047f034 —— 取值锚点（1/2）：`cmp w8, #0x20` —— 0x20 = 32 = `BackdropType.MINES`（PC 文档枚举页 `tools/pc_enum_docs/BackdropType.md`，本批已把那张表生成进运行时）⇒ 这一格拿的是 `BackdropType` 的值，不是随便一个计数
+//   证据：0x0045cc90 —— 取值锚点（2/2）：`cmp w8, #0x10` —— 0x10 = 16 = `BackdropType.DARKROOM`（紧邻的 0x45CCA0 还比了一个 0x23 = 35 = `PLANETARIUM`）；两个数都在 0..60 的合法 backdrop 域内
+//   证据：0x00026e9c —— 写入方的边界：`Backdrop::Init(Backdrop::eBackdrop, bool)` 在 0x26E9C `cmp w1, #0x3c`（60）+ 0x26EA4 `csinc w8, w1, wzr, ls` + 0x26EA8 `str w8, [x0, #0x1d0]` ⇒ eBackdrop 存进 `Backdrop+0x1D0`，且 > 60 一律夹成 0（60 = `DARK_CLOSET`，是最后一个真正的背景；61/62/63 是 `DEATHMATCH`/`LIL_PORTAL`/`NUM_BACKDROPS`）⇒ 这一格的取值域被引擎自己钉在 0..60
 //   证据：0x0045cc8c —— **进房初始化时读它**（`ldr w8, [x19, #0x21b0]`，紧接上一条的 `cmp #0x10`）⇒ 进房那一刻这一格已经有值（不是未初始化）
-//   证据：0x0045abf8 —— ★ **内嵌关系的那一跳**（本行地址链的中间一步，故 offset 记 `0x1FE0`）：`mov w9, #0x1fe0` + 0x45ABFC `add x21, x20, x9` ⇒ `Backdrop` 子对象就是 **`Room+0x1FE0**`；紧接着 0x45AC14 用它当 `this` 调 `Backdrop::Init` ⇒ `0x1FE0 + 0x1D0 = 0x21B0`
+//   证据：0x0045abf8 —— 内嵌关系的那一跳（本行地址链的中间一步，故 offset 记 `0x1FE0`）：`mov w9, #0x1fe0` + 0x45ABFC `add x21, x20, x9` ⇒ `Backdrop` 子对象就是 `Room+0x1FE0**`；紧接着 0x45AC14 用它当 `this` 调 `Backdrop::Init` ⇒ `0x1FE0 + 0x1D0 = 0x21B0`
 inline constexpr std::uintptr_t kRoomBackdropTypeOffset = 0x21B0;
 inline constexpr std::uintptr_t kRoomBackdropTypeWidth = 4;
 
-// **地板的颜色修饰**（`ColorMod`，44 字节）—— `Room:SetFloorColor(Color)` 在 PC 上就是「把 44 字节的实参整块拷到成员上」（绑定本体 `0x7A7ED0`：`add ecx,0x7188` + 一串 `movups/movq/mov` + `ret 0x2c`），Switch 侧对应这一格（PC `0x7188` / Switch `0x7968`，**数值不许平移**）。`ColorMod` 布局 = tint(4×float，乘) + shift(4×float，加) + 3 格保留，见 `ColorMod::Reset` 的取值锚点证据。★ 为什么是「地板」而不是别的：`Room::Render` 把这一格的 44 字节**原样**喂给 `Backdrop::RenderFloor(Vector2 const&, ColorMod)`。（confirmed）
-//   证据：0x0044e75c —— ★ **构造函数就把它当 `ColorMod` 初始化**：`mov w8, #0x7968` → `0x44e760 add x0, x19, x8` → `0x44e764 bl ColorMod::Reset`；★ 紧接着 `0x44e768 mov w8, #0x7994` + `0x44e770 bl ColorMod::Reset` 对**墙**那一格做同一件事 ⇒ 两格同类型、且**相距 `0x2C` = 一个 `ColorMod`**（与 PC 的 `0x7188`/`0x71B4` 间距一致）
-//   证据：0x00460940 —— ★ **引擎自己按房型给它上色**：`mov w8, #0x7968` + `0x460944 add x0, x19, x8`，然后 `0x460970 bl ColorMod::SetColorize(float,float,float,float)`（这一支前面是 `0x460938 cmp w8, #0x1d` 的房型判断）⇒ 它是 `ColorMod`（能被 `SetColorize` 当 this 用）
-//   证据：0x0048035c —— ★★ **真的把它画出去的那条链**：`ldr x8, [x19, #0x7968]` / `ldr x9, [x19, #0x7970]` → `stp [x29,#-0x88]`，再 `+0x7978/+0x7980 → [x29,#-0x78]`、`+0x7988 → [x29,#-0x68]`、`+0x7990 → [x29,#-0x60]` ⇒ 44 字节**原样**搬成一个栈上临时量，随后 `0x48039c bl Backdrop::RenderFloor(Vector2 const&, ColorMod)`
-//   证据：0x00037830 —— ★ **取值锚点**：`mov x8, #0x3f8000003f800000`（两个 `1.0f`）→ `0x37834 stp x8, x8, [x0]` = **tint(1,1,1,1)**；`0x37840 stp xzr, xzr, [x0, #0x10]` = shift 全 0；`0x37838 str xzr, [x0, #0x20]` / `0x3783c str wzr, [x0, #0x28]` ⇒ 共 44 字节、布局与我们的 `EngineColorMod` 逐格一致（`engine_color_mod.hpp`）
+// 地板的颜色修饰（`ColorMod`，44 字节）—— `Room:SetFloorColor(Color)` 在 PC 上就是「把 44 字节的实参整块拷到成员上」（绑定本体 `0x7A7ED0`：`add ecx,0x7188` + 一串 `movups/movq/mov` + `ret 0x2c`），Switch 侧对应这一格（PC `0x7188` / Switch `0x7968`，数值不许平移）。`ColorMod` 布局 = tint(4×float，乘) + shift(4×float，加) + 3 格保留，见 `ColorMod::Reset` 的取值锚点证据。为什么是「地板」而不是别的：`Room::Render` 把这一格的 44 字节原样喂给 `Backdrop::RenderFloor(Vector2 const&, ColorMod)`。（confirmed）
+//   证据：0x0044e75c —— 构造函数就把它当 `ColorMod` 初始化：`mov w8, #0x7968` → `0x44e760 add x0, x19, x8` → `0x44e764 bl ColorMod::Reset`；紧接着 `0x44e768 mov w8, #0x7994` + `0x44e770 bl ColorMod::Reset` 对墙那一格做同一件事 ⇒ 两格同类型、且相距 `0x2C` = 一个 `ColorMod`（与 PC 的 `0x7188`/`0x71B4` 间距一致）
+//   证据：0x00460940 —— 引擎自己按房型给它上色：`mov w8, #0x7968` + `0x460944 add x0, x19, x8`，然后 `0x460970 bl ColorMod::SetColorize(float,float,float,float)`（这一支前面是 `0x460938 cmp w8, #0x1d` 的房型判断）⇒ 它是 `ColorMod`（能被 `SetColorize` 当 this 用）
+//   证据：0x0048035c —— 真的把它画出去的那条链：`ldr x8, [x19, #0x7968]` / `ldr x9, [x19, #0x7970]` → `stp [x29,#-0x88]`，再 `+0x7978/+0x7980 → [x29,#-0x78]`、`+0x7988 → [x29,#-0x68]`、`+0x7990 → [x29,#-0x60]` ⇒ 44 字节原样搬成一个栈上临时量，随后 `0x48039c bl Backdrop::RenderFloor(Vector2 const&, ColorMod)`
+//   证据：0x00037830 —— 取值锚点：`mov x8, #0x3f8000003f800000`（两个 `1.0f`）→ `0x37834 stp x8, x8, [x0]` = tint(1,1,1,1)；`0x37840 stp xzr, xzr, [x0, #0x10]` = shift 全 0；`0x37838 str xzr, [x0, #0x20]` / `0x3783c str wzr, [x0, #0x28]` ⇒ 共 44 字节、布局与我们的 `EngineColorMod` 逐格一致（`engine_color_mod.hpp`）
 inline constexpr std::uintptr_t kRoomFloorColorModOffset = 0x7968;
 inline constexpr std::uintptr_t kRoomFloorColorModWidth = 44;
 
-// **墙壁的颜色修饰**（`ColorMod`，44 字节）—— `Room:SetWallColor(Color)` 在 PC 上同样是「把 44 字节的实参整块拷到成员上」（绑定本体 `0x7A7F10`：`add ecx,0x71b4`，与 `SetFloorColor` **逐字同形**，`ret 0x2c`）。PC `0x71B4` / Switch `0x7994`，**不许平移**；只有「相距 `0x2C`、地板在前」这对相对关系与 PC 互相印证。★ 为什么是「墙」而不是别的：`Room::Render` 把这一格的 44 字节喂给 `Backdrop::RenderWalls(Vector2 const&, ColorMod)`；另有 `Room::TurnGold`（房间变金）写它、`Backdrop::spawn_wall_details` 读它 9 处。（confirmed）
-//   证据：0x0044e768 —— ★ 构造函数里 `mov w8, #0x7994` → `0x44e76c add x0, x19, x8` → `0x44e770 bl ColorMod::Reset` ⇒ 这一格也是 `ColorMod`（与地板那格同一条 `Reset`，**紧挨着**）
-//   证据：0x00460974 —— ★ 同一支房型分支里、给地板那次 `SetColorize` **紧接的下一件事**：`mov w8, #0x7994` + `0x460978 add x0, x19, x8` + `bl ColorMod::SetColorize(...)` ⇒ 进房时地板与墙一起被上色
-//   证据：0x00480564 —— ★★ **真的把它画出去的那条链**：`mov w8, #0x7994` + `0x480568 add x8, x19, x8`，随后 `ldp`/`stp` 把 44 字节搬到栈上 `[x29,#-0xe8]` 起，再 `0x480598 bl Backdrop::RenderWalls(Vector2 const&, ColorMod)` ⇒ **墙那一格**喂给 `RenderWalls`（与地板那格喂 `RenderFloor` 一一对应）
-//   证据：0x00464ab0 —— ★ 引擎自己的「房间变金」入口：`mov w10, #0x7994` + `0x464ab4 add x10, x19, x10` + 两条 `stp`（写整份 `ColorMod`）⇒ 变金染的是**墙**，与「这一格是墙色」独立吻合
-//   证据：0x00037830 —— ★ **取值锚点**（与地板那一格同一条）：`mov x8, #0x3f8000003f800000` ⇒ `ColorMod::Reset` 把 tint 置成 (1,1,1,1)、shift 与保留格清零 —— 这正是构造函数给这两格的初值
+// 墙壁的颜色修饰（`ColorMod`，44 字节）—— `Room:SetWallColor(Color)` 在 PC 上同样是「把 44 字节的实参整块拷到成员上」（绑定本体 `0x7A7F10`：`add ecx,0x71b4`，与 `SetFloorColor` 逐字同形，`ret 0x2c`）。PC `0x71B4` / Switch `0x7994`，不许平移；只有「相距 `0x2C`、地板在前」这对相对关系与 PC 互相印证。为什么是「墙」而不是别的：`Room::Render` 把这一格的 44 字节喂给 `Backdrop::RenderWalls(Vector2 const&, ColorMod)`；另有 `Room::TurnGold`（房间变金）写它、`Backdrop::spawn_wall_details` 读它 9 处。（confirmed）
+//   证据：0x0044e768 —— 构造函数里 `mov w8, #0x7994` → `0x44e76c add x0, x19, x8` → `0x44e770 bl ColorMod::Reset` ⇒ 这一格也是 `ColorMod`（与地板那格同一条 `Reset`，紧挨着）
+//   证据：0x00460974 —— 同一支房型分支里、给地板那次 `SetColorize` 紧接的下一件事：`mov w8, #0x7994` + `0x460978 add x0, x19, x8` + `bl ColorMod::SetColorize(...)` ⇒ 进房时地板与墙一起被上色
+//   证据：0x00480564 —— 真的把它画出去的那条链：`mov w8, #0x7994` + `0x480568 add x8, x19, x8`，随后 `ldp`/`stp` 把 44 字节搬到栈上 `[x29,#-0xe8]` 起，再 `0x480598 bl Backdrop::RenderWalls(Vector2 const&, ColorMod)` ⇒ 墙那一格喂给 `RenderWalls`（与地板那格喂 `RenderFloor` 一一对应）
+//   证据：0x00464ab0 —— 引擎自己的「房间变金」入口：`mov w10, #0x7994` + `0x464ab4 add x10, x19, x10` + 两条 `stp`（写整份 `ColorMod`）⇒ 变金染的是墙，与「这一格是墙色」独立吻合
+//   证据：0x00037830 —— 取值锚点（与地板那一格同一条）：`mov x8, #0x3f8000003f800000` ⇒ `ColorMod::Reset` 把 tint 置成 (1,1,1,1)、shift 与保留格清零 —— 这正是构造函数给这两格的初值
 inline constexpr std::uintptr_t kRoomWallColorModOffset = 0x7994;
 inline constexpr std::uintptr_t kRoomWallColorModWidth = 44;
 
-// ★ 本行的 offset 是**函数入口偏移**（0x470B0C，符号 `_ZN15IsaacRepentance4Room13GetFrameCountEv`），不是结构体字段偏移 —— 它对应 `runtime_constants.hpp` 里的 `kRoomGetFrameCountOffset`（EID 的 `game:GetRoom():GetFrameCount()` 用它；缺它时背包合成那条渲染路径每帧抛错）。⚠️ confidence 取 candidate 的理由与其他行不同：**命名没有疑问**（符号名就是它），但『入口地址 = 0x470B0C』这一项本工具核不到（表机制核的是指令里的偏移/立即数），入口由符号表给出（`tools/nro_symbols.py` 读到同一个地址，宿主侧另有 16 字节入口指纹）⇒ 只登记、不进对外 API。取到的那个字段见本表 `EnterFrameCount` 行（candidate）
+// 本行的 offset 是函数入口偏移（0x470B0C，符号 `_ZN15IsaacRepentance4Room13GetFrameCountEv`），不是结构体字段偏移 —— 它对应 `runtime_constants.hpp` 里的 `kRoomGetFrameCountOffset`（EID 的 `game:GetRoom():GetFrameCount()` 用它；缺它时背包合成那条渲染路径每帧抛错）。⚠️ confidence 取 candidate 的理由与其他行不同：命名没有疑问（符号名就是它），但『入口地址 = 0x470B0C』这一项本工具核不到（表机制核的是指令里的偏移/立即数），入口由符号表给出（`tools/nro_symbols.py` 读到同一个地址，宿主侧另有 16 字节入口指纹）⇒ 只登记、不进对外 API。取到的那个字段见本表 `EnterFrameCount` 行（candidate）
 //   证据：0x00470b2c —— 函数体内的真实访存：`ldr w9, [x0, #0x191c]`（该字段的证据另见 `EnterFrameCount` 行）；入口 0x470B0C 起是 `ldrb w8, [x0]` / `cbz` / 取 `g_Game` 槽 / 相减 / `ret`，活跃路径一共 11 条指令，房间不活动时跳到 0x470B38 直接返回 −1
 //   证据：0x00470b20 —— 该函数体内的取值常量 `0xf99c`（与 0x470B24 的 `movk #0x24` 合成 0x24F99C = `Game` 的帧计数）—— 它是『这条函数确实是 `Room::GetFrameCount`』的独立语义锚点（函数名 + 减数来源都指向同一件事）
 inline constexpr std::uintptr_t kRoomGetFrameCountOffset = 0x470B0C;

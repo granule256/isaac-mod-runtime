@@ -130,7 +130,7 @@ bool VerifyImagePcxBindings(const TargetModule& module, ImagePcxBindings* bindin
                          &verified.imageManagerLoadMemory)) {
         mask |= 1u << 4;
     }
-    // ★ `getMountedFilePath` **不在这里校验**：它同时是我们自己的入口中继挂点 —— 挂点安装
+    // `getMountedFilePath` 不在这里校验：它同时是我们自己的入口中继挂点 —— 挂点安装
     // 时已经把它的原版序言逐字节核对过（并且把入口改写成跳转了），这里再"逐字节比原版"必然
     // 失败（2026-09-21 真机：掩码 0x20 就是它）。运行时的路径解析一律走**中继自带的原函数
     // 入口**（`Original<...>(HookId::ContentGetMountedFilePath)`），不再需要这个绑定。
@@ -155,7 +155,7 @@ bool VerifyImagePcxBindings(const TargetModule& module, ImagePcxBindings* bindin
     }
 
     g_imagePcxBindingMask.store(mask);
-    *bindings = verified;   // ★ 部分发布：能过的照常给用，由调用方按需判空
+    *bindings = verified;   // 部分发布：能过的照常给用，由调用方按需判空
     return mask == 0;
 }
 

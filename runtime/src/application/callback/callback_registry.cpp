@@ -94,7 +94,7 @@ std::uint32_t CallbackRegistry::RemoveAtIndex(std::size_t index,
     }
     for (std::size_t move = index + 1; move < count_; ++move) {
         entries_[move - 1] = entries_[move];
-        // ★ 过滤器与优先级必须跟着一起前移（见头文件里 `filters_` 的注释）：漏了这一步会让
+        // 过滤器与优先级必须跟着一起前移（见头文件里 `filters_` 的注释）：漏了这一步会让
         // 其余登记的过滤器/优先级整体错位，而症状是"别的回调静默不触发"或"顺序莫名其妙"。
         filters_[move - 1] = filters_[move];
         priorities_[move - 1] = priorities_[move];

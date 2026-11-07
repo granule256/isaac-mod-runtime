@@ -18,12 +18,12 @@
 
 namespace isaac::runtime {
 
-//: 六格（含我们插进去的那一格）与引擎自己那五行 —— 与 `mod_menu_entry_row.hpp` 的
-//: `kMenuGameEntryCount` / `kMenuGameEngineEntryCount` 必须一致（那里有 static_assert）。
+// 六格（含我们插进去的那一格）与引擎自己那五行 —— 与 `mod_menu_entry_row.hpp` 的
+// `kMenuGameEntryCount` / `kMenuGameEngineEntryCount` 必须一致（那里有 static_assert）。
 inline constexpr std::uint32_t kModRowSlotCount = 6;
 inline constexpr std::uint32_t kModRowEngineRowCount = 5;
 
-//: 一行贴图（PCX 字节 + 尺寸 + 字在贴图内的落点）。
+// 一行贴图（PCX 字节 + 尺寸 + 字在贴图内的落点）。
 struct ModRowSprite {
     const std::uint8_t* pcx;
     std::uint32_t pcxBytes;
@@ -34,7 +34,7 @@ struct ModRowSprite {
     float inkBottom;
 };
 
-//: 一个语言的全套布局。
+// 一个语言的全套布局。
 struct ModRowLayout {
     const char* language;            // 游戏的语言码（`Manager::GetLanguageCode`）
     ModRowSprite sprite;

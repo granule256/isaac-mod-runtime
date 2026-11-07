@@ -1,6 +1,6 @@
 #pragma once
 
-// 批次 250（2026-10-01）：**原生状态读不到时的回退口径**（统一的出口 + 探针）。
+// 原生状态读不到时的回退口径（统一的出口 + 探针）。
 //
 // ## 为什么要有这个文件
 //
@@ -15,9 +15,9 @@
 //     没有"解析"这一步；`Game():GetLevel()` 之类在 PC 上永远给对象。
 //     ⇒ 用"抛错"表达**我们特有的解析失败**，等于让模组的行为偏离 PC。
 //
-// **本项目自己的先例已经给出了正解**（`remaining_api.cpp` 的 `PushRoomDescriptor`，批次 043）：
+// 本项目自己的先例已经给出了正解（`remaining_api.cpp` 的 `PushRoomDescriptor`，）：
 // 「**永远给对象**，哪怕这一刻拿不到地址」「PC 里这些字段都有确定类型 ⇒ 给该类型下的空值，
-// 而不是给 nil（`nil > 0`、`nil.Type` 都会把回调打断）」。批次 043 只覆盖了"描述符地址为 0"，
+// 而不是给 nil（`nil > 0`、`nil.Type` 都会把回调打断）」。只覆盖了"描述符地址为 0"，
 // **没覆盖"连 Level 都解析不到"** —— 加载期走的正是后者，所以那次修复没救到 GoodTrip。
 //
 // ## 口径（三句话）
@@ -41,7 +41,7 @@ extern "C" {
 
 namespace isaac::runtime {
 
-// 接口编号（探针的 `lastApi`）。★ **只增不改**：改了会让历史读数对不上。
+// 接口编号（探针的 `lastApi`）。只增不改：改了会让历史读数对不上。
 enum NativeFallbackApi : std::uint32_t {
     kFbNone = 0,
     // —— Level ——
@@ -87,30 +87,30 @@ enum NativeFallbackApi : std::uint32_t {
     kFbGameIsGreedMode = 36,
     kFbGameGetItemPool = 37,
     kFbGameGetRoom = 38,
-    // —— Room（批次 269 追加）——
-    //: `Room:GetRenderSurfaceTopLeft()`：**与其他回退不同**，这一条不是"这一次读不到"，
-    //: 而是"偏移本身还没取证"（`Placeholder` 偏离，见 `api_deviation.cpp` 的 `0x04010025`）
-    //: ⇒ 每一次调用都会记一笔。真机上这个计数**恒 > 0 是预期行为**，不是地址链坏了。
+    // —— Room（追加）——
+    // `Room:GetRenderSurfaceTopLeft()`：与其他回退不同，这一条不是"这一次读不到"，
+    // 而是"偏移本身还没取证"（`Placeholder` 偏离，见 `api_deviation.cpp` 的 `0x04010025`）
+    // ⇒ 每一次调用都会记一笔。真机上这个计数恒 > 0 是预期行为，不是地址链坏了。
     kFbRoomGetRenderSurfaceTopLeft = 39,
-    //: 批次 274：`EntityPlayer:CanPickSoulHearts()` 是**返回布尔**的那一条 —— 拿不到实体/入口时
-    //: 给 `false`（「不能捡」是保守的那一边），并按纪律记一笔探针。
+    // `EntityPlayer:CanPickSoulHearts()` 是返回布尔的那一条 —— 拿不到实体/入口时
+    // 给 `false`（「不能捡」是保守的那一边），并按纪律记一笔探针。
     kFbEntityPlayerCanPickSoulHearts = 45,
-    //: 批次 277：`Entity:GetEntityFlags()` 读不到那一格时给 `0`（= 没有任何标志位）。
+    // `Entity:GetEntityFlags()` 读不到那一格时给 `0`（= 没有任何标志位）。
     kFbEntityGetEntityFlags = 46,
-    // —— `Isaac` 的渲染两条（批次 269 追加）——
-    //: 没有可用屏幕字体时 `Isaac.RenderText` 什么都不画（`void` 的自然降级，**不报错** ——
-    //: 报错会摘掉整条渲染回调，而 PC 上这一条根本不会失败）。
+    // —— `Isaac` 的渲染两条（追加）——
+    // 没有可用屏幕字体时 `Isaac.RenderText` 什么都不画（`void` 的自然降级，不报错 ——
+    // 报错会摘掉整条渲染回调，而 PC 上这一条根本不会失败）。
     kFbIsaacRenderText = 40,
-    //: `Isaac.GetTextWidth` 量不出宽度时给 `-1`。
+    // `Isaac.GetTextWidth` 量不出宽度时给 `-1`。
     kFbIsaacGetTextWidth = 41,
-    // —— Level（批次 270 追加）——
-    //: `Level:QueryRoomTypeIndex` 读不到 `Level` 或引擎入口时给 **-1**
-    //: （= 引擎自己"没有这种房间"的表示法，见 `runtime_constants.hpp` 的批次 270 段）。
+    // —— Level（追加）——
+    // `Level:QueryRoomTypeIndex` 读不到 `Level` 或引擎入口时给 -1
+    // （= 引擎自己"没有这种房间"的表示法，见 `runtime_constants.hpp` 的段）。
     kFbLevelQueryRoomTypeIndex = 42,
-    // —— EntityPlayer（批次 284 追加）——
-    //: 批次 284：`EntityPlayer:IsHoldingItem()` / `IsExtraAnimationFinished()` —— 两条都是
-    //: **返回布尔**的 0 参查询，拿不到实体（句柄失效）或引擎入口对不上时给 `false`
-    //: （= "没拿着东西" / "额外动画已结束" 里保守的那一边），并按纪律各记一笔探针。
+    // —— EntityPlayer（追加）——
+    // `EntityPlayer:IsHoldingItem()` / `IsExtraAnimationFinished()` —— 两条都是
+    // 返回布尔的 0 参查询，拿不到实体（句柄失效）或引擎入口对不上时给 `false`
+    // （= "没拿着东西" / "额外动画已结束" 里保守的那一边），并按纪律各记一笔探针。
     kFbEntityPlayerIsHoldingItem = 47,
     kFbEntityPlayerIsExtraAnimationFinished = 48,
 };
@@ -136,7 +136,7 @@ inline NativeFallbackState& NativeFallback() noexcept {
 } // namespace detail
 
 inline void RecordNativeStateFallback(NativeFallbackApi api) noexcept {
-    (void)api;  // 批次 232：生产构建里这段被编译掉 ⇒ 参数必然用不上
+    (void)api;  // 生产构建里这段被编译掉 ⇒ 参数必然用不上
 #if EXL_DIAGNOSTIC_PROBES
     detail::NativeFallback().count.fetch_add(1, std::memory_order_relaxed);
     detail::NativeFallback().lastApi.store(static_cast<std::uint32_t>(api),

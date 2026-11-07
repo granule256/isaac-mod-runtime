@@ -4,7 +4,7 @@
 #include <cstdlib>
 #include <exception>
 
-// 生产可用的「死前留证」（2026-09-24 批次 099）。
+// 生产可用的「死前留证」（2026-09-24 ）。
 //
 // ## 由来
 // `docs/问题记录-画面卡死-20260924.md`：游戏**画面卡死、音乐还在、连崩溃报告都没有**。
@@ -19,7 +19,7 @@
 // ## 这个设施做什么
 // 只做一件事：在"真的死掉"之前，把「我是谁」装进寄存器并 `svcBreak(BreakReason_User)`
 // ⇒ 卡死变成一份**可读的崩溃报告**（模块基址、停下的 PC 偏移、x0..x3 寄存器快照）。
-// ★★ 它**不改任何游戏逻辑**：不改判据、不改返回值、不拦调用 —— 只把"静默"变成"可查"。
+// 它不改任何游戏逻辑：不改判据、不改返回值、不拦调用 —— 只把"静默"变成"可查"。
 //
 // ## 崩溃报告怎么读
 // 报告里模块名 + 偏移必须与本地部署产物的符号表对上；`x1` 应当是 `ISAACAB1`，
@@ -34,27 +34,27 @@
 //      宿主退化成普通 `std::abort()`（夹具不会真的触发它）。
 namespace isaac::runtime::forensics {
 
-//: `x1` 的魔数：ASCII `"ISAACAB1"`（Abort forensics 1）—— 报告里认这三个才是我装的兜底。
+// `x1` 的魔数：ASCII `"ISAACAB1"`（Abort forensics 1）—— 报告里认这三个才是我装的兜底。
 inline constexpr std::uint64_t kAbortMagic = 0x3142414341415349ULL;
 
-//: `x2` 的分类码（见文件头"崩溃报告怎么读"）。
+// `x2` 的分类码（见文件头"崩溃报告怎么读"）。
 inline constexpr std::uint64_t kKindCxxTerminate = 1;  // 未捕获的 C++ 异常
 inline constexpr std::uint64_t kKindLuaPanic = 2;      // Lua 无保护抛错
 
-//: 把 `(magic, kind, detail)` 装进 `x1..x3` 再执行 `svc 0x26`（`x0 = 2` = `BreakReason_User`）。
-//: 寄存器用 `register ... __asm__("xN")` 钉住，`svc` 后面接 `__builtin_unreachable()`。
-//: ★ `svcBreak` 之后**不会返回**（会话在那一刻结束），所以标 `[[noreturn]]`。
-//:
-//: ★★ 2026-09-26（批次 135）把 `svc 0x7f` 改成 **`svc 0x26`**，原因是**真机实测**：
-//:   卡上崩溃报告 `01790359235_010021c000b6a000.log` 里写得明明白白 ——
-//:   `Svc Id: 0x7f`、`Type: Undefined System Call`、`Result 0x10A8 (2168-0008)`：
-//:   `0x7f` 在本仓库自己的 svc 表（`runtime/config.json`）里是 **`svcCallSecureMonitor`**，
-//:   从 userland（我们就是 EL0 应用）执行它在当前 Atmosphere 下被判**未定义系统调用**
-//:   ⇒ 报告的类型不是 `User Break`、内核也不按 `x0=2` 的 break 语义处理。
-//:   `svcBreak` 的真号是 **`0x26`**（同一份表；`saltynx_external_plugin_entry.cpp:47` 本来就用它）。
-//:   ★ 2026-09-29（批次 197）：那次只改了本文件，其余探针点（`runtime/source/probe/*` 与
-//:   `saltynx_runtime_bridge.cpp`）仍留着 `0x7f` ⇒ **本轮已全部统一成 `0x26`**（9 处），
-//:   并由 `runtime/tests/test_abort_forensics.py` 的"全仓不许再出现 `svc 0x7f`"那条门禁钉住。
+// 把 `(magic, kind, detail)` 装进 `x1..x3` 再执行 `svc 0x26`（`x0 = 2` = `BreakReason_User`）。
+// 寄存器用 `register ... __asm__("xN")` 钉住，`svc` 后面接 `__builtin_unreachable()`。
+// `svcBreak` 之后不会返回（会话在那一刻结束），所以标 `[[noreturn]]`。
+//
+// 2026-09-26把 `svc 0x7f` 改成 `svc 0x26`，原因是真机实测：
+// 卡上崩溃报告 `01790359235_010021c000b6a000.log` 里写得明明白白 ——
+// `Svc Id: 0x7f`、`Type: Undefined System Call`、`Result 0x10A8 (2168-0008)`：
+// `0x7f` 在本仓库自己的 svc 表（`runtime/config.json`）里是 `svcCallSecureMonitor`，
+// 从 userland（我们就是 EL0 应用）执行它在当前 Atmosphere 下被判未定义系统调用
+// ⇒ 报告的类型不是 `User Break`、内核也不按 `x0=2` 的 break 语义处理。
+// `svcBreak` 的真号是 `0x26`（同一份表；`saltynx_external_plugin_entry.cpp:47` 本来就用它）。
+// 2026-09-29：那次只改了本文件，其余探针点（`runtime/source/probe/*` 与
+// `saltynx_runtime_bridge.cpp`）仍留着 `0x7f` ⇒ 本轮已全部统一成 `0x26`（9 处），
+// 并由 `runtime/tests/test_abort_forensics.py` 的"全仓不许再出现 `svc 0x7f`"那条门禁钉住。
 [[noreturn]] inline void Break(std::uint64_t kind, std::uint64_t detail) noexcept {
 #if defined(__aarch64__)
     register std::uint64_t x0 __asm__("x0") = 2;  // BreakReason_User
@@ -77,17 +77,17 @@ inline constexpr std::uint64_t kKindLuaPanic = 2;      // Lua 无保护抛错
 
 namespace detail {
 
-//: 一次性守卫：terminate 处理器自己再出问题（递归 terminate）时**不再 break**，
-//: 直接落到 `abort()` —— 否则会在 break 那条路上套娃。
-//: 函数内 static（而不是命名空间级变量）：inline 函数里的局部 static 在所有编译单元里
-//: 是同一个对象，不需要 C++17 的 `inline` 变量。
+// 一次性守卫：terminate 处理器自己再出问题（递归 terminate）时不再 break，
+// 直接落到 `abort()` —— 否则会在 break 那条路上套娃。
+// 函数内 static（而不是命名空间级变量）：inline 函数里的局部 static 在所有编译单元里
+// 是同一个对象，不需要 C++17 的 `inline` 变量。
 inline std::uint32_t& TerminateForensicsTaken() noexcept {
     static std::uint32_t taken = 0;
     return taken;
 }
 
-//: 未捕获的 C++ 异常 ⇒ 这里。先留证再走原来的死法（`abort`），保证行为与之前一致
-//: （只是多了一份报告），避免"改了死法"引入新的不确定性。
+// 未捕获的 C++ 异常 ⇒ 这里。先留证再走原来的死法（`abort`），保证行为与之前一致
+// （只是多了一份报告），避免"改了死法"引入新的不确定性。
 [[noreturn]] inline void TerminateForensics() noexcept {
     std::uint32_t& taken = TerminateForensicsTaken();
     if (taken == 0) {
@@ -99,8 +99,8 @@ inline std::uint32_t& TerminateForensicsTaken() noexcept {
 
 }  // namespace detail
 
-//: 装「未捕获 C++ 异常」的兜底（`std::set_terminate`）。在模块初始化线程上尽早调一次；
-//: 重复调用是幂等的（只是把处理器再设一遍）。
+// 装「未捕获 C++ 异常」的兜底（`std::set_terminate`）。在模块初始化线程上尽早调一次；
+// 重复调用是幂等的（只是把处理器再设一遍）。
 inline void InstallAbortForensics() noexcept { std::set_terminate(&detail::TerminateForensics); }
 
 }  // namespace isaac::runtime::forensics

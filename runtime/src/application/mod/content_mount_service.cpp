@@ -17,7 +17,7 @@ std::string_view LeafAt(std::size_t index) noexcept {
 
 Status ContentMountService::MountLeaves(const Entry& entry) noexcept {
     const std::string_view directory{entry.directory.data(), entry.length};
-    // 批次 354：先把"这次没有失败"记下，失败时再改 —— 这样读到的永远是**最近一次**的结果，
+    // 先把"这次没有失败"记下，失败时再改 —— 这样读到的永远是最近一次的结果，
     // 且成功路径上不会留下上一次的陈旧值。
     lastFailedLeaf_ = kNoFailedLeaf;
     for (std::size_t index = 0; index < ContentMountService::kLeaves.size(); ++index) {
@@ -26,7 +26,7 @@ Status ContentMountService::MountLeaves(const Entry& entry) noexcept {
             // The port fails closed when the engine side is unverified; a missing
             // directory inside a Mod is not a failure there, so any error here means
             // the environment is wrong and the caller should learn about it.
-            lastFailedLeaf_ = static_cast<std::uint32_t>(index);  // ★ 只读诊断：哪个叶子挂不上
+            lastFailedLeaf_ = static_cast<std::uint32_t>(index);  // 只读诊断：哪个叶子挂不上
             return status;
         }
     }

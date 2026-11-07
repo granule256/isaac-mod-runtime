@@ -2,13 +2,13 @@
 
 #include <cstdint>
 
-// ★ 2026-10-25置顶更正：下面363批的原设计说明仅作历史保留，不能据其减活引用。
+// 2026-10-25置顶更正：下面363批的原设计说明仅作历史保留，不能据其减活引用。
 // 369真机已证伪“LayerData拷贝、释放安全”：LayerState实际引用缓存数据，强清会释放后使用。
 // 当前中继仅回收引用已为0的条目；热切换须由native_game_resource_reload按原生所有权
 // 先释放并重建存活消费者，再回收缓存，不准调用RemoveReference伪造零引用。
 
 // ============================================================================
-// 批次 363（2026-10-04）：`ANM2::Load` 入口中继 —— 让"模组覆盖本体资源"真正生效
+// `ANM2::Load` 入口中继 —— 让"模组覆盖本体资源"真正生效
 // ============================================================================
 //
 // **要补的那一环**：引擎开机时自己就把 `gfx/ui/minimap1.anm2` 这类**共享路径**按"本体层"
@@ -51,35 +51,35 @@ void NoteAnm2LoadRelayCallbackFired() noexcept;
 void NoteAnm2LoadOverrideDecision(std::uint32_t pathHash, bool staleFound, bool evicted) noexcept;
 void NoteAnm2LoadResolverAsked() noexcept;
 
-//: ★ 批次 370（2026-10-05）：**只读一次**引擎那张内容挂载点表（`g_ContentMountPoints`），
-//: 回答"里面有没有 `isaac_mods` 前缀" —— 这是"我们提前挂的挂载点到底进了引擎的表没有"
-//: 的第一个直接判据（`g_EarlyMountState.mountListHadModPrefix` 就是它）。
-//:
-//: 为什么放在这个 TU：那条表**每项 8 字节 `const char*`** 的口径是 2026-10-05 用反汇编 + 设备
-//: 实测定案的（见 `.cpp` 里 `kMountPointEntrySize` 那一大段注释），读法（`ReadMountPointAt`）
-//: 也只该有一份 —— 提前挂载那一步直接调这里，不在别处再抄一遍。
-//: 读不到（槽为空 / 表为空 / 某一项读不出来）一律返回 **false**（"没看到"），不猜。
+// 只读一次引擎那张内容挂载点表（`g_ContentMountPoints`），
+// 回答"里面有没有 `isaac_mods` 前缀" —— 这是"我们提前挂的挂载点到底进了引擎的表没有"
+// 的第一个直接判据（`g_EarlyMountState.mountListHadModPrefix` 就是它）。
+//
+// 为什么放在这个 TU：那条表每项 8 字节 `const char*` 的口径是 2026-10-05 用反汇编 + 设备
+// 实测定案的（见 `.cpp` 里 `kMountPointEntrySize` 那一大段注释），读法（`ReadMountPointAt`）
+// 也只该有一份 —— 提前挂载那一步直接调这里，不在别处再抄一遍。
+// 读不到（槽为空 / 表为空 / 某一项读不出来）一律返回 false（"没看到"），不猜。
 [[nodiscard]] bool EngineMountPointListHasModPrefix(const TargetModule& module) noexcept;
 
 // 中继回调要用的引擎侧绑定视图（安装时核对一次，之后只读）。
-//: 只暴��回调需要的三样：解析器、内容管理器、引擎自己的 `delete[]`。
+// 只暴��回调需要的三样：解析器、内容管理器、引擎自己的 `delete[]`。
 struct Anm2LoadBindingsView {
     char* (*getMounted)(void*, const char*);
     void* contentManager;
     void (*freePath)(void*);
 };
 
-//: 取当前绑定视图（没准备好时三个字段全空 ⇒ 回调直接跑原函数）。
+// 取当前绑定视图（没准备好时三个字段全空 ⇒ 回调直接跑原函数）。
 const Anm2LoadBindingsView& Anm2LoadBindings() noexcept;
 
-//: 回退入口（跑原函数用；安装成功后由 hook_manager 发布进来）。
+// 回退入口（跑原函数用；安装成功后由 hook_manager 发布进来）。
 std::uintptr_t Anm2LoadFallbackEntry() noexcept;
 
-//: 安装时准备引擎侧绑定；返回 false = 绑定不齐（回调将退化为"什么都不做"）。
+// 安装时准备引擎侧绑定；返回 false = 绑定不齐（回调将退化为"什么都不做"）。
 bool PrepareAnm2LoadOverride(const TargetModule& module);
 
-//: 发布回退入口（安装成功后调用；必须在 `PrepareAnm2LoadOverride` 之前或之后都可，
-//: 但两者都完成回调才真正生效）。
+// 发布回退入口（安装成功后调用；必须在 `PrepareAnm2LoadOverride` 之前或之后都可，
+// 但两者都完成回调才真正生效）。
 void PublishAnm2LoadFallbackEntry(std::uintptr_t entry) noexcept;
 
 // 快照（读数工具按符号读；字段顺序即内存顺序，改动必须同步 `tools/read_device_state_via_gdb.py`）。
@@ -91,13 +91,13 @@ struct Anm2LoadOverrideState {
     std::uint32_t staleFound;       // 找到本体旧条目的次数
     std::uint32_t evicted;          // 真正作废并回收的次数
     std::uint32_t lastPathHash;     // 最近一条"答模组层"的路径哈希
-    // ★ 2026-10-05（批次 368）：这一格原来只是"对齐保留（恒 0）"。现在它装的是**扫描现场的两个事实**
+    // 2026-10-05：这一格原来只是"对齐保留（恒 0）"。现在它装的是扫描现场的两个事实
     //   （读数里一眼可见，免得再出现"静默早退、什么都看不到"）：
     //     bit0 = 1 ⇒ 引擎那张挂载点表里**没见过任何模组前缀**（`isaac_mods`）：
     //                它是开机快照；此时"从挂载路径反推 owner 前缀"不成立，我们按"每个键都算压着模组"处理；
     //     bit1 = 1 ⇒ 出现过"同一路径本会话已作废过 ⇒ 跳过"的情况（防"每次加载都白开一次文件"的空转）。
     std::uint32_t mountListFlags;
-    // ★★★ 批次 384（2026-10-06）：**本条中继"第一次被调用"的时刻**（`RuntimePerfTick()` 的低 32 位；0 = 还没被调过）。
+    // 本条中继"第一次被调用"的时刻（`RuntimePerfTick()` 的低 32 位；0 = 还没被调过）。
     //
     // 为什么加它（钉真因，别再靠拼推断）：真机读数显示引擎在 **`Game::Init`（+4214.7 ms）**
     // 里就读了 `gfx/ui/minimap1.anm2`（`Game::Init+0x340` → `Minimap::Init` → `ANM2::Load`），
@@ -108,20 +108,20 @@ struct Anm2LoadOverrideState {
     //   * 若 `callbackFirstTicks` **晚于** `Game::Init` 的时刻 ⇒ 推断被证实（治法是"把资源类中继提前装"）；
     //   * 若**早于** ⇒ 推断被证伪，得另找原因（别再往那个方向改）。
     //
-    // ★ 只取低 32 位：19.2 MHz 的计数器在**开机约 223 秒**内不会回绕，而本判据只看开机后头几秒
+    // 只取低 32 位：19.2 MHz 的计数器在开机约 223 秒内不会回绕，而本判据只看开机后头几秒
     //   ⇒ 够用；要跨更长时间窗比较时再改成两格 u64。
     std::uint32_t callbackFirstTicks;
-    //: 对齐保留（恒 0；将来加字段先用它，保持"结构体大小按 8 字节对齐"）。
+    // 对齐保留（恒 0；将来加字段先用它，保持"结构体大小按 8 字节对齐"）。
     std::uint32_t reservedAlign;
 };
 
-//: `mountListFlags` 的位（见上）。
+// `mountListFlags` 的位（见上）。
 inline constexpr std::uint32_t kMountListNoModPrefixBit = 1u;
 inline constexpr std::uint32_t kMountListRepeatSkipBit = 2u;
 
 Anm2LoadOverrideState Anm2LoadOverrideSnapshot() noexcept;
 
-//: 状态面本体（**外部链接**，读数工具按符号名读；字段顺序必须与上面结构体一致）。
+// 状态面本体（外部链接，读数工具按符号名读；字段顺序必须与上面结构体一致）。
 extern Anm2LoadOverrideState g_Anm2LoadOverrideState;
 
 }  // namespace isaac::runtime::bridge

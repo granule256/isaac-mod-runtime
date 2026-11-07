@@ -34,7 +34,7 @@ inline constexpr CallbackId kCallbackPostNewLevel = 18;
 inline constexpr CallbackId kCallbackPostNewRoom = 19;
 inline constexpr CallbackId kCallbackPostPickupInit = 34;
 inline constexpr CallbackId kCallbackPostPickupUpdate = 35;
-// --- 实体族回调（2026-09-18 批次 010）------------------------------------------
+// --- 实体族回调（2026-09-18 ）------------------------------------------
 //
 // PC 在"某个实体更新/渲染/刚出现"的那一刻逐实体触发这一族回调。我们没有那么多挂点，
 // 同样用"每帧时机 + 类型分派"实现（见 `lua_runtime.cpp` 的实体族派发）。取值必须等于 PC
@@ -69,7 +69,7 @@ inline constexpr CallbackId kCallbackPostEffectRender = 56;
 inline constexpr CallbackId kCallbackPostBombInit = 57;
 inline constexpr CallbackId kCallbackPostBombUpdate = 58;
 inline constexpr CallbackId kCallbackPostBombRender = 59;
-// --- 2026-09-20 批次 101/102：EID 与 GoodTrip 在等的那 8 条 -------------------------
+// --- 2026-09-20 EID 与 GoodTrip 在等的那 8 条 -------------------------
 //
 // 这 8 条在 PC 上由引擎在事件发生的那一刻触发；我们此前**一条都没接**（`tools/callback_surface.json`
 // 里全是 `needs_hook`/`hookable`）。它们各自的引擎触发点见 `docs/交接文档-20260920-回调面补齐.md`
@@ -85,7 +85,7 @@ inline constexpr CallbackId kCallbackPreUseItem = 23;
 inline constexpr CallbackId kCallbackPrePickupCollision = 38;
 inline constexpr CallbackId kCallbackPostGetCollectible = 63;
 inline constexpr CallbackId kCallbackPreRoomEntitySpawn = 71;
-// --- 2026-10-07 批次 396：补全回调（第 1 批）---------------------------------------
+// --- 2026-10-07 补全回调（第 1 批）---------------------------------------
 //
 // 两条都走零占洞入口中继（`HookBackend::EntryRelay`），靶点与 16 字节守卫见
 // `runtime_constants.hpp` 里那两段取证：
@@ -96,19 +96,19 @@ inline constexpr CallbackId kCallbackPreRoomEntitySpawn = 71;
 // 命名规则（被 `test_callback_surface.py` 与读数工具的门禁钉住）：`MC_XXX_YYY` ↔ `kCallbackXxxYyy`。
 inline constexpr CallbackId kCallbackEvaluateCache = 8;
 inline constexpr CallbackId kCallbackEntityTakeDmg = 11;
-// --- 2026-10-07 批次 397：补全回调（第 2 批）---------------------------------------
+// --- 2026-10-07 补全回调（第 2 批）---------------------------------------
 //
 // 三条原为 `hookable`（"游戏里已有时刻，只差接线"），本批按反汇编定案改成走入口中继：
 //   * `MC_POST_GAME_END`(16)：`Game::End(eEnding)` 入口；
 //   * `MC_POST_NPC_DEATH`(29)：`Entity_NPC::trigger_death_remove()` 入口；
 //   * `MC_POST_ENTITY_KILL`(68)：`Entity::Kill()` 入口（只挂基类一条即全覆盖）。
-// 靶点与语义依据见 `runtime_constants.hpp` 的「批次 397」那段。取值必须等于 PC 表。
+// 靶点与语义依据见 `runtime_constants.hpp` 的「」那段。取值必须等于 PC 表。
 // 命名规则（被 `test_callback_surface.py` 与读数工具的门禁钉住）：`MC_XXX_YYY` ↔ `kCallbackXxxYyy`。
 inline constexpr CallbackId kCallbackPostGameEnd = 16;
 inline constexpr CallbackId kCallbackPostNpcDeath = 29;
 inline constexpr CallbackId kCallbackPostEntityKill = 68;
 // `MC_POST_FIRE_TEAR`(61)：`Entity_Player::FireTear(...)` 入口中继，派发点在**原函数返回之后**
-// （实参 = 返回的泪弹指针）。靶点与 ABI 取证见 `runtime_constants.hpp` 的「批次 337/397」两段。
+// （实参 = 返回的泪弹指针）。靶点与 ABI 取证见 `runtime_constants.hpp` 的「」两段。
 inline constexpr CallbackId kCallbackPostFireTear = 61;
 // 目前已挂钩派发点的回调种类上限（含未挂钩但允许登记的）：PC 表到 73。
 inline constexpr CallbackId kCallbackPreFamiliarCollision = 26;

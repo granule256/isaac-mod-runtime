@@ -13,14 +13,14 @@
 
 namespace isaac::runtime::console {
 
-//: 每行最多存多少字节（含结尾的 `\0`）。控制台输出是 ASCII 命令回显，够用。
+// 每行最多存多少字节（含结尾的 `\0`）。控制台输出是 ASCII 命令回显，够用。
 inline constexpr std::size_t kConsoleLogLineCapacity = 96;
-//: 一共保留多少行（环形，最旧的被挤掉）。
+// 一共保留多少行（环形，最旧的被挤掉）。
 inline constexpr std::size_t kConsoleLogLineCount = 12;
 
 // 宽字符 → UTF-8。
 //
-// ★ 宽度是**查证过的**，不是猜的：引擎那两个软键盘回调收的都是 `wchar_t const*`，而游戏自己
+// 宽度是查证过的，不是猜的：引擎那两个软键盘回调收的都是 `wchar_t const*`，而游戏自己
 // 那份实现（`Menu_Character::VirtualKeyboardUpdate @ 0x4039A4`）是按 4 字节取元素的
 // （`ldr w0, [x21, x24, lsl #2]`），并用 `wcslen` / `towupper` 处理 ⇒ 本平台 `wchar_t` 是
 // **4 字节 UTF-32**。所以这里按 `std::uint32_t` 读，不按 UTF-16 读（按 16 位读会把每个 ASCII
@@ -72,14 +72,14 @@ inline constexpr std::size_t kConsoleLogLineCount = 12;
     return written;
 }
 
-//: 控制台输出的行缓冲（环形，最旧的被挤掉）。
+// 控制台输出的行缓冲（环形，最旧的被挤掉）。
 struct ConsoleLog {
     char lines[kConsoleLogLineCount][kConsoleLogLineCapacity]{};
-    //: 存了多少行（≤ `kConsoleLogLineCount`）。
+    // 存了多少行（≤ `kConsoleLogLineCount`）。
     std::uint32_t count{0};
-    //: **最新**一行的下标。
+    // 最新一行的下标。
     std::uint32_t head{0};
-    //: 最新那一行还有没有在续写（`Append` 分多次喂进来时用它决定"接着写"还是"起新行"）。
+    // 最新那一行还有没有在续写（`Append` 分多次喂进来时用它决定"接着写"还是"起新行"）。
     bool open{false};
 
     void Clear() noexcept {
@@ -91,7 +91,7 @@ struct ConsoleLog {
         open = false;
     }
 
-    //: 追加一段 UTF-8 文本，按 `\n` 切行（`\r` 丢掉）。**不清空旧内容**——控制台本来就是滚动的。
+    // 追加一段 UTF-8 文本，按 `\n` 切行（`\r` 丢掉）。不清空旧内容——控制台本来就是滚动的。
     void Append(const char* text, std::size_t length) noexcept {
         if (text == nullptr) {
             return;
@@ -128,12 +128,12 @@ struct ConsoleLog {
         }
     }
 
-    //: 现在存了多少行（≤ `kConsoleLogLineCount`）。
+    // 现在存了多少行（≤ `kConsoleLogLineCount`）。
     [[nodiscard]] std::size_t LineCount() const noexcept {
         return count;
     }
 
-    //: `0` = 最旧的一行。越界返回空串（不返回 nullptr，调用点不必再判一次）。
+    // `0` = 最旧的一行。越界返回空串（不返回 nullptr，调用点不必再判一次）。
     [[nodiscard]] const char* Line(std::size_t index) const noexcept {
         if (index >= count) {
             return "";

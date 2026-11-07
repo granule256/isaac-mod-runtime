@@ -35,7 +35,7 @@ namespace isaac::runtime::bridge {
 void Attach(const GameFileReader::Bindings* fileBindings,
             const GameFileReader::ImagePcxBindings* engineBindings) noexcept;
 
-// 批次 353/354（2026-10-04）：把"我们实际登记了哪些模组目录、登记成没成功"记进诊断结构体
+// 把"我们实际登记了哪些模组目录、登记成没成功"记进诊断结构体
 // （读数工具按固定偏移读）。
 //
 // 为什么需要它：minimapi 自带的 `resources/gfx/ui/minimap1.anm2` 没能覆盖本体那份，而 353 的读数
@@ -48,7 +48,7 @@ void Attach(const GameFileReader::Bindings* fileBindings,
 // **只留痕，不改任何行为**；调用点在 `hook_manager.cpp` 的 `ManifestLoadStep::Mounts`。
 void RecordModMountResult(const char* directory, unsigned statusCode, unsigned failedLeaf) noexcept;
 
-// 批次 356（2026-10-04）：**"刚挂完就问一次"** —— 在模组挂载收尾那一刻，用引擎的路径解析问一条
+// "刚挂完就问一次" —— 在模组挂载收尾那一刻，用引擎的路径解析问一条
 // **模组独有**的路径，把回答单独留痕（`modMountTime*` 三格）。
 //
 // 为什么要它：354 的读数说"应用根相对能命中模组、叶子相对不能"，但**看不出**这是
@@ -60,7 +60,7 @@ void RecordModMountResult(const char* directory, unsigned statusCode, unsigned f
 // **只读**：走的是中继的**原函数**入口、返回串按引擎的 `operator delete[]` 归还，不改任何状态。
 void ProbeMountVisibilityAfterMounting() noexcept;
 
-// ── 批次 357（2026-10-04）：把"挂载点什么时候没的"切成多段 + 试一次重挂 ────────────────
+// 把"挂载点什么时候没的"切成多段 + 试一次重挂
 //
 // 356 的读数把结论钉死在"挂载收尾那一刻叶子相对**能**命中、游戏里**不能**" ⇒ 挂载点**中途消失**。
 // 下面这几个入口就是为此加的（全部**只读**，只有 `TryRemount` 那条会调引擎的挂载器，且只调一次）：
@@ -79,7 +79,7 @@ void ProbeMountVisibilityAfterMounting() noexcept;
 void NoteRebuildRelayVerifyDetail(unsigned failureCode, const void* target16,
                                   const void* stub16, unsigned slotLow32) noexcept;
 
-// ── 批次 359（2026-10-04）：**把探针从死代码挪到活的那条路上** ─────────────────────
+// 把探针从死代码挪到活的那条路上
 //
 // 358 的读数给了"失败码 = 0、现场字节全 0" ⇒ 那说明**那个安装函数压根没被调用过**。
 // 本地一查就明白了：挂点目录（`hook_catalog.hpp`）把 `RebuildMountPoints` 的后端定成
@@ -92,7 +92,7 @@ void NoteRebuildRelayVerifyDetail(unsigned failureCode, const void* target16,
 //     "引擎清空挂载点表**根本不经过** `RebuildContentMountPoints`"（那就不能在它身上挂钩子）。
 void NoteRebuildMountPointsEntryRelay(bool installed, unsigned failureCode) noexcept;
 
-// ── 批次 360（2026-10-04）：**修法** —— 让模组挂载点"自愈"地保持有效 ────────────────
+// 修法 —— 让模组挂载点"自愈"地保持有效
 //
 // 359 的读数把 357 的结论钉死：入口中继**装上了**，但引擎**一次都不调**那个函数
 // （包装调用 0 次）⇒ **引擎清空挂载点表根本不经过 `RebuildContentMountPoints`**。
@@ -103,12 +103,12 @@ void NoteRebuildMountPointsEntryRelay(bool installed, unsigned failureCode) noex
 // 调用点在 `hook_manager.cpp` 的 update 回调：主循环第一帧补一次（那时引擎的内容表已定），
 // 之后每固定若干帧检查一次 ⇒ **无论引擎用什么方式、在什么时候清表，模组挂载点都会被拉回来**。
 //
-// ★ 为什么这样是"与 PC 一致"而不是"凑合"：PC 上模组的 `resources/` 目录**始终是挂着的**，
+// 为什么这样是"与 PC 一致"而不是"凑合"：PC 上模组的 `resources/` 目录始终是挂着的，
 //   引擎内部怎么重建自己的内容表都不影响它。这里做的正是把那件事**维持住**。
-// ★ 只读 + 幂等：还在时**一个字节都不改**；只有量到"不在了"才调引擎的挂载器。
+// 只读 + 幂等：还在时一个字节都不改；只有量到"不在了"才调引擎的挂载器。
 void EnsureModMountsAlive() noexcept;
 
-// ── 批次 361（2026-10-04）：**修上一批的判据错误 + 在正确时刻量"共享路径归谁"** ─────────
+// 修上一批的判据错误 + 在正确时刻量"共享路径归谁"
 //
 // 360 的读数把上一批的结论推翻了：看门狗检查 **43 次、一次都没发现"模组挂载点丢失"**
 // ⇒ 挂载之后再问"模组独有"的路径**一直答模组**。回头一看，问题出在**我把位图当成了时间序**：
@@ -134,7 +134,7 @@ void NoteRebuildMountPointsRelayInstalled(bool installed) noexcept;
 void NoteRemountResult(unsigned statusCode) noexcept;
 void ProbeMountVisibilityAfterRemount() noexcept;
 
-// ── 批次 418（2026-10-09）：转码结果缓存的**实际占用**（只读；填状态面 `[80]`） ──────────
+// 转码结果缓存的实际占用（只读；填状态面 `[80]`）
 //
 // 24 MiB 是那个缓存的**预算**，不是占用。417 的读数把"模块堆已用 120.8 MB"里的 Lua 侧
 // （36.8 MB）分出来之后，剩下 ≈84 MB 归因不到任何一条代码缓冲 ⇒ 先把"带预算的缓存到底

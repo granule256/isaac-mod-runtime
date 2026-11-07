@@ -18,13 +18,13 @@ inline constexpr char kLevelMetatable[] = "IsaacRuntime.Level";
 inline constexpr char kItemPoolMetatable[] = "IsaacRuntime.ItemPool";
 inline constexpr char kRoomMetatable[] = "IsaacRuntime.Room";
 inline constexpr char kGridEntityMetatable[] = "IsaacRuntime.GridEntity";
-//: `Room:GetDoor(slot)` 的返回值（同时是 `GridEntity`，见 `DoorHandle` 的说明）。
+// `Room:GetDoor(slot)` 的返回值（同时是 `GridEntity`，见 `DoorHandle` 的说明）。
 inline constexpr char kGridEntityDoorMetatable[] = "IsaacRuntime.GridEntityDoor";
 // 地基二期新增（`Level` 的三个房间描述符 API 的返回值）。
 inline constexpr char kRoomDescriptorMetatable[] = "IsaacRuntime.RoomDescriptor";
 inline constexpr char kRoomDescriptorListMetatable[] = "IsaacRuntime.RoomDescriptorList";
 inline constexpr char kSeedsMetatable[] = "IsaacRuntime.Seeds";
-// `HUD`（批次 207，2026-09-29）：`Game:GetHUD()` 的返回值。PC 里它是**自己的一个对象类**
+// `HUD`：`Game:GetHUD()` 的返回值。PC 里它是自己的一个对象类
 // （`HUD:IsVisible()` / `SetVisible(bool)`），所以有独立的 domain（`ApiDomain::Hud = 17`）
 // 与独立的元表。
 //
@@ -35,7 +35,7 @@ inline constexpr char kSeedsMetatable[] = "IsaacRuntime.Seeds";
 inline constexpr char kHudMetatable[] = "IsaacRuntime.HUD";
 inline constexpr char kMusicMetatable[] = "IsaacRuntime.Music";
 inline constexpr char kRngMetatable[] = "IsaacRuntime.RNG";
-// 批次 065：`EntityRef`（PC 的值类型；引擎按引用读它，所以我们自己持有那块缓冲区）。
+// `EntityRef`（PC 的值类型；引擎按引用读它，所以我们自己持有那块缓冲区）。
 inline constexpr char kEntityRefMetatable[] = "IsaacRuntime.EntityRef";
 inline constexpr char kFontMetatable[] = "IsaacRuntime.Font";
 inline constexpr char kColorMetatable[] = "IsaacRuntime.KColor";
@@ -46,58 +46,58 @@ inline constexpr char kVectorMetatable[] = "IsaacRuntime.Vector";
 // Lua 的 `Sprite` = 引擎的 `IsaacRepentance::ANM2`（stage150 审计的类身份判定）。对象尺寸由
 // `tools/stage155_anm2_size_audit.py` 用两种独立方法定案为 `0x158`（见 `runtime_constants.hpp`）。
 inline constexpr char kSpriteMetatable[] = "IsaacRuntime.Sprite";
-// `Entity` / `EntityPlayer`（批次 2）：`Isaac.GetPlayer(i)` 返回的只读实体视图。PC 里
+// `Entity` / `EntityPlayer`：`Isaac.GetPlayer(i)` 返回的只读实体视图。PC 里
 // `EntityPlayer` 继承 `Entity`，所以这里也建两张元表：`Entity` 承载基类字段与方法，
 // `EntityPlayer` 通过 `__index` 回落到它（见 `interfaces/lua/isaac_api.cpp`）。
 inline constexpr char kEntityMetatable[] = "IsaacRuntime.Entity";
 inline constexpr char kEntityPlayerMetatable[] = "IsaacRuntime.EntityPlayer";
-// `EntityPickup`（批次 4）：`Entity:ToPickup()` 的返回值，PC 里它是 `Entity` 的子类。
+// `EntityPickup`：`Entity:ToPickup()` 的返回值，PC 里它是 `Entity` 的子类。
 // 句柄体复用 `EntityHandle`（都是"一个原生实体指针"），字段（`Price`/`ShopItemId`/
 // `OptionsPickupIndex`/`ForceBlind`/`Touched`）走它自己的 `__index`。判据是 `Type == 5`
 // **且** vptr == `base + 0xA36E28`（`Entity_Pickup` 的 vtable 唯一），见 `isaac_api.cpp`。
 inline constexpr char kEntityPickupMetatable[] = "IsaacRuntime.EntityPickup";
-// `EntityProjectile`（批次 207，2026-09-29）：`Entity:ToProjectile()` 的返回值。
+// `EntityProjectile`：`Entity:ToProjectile()` 的返回值。
 // 句柄体同样复用 `EntityHandle`（一个原生实体指针）。判据 = `Type == 9` **且**
 // vptr == `base + 0xA37410`（就是 `_ZTVN15IsaacRepentance17Entity_ProjectileE` + 0x10），
 // 与 `EntityPickup` 那一族同形，见 `isaac_api.cpp`。
 // 它现在只有**一个**字段（`ProjectileFlags`，`+0x428`），没有自己的 catalog 行：
 // 字段走 `__index`，方法回落到 `Entity`。
 inline constexpr char kEntityProjectileMetatable[] = "IsaacRuntime.EntityProjectile";
-//: 批次 281：`Entity:ToTear()` 的返回值（`EntityTear` 视图）。
+// `Entity:ToTear()` 的返回值（`EntityTear` 视图）。
 inline constexpr char kEntityTearMetatable[] = "IsaacRuntime.EntityTear";
 // 炸弹转换返回真实子类视图；IsFetus共享实体寿命与GetData，不复制原生对象。
 inline constexpr char kEntityBombMetatable[] = "IsaacRuntime.EntityBomb";
-//: 批次 282：`Entity:ToLaser()` 的返回值（`EntityLaser` 视图）。
+// `Entity:ToLaser()` 的返回值（`EntityLaser` 视图）。
 inline constexpr char kEntityLaserMetatable[] = "IsaacRuntime.EntityLaser";
 inline constexpr char kEntityKnifeMetatable[] = "IsaacRuntime.EntityKnife";
-//: 批次 285（2026-10-02）：`Entity:ToNPC()` 的返回值（`EntityNPC` 视图）。
-//: 在此之前 `ToNPC()` 压的是**基类 `Entity` 元表** ⇒ `EntityNPC` 页上的方法（`Morph` 等）
-//: 没有地方挂。句柄体仍复用 `EntityHandle`（一个原生实体指针），身份判据是
-//: `IsNpcFamilyEntity()`（"`Entity` 家族区间内、且不是那 13 个非 NPC 直接子类"—— 敌人的
-//: vtable 有 49 个子类不在导出符号表里，所以不能按精确 vptr 判）。字段回落到 `Entity`。
+// `Entity:ToNPC()` 的返回值（`EntityNPC` 视图）。
+// 在此之前 `ToNPC()` 压的是基类 `Entity` 元表 ⇒ `EntityNPC` 页上的方法（`Morph` 等）
+// 没有地方挂。句柄体仍复用 `EntityHandle`（一个原生实体指针），身份判据是
+// `IsNpcFamilyEntity()`（"`Entity` 家族区间内、且不是那 13 个非 NPC 直接子类"—— 敌人的
+// vtable 有 49 个子类不在导出符号表里，所以不能按精确 vptr 判）。字段回落到 `Entity`。
 inline constexpr char kEntityNPCMetatable[] = "IsaacRuntime.EntityNPC";
-//: 批次 330（2026-10-03）：`Entity:ToFamiliar()` 的返回值（`EntityFamiliar` 视图）。
-//: 在此之前 `ToFamiliar()` 压的是**基类 `Entity` 元表**（批次 9 起就是这样）⇒ `EntityFamiliar`
-//: 页上的方法（`FollowParent` / `AddToFollowers` …）**没有地方挂**，
-//: 语料里 `familiar:FollowParent()` 会报 "attempt to call a nil value"。
-//: 句柄体仍复用 `EntityHandle`（一个原生实体指针），身份判据 = **精确**的
-//: `base + kEntityFamiliarVtableOffset` 且 `Type == kEntityTypeFamiliar`（与 `Entity:ToFamiliar()`
-//: 里那条判据**同一份**）。字段回落到 `Entity`（与 `EntityTear`/`EntityLaser`/`EntityNPC` 同形）。
+// `Entity:ToFamiliar()` 的返回值（`EntityFamiliar` 视图）。
+// 在此之前 `ToFamiliar()` 压的是基类 `Entity` 元表（起就是这样）⇒ `EntityFamiliar`
+// 页上的方法（`FollowParent` / `AddToFollowers` …）没有地方挂，
+// 语料里 `familiar:FollowParent()` 会报 "attempt to call a nil value"。
+// 句柄体仍复用 `EntityHandle`（一个原生实体指针），身份判据 = 精确的
+// `base + kEntityFamiliarVtableOffset` 且 `Type == kEntityTypeFamiliar`（与 `Entity:ToFamiliar()`
+// 里那条判据同一份）。字段回落到 `Entity`（与 `EntityTear`/`EntityLaser`/`EntityNPC` 同形）。
 inline constexpr char kEntityFamiliarMetatable[] = "IsaacRuntime.EntityFamiliar";
-//: 批次 344（2026-10-04）：`EntityNPC.Pathfinder` 属性的返回值（`PathFinder` 视图）。
-//: PC 里 `EntityNPC` 页上只有 `Pathfinder` 这一个 PathFinder 相关成员（`EntityNPC.md:208-210`），
-//: 它交出的是 `NPCAI_Pathfinder` 对象（引擎里**内嵌**在 `Entity_NPC + 0x408`，不是指针成员）。
-//: 句柄真持那个内嵌子对象的地址 ⇒ 身份判据就是"句柄类型对不对"
-//: （`luaL_testudata(…, kPathFinderMetatable)`），**不做** vptr 校验 —— 内嵌子对象没有自己的 vptr。
-//: ★ 只挂在 `EntityNPC` 上：`Entity_Familiar` 也内嵌一份（在 `+0x5F8`），但 PC 的
-//:   `EntityFamiliar` 页里没有 `Pathfinder` 属性 ⇒ 不挂（多给 = 与 PC 不一致）。
+// `EntityNPC.Pathfinder` 属性的返回值（`PathFinder` 视图）。
+// PC 里 `EntityNPC` 页上只有 `Pathfinder` 这一个 PathFinder 相关成员（`EntityNPC.md:208-210`），
+// 它交出的是 `NPCAI_Pathfinder` 对象（引擎里内嵌在 `Entity_NPC + 0x408`，不是指针成员）。
+// 句柄真持那个内嵌子对象的地址 ⇒ 身份判据就是"句柄类型对不对"
+// （`luaL_testudata(…, kPathFinderMetatable)`），不做 vptr 校验 —— 内嵌子对象没有自己的 vptr。
+// 只挂在 `EntityNPC` 上：`Entity_Familiar` 也内嵌一份（在 `+0x5F8`），但 PC 的
+// `EntityFamiliar` 页里没有 `Pathfinder` 属性 ⇒ 不挂（多给 = 与 PC 不一致）。
 inline constexpr char kPathFinderMetatable[] = "IsaacRuntime.PathFinder";
-//: 批次 388（2026-10-07）：`EntityPlayer:GetEffects()` 的返回值（`TemporaryEffects` 视图）。
-//: PC 里 `TemporaryEffects` 是**自己的一个对象类**（`TemporaryEffects.md`，17 个方法）。
-//: 句柄存**拥有它的 `Entity_Player` 地址**（容器是 `Entity_Player + 0x18D8` 的内嵌子对象）——
-//: 每次访问重新校验玩家 vptr 再把容器地址算回来，避免句柄跨帧后指向已消失的玩家。
+// `EntityPlayer:GetEffects()` 的返回值（`TemporaryEffects` 视图）。
+// PC 里 `TemporaryEffects` 是自己的一个对象类（`TemporaryEffects.md`，17 个方法）。
+// 句柄存拥有它的 `Entity_Player` 地址（容器是 `Entity_Player + 0x18D8` 的内嵌子对象）——
+// 每次访问重新校验玩家 vptr 再把容器地址算回来，避免句柄跨帧后指向已消失的玩家。
 inline constexpr char kTemporaryEffectsMetatable[] = "IsaacRuntime.TemporaryEffects";
-// `ItemConfig` / `ItemConfig::Item`（批次 2b）：`Isaac.GetItemConfig()` 返回的只读配置视图。
+// `ItemConfig` / `ItemConfig::Item`（b）：`Isaac.GetItemConfig()` 返回的只读配置视图。
 // 两张元表：`ItemConfig` 承载 `GetCollectible`/`GetTrinket`/…，`ItemConfig_Item` 承载条目字段
 // （`ID`/`Type`/`Name`/`Description`）与条目级方法（`HasTags`）。
 inline constexpr char kItemConfigMetatable[] = "IsaacRuntime.ItemConfig";
@@ -125,7 +125,7 @@ struct RoomHandle {
 // `Seeds`（PC 的 `Game:GetSeeds()` 返回值）。句柄**不持有引擎指针**，只是"拿得到对象、
 // 方法都在"的身份标记。
 //
-// ★ 批次 195（2026-09-29）更正：这里原来存着一份**自洽的常量快照**
+// 更正：这里原来存着一份自洽的常量快照
 //（`startSeed`/`customRun` 两个字段，理由是"`Seeds` 的字段偏移尚未定位"）。偏移已经定位 ——
 // `Seeds` 对象**内嵌**在当前局对象里、基址是 `Game 基址 + 0x25D40`，`StartSeed` 在 `+0x04`、
 // "自定义种子"标志在 `+0x00`（三处写 / 三处读互相印证，逐条见 `runtime_constants.hpp` 的
@@ -142,7 +142,7 @@ struct MusicHandle {
     std::uint8_t reserved;
 };
 
-// `HUD`（批次 207）：与 `SeedHandle` 同形 —— **不持有引擎指针**，只表示"拿得到对象、方法都在"。
+// `HUD`：与 `SeedHandle` 同形 —— 不持有引擎指针，只表示"拿得到对象、方法都在"。
 // `Game:GetHUD()` 造它，两个方法每次按 `Game* + kGameHudObjectOffset` 现算 HUD 地址。
 struct HudHandle {
     std::uint8_t reserved;
@@ -165,12 +165,12 @@ struct RngHandle {
 // resolved again inside each managed callback because the game owns those objects; a Font has
 // no such owner, which is why this handle carries the instance and why `__gc` frees it.
 //
-// 批次 3 追加三个**颜色偏移**：PC 的 `Color(R,G,B,A,RO,GO,BO)` 重载
+// 追加三个颜色偏移：PC 的 `Color(R,G,B,A,RO,GO,BO)` 重载
 // （`analysis/isaacdocs-snapshot/docs/Color.md:27`），EID 的 `EID:renderIcon`
 // （`features/eid_api.lua:1369`）用的就是七参形式。这三个值只保存在句柄里、不参与任何引擎调用
 // （`font_api` 传给引擎的仍然是句柄起头的 16 字节 RGBA，与既有的"16 字节颜色"假设一致）；
 // 好处是后三个参数不再被静默丢掉，而且整块内存都被初始化。
-// `GridEntity`（批次 12，2026-09-16）：**持有引擎指针**（网格实体对象地址），
+// `GridEntity`：持有引擎指针（网格实体对象地址），
 // 所以按本文件的约束摆在 `MusicHandle` 之后那一带（`RoomHandle`…`MusicHandle` 区间内
 // 不许放带 `void*`/`uintptr_t` 的结构体 —— 那条约束是契约门禁在管的）。
 //
@@ -181,7 +181,7 @@ struct GridEntityHandle {
     void* entity;
 };
 
-// `GridEntity_Door`（批次 078，2026-09-19）：`Room:GetDoor(slot)` 的返回值。
+// `GridEntity_Door`：`Room:GetDoor(slot)` 的返回值。
 //
 // 为什么不复用 `GridEntityHandle`：门除了"引擎对象地址"还要记住**自己的槽位** ——
 // `door.Position` 要靠它去问引擎（`Room::GetDoorSlotPosition(eDoorSlot)`）。
@@ -193,10 +193,10 @@ struct DoorHandle {
     std::int32_t reserved;
 };
 
-// `PathFinder`（批次 344，2026-10-04）：`EntityNPC.Pathfinder` 属性的返回值。
+// `PathFinder`：`EntityNPC.Pathfinder` 属性的返回值。
 // 存的就是内嵌子对象 `NPCAI_Pathfinder` 的地址（`Entity_NPC + 0x408`）—— `EntityHandle` 一族
 // 同形（**持引擎指针**，所以按本文件的约束摆在 `MusicHandle` 之后）。
-// ★ 引擎里这个对象没有自己的 vptr（是 `Entity_NPC` 的**内嵌成员**）⇒ 访问时没法靠 vptr 复核
+// 引擎里这个对象没有自己的 vptr（是 `Entity_NPC` 的内嵌成员）⇒ 访问时没法靠 vptr 复核
 //   "这个地址还是不是一个 PathFinder"；能做的只有句柄类型校验 + "底层地址非 0 且可读"。
 //   与 PC 同一条已知口径：PC 也是把内部引用交出去、不做生命周期保护（引擎在回调之间重排/销毁
 //   那个 NPC 时，旧句柄同样会失效）。
@@ -207,7 +207,7 @@ struct PathFinderHandle {
     EntityLifetimeToken* lifetime{};
 };
 
-// `TemporaryEffects`（批次 388，2026-10-07）：`EntityPlayer:GetEffects()` 的返回值。
+// `TemporaryEffects`：`EntityPlayer:GetEffects()` 的返回值。
 // 存**拥有它的 `Entity_Player` 地址**：容器是 `Entity_Player` 的**内嵌子对象**
 // （`player + kEntityPlayerTemporaryEffectsOffset` = `+0x18D8`，不是指针成员）⇒
 // 每次使用时重新校验玩家 vptr（`IsEntityPlayer`）再算容器地址，换局/玩家销毁后旧句柄
@@ -233,7 +233,7 @@ struct ColorHandle {
     float colorizeAmount{};
 };
 
-// ★ 2026-10-09 更正上述 Font 所有权说明：句柄形状保持一个指针，原生对象
+// 2026-10-09 更正上述 Font 所有权说明：句柄形状保持一个指针，原生对象
 // 内存由另一个完整 userdata 承载，句柄通过 uservalue 强引用它；__gc 仅调用
 // 引擎析构并解除引用，载荷由 Lua GC 释放，不再手工 free/调用 lua_Alloc。
 struct FontHandle {
@@ -245,7 +245,7 @@ struct VectorHandle {
     float y;
 };
 
-// 批次 065：`EntityRef = Entity::EntityRef` 的**裸缓冲区**（布局与证据见 `entity_ref_api.hpp`）。
+// `EntityRef = Entity::EntityRef` 的裸缓冲区（布局与证据见 `entity_ref_api.hpp`）。
 // 没有独立字段：Lua 侧读 `Type`/`Variant`/`Entity` 时直接按引擎偏移从这块内存里读，
 // 免得"句柄字段"与"交给引擎的字节"两份状态漂移（那正是最难查的一类 bug）。
 struct EntityRefHandle {
@@ -255,12 +255,12 @@ struct EntityRefHandle {
 // 与 `Font` 同类：`sprite` 指向本模块自己分配、也必须由本模块释放的 `ANM2`（`kSpriteObjectSize`
 // 字节、16 字节对齐）；游戏只提供构造/析构入口，从不拥有这块内存。
 //
-// 批次 3 起这里还缓存 PC 的 `Sprite.Scale`/`Sprite.Color`/`Sprite.FlipX` 三个**可写属性**
+// 起这里还缓存 PC 的 `Sprite.Scale`/`Sprite.Color`/`Sprite.FlipX` 三个可写属性
 // （EID 在 `features/eid_api.lua:1368`、`main.lua:949`/`1026` 直接给它们赋值）。这三项**只写进
 // 本句柄**、不回写 `ANM2`：它们对应的对象偏移没有证据（见 `sprite_api.cpp` 的 `__newindex`
 // 注释），而猜一个偏移写进我们自己分配的对象同样是踩内存。
 //
-// --- `source`：句柄**来源/所有权**标记（2026-09-12，批次 5 `Entity:GetSprite()`）-----------
+// --- `source`：句柄来源/所有权标记（2026-09-12，`Entity:GetSprite()`）-----------
 //
 // `Sprite` 句柄现在有两种来源，**释放语义完全相反**：
 //
@@ -270,7 +270,7 @@ struct EntityRefHandle {
 //     成员**（`Entity + kEntitySpriteOffset`，实体自己拥有这块内存、自己负责析构）。
 //     `__gc` **绝不能**调 `~ANM2()`、**绝不能** `free` —— 那会把引擎的实体对象拆掉/把一块
 //     不是 malloc 基址的地址交给 `free`。
-//   * `kSpriteSourceEngineGridEntity`（批次 298，2026-10-03）—— `GridEntity:GetSprite()` /
+//   * `kSpriteSourceEngineGridEntity`—— `GridEntity:GetSprite()` /
 //     `GridEntityRock:GetSprite()` 借出来的对象：**同一个形状**，只是来源对象是**网格实体**
 //     （`GridEntity + kGridEntitySpriteOffset` 那个内嵌 `ANM2`）⇒ 释放语义与上一条**完全一样**
 //     （什么都不做），重新解析时的存活判据换成 `IsLiveGridEntityPointer`（网格实体随时可能
@@ -316,13 +316,13 @@ struct RoomDescriptorListHandle {
     std::uintptr_t moduleBase;
 };
 
-//: 批次 347（2026-10-04）：`RoomConfig::Spawn` 与 `RoomConfig::Entry` 两个视图。
-//: 它们的**来源**是 `RoomDescriptor.Data.Spawns`（`RoomDescriptor_Data.Spawns`）：
-//:   `Data + 0x50` = Spawn 数组首地址（步长 `0x18`）、`Data + 0x58` = 元素个数（**u16**）。
-//: ★ 与 `RoomDescriptorHandle` 同形：句柄**真持**引擎内存地址（引擎拥有那块内存）⇒
-//:   按本文件的约束摆在 `MusicHandle` 之后那一带。
-//: ★ 这两个句柄**不加生命周期保护**（与 PC 一致：PC 交回的是指向配置对象内部的引用）；
-//:   引擎在回调之间重排/销毁配置对象时旧句柄即失效 —— 已知口径，写在这里免得后人当缺陷查。
+// `RoomConfig::Spawn` 与 `RoomConfig::Entry` 两个视图。
+// 它们的来源是 `RoomDescriptor.Data.Spawns`（`RoomDescriptor_Data.Spawns`）：
+// `Data + 0x50` = Spawn 数组首地址（步长 `0x18`）、`Data + 0x58` = 元素个数（u16）。
+// 与 `RoomDescriptorHandle` 同形：句柄真持引擎内存地址（引擎拥有那块内存）⇒
+// 按本文件的约束摆在 `MusicHandle` 之后那一带。
+// 这两个句柄不加生命周期保护（与 PC 一致：PC 交回的是指向配置对象内部的引用）；
+// 引擎在回调之间重排/销毁配置对象时旧句柄即失效 —— 已知口径，写在这里免得后人当缺陷查。
 inline constexpr char kRoomConfigSpawnMetatable[] = "IsaacRuntime.RoomConfigSpawn";
 inline constexpr char kRoomConfigEntryMetatable[] = "IsaacRuntime.RoomConfigEntry";
 
@@ -364,8 +364,8 @@ struct SpriteHandle {
 // `SpriteHandle::source` 的取值（放在结构体之后，避免读取顺序上的疑问）。
 inline constexpr std::uint8_t kSpriteSourceRuntimeOwned = 0;
 inline constexpr std::uint8_t kSpriteSourceEngineEntity = 1;
-//: 批次 298：来源是**网格实体**（`GridEntity:GetSprite()`）—— 释放语义与
-//: `kSpriteSourceEngineEntity` 相同（都不放手），只有"重新解析时的存活判据 + 偏移"不同。
+// 来源是网格实体（`GridEntity:GetSprite()`）—— 释放语义与
+// `kSpriteSourceEngineEntity` 相同（都不放手），只有"重新解析时的存活判据 + 偏移"不同。
 inline constexpr std::uint8_t kSpriteSourceEngineGridEntity = 2;
 
 // `Entity` / `EntityPlayer`：**必须**保存原生指针 —— 与上面 `Game`/`Level`/`Room` 的占位句柄
@@ -412,5 +412,5 @@ struct ItemConfigItemHandle {
 
 } // namespace LuaRuntime
 
-// 第七批：仅额外网格Sprite借用使用扩展userdata；SpriteHandle本身大小不变。
+// 仅额外网格Sprite借用使用扩展userdata；SpriteHandle本身大小不变。
 namespace LuaRuntime { inline constexpr std::uint8_t kSpriteSourceEngineGridExtra=3; }

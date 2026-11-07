@@ -31,7 +31,7 @@ public:
     [[nodiscard]] Status Remove(std::string_view name) noexcept override;
     [[nodiscard]] Status Exists(const char* absolutePath, bool* exists) noexcept override;
 
-    // ★ 线程硬闸（2026-09-17，用户指令"所有持久化统一走存档分区"的配套纪律）。
+    // 线程硬闸（2026-09-17，用户指令"所有持久化统一走存档分区"的配套纪律）。
     //
     // 为什么必须闸：游戏这套 nnSdk 的文件 API **只允许在游戏自己的线程上调用** ——
     // 2026-09-16 的 442190 就是"在我们的 worker 线程上调 `nn::fs::OpenFile`"导致

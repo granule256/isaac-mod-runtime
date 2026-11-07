@@ -82,7 +82,7 @@ def main(argv: list[str]) -> int:
             continue
         reg = word & 0x1F
         value = (word >> 5) & 0xFFFF
-        # ★★ 紧随其后的 `movk wN, #hi, lsl #16` —— 有则合成 32 位，**没有也算数**！
+        # 紧随其后的 `movk wN, #hi, lsl #16` —— 有则合成 32 位，没有也算数！
         #   偏移 ≤ 0xFFFF 时编译器只发一条 `movz`（例如 `Room+0x7914` 的地板颜色），
         #   第一版只认 movz+movk 的组合 ⇒ 对这种"单条 movz"的偏移**全漏**（又是 0 命中）。
         at = i
@@ -96,7 +96,7 @@ def main(argv: list[str]) -> int:
         if composed not in wanted:
             continue
         for k in range(at + 1, min(at + 1 + WINDOW, len(words))):
-            # ★ 数组基址那种"先算地址再索引"的形态：`add xD, xN, xReg[, lsl #k]`
+            # 数组基址那种"先算地址再索引"的形态：`add xD, xN, xReg[, lsl #k]`
             #   （`Game+0x21558` 这类字段是 `[x8, x9]` 直接寻址，而**位数组基址**是
             #    `add x9, x0, x9` 之后再 `ldr w?, [x9, x10, lsl #2]` ⇒ 不认 add 会全漏。）
             w = words[k]

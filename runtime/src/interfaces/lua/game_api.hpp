@@ -26,7 +26,7 @@ int GameIndex(lua_State* state);
 // `Seeds` 家族的方法表（`Game:GetSeeds()` 的返回值：`IsCustomRun` / `GetStartSeed`）。
 [[nodiscard]] std::size_t AttachSeedsMethods(lua_State* state) noexcept;
 
-// `HUD` 家族的方法表（`Game:GetHUD()` 的返回值：`IsVisible` / `SetVisible(bool)`，批次 207）。
+// `HUD` 家族的方法表（`Game:GetHUD()` 的返回值：`IsVisible` / `SetVisible(bool)`，）。
 // 与 `AttachSeedsMethods` 同形：句柄不持地址，元表在 `lua_runtime.cpp` 的 `RegisterGameApi` 建。
 [[nodiscard]] std::size_t AttachHudMethods(lua_State* state) noexcept;
 

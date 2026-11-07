@@ -18,7 +18,7 @@
 #include "native_player_init.hpp"
 #include "interfaces/lua/os_api.hpp"
 #include "infrastructure/memory/engine_field_access.hpp"
-// 批次 106：`Level:GetStartingRoomIndex()` 的派生记账（纯逻辑，见该头文件顶部的取证说明）。
+// `Level:GetStartingRoomIndex()` 的派生记账（纯逻辑，见该头文件顶部的取证说明）。
 #include "frame_event_decision.hpp"
 #include "native_room_events.hpp"
 #include "level_start_room.hpp"
@@ -36,7 +36,7 @@ extern "C" {
 #include "mod_persistence.hpp"
 #include "fatal_forensics.hpp"
 #include "persistence_event_journal.hpp"
-#include "probe_gate.hpp"  // 批次 262：诊断探针总开关（剖析钩子/分配账只在诊断包里装）
+#include "probe_gate.hpp"  // 诊断探针总开关（剖析钩子/分配账只在诊断包里装）
 #include "program/setting.hpp"
 
 #include <cstdarg>
@@ -54,7 +54,7 @@ extern "C" char __fake_heap[];
 #endif
 #include "program/pc_lua_enum_data.hpp"
 #include "program/pc_lua_enum_data.cpp"
-// 批次 048：`pc_lua_enum_data` 那 20 张之外的 PC 全局枚举表，由仓库自带的 PC 文档快照生成
+// `pc_lua_enum_data` 那 20 张之外的 PC 全局枚举表，由仓库自带的 PC 文档快照生成
 // （`tools/generate_doc_enum_tables.py`）。真机上 `RoomShape` 缺失 ⇒ GoodTrip 的
 // `widget.lua:185` 报 `attempt to index a nil value (global 'RoomShape')`、小地图画不出来。
 #include "program/doc_lua_enum_data.hpp"
@@ -66,7 +66,7 @@ extern "C" char __fake_heap[];
 // probes) defines `EXL_LAYERED_RUNTIME`, so the layered headers are required
 // unconditionally: the non-layered duplicate implementations no longer exist.
 #include "interfaces/lua/engine_frame_probe.hpp"
-// 批次 390（2026-10-07）：`MC_INPUT_ACTION` 要给 `entity` 实参，用 `ResolveEnginePlayerAt(0)`
+// `MC_INPUT_ACTION` 要给 `entity` 实参，用 `ResolveEnginePlayerAt(0)`
 // （与 `Isaac.GetPlayer(0)` **同一条**解析链，见 `isaac_api.hpp` 的声明处）。
 #include "interfaces/lua/isaac_api.hpp"
 #include "infrastructure/call/engine_call_access.hpp"
@@ -81,7 +81,7 @@ extern "C" char __fake_heap[];
 #include "interfaces/lua/font_api.hpp"
 #include "interfaces/lua/game_api.hpp"
 #include "interfaces/lua/input_api.hpp"
-// 批次 393（2026-10-07）：`MC_INPUT_ACTION` 的 `buttonAction` 实参要给**模组（PC）口径**的号
+// `MC_INPUT_ACTION` 的 `buttonAction` 实参要给模组（PC）口径的号
 // （引擎内部号与 PC 号不是同一张表，16..23 那一段错开 3）⇒ 用同一条真值源的反表。
 #include "interfaces/lua/input_action_map.hpp"
 #include "interfaces/lua/mod_menu_api.hpp"
@@ -106,35 +106,12 @@ extern "C" {
 #include <lualib.h>
 }
 
-// ── 批次 418（2026-10-09）：**owner 编号 → 模组名** 的那张表（掉帧归因的"落名读数"） ──────
-//
-// 要解决的问题：性能读数里的回调耗时桶只给**属主编号**（`[#17]` 这种），而点数不出名 ——
-// 2026-10-08 就是因为这个卡住的："哪一家在每帧烧 1.6 ms" 回答不了。
-//
-// 为什么不能用现成的"模组清单"去套：那份清单（`mod_menu_api.cpp` 的 `g_entries`）是**引擎给的
-// 目录列表**，它在**开关过滤之前**就发布了（`hook_manager.cpp` 先 `ModMenuPublishDiscovered`
-// 再 `ApplyToBatch` 把被禁用的剔除）⇒ **被禁用的模组占清单格子、却不消耗 owner 号**；
-// 而 owner 号只在模组脚本**真的调用 `RegisterMod`** 时才 +1（同一个模组还能调多次）。
-// ⇒ 两套编号之间**没有固定偏移**（实测两对锚点是 +6 与 +4，不是同一个数）。
-// 唯一的正解就是**在分配 owner 号的那一刻把名字记下来**。
-//
-// ★ 口径：`index` = `ModHandle::index`（从 2 起，1 留给 `kRuntimeOwner`），与
-//   `runtime_perf.hpp` 的 `RuntimePerfCallbackKey(id, ownerIndex, generation)` 里那个
-//   `ownerIndex` **是同一个数** ⇒ 读数可以直接拿 `[#N]` 去查这张表。
-// ★ 为什么是 `extern "C"` 的裸符号：读数工具按符号名读它（`tools/read_device_state_via_gdb.py`）；
-//   一进匿名命名空间就变成内部链接、符号名带 `_GLOBAL__N_1`，工具那边要跟着改（见技能 §11）。
-// ★ `[[gnu::used]]`：这张表**只写、模块内部没人读**（读者在模块外面）⇒ 不加会被优化掉，
-//   符号一没，真机读数就永远是"查不到名字"（`g_ModRegistered` 踩过同一个坑）。
-// ★ 代价：静态 `.bss` 32 × 64 = 2048 字节，**不进假堆、不在每帧热路径上**
-//   （只在模组加载期写一次）。
-// ★ 用内建 `unsigned` 而不是 `std::size_t`：这一段**故意放在标准头之前**
-//   （`<cstddef>` 还没进来），而且它就是数组维度、不需要 `std::size_t` 那个类型。
+// 按 RegisterMod 分配的 owner 编号记录名称，供性能读数关联耗时与模组。
+// 禁用目录不分配 owner，同一模组也可能注册多次，因此目录索引不能代替 owner 编号。
+// 槽号与 RuntimePerfCallbackKey 的 ownerIndex 一致；名称只在模组加载时写入。
 static constexpr unsigned kModOwnerNameSlots = 258;
 static constexpr unsigned kModOwnerNameCapacity = 64;
-// ★★ 必须用**块形式** `extern "C" { … }`：写成 `[[gnu::used]] extern "C" char x[…] = {};`
-//    会被 gcc 判成语法错（`expected unqualified-id before string constant`）——
-//    属性不能放在 linkage-specification 前面。本构建是 `-Werror` ⇒ 直接编译失败
-//    （2026-10-09 本批实撞，与 `mod_menu_native.cpp` 里 `g_ModMenuState` 那条同一个道理）。
+// 使用 C 链接及 used 属性，保留供外部诊断工具按名称读取的符号。
 extern "C" {
 [[gnu::used]] char g_ModOwnerNames[kModOwnerNameSlots][kModOwnerNameCapacity] = {};
 }
@@ -150,54 +127,50 @@ extern "C" {
 #include "interfaces/lua/owner_binding.hpp"
 
 // ============================================================================
-// 常驻性能面（批次 084：**只用同 TU 的 file-local 计数 + 导出函数**）
+// 常驻性能面（只用同 TU 的 file-local 计数 + 导出函数）
 // ============================================================================
 //
-// 为什么是 file-local `static`：批次 081 把它们做成"跨 TU 的全局"，编译器于是**通过数据 GOT 槽**
+// 为什么是 file-local `static`：把它们做成"跨 TU 的全局"，编译器于是通过数据 GOT 槽
 // 取地址，而那个槽在运行时是 0 ⇒ 启动就对 0 做原子加、`Data Abort`（见 `runtime_perf.hpp` 的说明）。
 // file-local `static` 在 `nm` 里仍是**裸名**（读数工具照旧按名字读），但访问走 `adrp/add`，不碰 GOT。
 //
 // 需要从别的编译单元记账时，**调函数**（PLT），不要引用变量 —— 见 `runtime_perf.hpp` 的约定。
-// `extern "C"` + **hidden 可见性** 是**两个都要**：
-//   * `hidden` ⇒ 符号不参与跨模块抢占 ⇒ 编译器直接 `adrp/add`，**不经过数据 GOT**
-//     （批次 081 的启动崩溃就是走了 GOT 槽：槽里是 0，于是对 0 做原子加）；
-//   * `extern "C"` ⇒ 名字不进名称改编（`nm` 里就是裸名 `g_RuntimePerf…`），读数工具按名字直读。
-//   只用内部链接（`static`）名字会变成 `_ZL26g_RuntimePerfCallbackCalls`，工具就查不到了。
+// C 链接保留稳定符号名，hidden 可见性避免跨模块抢占和数据 GOT 间接访问。
 extern "C" {
 __attribute__((visibility("hidden"))) std::atomic<std::uint64_t> g_RuntimePerfCallbackCalls{0};
 __attribute__((visibility("hidden"))) std::atomic<std::uint64_t> g_RuntimePerfCallbackTicks{0};
 __attribute__((visibility("hidden"))) std::atomic<std::uint64_t> g_RuntimePerfCallbackMaxTicks{0};
 __attribute__((visibility("hidden"))) std::atomic<std::uint64_t> g_RuntimePerfSyscalls{0};
 __attribute__((visibility("hidden"))) std::atomic<std::uint64_t> g_RuntimePerfSyscallTicks{0};
-// 批次 086：按 (事件 id, 属主模组) 分开的回调耗时桶（"贵的是哪一个回调"）。
+// 按 (事件 id, 属主模组) 分开的回调耗时桶（"贵的是哪一个回调"）。
 // 同一个 TU + 直接寻址 ⇒ 不碰数据 GOT；普通数组（不是原子）是因为**只有游戏线程走派发**，
 // 与 `g_ErrorContextOwner` / `g_PostUpdateDispatchCount` 同一约定。
 __attribute__((visibility("hidden"))) isaac::runtime::RuntimePerfCallbackBucket
     g_RuntimePerfCallbackBuckets[isaac::runtime::kRuntimePerfBucketCount]{};
 __attribute__((visibility("hidden"))) std::uint64_t g_RuntimePerfBucketOverflow{0};
-// 批次 087：按 **API 接口** 分开的耗时桶（与上面回调桶是两张独立的表）。
+// 按 API 接口 分开的耗时桶（与上面回调桶是两张独立的表）。
 __attribute__((visibility("hidden"))) isaac::runtime::RuntimePerfCallbackBucket
     g_RuntimePerfApiBuckets[isaac::runtime::kRuntimePerfApiBucketCount]{};
 __attribute__((visibility("hidden"))) std::uint64_t g_RuntimePerfApiBucketOverflow{0};
-// 批次 094：**全局合计**——不管有没有进桶都要算，这样"所有接口一共花了多少"永远答得出来
+// 全局合计——不管有没有进桶都要算，这样"所有接口一共花了多少"永远答得出来
 // （093 之后真机溢出 267 万次，只看桶表会把大头漏掉）。
 __attribute__((visibility("hidden"))) std::uint64_t g_RuntimePerfApiTotalCalls{0};
 __attribute__((visibility("hidden"))) std::uint64_t g_RuntimePerfApiTotalTicks{0};
-// 批次 089：Lua 采样剖析器的桶（按 `(source, name)` 归并）。名字同样是裸名，读数工具按名直读。
+// Lua 采样剖析器的桶（按 `(source, name)` 归并）。名字同样是裸名，读数工具按名直读。
 __attribute__((visibility("hidden"))) isaac::runtime::RuntimePerfProfileBucket
     g_RuntimePerfProfileBuckets[isaac::runtime::kRuntimePerfProfileBucketCount]{};
 __attribute__((visibility("hidden"))) std::uint64_t g_RuntimePerfProfileSamples{0};
 __attribute__((visibility("hidden"))) std::uint64_t g_RuntimePerfProfileOverflow{0};
-// 批次 092：量具自校准（读一次 `cntpct_el0` 要多少 tick）。
+// 量具自校准（读一次 `cntpct_el0` 要多少 tick）。
 __attribute__((visibility("hidden"))) std::uint64_t g_RuntimePerfTickCostTicks{0};
 // Written only by this TU at native frame boundaries; external tools read the
 // completed frame and cumulative scheduler counters without a hot data GOT.
 __attribute__((visibility("hidden"))) lua_GCBudgetInfo g_RuntimeGcBudgetSnapshot{};
-// 批次 095：**地板基准** —— "一次纯 Lua→C 调用"本身要多少 tick（不含任何处理器工作）。
+// 地板基准 —— "一次纯 Lua→C 调用"本身要多少 tick（不含任何处理器工作）。
 // 有了它才能回答"我们还能把 1.40 µs 压到多低"：压到地板以下是不可能的。
 __attribute__((visibility("hidden"))) std::uint64_t g_RuntimePerfEmptyCallTicks{0};
 __attribute__((visibility("hidden"))) std::uint64_t g_RuntimePerfEmptyCallCount{0};
-// 批次 091：**分配账**。087/088 的尺子量到的是"回调里的时间"与"接口自己的时间"，
+// 分配账。087/088 的尺子量到的是"回调里的时间"与"接口自己的时间"，
 // 而 089 的采样器又证明"Lua 指令执行"只占约 10 µs/帧 —— 那剩下的 2 毫秒去哪儿了？
 // 唯一的共同嫌疑是**分配本身**（Lua 在每次分配里同步做增量 GC，这段 C 侧时间既不执行
 // Lua 指令、也不在我们任何 handler 里，所以两把尺子都量不到它）。
@@ -215,9 +188,9 @@ extern "C" void IsaacRuntime_PerfNoteSyscall(std::uint64_t ticks) {
     g_RuntimePerfSyscallTicks.fetch_add(ticks, std::memory_order_relaxed);
 }
 
-// 批次 087：API 处理器（住在别的编译单元）用这个函数记账 —— **跨 TU 只走函数调用**（PLT），
+// API 处理器（住在别的编译单元）用这个函数记账 —— 跨 TU 只走函数调用（PLT），
 // 不引用变量 ⇒ 不碰数据 GOT。收尾那次 tick 读数放在这里，调用点只负责"取一次 + 报一次"。
-// 批次 092：量具自校准的读口（读数工具也可以直接读那个全局；这个函数给宿主/自检用）。
+// 量具自校准的读口（读数工具也可以直接读那个全局；这个函数给宿主/自检用）。
 extern "C" std::uint64_t IsaacRuntime_PerfTickCostTicks() {
     return g_RuntimePerfTickCostTicks;
 }
@@ -240,7 +213,7 @@ extern "C" void IsaacRuntime_PerfNoteApiCall(std::uint64_t key, std::uint64_t st
 }
 
 // ============================================================================
-// Lua 采样剖析器（批次 089）
+// Lua 采样剖析器
 // ============================================================================
 //
 // 见 `runtime_profiler.hpp` 的说明。这里只放三件事：**钩子本体**、**挂钩子**、**清桶**。
@@ -258,7 +231,7 @@ struct ProfileHookText {
     char source[64];
 };
 
-//: 从钩子给的那一帧里取"函数名 + 短文件名"；无名函数合成一个 `<匿名 @行>` 名字。
+// 从钩子给的那一帧里取"函数名 + 短文件名"；无名函数合成一个 `<匿名 @行>` 名字。
 void ReadProfileFrameText(lua_State* state, lua_Debug* debug, ProfileHookText* out) noexcept {
     out->name[0] = '\0';
     out->source[0] = '\0';
@@ -276,7 +249,7 @@ void ReadProfileFrameText(lua_State* state, lua_Debug* debug, ProfileHookText* o
     }
     // 无名函数（匿名闭包 / 主体代码 / 尾调用）：**只按"种类"合成一个名字**。
     //
-    // ★ 2026-09-20 第一次真机撞的坑：这里原本按 `种类#行号` 合成（`main#105`、`main#304`…），
+    // 2026-09-20 第一次真机撞的坑：这里原本按 `种类#行号` 合成（`main#105`、`main#304`…），
     // 结果**一个文件的主体代码每行就吃一个桶** —— 128 个桶瞬间被"只命中一次"的条目占满，
     // 真正热的函数全部溢出（实测 128/128 占满、5,136 次溢出）。按种类合并之后，
     // 一个 Lua 函数/主体只占一个桶。
@@ -296,7 +269,7 @@ void ReadProfileFrameText(lua_State* state, lua_Debug* debug, ProfileHookText* o
 
 } // namespace
 
-//: 采样桶是否已经"进入游戏后清过一次"（见 `Invoke` 里的说明）。
+// 采样桶是否已经"进入游戏后清过一次"（见 `Invoke` 里的说明）。
 bool g_ProfileSessionStarted = false;
 
 extern "C" void IsaacRuntime_ProfileHook(lua_State* state, lua_Debug* debug) {
@@ -319,7 +292,7 @@ void ResetRuntimePerfProfile() noexcept {
 
 
 // ============================================================================
-// 会计数的 Lua 分配器（批次 091）
+// 会计数的 Lua 分配器
 // ============================================================================
 //
 // Lua 的默认分配器就是 `l_alloc`：`nsize == 0 ? free : realloc`。这里只多记四个计数
@@ -346,7 +319,7 @@ extern "C" void* IsaacRuntime_CountingAlloc(void* userData, void* block, std::si
 
 
 // ============================================================================
-// 地板基准（批次 095）：量"一次纯 Lua→C 调用"本身要多少时间
+// 地板基准：量"一次纯 Lua→C 调用"本身要多少时间
 // ============================================================================
 //
 // **为什么需要**：真机实测每次接口调用平均 1.40 µs（每帧 646 次）。要回答
@@ -377,7 +350,7 @@ void MeasureEmptyCallCost(lua_State* state) noexcept {
     const std::uint64_t endedAt = isaac::runtime::RuntimePerfTick();
     lua_pop(state, 1);
     g_RuntimePerfEmptyCallCount = kIterations;
-    // ★ 存**总 tick**，由读数端去算"单次多少"：单次不足 1 tick（52 ns）时整除会直接变成 0
+    // 存总 tick，由读数端去算"单次多少"：单次不足 1 tick（52 ns）时整除会直接变成 0
     //   （第一版就是这么把结果吃成 0 的 —— 20,000 次空调用总共才几万个 tick）。
     g_RuntimePerfEmptyCallTicks = endedAt > startedAt ? (endedAt - startedAt) : 0;
 #else
@@ -406,11 +379,11 @@ int LoadFileChunk(lua_State* state, const char* source, std::size_t length,
 
 const char* g_LoadingModRoot="";
 constexpr char kModMethodsField[] = "__methods";
-//: 批次 216（2026-09-30）：**Mod 方法的共享原型表**在 registry 里的键。
-//: 为什么需要它：PC 的 `RegisterMod` 返回的是 **table**（`GlobalFunctions.md:101`
-//: 「Returns a table which acts the Mod Reference」），我们的 Mod 对象从 2026-09-30 起也是 table
-//: ⇒ 每个 Mod 对象要一个**自己的**元表（里面放它自己的句柄），而方法从这张共享原型里找
-//: （`__index = 原型`）。原型只是 `kModMetatable.__methods` 那一张表的**同一个引用**。
+// Mod 方法的共享原型表在 registry 里的键。
+// 为什么需要它：PC 的 `RegisterMod` 返回的是 table（`GlobalFunctions.md:101`
+// 「Returns a table which acts the Mod Reference」），我们的 Mod 对象从 2026-09-30 起也是 table
+// ⇒ 每个 Mod 对象要一个自己的元表（里面放它自己的句柄），而方法从这张共享原型里找
+// （`__index = 原型`）。原型只是 `kModMetatable.__methods` 那一张表的同一个引用。
 constexpr char kModPrototypeField[] = "__isaac_mod_methods_prototype";
 // PC 契约里 `MC_POST_UPDATE` 是 1（0 是 `MC_NPC_UPDATE`）。2026-09-12 起 Lua 侧的
 // `ModCallbacks` 表由 `pc_lua_enum_data.cpp` 生成（非 stage13 构建直接用生成表），
@@ -446,7 +419,7 @@ constexpr std::array<LuaIntegerConstant, 28> kButtonActionConstants{{
     {"ACTION_SHOOTDOWN", 7}, {"ACTION_BOMB", 8}, {"ACTION_ITEM", 9},
     {"ACTION_PILLCARD", 10}, {"ACTION_DROP", 11}, {"ACTION_PAUSE", 12},
     {"ACTION_MAP", 13}, {"ACTION_MENUCONFIRM", 14}, {"ACTION_MENUBACK", 15},
-    // ★★ 2026-09-30 批次 218 更正：**16/17/18 三个名字在 Rep+ 变了**，原来写的是 AB/AB+ 那一套。
+    // 2026-09-30 更正：16/17/18 三个名字在 Rep+ 变了，原来写的是 AB/AB+ 那一套。
     // PC 契约（`analysis/isaacdocs-snapshot/docs/enums/ButtonAction.md:24-29`，逐行原文）：
     //   `|[.abrep]|16 |ACTION_RESTART| Restart run |`
     //   `|[.repplus]|16 |ACTION_FULLSCREEN| Toggle fullscreen **(Value changed with Rep+)** |`
@@ -512,7 +485,7 @@ constexpr isaac::runtime::ModHandle kRuntimeOwner{1, 1};
 // 设备侧的读数工具（`tools/read_device_state_via_gdb.py` 的符号表）与错误通道探针直接按
 // 这个名字读 bss 里的那个字节，用来判断"Lua 到底有没有跑到 `RegisterMod`"。
 //
-// ★ `[[gnu::used]]` 是**必须的**：写而不读的静态全局会被优化掉，符号一没，真机读数就永远
+// `[[gnu::used]]` 是必须的：写而不读的静态全局会被优化掉，符号一没，真机读数就永远
 // 显示"模组没登记"，而游戏其实一切正常（这是最坏的一类误判：把人引去查完全不存在的问题）。
 // 本项目已有同样用法（`saltynx_symbol_resolver.cpp` 的 `g_find_symbol`）。
 [[gnu::used]] bool g_ModRegistered = false;
@@ -532,13 +505,13 @@ isaac::runtime::ModHandle NextModOwner() noexcept {
     return isaac::runtime::ModHandle{static_cast<std::uint16_t>(index), 1};
 }
 
-// 批次 418（2026-10-09）：把"这个 owner 编号属于哪个模组"记下来（掉帧归因的落名读数）。
+// 把"这个 owner 编号属于哪个模组"记下来（掉帧归因的落名读数）。
 //
 // 调用点 = `RegisterMod` 分配 owner 号的那一刻 —— **只有这一刻**才知道这个编号是谁。
 // 为什么要在这里记、而不是事后拿清单去对：见文件顶部那张表上面那段（清单包含被禁用的模组、
 // 属主号不包含 ⇒ 两套编号之间没有固定偏移）。
 //
-// ★ 只写、不改任何行为；越界一律丢弃（`owner.index` 理论上不会到 32，但**不许**越界写 ——
+// 只写、不改任何行为；越界一律丢弃（`owner.index` 理论上不会到 32，但不许越界写 ——
 //   那是本项目的头号事故形态）。
 void RecordModOwnerName(std::uint16_t index, const char* name) noexcept {
     if (name == nullptr || index >= kModOwnerNameSlots) {
@@ -564,25 +537,20 @@ std::atomic<u32> g_InManagedCallbackDispatch{false};
 std::array<char, 256> g_LastLuaErrorText{};
 std::atomic<std::uint32_t> g_LastLuaErrorLength{0};
 
-// --- 最近若干条 Lua 错误（环形历史，2026-09-19 批次 052 新增） ----------------------
+// --- 最近若干条 Lua 错误（环形历史，2026-09-19 新增） ----------------------
 //
-// ★ 为什么加：只有一个槽的时候，**A 模组的错会盖掉 B 模组的错**。2026-09-19 实测代价 ——
-// GoodTrip 的错先被 EID 的错盖住，读数里只剩 EID 那条，于是我在"到底是哪个模组坏了"上
-// 兜了三轮；而且每次都要"干净重启 + 不碰某个键"才抢得到那个槽。
-// 这不是 PC 语义（PC 没有这个设施），是我们**自己的观测层**在制造耦合。
-//
-// 语义：`g_LastLuaErrorText` 仍是"**最后一条**"（读数工具与既有门禁的口径**不变**）；
-// 这里额外保留最近 `kLuaErrorHistorySlots` 条，每条 NUL 结尾、供调试桩按符号整块读回。
+// 保留最近的 Lua 错误及所属回调，避免后续错误覆盖其他模组的诊断信息。
+// g_LastLuaErrorText 仍保存最后一条错误；环形历史供外部工具按固定步长读取。
 constexpr std::size_t kLuaErrorHistorySlots = 8;
 constexpr std::size_t kLuaErrorHistoryEntryBytes = 128;
-//: 每条 = `text[120]` + `owner` + `callbackId`（末尾 8 字节放归属，**文本仍在开头** ——
-//: 这样既有的"按 128 字节切片、取到第一个 NUL 为止"的读取方式继续成立）。
+// 每条 = `text[120]` + `owner` + `callbackId`（末尾 8 字节放归属，文本仍在开头 ——
+// 这样既有的"按 128 字节切片、取到第一个 NUL 为止"的读取方式继续成立）。
 constexpr std::size_t kLuaErrorHistoryTextBytes = kLuaErrorHistoryEntryBytes - 8;
 
 struct LuaErrorHistoryEntry {
     char text[kLuaErrorHistoryTextBytes];
-    std::uint32_t owner;       //: 哪个模组（`ModHandle`）；0 = 不知道
-    std::uint32_t callbackId;  //: 哪条回调；`kNoCallbackDispatched` = 不是回调路径（加载期等）
+    std::uint32_t owner;       // 哪个模组（`ModHandle`）；0 = 不知道
+    std::uint32_t callbackId;  // 哪条回调；`kNoCallbackDispatched` = 不是回调路径（加载期等）
 };
 
 static_assert(sizeof(LuaErrorHistoryEntry) == kLuaErrorHistoryEntryBytes,
@@ -591,8 +559,8 @@ static_assert(sizeof(LuaErrorHistoryEntry) == kLuaErrorHistoryEntryBytes,
 std::array<LuaErrorHistoryEntry, kLuaErrorHistorySlots> g_LuaErrorHistory{};
 std::atomic<std::uint32_t> g_LuaErrorHistoryCount{0};
 
-//: 当前正在执行的回调的归属（派发器在调用每个回调前后设置/复原）。
-//: 有了它，"是谁报的错"不再需要靠猜或靠探针 —— 直接盖在错误记录上。
+// 当前正在执行的回调的归属（派发器在调用每个回调前后设置/复原）。
+// 有了它，"是谁报的错"不再需要靠猜或靠探针 —— 直接盖在错误记录上。
 std::uint32_t g_ErrorContextOwner = 0;
 std::uint32_t g_ErrorContextCallbackId = isaac::runtime::kNoCallbackDispatched;
 
@@ -602,7 +570,7 @@ void RecordLuaErrorHistory(const char* text, std::size_t length) noexcept {
     }
     const std::size_t copyLength =
         length < kLuaErrorHistoryTextBytes - 1 ? length : kLuaErrorHistoryTextBytes - 1;
-    // ★ 去重（2026-09-19 批次 068）：**同一个模组的同一条错误只占一格**。
+    // 去重（2026-09-19 ）：同一个模组的同一条错误只占一格。
     // 为什么必须去重：真机上遇到过 EID 一条"每帧都报"的错把 8 格全部刷满，
     // 于是 GoodTrip 的错**一条都进不来**，"到底是谁坏了"又得靠探针。
     const std::uint32_t owner = g_ErrorContextOwner;
@@ -707,18 +675,18 @@ u64 CallbackErrorTail(lua_State* state) {
 // `g_InManagedCallbackDispatch` below is an ordinary global, so a plain global is both
 // equivalent here and consistent with the rest of the file.
 bool g_InPreGetCollectibleDispatch = false;
-// 批次 397（2026-10-07）：`MC_POST_ENTITY_KILL` 的重入守卫。
-// 为什么这条**必须**有：`Entity:Kill()` 的 Lua API 走的是**虚槽**（批次 319），而基类槽
+// `MC_POST_ENTITY_KILL` 的重入守卫。
+// 为什么这条必须有：`Entity:Kill()` 的 Lua API 走的是虚槽，而基类槽
 // 就是 `Entity::Kill` —— 也就是我们这条入口中继。模组的处理器里只要再调一次
 // `entity:Kill()`（很常见：先判再杀），中继又会跑一次 → 又派发一次 → **无限递归**。
 // 守卫在派发层（不是回调层）：重入时**跳过派发**，但仍然照常跑原函数。
 bool g_InPostEntityKillDispatch = false;
 std::atomic<uintptr_t> g_CurrentCallbackManager{0};
-// 批次 149："本帧的 Manager"兜底来源（`SetFrameManagerProvider` 发布；宿主夹具不发 ⇒ 空）。
+// "本帧的 Manager"兜底来源（`SetFrameManagerProvider` 发布；宿主夹具不发 ⇒ 空）。
 std::atomic<uintptr_t (*)()> g_FrameManagerProvider{nullptr};
 std::atomic<RuntimeExtensionInstaller> g_RuntimeExtensionInstaller{nullptr};
 RuntimeExtensionDiagnostics g_RuntimeExtensionDiagnostics{};
-// 批次 149：上一次 `Music` 方法解析失败的原因码 —— 只用来把报错写清楚，不参与判据。
+// 上一次 `Music` 方法解析失败的原因码 —— 只用来把报错写清楚，不参与判据。
 //   0 = 没失败过；1 = 不在托管回调派发里；2 = 拿不到 Manager（回调里没有、本帧也没有）；
 //   3 = 方法地址没发布（那份绑定缺失）；4 = 入口 16 字节指纹不符（偏移写错）。
 std::atomic<u32> g_MusicResolveFailure{0};
@@ -737,14 +705,14 @@ std::atomic<u32> g_MusicDiagnosticCurrentId{0};
 #endif
 std::atomic<u32> g_PreparationStep{0};
 std::atomic<u32> g_PreparationStatus{0};
-// 游戏本体 NRO 的加载基址（批次 2）：`Isaac.GetPlayer` 的指针链与 `Entity_Player` 的 vptr
+// 游戏本体 NRO 的加载基址：`Isaac.GetPlayer` 的指针链与 `Entity_Player` 的 vptr
 // 判据都要用它，所以由 Hook 安装阶段在已拿到 `TargetModule::base` 的地方发布。
 std::atomic<uintptr_t> g_EngineModuleBase{0};
 std::atomic<uintptr_t> g_GameOwnerSlot{0};
 std::atomic<uintptr_t> g_GameIsPausedThunk{0};
 std::atomic<uintptr_t> g_GameIsGreedMode{0};
 std::atomic<uintptr_t> g_LevelIsAscent{0};
-// 批次 8（2026-09-15）：`Level:GetAbsoluteStage()` / `Level:IsNextStageAvailable()` 的入口地址。
+// `Level:GetAbsoluteStage()` / `Level:IsNextStageAvailable()` 的入口地址。
 std::atomic<uintptr_t> g_LevelGetAbsoluteStage{0};
 std::atomic<uintptr_t> g_LevelIsNextStageAvailable{0};
 // 2026-09-16：`Room:GetFrameCount()`（`Room::GetFrameCount @ 0x470B0C`）的入口地址。
@@ -754,7 +722,7 @@ std::atomic<uintptr_t> g_RoomGetFrameCount{0};
 // （编了会让 EID 挑到错误的网格实体 —— 而 EID 正是靠它算"离玩家最近的刺"）。
 std::atomic<uintptr_t> g_GridEntityGetPosition{0};
 std::atomic<uintptr_t> g_ItemPoolGetCollectible{0};
-// 批次 10（2026-09-15）：`Room:WorldToScreenPosition()` 要调的引擎函数（PLT 桩地址）。
+// `Room:WorldToScreenPosition()` 要调的引擎函数（PLT 桩地址）。
 std::atomic<uintptr_t> g_GetRenderPosition{0};
 // 宿主注入：设备侧走"校验 16 字节入口 + 调用"那条路，宿主上没有引擎映像，用注入的实现替代。
 // 与 `HasCollectible` 的宿主钩子同一形态（`#if !defined(__SWITCH__)` 才存在）。
@@ -768,16 +736,16 @@ GridEntityPositionHostFunction g_GridEntityGetPositionHost{nullptr};
 std::atomic<uintptr_t> g_MusicGetCurrentMusicId{0};
 std::atomic<uintptr_t> g_MusicPause{0};
 std::atomic<uintptr_t> g_MusicResume{0};
-// 批次 137：`MusicManager:UpdateVolume()` 的单方法槽（与 `MusicResume` 同一个发布/读取形态）。
+// `MusicManager:UpdateVolume()` 的单方法槽（与 `MusicResume` 同一个发布/读取形态）。
 std::atomic<uintptr_t> g_MusicUpdateVolume{0};
-// 批次 138：`MusicManager:Play(ID, Volume)` 的单方法槽（同上）。
+// `MusicManager:Play(ID, Volume)` 的单方法槽（同上）。
 std::atomic<uintptr_t> g_MusicPlay{0};
 std::atomic<uintptr_t> g_RngSetSeed{0};
 std::atomic<uintptr_t> g_RngNext{0};
-// 批次 195：`RNG:RandomInt(Max)` / `RNG:RandomFloat()`（发布见 `SetRngRandomBindings`）。
+// `RNG:RandomInt(Max)` / `RNG:RandomFloat()`（发布见 `SetRngRandomBindings`）。
 std::atomic<uintptr_t> g_RngRandomUint{0};
 std::atomic<uintptr_t> g_RngRandom{0};
-// 批次 195：按键号那两条查询（`KAGE::Input::ManagerBase`，发布见 `SetInputButtonBindings`）。
+// 按键号那两条查询（`KAGE::Input::ManagerBase`，发布见 `SetInputButtonBindings`）。
 std::atomic<uintptr_t> g_InputIsButtonPressed{0};
 std::atomic<uintptr_t> g_InputGetButtonValue{0};
 std::atomic<uintptr_t> g_InputIsActionPressed{0};
@@ -814,19 +782,19 @@ std::atomic<uintptr_t> g_SpriteGetTexel{0};
 std::atomic<uintptr_t> g_SpriteUpdate{0};
 std::atomic<uintptr_t> g_SpriteIsPlaying{0};
 std::atomic<uintptr_t> g_SpriteIsFinished{0};
-//: 批次 214：`ANM2::Reset()`。
+// `ANM2::Reset()`。
 std::atomic<uintptr_t> g_SpriteReset{0};
 std::atomic<uintptr_t> g_SpriteRender{0};
 std::atomic<uintptr_t> g_SpriteRenderLayer{0};
 std::atomic<uintptr_t> g_SpritePlayRandom{0};
-//: 批次 279：overlay 三条（`ANM2::PlayOverlay(char const*, bool)` /
-//: `SetLastFrame()` / `SetOverlayFrame(char const*, int)`）。
+// overlay 三条（`ANM2::PlayOverlay(char const*, bool)` /
+// `SetLastFrame()` / `SetOverlayFrame(char const*, int)`）。
 std::atomic<uintptr_t> g_SpritePlayOverlay{0};
 std::atomic<uintptr_t> g_SpriteSetLastFrame{0};
 std::atomic<uintptr_t> g_SpriteSetOverlayFrame{0};
-//: 批次 280：`ANM2::Stop()`。
+// `ANM2::Stop()`。
 std::atomic<uintptr_t> g_SpriteStop{0};
-//: 批次 283：四条「按名字查询」（引擎侧 `bool ANM2::Xxx(std::string const&) const`）。
+// 四条「按名字查询」（引擎侧 `bool ANM2::Xxx(std::string const&) const`）。
 std::atomic<uintptr_t> g_SpriteIsOverlayPlaying{0};
 std::atomic<uintptr_t> g_SpriteIsOverlayFinished{0};
 std::atomic<uintptr_t> g_SpriteIsEventTriggered{0};
@@ -906,12 +874,12 @@ void RecordRequireFailure(u32 detail) {
 
 int RaiseRequireFailure(lua_State* state, u32 detail, const char* message) {
     RecordRequireFailure(detail);
-    // `"%s"` 而不是直接当格式串：批次 3 起这条消息里会**拼进 Mod 自己给的模块名**
+    // `"%s"` 而不是直接当格式串：起这条消息里会拼进 Mod 自己给的模块名
     // （PC 形状的 "no file '<路径>.lua'"），名字里出现 `%` 时直接当格式串是未定义行为。
     return luaL_error(state, "%s", message);
 }
 
-// PC 形状的 `require` 失败文本（批次 3）。
+// PC 形状的 `require` 失败文本。
 //
 // 为什么必须长成这样：EID 的 `EID:GetCurrentModPath()`（`main.lua:147`）在**没有 debug 库**时
 // 用 `require("")` 的失败文本反推自己的 mod 路径：
@@ -1258,7 +1226,7 @@ int Require(lua_State* state) {
     return 1;
 }
 
-// ---- `load` / `loadstring`（批次 034：按 PC 口径补上，见 `docs/问题与解决记录.md` 续五十九）----
+// ---- `load` / `loadstring`（按 PC 口径补上，见 `docs/问题与解决记录.md` 续五十九）----
 //
 // 背景：这两个全局以前**刻意置空**（沙箱决定），而 PC 是 LuaJIT 5.1 —— `load`、`loadstring`、
 // `loadfile`、`dofile` 四样都有。真机代价：卡上的可调用性探针 v2 用
@@ -1271,8 +1239,8 @@ int Require(lua_State* state) {
 // `loadfile`/`dofile` **仍为 nil**：它们要"从哪个挂载点读文件"的路径口径，属于文件能力那一层，
 // 本批不做（写在文档里，不静默留坑）。
 
-//: `load` 的保留槽（照搬 Lua 5.3 `lbaselib.c` 的 `RESERVEDSLOT`）：读取函数返回的那块内存
-//: 必须在本轮读取期间一直活着，所以把字符串移到这个固定槽位再交给 `lua_load`。
+// `load` 的保留槽（照搬 Lua 5.3 `lbaselib.c` 的 `RESERVEDSLOT`）：读取函数返回的那块内存
+// 必须在本轮读取期间一直活着，所以把字符串移到这个固定槽位再交给 `lua_load`。
 constexpr int kLoadReservedSlot = 4;
 
 const char* LuaChunkReader(lua_State* state, void* data, size_t* size) {
@@ -1299,7 +1267,7 @@ const char* LuaChunkReader(lua_State* state, void* data, size_t* size) {
     return piece;
 }
 
-//: 统一收尾：编译失败 ⇒ `nil, 消息`（**不抛错**，与 PC 一致）；成功 ⇒ 函数（可选装 `_ENV`）。
+// 统一收尾：编译失败 ⇒ `nil, 消息`（不抛错，与 PC 一致）；成功 ⇒ 函数（可选装 `_ENV`）。
 int FinishLoad(lua_State* state, int status, bool hasEnvironment) {
     if (status != LUA_OK) {
         lua_pushnil(state);
@@ -1351,7 +1319,7 @@ int ModLoadString(lua_State* state) {
     return FinishLoad(state, luaL_loadbufferx(state, text, length, chunkName, "bt"), false);
 }
 
-// ---- `include(path)`（批次 042：PC 提供的全局，GoodTrip 一加载就要它）--------------------
+// ---- `include(path)`（PC 提供的全局，GoodTrip 一加载就要它）--------------------
 //
 // PC 把 `include` 作为模组环境的一部分提供给 Lua（`analysis/isaacdocs-snapshot/docs/Globals.md:189`
 // 的全局清单里有它）。它与 `require` 的差别，模组作者在 GoodTrip 的 `main.lua:30-33` 里写得很准
@@ -1545,7 +1513,7 @@ int RegisterMod(lua_State* state) {
     g_ModRegistered = true;
     g_ModRegisteredCount.fetch_add(1, std::memory_order_release);
 
-    // ★★ 批次 216（2026-09-30）：**返回 table，不再返回 userdata** —— 这是 PC 的形态，
+    // 返回 table，不再返回 userdata —— 这是 PC 的形态，
     // 我们原来是错的（偏差的代价：中文版 MCM 开菜单那条路直接断，见下）。
     //
     // 证据（三条互相独立）：
@@ -1573,7 +1541,7 @@ int RegisterMod(lua_State* state) {
     const isaac::runtime::ModHandle ownerHandle = NextModOwner();
     if (ownerHandle.index == 0) return luaL_error(state, "mod owner capacity exceeded");
     mod->ownerPacked = PackModOwner(ownerHandle);
-    // 批次 418：把 `owner.index` 与模组名的对应关系留下来（读数用；掉帧归因的"落名"）。
+    // 把 `owner.index` 与模组名的对应关系留下来（读数用；掉帧归因的"落名"）。
     // 只有这一处知道"这个编号是谁" —— 事后再拿清单去对是错的（清单含被禁用的模组）。
     RecordModOwnerName(ownerHandle.index, name);
     lua_newtable(state);
@@ -1629,7 +1597,7 @@ void RegisterPcLuaEnumTables(lua_State* state) {
             lua_setglobal(state, tables[tableIndex].name);
         }
     }
-    // 批次 048：PC 文档快照里那几张（`pc_lua_enum_data` 之外的补充）。**两边表名不相交**
+    // PC 文档快照里那几张（`pc_lua_enum_data` 之外的补充）。两边表名不相交
     // （生成器 `tools/generate_doc_enum_tables.py` 会断言这一点），所以这里不会互相覆盖。
     // 值走 `std::int64_t`：`DamageFlag.DAMAGE_SPAWN_RUNE` 是 `1 << 32`，32 位会静默回绕成 0。
     std::size_t docCount = 0;
@@ -1744,15 +1712,15 @@ using isaac::runtime::engine_memory::AsObject;
 using isaac::runtime::engine_memory::FieldAddress;
 using isaac::runtime::engine_memory::LoadVerifiedAt;
 
-//: 「这段地址是不是引擎模块的**代码段**」—— 形状与 L1/L2 的 `ReadableCheck` 一致，供引擎调用层注入。
-//:
-//: 判据**逐条照搬**本文件原有那两处内联查询（`ValidateItemPoolGetCollectibleMethod` 与
-//: `ValidateMusicMethod` 各一份，去掉注释后逐字相同）：整段落在**同一段映射**内、
-//: `(type & MemState_Type) == MemType_ModuleCodeStatic`、`perm == Perm_Rx`。
-//: ★ 这比层里那份通用可读判定（`EngineMemoryReadable`，只要求带 `Perm_R`）**严得多** ——
-//:   放宽成"能读就行"就等于允许拿一个数据地址当函数入口去调，所以这条判定按原样保留。
-//: 本函数**只判"模块代码段"这一件事**，不比较字节（比较在层的 `VerifyEntryBytes` 里）。
-//: 只在设备上定义：它的两个消费者都在 `#if defined(__SWITCH__)` 里（宿主没有 `svcQueryMemory`）。
+// 「这段地址是不是引擎模块的代码段」—— 形状与 L1/L2 的 `ReadableCheck` 一致，供引擎调用层注入。
+//
+// 判据逐条照搬本文件原有那两处内联查询（`ValidateItemPoolGetCollectibleMethod` 与
+// `ValidateMusicMethod` 各一份，去掉注释后逐字相同）：整段落在同一段映射内、
+// `(type & MemState_Type) == MemType_ModuleCodeStatic`、`perm == Perm_Rx`。
+// 这比层里那份通用可读判定（`EngineMemoryReadable`，只要求带 `Perm_R`）严得多 ——
+// 放宽成"能读就行"就等于允许拿一个数据地址当函数入口去调，所以这条判定按原样保留。
+// 本函数只判"模块代码段"这一件事，不比较字节（比较在层的 `VerifyEntryBytes` 里）。
+// 只在设备上定义：它的两个消费者都在 `#if defined(__SWITCH__)` 里（宿主没有 `svcQueryMemory`）。
 #if defined(__SWITCH__)
 bool IsEngineModuleCodeReadable(uintptr_t address, std::size_t length) {
     if (length == 0 || address > UINTPTR_MAX - length) {
@@ -1806,12 +1774,12 @@ bool ValidateItemPoolGetCollectibleMethod(uintptr_t address) {
 
 
 
-//: 「这 `length` 个字节可读、且**不可执行**吗」—— 形状与 L1/L2 的 `ReadableCheck` 一致，
-//: 供引擎调用层（`FieldAddress`）注入。判据**逐条照搬**本文件原来那份（同一个策略在
-//: `game_observer.cpp` 里叫 `IsReadableNonExecutableMapping`，那是那个 TU 的内部实现，
-//: 这里按原样保留一份，不做跨 TU 合并）。
-//: ★ 与 `IsEngineModuleCodeReadable` 是**两种不同的判定**，不许互相替换：这份允许数据段
-//:   （只要带 `Perm_R`），但要求**不带** `Perm_X`；那份只认模块映像的代码段。
+// 「这 `length` 个字节可读、且不可执行吗」—— 形状与 L1/L2 的 `ReadableCheck` 一致，
+// 供引擎调用层（`FieldAddress`）注入。判据逐条照搬本文件原来那份（同一个策略在
+// `game_observer.cpp` 里叫 `IsReadableNonExecutableMapping`，那是那个 TU 的内部实现，
+// 这里按原样保留一份，不做跨 TU 合并）。
+// 与 `IsEngineModuleCodeReadable` 是两种不同的判定，不许互相替换：这份允许数据段
+// （只要带 `Perm_R`），但要求不带 `Perm_X`；那份只认模块映像的代码段。
 bool IsReadableMusicObject(uintptr_t address, std::size_t length) {
 #if defined(__SWITCH__)
     MemoryInfo info{};
@@ -1874,14 +1842,14 @@ bool ResolveMusicForManager(uintptr_t manager, uintptr_t method, const u8* expec
     return true;
 }
 
-//: `MusicManager:` 一族取 Manager 的**唯一**入口（批次 149 起两跳）。
-//:
-//: 第一跳：当前正在派发的那条回调带的 Manager（`hasManager == true` 的派发才写得进它）。
-//: 第二跳（批次 149 新增）：本帧的 Manager —— `MC_POST_UPDATE` 的派发**不带** Manager，
-//: 而模组正是在那条回调里调音乐（The Specialist for Good Items 的 `main.lua:482/488/493/500`，
-//: 由 `OnGameUpdate → OnPogMoment → DoCostume` 走到）。PC 的绑定层读的是引擎自己的全局
-//: Manager，所以这里也退到"本帧 `Manager::Update` 收到的 self" —— 两者是同一个单例。
-//: 两跳都拿不到才算"没有 Manager"（原因码 2），报错时能一眼看出是环境还是偏移。
+// `MusicManager:` 一族取 Manager 的唯一入口（起两跳）。
+//
+// 第一跳：当前正在派发的那条回调带的 Manager（`hasManager == true` 的派发才写得进它）。
+// 第二跳（新增）：本帧的 Manager —— `MC_POST_UPDATE` 的派发不带 Manager，
+// 而模组正是在那条回调里调音乐（The Specialist for Good Items 的 `main.lua:482/488/493/500`，
+// 由 `OnGameUpdate → OnPogMoment → DoCostume` 走到）。PC 的绑定层读的是引擎自己的全局
+// Manager，所以这里也退到"本帧 `Manager::Update` 收到的 self" —— 两者是同一个单例。
+// 两跳都拿不到才算"没有 Manager"（原因码 2），报错时能一眼看出是环境还是偏移。
 bool ResolveMusicForCall(uintptr_t method, const u8* expected, std::size_t expectedLength,
                          uintptr_t* music) {
     if (!g_InManagedCallbackDispatch.load(std::memory_order_acquire)) {
@@ -1943,7 +1911,7 @@ void RegisterGameApi(lua_State* state) {
     // 方法表作为闭包的上值 1 带进去，认不出的键原样落回它。
     lua_pushcclosure(state, isaac::runtime::GameIndex, 1);
     lua_setfield(state, -2, "__index");
-    // 批次 061：与 `Level` 同理（同一个实现）。★ 2026-10-26（BUG-014）更正：此前这里只是
+    // 与 `Level` 同理（同一个实现）。2026-10-26（BUG-014）更正：此前这里只是
     // "**接受并忽略**"，注释举的例子（`Game().TimeCounter = Game().TimeCounter + addTime`）
     // 其实一直没生效 —— 真机 TimeMachine 的计时补偿就是这么丢的。现在 `TimeCounter` 已是
     // **真写**（`IgnoredObjectFieldWrite` 里的 `TryWriteGameTimeCounter`），其余没有偏移证据的
@@ -1960,9 +1928,9 @@ void RegisterGameApi(lua_State* state) {
 
     // 地基二期：`RoomDescriptor` 与它的列表。两者的 `__index` 都是**函数**（同时服务字段与方法），
     // 方法表挂在元表的 `__methods` 上（与 `Sprite`/`Vector` 同一形态）。
-    // 批次 12：`GridEntity` 族（`Room:GetGridEntity()` 的返回值）。它的方法都住在 `Room`
+    // `GridEntity` 族（`Room:GetGridEntity()` 的返回值）。它的方法都住在 `Room`
     // 所在的那个家族 TU 里（`AttachGridEntityMethods`），与"行表住在自己 TU 里"的规矩一致。
-    // ★ 2026-09-21：`__index` 由**表**改成**函数**（与 `RoomDescriptor` 同一形态）——
+    // 2026-09-21：`__index` 由表改成函数（与 `RoomDescriptor` 同一形态）——
     // PC 的 `GridEntity` 还有 `Position`/`VarData`/`Desc` 这些**字段**（IsaacDocs `GridEntity.md`），
     // 只挂方法表时模组读它们会拿到 `nil`（EID 献祭房就是栽在 `gridEntity.Position` 上）。
     // 方法表因此挪到 `__methods`（`GridEntityIndex` 在答完字段后从那里取）。
@@ -1975,11 +1943,11 @@ void RegisterGameApi(lua_State* state) {
     lua_setfield(state, -2, "__methods");
     lua_pop(state, 1);
 
-    // 批次 078：`Room:GetDoor(slot)` 的返回值（`GridEntity_Door`）。PC 里门**同时是** `GridEntity`，
+    // `Room:GetDoor(slot)` 的返回值（`GridEntity_Door`）。PC 里门同时是 `GridEntity`，
     // 所以它的 `__index` 是**函数**：先答门的字段，答不上再落到上面那张 `GridEntity` 方法表。
-    // ★ 批次 284：门从这一批起**有了自己的 `__methods`**（`Open`/`Close`/`IsTargetRoomArcade`），
+    // 门从这一批起有了自己的 `__methods`（`Open`/`Close`/`IsTargetRoomArcade`），
     //   回落顺序变成 **字段 → 门自己 → `GridEntity` 基类**（`GridEntityDoorIndex` 里那两段）。
-    //   ★ 为什么也挪到 `__methods` 而不是继续在 `__index` 里 `if (strcmp(key, …))` 硬编码：
+    //   为什么也挪到 `__methods` 而不是继续在 `__index` 里 `if (strcmp(key, …))` 硬编码：
     //     那正是 `IsOpen` 现在的写法，而它的代价是"实现在、目录里没有" —— 完成定义台账与
     //     绑定行统计都覆盖不到它（项 079 的老账）。新方法一律走目录 + 处理器表。
     luaL_newmetatable(state, kGridEntityDoorMetatable);
@@ -2003,7 +1971,7 @@ void RegisterGameApi(lua_State* state) {
     lua_newtable(state);
     static_cast<void>(isaac::runtime::AttachRoomDescriptorListMethods(state));
     lua_setfield(state, -2, "__methods");
-    // ★★ 批次 349（2026-10-04）：`__len` —— 让 `#rooms` 成立。
+    // `__len` —— 让 `#rooms` 成立。
     //   真机读数（`dist/gdb-report-20261004-183801.txt`）里 minimapi 报
     //   `minimapapi/main.lua:840: attempt to get length of a IsaacRuntime.RoomDescriptorList value`；
     //   那几行是 `for i = 0, #rooms - 1 do` / `CheckedRoomCount = #rooms`。
@@ -2012,10 +1980,10 @@ void RegisterGameApi(lua_State* state) {
     lua_setfield(state, -2, "__len");
     lua_pop(state, 1);
 
-    //: 批次 347（2026-10-04）：`RoomDescriptor.Data.Spawns` 的两个视图 ——
-    //: `RoomConfigSpawn`（`Data.Spawns:Get(i)` 的返回值，有 `SumWeights`/`EntryCount` 两个属性
-    //: 与 `PickEntry` 一个方法）与 `RoomConfigEntry`（`spawn:PickEntry(r)` 的返回值，只有四个属性）。
-    //: ★ 两个 `__index` 都是函数（先答属性、再查 `__methods`）—— 与 `GridEntityDoor` 同一形态。
+    // `RoomDescriptor.Data.Spawns` 的两个视图 ——
+    // `RoomConfigSpawn`（`Data.Spawns:Get(i)` 的返回值，有 `SumWeights`/`EntryCount` 两个属性
+    // 与 `PickEntry` 一个方法）与 `RoomConfigEntry`（`spawn:PickEntry(r)` 的返回值，只有四个属性）。
+    // 两个 `__index` 都是函数（先答属性、再查 `__methods`）—— 与 `GridEntityDoor` 同一形态。
     luaL_newmetatable(state, kRoomConfigSpawnMetatable);
     lua_pushcfunction(state, isaac::runtime::RoomConfigSpawnIndex);
     lua_setfield(state, -2, "__index");
@@ -2038,7 +2006,7 @@ void RegisterGameApi(lua_State* state) {
     lua_pop(state, 1);
     isaac::runtime::PublishNativeClass(state, "ItemPool", kItemPoolMetatable);
 
-    // ★★ 批次 284（2026-10-04）：`Level` 的元表要补成 **PC 的形状** —— 三处消费者都要它：
+    // `Level` 的元表要补成 PC 的形状 —— 三处消费者都要它：
     //   * `MinimapAPI/main.lua:230`：`getmetatable(Level).__class.MakeRedRoomDoor`
     //     ⇒ **`Level` 这个类全局必须存在**，且它的元表要有 `__class`；
     //   * `MinimapAPI/main.lua:626-637` 的 `InstanceOf(obj, class)`：
@@ -2046,9 +2014,9 @@ void RegisterGameApi(lua_State* state) {
     //   * `MinimapAPI/apioverride.lua:15-32`：拿 `__class` 当类元表，读 `__type` 当去重键、
     //     读 `__index` 当旧查找，然后 `rawset(__index, 包装)`。
     // ⇒ 做法：**方法直接落在元表自己身上**（不再放"__index 子表"），再把 `__class` 指回元表自己、补上 `__type`。
-    // ★ 我们**之前根本没建 `Level` 这个全局** ⇒ 模组取到的是 `nil` ⇒ `getmetatable(nil)` 返回 nil
+    // 我们之前根本没建 `Level` 这个全局 ⇒ 模组取到的是 `nil` ⇒ `getmetatable(nil)` 返回 nil
     //   ⇒ 再索引 `.__class` 就是真机那条 "attempt to index a nil value"。
-    // ★★ **更正（批次 348，2026-10-04）**：上面 284 原文写着"`__index` 得在元表上、**且是个表**"
+    // 更正：上面 284 原文写着"`__index` 得在元表上、且是个表"
     //   —— 后半句是**读错了**。`apioverride` 第 25 行是 `return classDat.New[k] or oldIndex(self, k)`，
     //   它把 `__index` 取出来当**函数调用**。284 把 `__index` 设成"元表自己"那张表 ⇒ 真机报
     //   `apioverride.lua:25: attempt to call a table value (upvalue 'oldIndex')`
@@ -2062,12 +2030,12 @@ void RegisterGameApi(lua_State* state) {
     static_cast<void>(isaac::runtime::AttachLevelMethods(state));
     lua_pushvalue(state, -1);                                 // 上值 1 = 类元表自己
     lua_pushcclosure(state, isaac::runtime::LevelIndex, 1);
-    lua_setfield(state, -2, "__index");   // ★ 348：函数（284 是"元表自己"那张表 ⇒ minimapi 一调就炸）
+    lua_setfield(state, -2, "__index");   // 函数（284 是"元表自己"那张表 ⇒ minimapi 一调就炸）
     lua_pushvalue(state, -1);
     lua_setfield(state, -2, "__class");   // = 自己（PC：`getmetatable(类).__class` 就是它）
     lua_pushliteral(state, "Level");
     lua_setfield(state, -2, "__type");    // 类名（`apioverride` 拿它当"这个类被改过没有"的键）
-    // 批次 061：`Level` 的字段**可写**（PC 的 `Level` 就是引擎对象，模组直接赋值）。
+    // `Level` 的字段可写（PC 的 `Level` 就是引擎对象，模组直接赋值）。
     // 没有这一行时 `floor.level.EnterDoor = -1` 直接抛
     // "attempt to index a IsaacRuntime.Level value" ⇒ GoodTrip 的传送在第一句就断掉。
     lua_pushcfunction(state, isaac::runtime::IgnoredObjectFieldWrite);
@@ -2084,7 +2052,7 @@ void RegisterGameApi(lua_State* state) {
     isaac::runtime::PublishApi200Statics(state,"Seeds");
     isaac::runtime::PublishApi700Statics(state,"Seeds");
 
-    // 批次 207（2026-09-29）：`HUD`（`Game:GetHUD()` 的返回值：`IsVisible()` / `SetVisible(bool)`）。
+    // `HUD`（`Game:GetHUD()` 的返回值：`IsVisible()` / `SetVisible(bool)`）。
     // 与 `Seeds` 同形 —— 句柄无字段、方法都是真方法（没有字段要挂 `__index` 闭包），
     // 所以 `__index` 直接就是方法表。方法体与绑定表在 `interfaces/lua/game_api.cpp`。
     luaL_newmetatable(state, kHudMetatable);
@@ -2099,12 +2067,12 @@ void RegisterGameApi(lua_State* state) {
     lua_pushcfunction(state, CreateGameHandle);
     lua_setglobal(state, "Game");
 
-    // ★★ 批次 284（2026-10-04）：**`Level` 这个"类全局"** —— PC 上它是模组拿"类的元表"的标准入口。
+    // `Level` 这个"类全局" —— PC 上它是模组拿"类的元表"的标准入口。
     // 形状（三处消费者都要，逐条见 `kLevelMetatable` 那段注释）：
     //     Level            ← 全局：一张**表**（不是函数；模组只用它来取元表）
     //     getmetatable(Level).__class   ← 就是**实例用的那个元表**（`IsaacRuntime.Level`）
     //     __class.__type / .__class.__index / .__class.<方法>   ← 全在元表上（见上）
-    // ★ 为什么必须现在补：真机读数（2026-10-04 15:33）里 minimapi 的 Lua 错误原文就是
+    // 为什么必须现在补：真机读数（2026-10-04 15:33）里 minimapi 的 Lua 错误原文就是
     //   `scripts/minimapapi/main.lua:230: attempt to index a nil value`，而那一行是
     //   `getmetatable(Level).__class.MakeRedRoomDoor` —— `Level` 是 nil、`getmetatable(nil)` 也是 nil。
     lua_newtable(state);                                   // 全局 `Level`（一张表）
@@ -2119,7 +2087,7 @@ void RegisterMusicApi(lua_State* state) {
     luaL_newmetatable(state, kMusicMetatable);
     lua_newtable(state);
     static_cast<void>(isaac::runtime::AttachMusicMethods(state));
-    // 批次 045：`SFXManager()`（为 GoodTrip 补）。**元表与全局在中枢建** —— 家族 TU 不许自己写
+    // `SFXManager()`（为 GoodTrip 补）。元表与全局在中枢建 —— 家族 TU 不许自己写
     // 注册/建表循环（契约门禁明文，`Game` 家族当年同理）。句柄无字段 ⇒ `__index` 就是方法表。
     luaL_newmetatable(state, "IsaacRuntime.SFXManager");
     lua_newtable(state);
@@ -2161,7 +2129,7 @@ void RegisterRngApi(lua_State* state) {
 #pragma GCC pop_options
 #endif
 
-// --- 最小 `debug` 库（批次 3）--------------------------------------------------
+// --- 最小 `debug` 库--------------------------------------------------
 //
 // `debug.getinfo` 供 EID 定位脚本，`debug.traceback` 供模组构造错误堆栈。
 //
@@ -2290,7 +2258,7 @@ void RegisterModApi(lua_State* state) {
     // Reachability of cross-TU registration is covered by the symbol gate; see
     // the problem log for the two experiments that cleared the old suspicion.
     static_cast<void>(isaac::runtime::AttachModMethods(state));
-    // 批次 216：同一张方法表**再存一份到 registry**，给"每个 Mod 对象自己的元表"当 `__index`
+    // 同一张方法表再存一份到 registry，给"每个 Mod 对象自己的元表"当 `__index`
     // （`RegisterMod` 用它建表）。存的是同一个引用 ⇒ 方法与旧路径完全一致，不存在两份定义。
     lua_pushvalue(state, -1);
     lua_setfield(state, LUA_REGISTRYINDEX, kModPrototypeField);
@@ -2501,7 +2469,7 @@ LuaInitResult ResetAfterFailure(lua_State* state, LuaInitResult result) {
     return result;
 }
 
-// 批次 099（2026-09-24）：Lua「无保护抛错」的留证兜底（见 `fatal_forensics.hpp` 的文件头）。
+// Lua「无保护抛错」的留证兜底（见 `fatal_forensics.hpp` 的文件头）。
 //
 // 为什么需要它：Lua 的错误在整条链上找不到 `errorJmp` 时，`luaD_throw` 会走到末尾的 `abort()`
 // （离线反汇编见 `docs/问题记录-画面卡死-20260924.md` §10），而我们**从没注册过 `lua_atpanic`**
@@ -2531,43 +2499,43 @@ LuaInitResult EnsureRuntimeWithMenuInternal() {
     if (state == nullptr) {
         return LuaInitResult::StateCreateFailed;
     }
-    // 批次 091：**换掉分配器**换成会计数的那个（行为与 Lua 默认的 `l_alloc` 逐字相同，
+    // 换掉分配器换成会计数的那个（行为与 Lua 默认的 `l_alloc` 逐字相同，
     // 只是把"分配了多少次、多少字节"记下来）。用 `lua_setallocf` 而不是自己 `lua_newstate`：
     // `luaL_newstate` 还会装 panic 处理器，自己建会把那部分丢掉（语义要一字不差地保留）。
     //
-    // ★★★ 批次 262（A2 性能）：**只在诊断包里换**。理由：EID 每帧分配约 1.4 MB（每次约 93 字节）
+    // （A2 性能）：只在诊断包里换。理由：EID 每帧分配约 1.4 MB（每次约 93 字节）
     // ⇒ 每帧约 1.5 万次分配 × 2（分配+释放），每次都要多走一遍计数分支；正式包用 Lua 自带的
-    // 默认分配器（零记账）。★ 分配器本体与四个计数器**都还留着** ⇒ 出 `DIAGNOSTIC_PROBES=1`
+    // 默认分配器（零记账）。分配器本体与四个计数器都还留着 ⇒ 出 `DIAGNOSTIC_PROBES=1`
     // 的诊断包时照旧能读"Lua 分配账"（读数工具按符号读，值在诊断包里照常增长）。
 #if defined(ISAAC_RUNTIME_PERF_TIMING) && EXL_DIAGNOSTIC_PROBES
     lua_setallocf(state, IsaacRuntime_CountingAlloc, nullptr);
 #endif
-    // 批次 099（2026-09-24）：把「Lua 在**没有 pcall 保护**的上下文里抛错」从**静默卡死**
+    // 把「Lua 在没有 pcall 保护的上下文里抛错」从静默卡死
     // 变成**可读的崩溃报告**（处理器本体见上面的 `LuaPanicForensics`）。这一句只装兜底，
     // **不改任何 Lua 语义**；必须建好状态之后才能注册（在那之前没有 `lua_State`）。
     lua_atpanic(state, &LuaPanicForensics);
-    // 批次 089：挂上采样剖析器（计数钩子，每 `kRuntimePerfProfileInstructionStep` 条指令一次）。
+    // 挂上采样剖析器（计数钩子，每 `kRuntimePerfProfileInstructionStep` 条指令一次）。
     // **只在实际设备构建里挂**：宿主门禁跑上千次 Lua 脚本，挂上去只会让套件变慢；
     // 剖析器自己的门禁会**显式**调用 `IsaacRuntime_ProfileHook` 来验行为。
     //
-    // ★★★ 批次 262（A1 性能）：**再加一道"只在诊断包"的门**（`EXL_DIAGNOSTIC_PROBES`）。
+    // （A1 性能）：再加一道"只在诊断包"的门（`EXL_DIAGNOSTIC_PROBES`）。
     // 这一条是本次性能修复里最值钱的：装了计数钩子之后，Lua 5.3 的 VM 在
     // **每条指令**上都要走一次 `vmfetch` 里那句 `if (L->hookmask & (行钩子 | 计数钩子))
     // Protect(luaG_traceexec(L));`（`third_party/lua-5.3.3/src/lvm.c`）——那是一句
     // **跨 TU 的真实函数调用**。
-    // ★ 注意：这里**故意不写那两个掩码宏的名字** —— `runtime/tests/test_lua_profiler.py`
+    // 注意：这里故意不写那两个掩码宏的名字 —— `runtime/tests/test_lua_profiler.py`
     //   是按**整文件子串**判定的（`assertNotIn`），把宏名写进注释也会让它变红。
     // 本机实测（同一份负载、同一版本 Lua 5.3.3、钩子步长同为 4000）：
     //   重分配型负载（`string.format`/`string.find`/表读写，仿 EID 每帧的活） **+13%**
     //   紧凑数值循环                                                    **+58%**
     // ⇒ 正式包不该为"采样剖析"常年付这笔税。钩子、采样桶、读数工具**全部保留**，
     //   出 `DIAGNOSTIC_PROBES=1` 的诊断包时照旧可用。
-    // ★ 顺带：这一条也是"以后要换 LuaJIT"的前置条件 —— LuaJIT 在有调试钩子生效期间会停用 JIT。
+    // 顺带：这一条也是"以后要换 LuaJIT"的前置条件 —— LuaJIT 在有调试钩子生效期间会停用 JIT。
 #if defined(ISAAC_RUNTIME_PERF_TIMING) && EXL_DIAGNOSTIC_PROBES
     ResetRuntimePerfProfile();
     lua_sethook(state, IsaacRuntime_ProfileHook, LUA_MASKCOUNT,
                 isaac::runtime::kRuntimePerfProfileInstructionStep);
-    // 批次 095：顺手量一次"地板"（一次纯 Lua→C 调用要多少 tick）。
+    // 顺手量一次"地板"（一次纯 Lua→C 调用要多少 tick）。
     MeasureEmptyCallCost(state);
 #endif
     lua_pushcfunction(state, PrepareRuntime);
@@ -2695,7 +2663,7 @@ int ReportAndRecordLuaError(lua_State* state, const char* format, ...) {
                            ? static_cast<std::size_t>(written)
                            : sizeof(message) - 1)
                     : 0;
-    // ★★ **必须把 `luaL_where` 的位置前缀也记上**（2026-09-12 第九稿，这是"以前能拿到完整
+    // 必须把 `luaL_where` 的位置前缀也记上（2026-09-12 第九稿，这是"以前能拿到完整
     // 报错、现在拿不到"的真正原因）。
     //
     // 最早那几轮报告里，错误文本是 `eid_api.lua:2606: attempt to call a nil value (method
@@ -2774,7 +2742,7 @@ std::uint64_t LastLuaErrorHead(std::uint32_t* length) noexcept {
 // 而当时堆只有 2 MiB。把用量报出来，才能判断"32 MiB 够不够"，而不是靠猜。
 std::size_t HeapUsedBytes() noexcept {
 #if defined(__SWITCH__) && defined(EXL_USE_FAKEHEAP)
-    // ★ 这两处**刻意不迁**到引擎内存访问层：`sbrk`/`__fake_heap` 是我们**自己的假堆**，
+    // 这两处刻意不迁到引擎内存访问层：`sbrk`/`__fake_heap` 是我们自己的假堆，
     // 不是引擎内存 —— 用 `engine_memory::AddressOf` 去转会把那个名字的含义搞混
     // （那个命名空间治的是"引擎内存"，见 `engine_field_access.hpp` 头部）。
     // 台账 `tools/raw_engine_access_baseline.json` 的口径本来就是**代理指标**，
@@ -2798,9 +2766,9 @@ void RequireFailureSnapshot(RequireFailureView* view) noexcept {
     view->total = g_RequireFailureTotal.load(std::memory_order_acquire);
 }
 
-//: 批次 068：环形历史的只读访问器（口径见 `lua_runtime.hpp`）。**必须与 `g_LuaErrorHistory`
-//: 的布局保持一致** —— 调试桩是按符号直读那块内存的，两边不一致就会出现"工具读到的与
-//: 测试断言的不同"这种最难查的偏差（`static_assert` 已经钉住 128 字节/条）。
+// 环形历史的只读访问器（口径见 `lua_runtime.hpp`）。必须与 `g_LuaErrorHistory`
+// 的布局保持一致 —— 调试桩是按符号直读那块内存的，两边不一致就会出现"工具读到的与
+// 测试断言的不同"这种最难查的偏差（`static_assert` 已经钉住 128 字节/条）。
 std::size_t CopyLuaErrorHistory(LuaErrorHistoryEntryView* output,
                                 std::size_t capacity) noexcept {
     if (output == nullptr || capacity == 0) {
@@ -2834,7 +2802,7 @@ std::size_t CopyLastLuaErrorText(char* output, std::size_t capacity) noexcept {
     if (copyLength > capacity) {
         copyLength = capacity;
     }
-    // ★ **先把缓冲区清零再拷**（2026-09-12，真机报告 `01789225234`：`errorLength = 1`，
+    // 先把缓冲区清零再拷（2026-09-12，真机报告 `01789225234`：`errorLength = 1`，
     // 但报告里读到的 16 字节却是**上一次**残留的 `file name string` —— 因为调用方只拷
     // `copyLength` 字节，剩下的位置留着旧消息，而报告侧的"错误文本尾部"会把它们当成消息）。
     // 清零之后，凡是超出 `errorLength` 的位置都是 0，报告侧一眼就能看出"这段没有内容"。
@@ -2958,12 +2926,12 @@ std::uintptr_t RngSetSeedThunk() noexcept {
 }
 
 // ============================================================================
-// 批次 392（2026-10-07）：我们这侧的输入读取 —— 直读壳（绕开 `MC_INPUT_ACTION` 的覆盖）
+// 我们这侧的输入读取 —— 直读壳（绕开 `MC_INPUT_ACTION` 的覆盖）
 // ============================================================================
 //
 // 为什么（真机回归 + 反汇编定案，完整证据链见 `lua_runtime.hpp` 的声明处）：
 //   * Lua 的 `Input.IsActionPressed` 绑的 `0x3F9B6C`（符号 = `IsaacRepentance::Manager::IsActionPressed`）
-//     **尾跳**进 `KAGE::Input::ManagerBase::IsActionPressed`（`0x4F9920`）—— 正是批次 390 给
+//     尾跳进 `KAGE::Input::ManagerBase::IsActionPressed`（`0x4F9920`）—— 正是给
 //     `MC_INPUT_ACTION` 挂中继的地方；而**引擎本体**（`Entity_Player::get_movement_input` /
 //     `control_shooting` / 各菜单类自己的输入处理）也走同一个符号 ⇒ **两种读取在入口上同形**。
 //   * PC 契约（`ModCallbacks.md:355`）明写覆盖**不影响** `Input` 类的读取 ⇒ 不绕的后果：
@@ -2973,14 +2941,14 @@ std::uintptr_t RngSetSeedThunk() noexcept {
 // 形状：下面两个壳转发到**引擎胶水**（`g_InputIsAction*` 里那一份 —— 照旧由 `SetInputBindings`
 // 发布、照旧被 ABI 工具追踪），只在中间套一次 `RawEngineInputQueryScope`；中继见标记就
 // 跳过派发、直接调原函数。
-//   ★ 壳里用胶水而**不是** `Original<>`：诊断档把中继 `SKIP_HOOK_INPUTACTION*` 跳掉时，胶水本来就
+//   壳里用胶水而不是 `Original<>`：诊断档把中继 `SKIP_HOOK_INPUTACTION*` 跳掉时，胶水本来就
 //     没被挂钩、照样答真值；用 `Original<>` 会在那些档里拿到空指针、把所有输入答成 false，
 //     把**原生模组页的导航**一起弄死（那是我们自己的 UI）。
-//   ★ 只给 `IsActionPressed` 与 `GetActionValue` 两条做壳：`IsActionTriggered` 那条**没有任何
-//     消费者**（批次 107 起 `Input.IsActionTriggered` = 问"按住" + 我们自己按帧算边沿），
+//   只给 `IsActionPressed` 与 `GetActionValue` 两条做壳：`IsActionTriggered` 那条没有任何
+//     消费者（起 `Input.IsActionTriggered` = 问"按住" + 我们自己按帧算边沿），
 //     它的取值助手照旧原样返回胶水地址。
 namespace {
-//: 嵌套计数（> 0 = 正在直读）。游戏线程单线程访问；用原子只是与相邻状态同形。
+// 嵌套计数（> 0 = 正在直读）。游戏线程单线程访问；用原子只是与相邻状态同形。
 std::atomic<std::uint32_t> g_RawEngineInputQueryDepth{0};
 
 bool RawInputActionPressedShell(void* manager, std::uint32_t action, std::uint32_t controller,
@@ -3020,7 +2988,7 @@ RawEngineInputQueryScope::~RawEngineInputQueryScope() noexcept {
     g_RawEngineInputQueryDepth.fetch_sub(1, std::memory_order_relaxed);
 }
 
-// ★ 批次 392：返回**直读壳**（不是引擎胶水地址）—— 所有消费者（Lua 的 `Input.*`、每帧全动作
+// 返回直读壳（不是引擎胶水地址）—— 所有消费者（Lua 的 `Input.*`、每帧全动作
 //   采样器、原生模组页与探针）因此自动走直读。绑定没发布（守卫不符）时仍然给 0，
 //   保持"handler 报绑定不可用"的原语义，**不**编一个 false 出来。
 // ⚠ 写法约束：**必须写成一条 `return` 的三元表达式**，不能拆成 `if (...) { return 0; } …`。
@@ -3038,18 +3006,18 @@ std::uintptr_t InputIsActionPressedBinding() noexcept {
     return g_InputIsActionPressed.load(std::memory_order_acquire);
 }
 
-// 批次 417（2026-10-08）：Lua 状态自己的内存占用（字节）。
+// Lua 状态自己的内存占用（字节）。
 // 为什么要它：415 的真机读数说模块堆"已用 122.8 MB / 空闲 5.2 MB"，而"这 122 MB 是谁吃的"
 // 当时只能猜。这一格把 **Lua 侧**（模组的表与字符串 —— EID 的语言包光源码就有 8 MB）与
 // **其它**（`malloc` 出来的：Font 块、贴图转码缓冲、挂载表、名字层…）分开：
 //     其它 = `heapUsedBytes`（状态面 [59]）− 本函数返回值。
 // 口径：`LUA_GCCOUNT` 给 KB、`LUA_GCCOUNTB` 给余数字节；状态没建/已关时返回 0。
-// ★ 只读：不触发 GC、不改任何状态（这两个 `what` 纯粹是查询）。
-// ★★ 位置必须**在这个文件里第一个 `namespace {` 之前**（本文件的匿名命名空间是
+// 只读：不触发 GC、不改任何状态（这两个 `what` 纯粹是查询）。
+// 位置必须在这个文件里第一个 `namespace {` 之前（本文件的匿名命名空间是
 //    `LuaRuntime::{anon}`，定义落在里面就变成**内部链接** ⇒ 与头里那份外部链接声明对不上
 //    ⇒ 调用点报 "no matching function"（2026-10-08 本批实撞）。放在
 //    `InputIsActionPressedThunk()`（同文件里**已被跨 TU 调用**过的外部函数）旁边最稳。
-// ★ Lua 5.3 的 `lua_gc` 是**三个参数**（`(L, what, data)`）—— 第三格对这两条查询无用，传 0。
+// Lua 5.3 的 `lua_gc` 是三个参数（`(L, what, data)`）—— 第三格对这两条查询无用，传 0。
 std::uint32_t LuaStateMemoryBytes() noexcept {
     lua_State* state = g_LuaState;
     if (state == nullptr) {
@@ -3066,14 +3034,14 @@ std::uint32_t LuaStateMemoryBytes() noexcept {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// ★★★ 批次 425（2026-10-10）：**把"Lua 的 GC 看不见的那笔内存"补给 GC 看**。
+// 把"Lua 的 GC 看不见的那笔内存"补给 GC 看。
 //
 // 起因（真机实测，全部有读数）：`whatsmydps` 在 `MC_POST_RENDER` 里每帧
 //   `local font = Font()` + `font:Load(...)`，用完即弃 ⇒
 //   **`MC_POST_RENDER` 派发次数 : Font 分配次数 = 1 : 1**，
 //   Font 存活块数一路锯到 **507 块**（× 128 KiB = **63 MB**），**每约 250 帧**才被收一次。
 //
-// ★★ 为什么 GC 会放着 63 MB 垃圾不collect —— **415 批那句前提是错的**：
+// 为什么 GC 会放着 63 MB 垃圾不collect —— 415 批那句前提是错的：
 //   那 128 KiB 的块走的是 `lua_getallocf` 拿到的**裸 `frealloc`**
 //   （`lapi.c:1169` 就是 `return G(L)->frealloc;`），
 //   而 Lua **只在 `luaM_realloc_` 里更新 `g->GCdebt`**（`lmem.c:97`）。
@@ -3087,23 +3055,23 @@ std::uint32_t LuaStateMemoryBytes() noexcept {
 //   * 用 **`LUA_GCCOLLECT`（= 2，全量）**而不是 `LUA_GCSTEP` ——
 //     这批垃圾是 **userdata 的终结器**（我们把块交给 `__gc` 归还），
 //     而 `LUA_GCSTEP` 的"工作单位"很小、可能要很多拍才走完一轮；全量一次就干净。
-//     ★ 常量名与取值从 vendored `lua.h:302-309` 核过（**两个 C 的 `GCCOLLECT`**）——
+//     常量名与取值从 vendored `lua.h:302-309` 核过（两个 C 的 `GCCOLLECT`）——
 //       写错一个字母就是一个**静默的错操作**（本项目在"手抄名字"上栽过）。
 //
-// ★ 调用点在 `mod_menu_native.cpp` 的 `ModMenuNativeUpdate()`（每帧路径，
+// 调用点在 `mod_menu_native.cpp` 的 `ModMenuNativeUpdate()`（每帧路径，
 //   **不在 Lua 执行中**）：GC 会跑终结器，在 Lua 里乱插一脚是不安全的。
-// ★★ 块数由**调用方传进来**（`FontStorageLiveBlocks()`）：**不要**在本文件里写
+// 块数由调用方传进来（`FontStorageLiveBlocks()`）：不要在本文件里写
 //   `namespace isaac::runtime { extern … }` —— 本文件在 `namespace LuaRuntime` 里，
 //   那样会**造出 `LuaRuntime::isaac::runtime`** 并**抢走本 TU 后面所有 `isaac::runtime::X`
 //   的查找**（2026-10-10 实撞：一次性 15 个 `does not name a type`）。
 //
 // ─────────────────────────────────────────────────────────────────────────────
-// ★★★ 2026-10-10 当晚（批次 426）：**从"全量 GC"改成"按时间预算切片的增量步进"**。
+// 2026-10-10 当晚：从"全量 GC"改成"按时间预算切片的增量步进"。
 //
 // **为什么改**：425 用的是 `lua_gc(L, LUA_GCCOLLECT, 0)`（**全量**），一秒左右跑一次。
 // 用户当晚就报「帧率十分不稳定，**掉一下回 60，然后再掉一下回 60**，一直这样」——
 // **全量 GC 是 stop-the-world**，一次停顿就是一两帧。**这是我上一批造的**。
-// ★ 教训：425 的注释里我写"`LUA_GCSTEP` 的工作单位很小、可能要很多拍才走完一轮；
+// 教训：425 的注释里我写"`LUA_GCSTEP` 的工作单位很小、可能要很多拍才走完一轮；
 //   全量一次就干净" —— **只权衡了"干净"，没权衡"停顿"**。改性能相关的选择，
 //   **必须把"单次最长耗时"当成一等判据**，不能只看"做完了没有"。
 //
@@ -3119,7 +3087,7 @@ std::uint32_t LuaStateMemoryBytes() noexcept {
 //   ⇒ 单次停顿**有界（~1 ms，肉眼不可见）**，而同样的总工作量摊到许多拍上。
 //   * `kFontGcMinFrameGap = 2` ⇒ 最多 ~30 拍/秒 × 1 ms ≈ **3% CPU**（与 425 的总量同量级，
 //     只是不再"一秒攒成一次大停顿"）；
-//   * ★ **自停仍在**，但判据改到**"一轮结束时"**评（增量 GC 不可能一拍就收掉东西）：
+//   * 自停仍在，但判据改到"一轮结束时"评（增量 GC 不可能一拍就收掉东西）：
 //     记下轮开始时的存活数，轮结束时若**没降**（<16 块）⇒ 判"这些块是**真活着**的" ⇒ 停手。
 namespace {
 constexpr std::uint32_t kFontBlockSoftLimit = 48;     // 48 × 128 KiB = 6 MiB
@@ -3133,12 +3101,12 @@ std::uint32_t g_fontLastUnproductiveAllocation = 0;
 std::uint32_t g_fontDestructionsAtCycleStart = 0;
 }  // namespace
 
-//: ★ 外部链接（**写在 `namespace {` 之外**）：读数工具按符号名读
-//: （技能 `isaac-switch-probe-batch` §11 —— 本项目已因此栽过 5 次）。
+// 外部链接（写在 `namespace {` 之外）：读数工具按符号名读
+// （技能 `isaac-switch-probe-batch` §11 —— 本项目已因此栽过 5 次）。
 std::atomic<std::uint32_t> g_FontGcNudges{0};      // 起了多少"拍"（有实际步进的）
 std::atomic<std::uint32_t> g_FontGcSteps{0};       // 累计走了多少个单步
 std::atomic<std::uint32_t> g_FontGcMicros{0};      // 累计耗时（µs）
-std::atomic<std::uint32_t> g_FontGcMicrosMax{0};   // ★ **单拍最长**（µs）—— 停顿的量具
+std::atomic<std::uint32_t> g_FontGcMicrosMax{0};   // 单拍最长（µs）—— 停顿的量具
 
 std::uint32_t NudgeLuaGcIfFontBlocksHigh(std::uint32_t frames,
                                          std::uint32_t liveFontBlocks) noexcept {
@@ -3151,7 +3119,7 @@ std::uint32_t NudgeLuaGcIfFontBlocksHigh(std::uint32_t frames,
         g_fontGcProductive = true;
         return 0;
     }
-    // ★★ "自停"判据：上一**轮**收了**没收到东西** ⇒ 这些块是**真活着**的（不是垃圾）
+    // "自停"判据：上一轮收了没收到东西 ⇒ 这些块是真活着的（不是垃圾）
     //   ⇒ **别再白催**。没有这一条，一个"合法持有 100 个 Font"的模组会让我们永远在做 GC。
     if (!g_fontGcProductive) {
         if (isaac::runtime::FontStorageAllocationCount() == g_fontLastUnproductiveAllocation) return 0;
@@ -3171,7 +3139,7 @@ std::uint32_t NudgeLuaGcIfFontBlocksHigh(std::uint32_t frames,
             cycleDone = true;
             break;
         }
-        // ★★ 批次 427：**每步都查预算**（原来是每 16 步查一次）。
+        // 每步都查预算（原来是每 16 步查一次）。
         //   426 真机实测：单拍最长 **2258 µs** —— 那正是"16 × 141 µs"，
         //   即**超预算的部分全是那个检查粒度造成的**。
         //   读 `cntpct_el0` 只有纳秒级开销，压在每一步上完全付得起；
@@ -3203,19 +3171,19 @@ std::uint32_t NudgeLuaGcIfFontBlocksHigh(std::uint32_t frames,
     return 1;
 }
 
-// ★ 批次 392：这一条**没有消费者**（见上面那段的原因），所以不给它套壳 —— 保持原样。
+// 这一条没有消费者（见上面那段的原因），所以不给它套壳 —— 保持原样。
 std::uintptr_t InputIsActionTriggeredThunk() noexcept {
     return g_InputIsActionTriggered.load(std::memory_order_acquire);
 }
 
-// ★ 批次 392：同 `InputIsActionPressedThunk`（返回直读壳；写法约束同上）。
+// 同 `InputIsActionPressedThunk`（返回直读壳；写法约束同上）。
 std::uintptr_t InputGetActionValueThunk() noexcept {
     return g_InputGetActionValue.load(std::memory_order_acquire) == 0
                ? 0
                : isaac::runtime::engine_call::AddressOfFunction(&RawInputGetActionValueShell);
 }
 
-// 批次 195：按键号那两条查询的取址助手（0 = 没发布 ⇒ handler 报"绑定不可用"）。
+// 按键号那两条查询的取址助手（0 = 没发布 ⇒ handler 报"绑定不可用"）。
 std::uintptr_t InputIsButtonPressedThunk() noexcept {
     return g_InputIsButtonPressed.load(std::memory_order_acquire);
 }
@@ -3228,7 +3196,7 @@ std::uintptr_t RngNextThunk() noexcept {
     return g_RngNext.load(std::memory_order_acquire);
 }
 
-// 批次 195：`RNG:RandomInt(Max)` / `RNG:RandomFloat()` 的取址助手。
+// `RNG:RandomInt(Max)` / `RNG:RandomFloat()` 的取址助手。
 std::uintptr_t RngRandomUintThunk() noexcept {
     return g_RngRandomUint.load(std::memory_order_acquire);
 }
@@ -3239,7 +3207,7 @@ std::uintptr_t RngRandomThunk() noexcept {
 
 // 取址助手：把原子槽里存的地址交回**带签名的函数指针**。
 //
-// 2026-09-24（批次 114）：转换从 `reinterpret_cast<XxxFn>(…)` 改成引擎调用层的
+// 2026-09-24：转换从 `reinterpret_cast<XxxFn>(…)` 改成引擎调用层的
 // `AsFunction<XxxFn>(…)` —— 全仓"整数地址 → 函数指针"只允许在层里那一处出现（可检索、可审计），
 // 这也正是 `docs/架构诊断-框架为什么失效-20260924.md` 里"裸碰引擎"要治的那一类。
 // 这些地址是**钩子中继在安装时核对过**的（`ResolveEntryAddress` 那条路），所以只做转换、不再核对
@@ -3458,22 +3426,22 @@ bool ResolveMusicPlay(std::uintptr_t method, std::uintptr_t* music) noexcept {
                                kMusicPlayExpectedBytes.size(), music);
 }
 
-// 批次 185（2026-09-28）：`SFXManager:IsPlaying(ID)` 的接收者解析。
+// `SFXManager:IsPlaying(ID)` 的接收者解析。
 //
 // 与 `ResolveMusicForCall` **同一套"取 Manager"的两跳**（当前回调的 Manager → 本帧 `Manager::Update`
 // 收到的 self，两者是同一个单例），差别只有**子对象的偏移**：
 // `Manager + kManagerSoundEffectsOffset`（`0x364A8`，反汇编证据在 `runtime_constants.hpp`）。
 //
-// ★ 为什么不能走"数据行"（`engine_method_api.hpp` 那套）：数据行的接收者来自
+// 为什么不能走"数据行"（`engine_method_api.hpp` 那套）：数据行的接收者来自
 //   `FieldReceipt`（`Entity`/`EntityPlayer`/`Level`/`Room` 等 —— 都是**从 Lua 栈上那个 self 句柄**解）。
 //   而 `SFXManager()` 在 PC 里是**全局函数**、返回的是引擎单例，我们的 handle 里**什么都没有**
 //   （`SfxManagerHandle` 是空结构）⇒ 接收者只能从这里解析。这与 `MusicManager:` 一族同形。
 //
-// ★ `g_MusicResolveFailure` 这个失败码**由 Music 与 SFX 共用**（语义一致：
+// `g_MusicResolveFailure` 这个失败码由 Music 与 SFX 共用（语义一致：
 //   1 = 不在托管回调里 / 2 = Manager 或子对象读不到 / 3 = 方法地址或期望字节缺失 / 4 = 入口指纹不符）。
 //   不另开一格是为了不动诊断面；两者同时出错时读数上区分不出"是哪一个"，这一点如实记在这里。
 //
-// ★★ 批次 408（2026-10-08）：`SFXManager:Play` **复用同一套接收者解析**，只是入口指纹不同
+// `SFXManager:Play` 复用同一套接收者解析，只是入口指纹不同
 //   （`SoundEffects::Play` 的 16 字节 vs `IsPlaying` 的）⇒ 把判据抽成本函数
 //   `ResolveSoundEffectsCore`（**判据一个字节没改**，只把"失败码写到哪一格"变成出参）。
 //   为什么失败码不能共用同一格：`IsPlaying` 与 `Play` 可能在同一帧里都被调，共用一格会让
@@ -3538,7 +3506,7 @@ bool ResolveSoundEffectsForCall(std::uintptr_t method, std::uintptr_t* soundEffe
     return ok;
 }
 
-// 批次 408：`SFXManager:Play` 的接收者解析（同上一套的**同一个**核心，只换指纹）。
+// `SFXManager:Play` 的接收者解析（同上一套的同一个核心，只换指纹）。
 // `failureCode` 出参：0 = 成功；1/2/3/4 同 `g_MusicResolveFailure` 的码（见上）。
 bool ResolveSoundEffectsPlayForCall(std::uintptr_t method, std::uintptr_t* soundEffects,
                                     std::uint32_t* failureCode) noexcept {
@@ -3556,7 +3524,7 @@ bool ValidateRngNextBinding(std::uintptr_t address) noexcept {
                                kRngNextExpectedBytes.size());
 }
 
-// 批次 195：`RNG::Random(uint)` / `RNG::Random()`。两次核对都用同一份 16 字节指纹判据
+// `RNG::Random(uint)` / `RNG::Random()`。两次核对都用同一份 16 字节指纹判据
 // （`ValidateMusicMethod`）—— 与 `SetSeed`/`Next` 逐字同形，没有第二套口径。
 bool ValidateRngRandomUintBinding(std::uintptr_t address) noexcept {
     return ValidateMusicMethod(address, kRngRandomUintExpectedBytes.data(),
@@ -3568,17 +3536,17 @@ bool ValidateRngRandomBinding(std::uintptr_t address) noexcept {
                                kRngRandomExpectedBytes.size());
 }
 
-// 批次 195（2026-09-29）：`KAGE::Input::ManagerBase` 上按**按键号**查询的入口。
+// `KAGE::Input::ManagerBase` 上按按键号查询的入口。
 //
-// ★ 这些入口**不能只比序言**：`IsButtonPressed` / `IsButtonTriggered` / `IsActionPressed` /
+// 这些入口不能只比序言：`IsButtonPressed` / `IsButtonTriggered` / `IsActionPressed` /
 //   `IsActionTriggered` 四条入口的**头 32 字节完全相同** ⇒ 16 字节（甚至 32 字节）指纹认不出
 //   谁是谁，偏移写串会被静默放过（换到另一条按钮查询 = 给出错语义，属最难查的一类）。
 //   区分点是**各自动用的虚表槽**那条指令：`entry+0xE0` 的 4 字节 —— `IsButtonPressed` 是
 //   `ldr x8,[x8,#0x30]`（指令字 `0xF9401908`，**内存字节 `08 19 40 F9`**）、
 //   `IsButtonTriggered` 是 `[#0x38]`（字 `0xF9401D08`，内存 `08 1D 40 F9`）。
 //   ⇒ 判据 = **16 字节序言 且 entry+0xE0 的 4 字节**。
-//   ★★★ 这里原来是按"指令字的十六进制字面顺序"写的（`F9 40 19 08`）⇒ 守卫在真机上**永远不比中**、
-//   而 `IsButtonPressed`/`IsButtonTriggered` 于是**恒答 false**（批次 195 留的雷，批次 210 拆掉）。
+//   这里原来是按"指令字的十六进制字面顺序"写的（`F9 40 19 08`）⇒ 守卫在真机上永远不比中、
+//   而 `IsButtonPressed`/`IsButtonTriggered` 于是恒答 false（留的雷，拆掉）。
 //   写这四个字节一律**按内存字节序**（与 `kKageIsButtonPressedExpectedBytes` 同一种写法）。
 //   与「Card/PillEffect 序言同构、靠句柄 beginOffset 区分」是同一类坑，处置也同一套。
 bool ValidateInputButtonEntry(std::uintptr_t address, const u8* expected,
@@ -3759,7 +3727,7 @@ void SetInputBindings(uintptr_t isActionPressed, uintptr_t isActionTriggered,
     g_InputGetActionValue.store(getActionValue, std::memory_order_release);
 }
 
-// 批次 195：按键号那两条查询的发布点（与 `SetRngRandomBindings` 同形、各自独立 acquire/release）。
+// 按键号那两条查询的发布点（与 `SetRngRandomBindings` 同形、各自独立 acquire/release）。
 void SetInputButtonBindings(uintptr_t isButtonPressed, uintptr_t getButtonValue) {
     g_InputIsButtonPressed.store(isButtonPressed, std::memory_order_release);
     g_InputGetButtonValue.store(getButtonValue, std::memory_order_release);
@@ -3773,7 +3741,7 @@ void SetLevelIsAscentBinding(uintptr_t method) {
     g_LevelIsAscent.store(method, std::memory_order_release);
 }
 
-// 批次 8（2026-09-15）：两个新绑定的发布点。与 `SetLevelIsAscentBinding` 同一种形态：
+// 两个新绑定的发布点。与 `SetLevelIsAscentBinding` 同一种形态：
 // 各自一条 release 存储，handler 各自一条 acquire 读 —— 不会出现"半个已校验记录"。
 void SetGetRenderPositionBinding(uintptr_t method) {
     g_GetRenderPosition.store(method, std::memory_order_release);
@@ -3809,15 +3777,15 @@ void SetMusicBindings(uintptr_t getCurrentMusicId, uintptr_t pause, uintptr_t re
     g_MusicResume.store(resume, std::memory_order_release);
 }
 
-// 批次 137：`MusicManager:UpdateVolume()` 的发布点。与 `SetLevelIsAscentBinding` 同形
+// `MusicManager:UpdateVolume()` 的发布点。与 `SetLevelIsAscentBinding` 同形
 // （一次 release 存储、handler 一次 acquire 读 ⇒ 不会看到"半个已校验记录"）。
 void SetMusicUpdateVolumeBinding(uintptr_t method) {
     g_MusicUpdateVolume.store(method, std::memory_order_release);
 }
 
-// ---- 批次 149（2026-09-26）：`MusicManager:` 一族"回调里拿不到 Manager"的兜底 ------------
+// ---- `MusicManager:` 一族"回调里拿不到 Manager"的兜底 ------------
 //
-// ★ 这两个定义**必须留在 `namespace LuaRuntime` 的正式作用域**（不能放进本文件里那些匿名
+// 这两个定义必须留在 `namespace LuaRuntime` 的正式作用域（不能放进本文件里那些匿名
 // 命名空间）：它们分别被 `hook_manager.cpp` 与 `src/interfaces/lua/` 调用，是模块对外的接口。
 // 第一版就写进了匿名命名空间 ⇒ 构建在 `-Werror=unused-function` 上判红（`lua_runtime.cpp`
 // 会被多个 TU 各自 include，谁不用谁就报"定义未使用"）。
@@ -3866,7 +3834,7 @@ const char* MusicResolveFailureReason() noexcept {
     }
 }
 
-// 批次 138：`MusicManager:Play(ID, Volume)` 的发布点（与上一条同形）。
+// `MusicManager:Play(ID, Volume)` 的发布点（与上一条同形）。
 void SetMusicPlayBinding(uintptr_t method) {
     g_MusicPlay.store(method, std::memory_order_release);
 }
@@ -3881,7 +3849,7 @@ void SetRngBindings(uintptr_t setSeed, uintptr_t next) {
     g_RngNext.store(next, std::memory_order_release);
 }
 
-// 批次 195：两条新 RNG 入口的发布点（与 `SetRngBindings` 同形、各自独立 acquire/release）。
+// 两条新 RNG 入口的发布点（与 `SetRngBindings` 同形、各自独立 acquire/release）。
 void SetRngRandomBindings(uintptr_t randomUint, uintptr_t randomFloat) {
     g_RngRandomUint.store(randomUint, std::memory_order_release);
     g_RngRandom.store(randomFloat, std::memory_order_release);
@@ -3962,17 +3930,17 @@ void SetSpriteBindings(const LuaSpriteBindings& bindings) {
                               std::memory_order_release);
     g_SpritePlayRandom.store(isaac::runtime::engine_call::AddressOfFunction(bindings.playRandom),
                              std::memory_order_release);
-    //: 批次 279：overlay 三条。
+    // overlay 三条。
     g_SpritePlayOverlay.store(isaac::runtime::engine_call::AddressOfFunction(bindings.playOverlay),
                               std::memory_order_release);
     g_SpriteSetLastFrame.store(isaac::runtime::engine_call::AddressOfFunction(bindings.setLastFrame),
                                std::memory_order_release);
     g_SpriteSetOverlayFrame.store(isaac::runtime::engine_call::AddressOfFunction(bindings.setOverlayFrame),
                                   std::memory_order_release);
-    //: 批次 280：`Stop`。
+    // `Stop`。
     g_SpriteStop.store(isaac::runtime::engine_call::AddressOfFunction(bindings.stop),
                        std::memory_order_release);
-    //: 批次 283：四条「按名字查询」。
+    // 四条「按名字查询」。
     g_SpriteIsOverlayPlaying.store(
         isaac::runtime::engine_call::AddressOfFunction(bindings.isOverlayPlaying), std::memory_order_release);
     g_SpriteIsOverlayFinished.store(
@@ -4012,12 +3980,12 @@ bool IsMusicReadyForDefaultCallback(uintptr_t manager) {
 }
 #endif
 
-//: 一条回调实参（`mod` 之外的那些）。
-//:
-//: 为什么做成一张小表、而不是像从前那样一串 `bool` 开关字段：本轮要接的回调形状从 3 种涨到
-//: 8 种（`(bool)`、`(int, 玩家, int)`、`(int, 玩家, int, int, int)`、`(int, int, bool, int)`…），
-//: 每加一种就加两个字段会很快失控，而且"到底压几个实参"会散落到构造点去。表里只描述数据，
-//: 压栈、计数、过滤器三件事各在一处做。
+// 一条回调实参（`mod` 之外的那些）。
+//
+// 为什么做成一张小表、而不是像从前那样一串 `bool` 开关字段：本轮要接的回调形状从 3 种涨到
+// 8 种（`(bool)`、`(int, 玩家, int)`、`(int, 玩家, int, int, int)`、`(int, int, bool, int)`…），
+// 每加一种就加两个字段会很快失控，而且"到底压几个实参"会散落到构造点去。表里只描述数据，
+// 压栈、计数、过滤器三件事各在一处做。
 isaac::runtime::CardRngScopes g_CardRngScopes{};
 std::uintptr_t ResolveCardRngReference(const RngHandle* handle) noexcept {
     if(!LuaRuntime::IsOnGameThread())return 0;
@@ -4026,18 +3994,18 @@ std::uintptr_t ResolveCardRngReference(const RngHandle* handle) noexcept {
 
 struct CallbackArgument {
     enum class Kind : std::uint8_t {
-        None = 0,  //: 哨兵（表尾，不压栈）
-        Integer,   //: 整数
-        Boolean,   //: 布尔（`lua_pushboolean`，不是整数 0/1）
-        Entity,    //: 实体句柄（视图与 `Isaac.GetRoomEntities()` 给的一致）
-        Nil,       //: 明确压 `nil`
-        Vector,    //: 渲染回调的 `RenderOffset`（`Vector` userdata）
-        //: 批次 396（2026-10-07）：`MC_ENTITY_TAKE_DMG` 的 `Amount`。PC 是 **float** ⇒
-        //: 必须 `lua_pushnumber`（压整数会让模组 `amount > 1.5` 这类比较失真）。
-        //: 值借用 `x` 那一格（与 `Vector` 共用，不另开字段）。
+        None = 0,  // 哨兵（表尾，不压栈）
+        Integer,   // 整数
+        Boolean,   // 布尔（`lua_pushboolean`，不是整数 0/1）
+        Entity,    // 实体句柄（视图与 `Isaac.GetRoomEntities()` 给的一致）
+        Nil,       // 明确压 `nil`
+        Vector,    // 渲染回调的 `RenderOffset`（`Vector` userdata）
+        // `MC_ENTITY_TAKE_DMG` 的 `Amount`。PC 是 float ⇒
+        // 必须 `lua_pushnumber`（压整数会让模组 `amount > 1.5` 这类比较失真）。
+        // 值借用 `x` 那一格（与 `Vector` 共用，不另开字段）。
         Float,
-        //: 批次 396：`MC_ENTITY_TAKE_DMG` 的 `Source`（`EntityRef` 句柄，缓冲区装的是**这一次**
-        //: 调用的那个引用）。值借用 `entity` 那一格存"引擎实体引用的指针"。
+        // `MC_ENTITY_TAKE_DMG` 的 `Source`（`EntityRef` 句柄，缓冲区装的是这一次
+        // 调用的那个引用）。值借用 `entity` 那一格存"引擎实体引用的指针"。
         Reference,
         // 66：PC 包装复制整个16B RNG；不是池引用，整批回调共享同一个userdata。
         RngSnapshot,
@@ -4096,7 +4064,7 @@ struct CallbackArguments {
         items[count].y = y;
         ++count;
     }
-    //: 批次 396：PC 是 float 的实参（`MC_ENTITY_TAKE_DMG` 的 `Amount`）。
+    // PC 是 float 的实参（`MC_ENTITY_TAKE_DMG` 的 `Amount`）。
     void AddFloat(float value) noexcept {
         if (count >= kMaximum) {
             return;
@@ -4105,7 +4073,7 @@ struct CallbackArguments {
         items[count].x = value;
         ++count;
     }
-    //: 批次 396：`EntityRef` 实参（值 = 引擎那个引用的地址；0 表示空引用）。
+    // `EntityRef` 实参（值 = 引擎那个引用的地址；0 表示空引用）。
     void AddReference(std::uintptr_t engineRef) noexcept {
         if (count >= kMaximum) {
             return;
@@ -4157,7 +4125,7 @@ void RecordObservedCallbackPerf(std::uint32_t owner, std::uint32_t callbackId,
                 if (spent > g_RuntimePerfCallbackMaxTicks.load(std::memory_order_relaxed)) {
                     g_RuntimePerfCallbackMaxTicks.store(spent, std::memory_order_relaxed);
                 }
-                // 批次 092：每隔 256 次回调做一次**量具自校准**（读一次 tick 要多少 tick）。
+                // 每隔 256 次回调做一次量具自校准（读一次 tick 要多少 tick）。
                 // 直方图在 `RecordRuntimePerfCallbackSample` 里随桶一起记。
                 if ((g_RuntimePerfCallbackCalls.load(std::memory_order_relaxed) & 0xFFU) == 0U) {
                     const std::uint64_t calibration0 = isaac::runtime::RuntimePerfTick();
@@ -4167,7 +4135,7 @@ void RecordObservedCallbackPerf(std::uint32_t owner, std::uint32_t callbackId,
                         g_RuntimePerfTickCostTicks = (calibration2 - calibration0) / 2U;
                     }
                 }
-                // 批次 086：再按 (事件 id, 属主模组) 分一次 —— 回答"贵的是哪一个回调"。
+                // 再按 (事件 id, 属主模组) 分一次 —— 回答"贵的是哪一个回调"。
                 // 传的是本 TU 自己的数组（直接寻址、不碰数据 GOT）；记账逻辑在头文件里，宿主有测试。
                 // 返回值在这里**故意不用**（表满时由 `g_RuntimePerfBucketOverflow` 记账、读数里会报），
                 // 显式丢弃是为了过 `-Werror=unused-result`（`nodiscard` 是给宿主门禁看的）。
@@ -4294,7 +4262,7 @@ struct LuaCallbackInvoker final : isaac::runtime::ICallbackInvoker {
         return invoker;
     }
 
-    // 带**一个布尔实参**的那种（★ 2026-10-07 批次 388-fix）。
+    // 带一个布尔实参的那种（2026-10-07 -fix）。
     //
     // 为什么必须有它：老式构造的 `extra/withExtra` 走 `AddInteger` ⇒ 压的是**整数**。
     // 而 PC 契约里 `MC_POST_GAME_STARTED` 的 `IsContinued` 是 **`bool`**
@@ -4345,14 +4313,14 @@ struct LuaCallbackInvoker final : isaac::runtime::ICallbackInvoker {
         return true;
     }
 private:
-    //: `Invoke` 与 `InvokeCollecting` 的唯一实现（"要几个返回值、要不要读栈顶"由
-    //: `collecting` 决定，其余一字不差）。分成两个公开入口是因为调用点要能一眼看出
-    //: "这一条读了返回值"。
-    //:
-    //: ⚠️ 本注释里**故意不写那次 Lua 调用的函数名**：`test_manager_render_hook.py` 与
-    //: `test_lua_game_ispaused_stage37.py` 都是纯文本门禁，它们按"第一个出现的位置"判断
-    //: "回调作用域标记必须在那次调用之前"——注释里出现一次就会把判据指到注释上（本批第一版
-    //: 就是这么红的）。与 `test_lua_callback_dispatch_sites.py` 同一条约定。
+    // `Invoke` 与 `InvokeCollecting` 的唯一实现（"要几个返回值、要不要读栈顶"由
+    // `collecting` 决定，其余一字不差）。分成两个公开入口是因为调用点要能一眼看出
+    // "这一条读了返回值"。
+    //
+    // ⚠️ 本注释里故意不写那次 Lua 调用的函数名：`test_manager_render_hook.py` 与
+    // `test_lua_game_ispaused_stage37.py` 都是纯文本门禁，它们按"第一个出现的位置"判断
+    // "回调作用域标记必须在那次调用之前"——注释里出现一次就会把判据指到注释上（本批第一版
+    // 就是这么红的）。与 `test_lua_callback_dispatch_sites.py` 同一条约定。
     // 零upvalue的C函数不分配闭包；userdata与实际Lua调用都在外层保护之内。
     static int InvokeProtected(lua_State* state) {
         auto* self = static_cast<LuaCallbackInvoker*>(lua_touserdata(state, 1));
@@ -4395,11 +4363,11 @@ private:
                     isaac::runtime::PushLuaVector(state, argument.x, argument.y);
                     break;
                 case CallbackArgument::Kind::Float:
-                    // 批次 396：PC 契约写的是 float（`Amount`）⇒ 压 number，不是 integer。
+                    // PC 契约写的是 float（`Amount`）⇒ 压 number，不是 integer。
                     lua_pushnumber(state, static_cast<lua_Number>(argument.x));
                     break;
                 case CallbackArgument::Kind::Reference:
-                    // 批次 396：`EntityRef` 句柄（缓冲区从引擎那个引用搬，见 entity_ref_api.cpp）。
+                    // `EntityRef` 句柄（缓冲区从引擎那个引用搬，见 entity_ref_api.cpp）。
                     isaac::runtime::PushEntityRefArgument(state, argument.entity);
                     break;
                 case CallbackArgument::Kind::None:
@@ -4472,14 +4440,14 @@ private:
             g_CurrentCallbackManager.store(manager, std::memory_order_release);
         }
         g_InManagedCallbackDispatch.store(true, std::memory_order_release);
-        // 批次 090：**第一个托管回调**时清一次采样桶 —— 模组加载阶段的脚本（入口脚本、
+        // 第一个托管回调时清一次采样桶 —— 模组加载阶段的脚本（入口脚本、
         // 各 `require`）会把桶塞满跟"每帧代价"无关的东西（第一次真机就是这么被占满的）。
         // 清一次之后，桶里剩下的才是"进了游戏之后真正在跑的东西"。
         if (!g_ProfileSessionStarted) {
             g_ProfileSessionStarted = true;
             ResetRuntimePerfProfile();
         }
-        // 批次 068：把"正在执行哪条回调、属于哪个模组"记下来，供错误记录盖归属。
+        // 把"正在执行哪条回调、属于哪个模组"记下来，供错误记录盖归属。
         // 用普通全局而不是原子：只有游戏线程走派发（与 `g_PostUpdateDispatchCount` 同一约定）。
         const std::uint32_t previousOwner = g_ErrorContextOwner;
         const std::uint32_t previousCallbackId = g_ErrorContextCallbackId;
@@ -4488,12 +4456,12 @@ private:
         g_ErrorContextOwner = static_cast<std::uint32_t>(descriptor.owner.index) |
                               (static_cast<std::uint32_t>(descriptor.owner.generation) << 16);
         g_ErrorContextCallbackId = descriptor.id;
-        // 批次 084：同 TU 的 file-local 计数（不碰数据 GOT），只读一次 `cntpct_el0`
-        // （**物理**计数器；`cntvct_el0` 在 EL0 会被禁止读，批次 085 的真机崩溃就是它）。
+        // 同 TU 的 file-local 计数（不碰数据 GOT），只读一次 `cntpct_el0`
+        // （物理计数器；`cntvct_el0` 在 EL0 会被禁止读，的真机崩溃就是它）。
         // 三个桥接实参：invoker、登记项、是否收集结果；真正实参在保护内准备。
         const int callbackStatus = lua_pcallk(g_LuaState, 3, collecting ? 1 : 0, 0, 0,
                                              nullptr);
-        // ★ 复原必须放在**错误捕获之后**：`CaptureLuaErrorTop` 要读这两个值来盖归属，
+        // 复原必须放在错误捕获之后：`CaptureLuaErrorTop` 要读这两个值来盖归属，
         // 放在 pcall 之后立刻复原的话，记录到的永远是默认值（宿主测试第一次就是这么红的）。
         g_InManagedCallbackDispatch.store(previousManagedScope, std::memory_order_release);
         g_CurrentCallbackManager.store(previousManager, std::memory_order_release);
@@ -4548,7 +4516,7 @@ private:
                     result->integer =
                         static_cast<std::int64_t>(lua_tointegerx(g_LuaState, -1, nullptr));
                 }
-                // ★ 2026-10-07（批次 390）：数字通道（整数与浮点都算）。
+                // 2026-10-07：数字通道（整数与浮点都算）。
                 //   `MC_INPUT_ACTION` 的 `GET_ACTION_VALUE` 覆盖值是 float（0.0~1.0），
                 //   而模组通常写 `return 0`（Lua 的整数）⇒ 只看 `lua_isinteger` 会漏掉一半写法。
                 if (lua_type(g_LuaState, -1) == LUA_TNUMBER) {
@@ -4612,7 +4580,7 @@ bool DispatchPostGameStarted(bool isSave) {
         return false;
     }
     const ManagedEngineDispatchScope dispatchScope;
-    // ★ 2026-10-07（批次 388-fix）：`IsContinued` 必须压 **布尔** —— 老式写法
+    // 2026-10-07（-fix）：`IsContinued` 必须压 布尔 —— 老式写法
     //   `LuaCallbackInvoker{0,false,false, isSave?1:0, true}` 走 `AddInteger`，
     //   而 Lua 里 `0` 是 truthy ⇒ 新开局时模组判 `if isContinued then` 会走成"继续存档"。
     //   PC 契约：`analysis/isaacdocs-snapshot/docs/enums/ModCallbacks.md:396`（`boolean IsContinued`）。
@@ -4654,9 +4622,9 @@ bool DispatchPostGameStarted(bool isSave) {
 
 namespace {
 
-//: "见过"的实体指针表容量，按类各一张。容量照"一个房间里可能同时存在多少"给：
-//: 弹幕可以上百，跟班/刀/炸弹少。**满了就不再记录、也不再报"新"**（见
-//: `NoteNewEntity` 的注释）。
+// "见过"的实体指针表容量，按类各一张。容量照"一个房间里可能同时存在多少"给：
+// 弹幕可以上百，跟班/刀/炸弹少。满了就不再记录、也不再报"新"（见
+// `NoteNewEntity` 的注释）。
 constexpr std::uint32_t kSeenPickupCapacity = 256;
 constexpr std::uint32_t kSeenPlayerCapacity = 8;
 constexpr std::uint32_t kSeenNpcCapacity = 256;
@@ -4671,11 +4639,11 @@ struct FrameEventState {
     // 不知道时**不判变化** —— 拿读数失败留下的残值当身份，会把回调派发成"每帧一次"。
     std::uint32_t roomKnown{0};
     std::uint32_t levelKnown{0};
-    //: 2026-09-22：本局"开局那间房"还没补派过 `NEW_LEVEL`/`NEW_ROOM`。
-    //: 为什么需要它：旧代码"第一次读到身份时不判变化"，于是开局房间**永远**收不到这两条事件
-    //: （真机读数：开局那一局 `19 MC_POST_NEW_ROOM = 0`），而 PC 是照发的 ——
-    //: EID 的房间信息恰好就在 `NEW_ROOM` 里算，所以"重启后第一次进局正好在献祭房 ⇒ 不显示"。
-    //: 由开局派发成功那一刻置 1，由 `DispatchFrameEvents()` 在补派成功后清 0。
+    // 2026-09-22：本局"开局那间房"还没补派过 `NEW_LEVEL`/`NEW_ROOM`。
+    // 为什么需要它：旧代码"第一次读到身份时不判变化"，于是开局房间永远收不到这两条事件
+    // （真机读数：开局那一局 `19 MC_POST_NEW_ROOM = 0`），而 PC 是照发的 ——
+    // EID 的房间信息恰好就在 `NEW_ROOM` 里算，所以"重启后第一次进局正好在献祭房 ⇒ 不显示"。
+    // 由开局派发成功那一刻置 1，由 `DispatchFrameEvents()` 在补派成功后清 0。
     std::uint32_t initialRoomPending{0};
     // 2026-10-16：开局分阶段准备；身份暂不可读时保留已派发的玩家INIT，避免重发。
     std::uint32_t preparedGameStartKind{0};
@@ -4712,8 +4680,8 @@ FrameEventState g_FrameEventState{};
 bool g_NativePlayerInitObserved{};
 bool g_NativePickupInitObserved{};
 
-//: 本层"起始房间"的记账（批次 106）。与 `g_FrameEventState` 同一条约定：只有游戏线程的派发路径
-//: 读写它，所以是普通全局、不是原子。读数工具不读它（它只有 API 层按需取值）。
+// 本层"起始房间"的记账。与 `g_FrameEventState` 同一条约定：只有游戏线程的派发路径
+// 读写它，所以是普通全局、不是原子。读数工具不读它（它只有 API 层按需取值）。
 LuaRuntime::LevelStartRoomTracker g_LevelStartRoom{};
 
 // 新建 Lua 会话时清空（只在本 TU 调用：会话重置那一处）⇒ 定义在调用点之前即可。
@@ -4723,11 +4691,11 @@ void ResetLevelStartRoomTracker() noexcept {
 
 
 
-//: 记一个"这次见过的"实体；返回 true 表示它是**新出现的**（调用方据此派发 INIT）。
-//:
-//: ★ 表满时返回 false：既不记录、也不说"新"。早先的实现在表满时仍然返回 true 且不记录，
-//: 于是**每一个没被记下的实体会每帧收到一次 INIT**（满房间的掉落物就会这样）。
-//: 宁可漏发一次，也不重复发 —— 重复发的事件会让模组每秒做 60 次同样的注册。
+// 记一个"这次见过的"实体；返回 true 表示它是新出现的（调用方据此派发 INIT）。
+//
+// 表满时返回 false：既不记录、也不说"新"。早先的实现在表满时仍然返回 true 且不记录，
+// 于是每一个没被记下的实体会每帧收到一次 INIT（满房间的掉落物就会这样）。
+// 宁可漏发一次，也不重复发 —— 重复发的事件会让模组每秒做 60 次同样的注册。
 bool NoteNewEntity(std::uintptr_t* entries, std::uint32_t capacity, std::uint32_t* count,
                    std::uintptr_t entity) noexcept {
     if (entries == nullptr || count == nullptr || capacity == 0 || entity == 0) {
@@ -4789,9 +4757,9 @@ RegisteredCallbackMask BuildRegisteredCallbackMask() noexcept {
     return mask;
 }
 
-//: 这一帧要不要遍历实体表/玩家向量。写成一条条 `||` 而不是 id 表循环，理由与派发点相同：
-//: id 表这种写法离"表驱动派发"只有一步，而派发点必须逐个显式写（门禁靠它把设备侧报出来的
-//: 名单与代码里的真实派发对上）。
+// 这一帧要不要遍历实体表/玩家向量。写成一条条 `||` 而不是 id 表循环，理由与派发点相同：
+// id 表这种写法离"表驱动派发"只有一步，而派发点必须逐个显式写（门禁靠它把设备侧报出来的
+// 名单与代码里的真实派发对上）。
 [[nodiscard]] bool AnyEntityFamilyRegistered(const RegisteredCallbackMask& mask) noexcept {
     return mask.Has(isaac::runtime::kCallbackPostPeffectUpdate) ||
            mask.Has(isaac::runtime::kCallbackFamiliarUpdate) || mask.Has(isaac::runtime::kCallbackFamiliarInit) ||
@@ -4810,7 +4778,7 @@ RegisteredCallbackMask BuildRegisteredCallbackMask() noexcept {
            mask.Has(isaac::runtime::kCallbackPostPickupUpdate) || mask.Has(isaac::runtime::kCallbackPostPlayerInit);
 }
 
-//: 渲染族里有没有人登记（没有就不必花一次渲染偏移读数 + 一趟实体表遍历）。
+// 渲染族里有没有人登记（没有就不必花一次渲染偏移读数 + 一趟实体表遍历）。
 [[nodiscard]] bool AnyEntityRenderFamilyRegistered(const RegisteredCallbackMask& mask) noexcept {
     return mask.Has(isaac::runtime::kCallbackPostFamiliarRender) || mask.Has(isaac::runtime::kCallbackPostPlayerRender) ||
            mask.Has(isaac::runtime::kCallbackPostPickupRender) || mask.Has(isaac::runtime::kCallbackPostTearRender) ||
@@ -4835,7 +4803,7 @@ struct EntityEventScan {
 void DispatchNpcEntityEvents(EntityEventScan* scan, std::uintptr_t entity,
                              std::int64_t filter) noexcept {
     if (scan->renderPhase) {
-        return;  // `MC_POST_NPC_RENDER` 不在本批（台账里是 needs_hook），见批次 010 的记录。
+        return;  // `MC_POST_NPC_RENDER` 不在本批（台账里是 needs_hook），见的记录。
     }
     if (!scan->registered.Has(isaac::runtime::kCallbackPostNpcInit)) return;
     // Native AI can initialize an NPC before the room lifecycle is observed.
@@ -5222,12 +5190,12 @@ bool DispatchFrameEvents(bool initialOnly = false) {
             ClearSeenEntities(&g_FrameEventState.seenKnifeCount);
             ClearSeenEntities(&g_FrameEventState.seenBombCount);
         }
-        // ★ 2026-09-22 更正：这句话以前是这么写的 ——"第一次读到身份时**不判变化**：那时这一局
+        // 2026-09-22 更正：这句话以前是这么写的 ——"第一次读到身份时不判变化：那时这一局
         // 刚开局，`MC_POST_GAME_STARTED` 已经承担了'开局'这件事，再补一次'进入新房间'会让模组
         // 把开局那间房当成第二间房"。**前半段的前提是错的**：PC 在开局时"开局事件"与
         // "进入第一间房"是**两件事**（`POST_GAME_STARTED` → `POST_NEW_LEVEL` → `POST_NEW_ROOM`），
         // 少发后者会让依赖房间事件的模组在开局房间里彻底不工作（EID 献祭房信息就是这样丢的）。
-        // ★ 2026-10-14 更正：上述 NEW_LEVEL/NEW_ROOM 顺序是历史误记，实际应先 NEW_ROOM 再 NEW_LEVEL。
+        // 2026-10-14 更正：上述 NEW_LEVEL/NEW_ROOM 顺序是历史误记，实际应先 NEW_ROOM 再 NEW_LEVEL。
         // 现在的口径：**开局那一间房补派一次**（由 `initialRoomPending` 驱动，见上面派发处）；
         // 只有"运行时在该层中途才加载"（没有 `initialRoomPending`）时才不判变化。
     }
@@ -5243,12 +5211,12 @@ bool DispatchFrameEvents(bool initialOnly = false) {
         isaac::runtime::VisitPlayerEntities(&OnEntityEventPlayer, &scan);
     }
 
-    // ★ 这两条**不受"有没有人登记"影响**：判"换房/换层"要读的那四个字本来就要读，而
+    // 这两条不受"有没有人登记"影响：判"换房/换层"要读的那四个字本来就要读，而
     // 派发器会把计数记在最前面 ⇒ 即使一条登记都没有，"引擎确实到了这个时机"仍然留在
     // 派发计数里。那正是设备侧区分"事件没送到"与"送到了没人听"的唯一依据。
     // （按实体派发的那一族要遍历实体表/玩家向量，只在有人登记时才做 ⇒ 它们的计数
     //   只代表"有人听的时候"）。
-    // ★ 2026-10-14 更正：上面的历史顺序注释写反了；PC 官方明确 NEW_LEVEL 总在 NEW_ROOM 之后。
+    // 2026-10-14 更正：上面的历史顺序注释写反了；PC 官方明确 NEW_LEVEL 总在 NEW_ROOM 之后。
     // Entity callbacks can also mutate world contents. Give compatibility
     // consumers their isolated attempt before room snapshot callbacks run.
     if (acceptedLocation) isaac::runtime::PumpCompatibilityAdapters(g_LuaState);
@@ -5453,7 +5421,7 @@ void DispatchPostRender(uintptr_t manager) {
     isaac::runtime::EngineGuardLeaveDispatch();
 }
 
-// --- 回调面补齐（批次 102）：四个事件中继的派发入口 -------------------------------
+// --- 回调面补齐：四个事件中继的派发入口 -------------------------------
 //
 // 这一族与"每帧事件"那一族的共同点：调用点都在**引擎自己的函数里**（入口中继的回调体），
 // 不是我们的帧时机。所以每一个都自己做三件事：
@@ -5466,7 +5434,7 @@ void DispatchPostRender(uintptr_t manager) {
 // 的第二个实参 `RNG`（PC 上由引擎现造，我们没有对应对象）。
 namespace {
 
-//: 把"玩家"作为一个实体实参压栈（视图与 `Isaac.GetRoomEntities()` 一致）。
+// 把"玩家"作为一个实体实参压栈（视图与 `Isaac.GetRoomEntities()` 一致）。
 void AddPlayerArgument(CallbackArguments* arguments, std::uintptr_t player) noexcept {
     if (arguments != nullptr) {
         arguments->AddEntity(player);
@@ -5484,7 +5452,7 @@ void DispatchPreGameExit(bool shouldSave) {
     if (!isaac::runtime::BuiltinCallbackEnabled(isaac::runtime::kCallbackPreGameExit)) {
         return;
     }
-    // ★ 对"房间/玩家可解析"的要求在这里**必须放宽**：`Game::Exit` 触发时这一局正在结束，
+    // 对"房间/玩家可解析"的要求在这里必须放宽：`Game::Exit` 触发时这一局正在结束，
     // `ShouldDispatchManagedCallbacks()`（要求房间非空且至少一个可验证玩家）很可能已经不成立。
     // 用它会让"退出时保存配置"这条**唯一的**保存点再次静默失效 —— 而那正是本批要修的东西。
     // 付出的代价写在明处：如果 Lua 处理器读了已经不存在的引擎对象，它会在自己的那一行报错，
@@ -5779,13 +5747,13 @@ void DispatchPreRoomEntitySpawn(std::int32_t entityType, std::int32_t variant,
         static_cast<std::uint32_t>(gridIndex), static_cast<std::uint32_t>(seed)));
 }
 
-// 批次 396（2026-10-07）：`MC_ENTITY_TAKE_DMG`(11)。
+// `MC_ENTITY_TAKE_DMG`(11)。
 // 四条入口中继（基类 + 玩家/掉落物/槽位）共用这一个派发函数。
 //
 // 返回值：**true = 不要跑原函数**（模组要求取消这次伤害）。PC 契约原文
 // （`ModCallbacks.md:318`）：「Return true or nil if the entity or player should sustain the
 // damage, otherwise false to ignore it.」⇒ 只有**返回 `false`** 才取消。
-// ★ Lua 里 **`0` 是 truthy** ⇒ "有人返回过非 nil（`anyNonNil`）且没有真值（`!anyTruthy`）"
+// Lua 里 `0` 是 truthy ⇒ "有人返回过非 nil（`anyNonNil`）且没有真值（`!anyTruthy`）"
 //   恰好等价于"有人返回了 `false`"，不必单独开一个字段。
 // 已知偏离：我们的派发器**不短路**（PC 会停在第一个非 nil），所以"一个返回 true、另一个返回
 // false"时我们按"照常受伤"处理；这与项目里 `MC_INPUT_ACTION` 那处已知偏离同源。
@@ -5818,7 +5786,7 @@ bool DispatchEntityTakeDamage(std::uintptr_t entity, float amount, std::uint64_t
     return outcome.anyNonNil && !outcome.anyTruthy;
 }
 
-// 批次 396（2026-10-07）：`MC_EVALUATE_CACHE`(8)。过滤器 = 本次要重算的那个 CacheFlag 位。
+// `MC_EVALUATE_CACHE`(8)。过滤器 = 本次要重算的那个 CacheFlag 位。
 // 调用点（`EntryRelayEvaluateItemsCallback`）负责把入口快照的掩码逐位拆开、一位调一次。
 void DispatchEvaluateCache(std::uintptr_t player, std::int32_t cacheFlag) {
     if (!IsReady() || g_LuaState == nullptr ||
@@ -5856,13 +5824,13 @@ void DispatchEvaluateCache(std::uintptr_t player, std::int32_t cacheFlag) {
     }
 }
 
-// 批次 397（2026-10-07）：`MC_POST_ENTITY_KILL`(68)。
+// `MC_POST_ENTITY_KILL`(68)。
 // 契约原文（`ModCallbacks.md`）：「Called right before a death animation is triggered for an
 // Entity.」实参 `(Entity)`，可选实参（过滤器）= `EntityType`，返回 void（返回值无效果）。
 // PC Entity::Kill @0x6848B0 sets the dead flag and emits blood effects before
 // callback68 @0x802C50. A listener can revive without Kill overwriting it.
 void DispatchPostEntityKill(std::uintptr_t entity, std::int32_t entityType) {
-    // ★ 重入守卫（`g_InPostEntityKillDispatch` 的说明在上面的声明处）：模组在自己这条回调里
+    // 重入守卫（`g_InPostEntityKillDispatch` 的说明在上面的声明处）：模组在自己这条回调里
     //   又调 `entity:Kill()` 时**跳过派发**（不跳过原函数 —— 那由调用点照常做）。
     if (!IsReady() || g_InPostEntityKillDispatch || g_LuaState == nullptr ||
         !isaac::runtime::ShouldDispatchManagedCallbacks()) {
@@ -5882,7 +5850,7 @@ void DispatchPostEntityKill(std::uintptr_t entity, std::int32_t entityType) {
     isaac::runtime::EngineGuardLeaveDispatch();
 }
 
-// 批次 397（2026-10-07）：`MC_POST_NPC_DEATH`(29)。
+// `MC_POST_NPC_DEATH`(29)。
 // 契约原文：「Gets called **after the Death animation is played**.」实参 `(EntityNPC)`，
 // 过滤器 = `EntityType`，返回 void。调用点 = `Entity_NPC::trigger_death_remove()` 的入口
 // （就是"动画播完之后"那个汇合点；在入口派发是为了**赶在它把 NPC 掉落/移除之前**拿到指针）。
@@ -5903,12 +5871,12 @@ void DispatchPostNpcDeath(std::uintptr_t npc, std::int32_t entityType) {
     isaac::runtime::EngineGuardLeaveDispatch();
 }
 
-// 批次 397（2026-10-07）：`MC_POST_GAME_END`(16)。
+// `MC_POST_GAME_END`(16)。
 // 契约原文：「called when the game over screen appears, or when an ending starts playing.
 // The boolean value is **true when you died and got a game over**, false when you won and got
 // an ending.」实参 `(bool IsGameOver)`，可选实参 `-`（无过滤），返回 void。
-// ★ 必须压 **布尔**（`ForBoolean`）而不是整数：Lua 里 **`0` 是 truthy** ⇒ 压整数会让
-//   "打赢了"（false）被模组当成"死了"（批次 388-fix 在同一类问题上栽过一次）。
+// 必须压 布尔（`ForBoolean`）而不是整数：Lua 里 `0` 是 truthy ⇒ 压整数会让
+//   "打赢了"（false）被模组当成"死了"（-fix 在同一类问题上栽过一次）。
 void DispatchPostGameEnd(bool isGameOver) {
     if (!IsReady() || g_LuaState == nullptr ||
         !isaac::runtime::ShouldDispatchManagedCallbacks()) {
@@ -5925,7 +5893,7 @@ void DispatchPostGameEnd(bool isGameOver) {
     isaac::runtime::EngineGuardLeaveDispatch();
 }
 
-// 批次 397（2026-10-07）：`MC_POST_FIRE_TEAR`(61)。
+// `MC_POST_FIRE_TEAR`(61)。
 // 契约原文：「Called when the player fires a tear. … In Repentance, it works for tears fired
 // with Incubus.」实参 `(EntityTear)`，可选实参 `-`（无过滤），返回 void。
 // 调用点（`EntryRelayFireTearCallback`）在**原函数返回之后**派发 —— 泪弹是它的返回值。
@@ -5945,43 +5913,43 @@ void DispatchPostFireTear(std::uintptr_t tear) {
                                           isaac::runtime::ThreadAffinity::Any));
 }
 
-// 批次 396（2026-10-07）：`MC_ENTITY_TAKE_DMG`(11)。
+// `MC_ENTITY_TAKE_DMG`(11)。
 // 四条入口中继（基类 + 玩家/掉落物/槽位）共用这一个派发函数。
 //
 // 返回值：**true = 不要跑原函数**（模组要求取消这次伤害）。PC 契约原文
 // （`ModCallbacks.md:318`）：「Return true or nil if the entity or player should sustain the
 // damage, otherwise false to ignore it.」⇒ 只有**返回 `false`** 才取消。
-// ★ Lua 里 **`0` 是 truthy** ⇒ "有人返回过非 nil（`anyNonNil`）且没有真值（`!anyTruthy`）"
+// Lua 里 `0` 是 truthy ⇒ "有人返回过非 nil（`anyNonNil`）且没有真值（`!anyTruthy`）"
 //   恰好等价于"有人返回了 `false`"，不必单独开一个字段。
 // 已知偏离：我们的派发器**不短路**（PC 会停在第一个非 nil），所以"一个返回 true、另一个返回
 // false"时我们按"照常受伤"处理；这与项目里 `MC_INPUT_ACTION` 那处已知偏离同源。
 
 
-// 批次 396（2026-10-07）：`MC_EVALUATE_CACHE`(8)。过滤器 = 本次要重算的那个 CacheFlag 位。
+// `MC_EVALUATE_CACHE`(8)。过滤器 = 本次要重算的那个 CacheFlag 位。
 // 调用点（`EntryRelayEvaluateItemsCallback`）负责把入口快照的掩码逐位拆开、一位调一次。
 
 
-// 批次 397（2026-10-07）：`MC_POST_ENTITY_KILL`(68)。
+// `MC_POST_ENTITY_KILL`(68)。
 // 契约原文（`ModCallbacks.md`）：「Called right before a death animation is triggered for an
 // Entity.」实参 `(Entity)`，可选实参（过滤器）= `EntityType`，返回 void（返回值无效果）。
 // The native dead transition completes before these listeners run.
 
 
-// 批次 397（2026-10-07）：`MC_POST_NPC_DEATH`(29)。
+// `MC_POST_NPC_DEATH`(29)。
 // 契约原文：「Gets called **after the Death animation is played**.」实参 `(EntityNPC)`，
 // 过滤器 = `EntityType`，返回 void。调用点 = `Entity_NPC::trigger_death_remove()` 的入口
 // （就是"动画播完之后"那个汇合点；在入口派发是为了**赶在它把 NPC 掉落/移除之前**拿到指针）。
 
 
-// 批次 397（2026-10-07）：`MC_POST_GAME_END`(16)。
+// `MC_POST_GAME_END`(16)。
 // 契约原文：「called when the game over screen appears, or when an ending starts playing.
 // The boolean value is **true when you died and got a game over**, false when you won and got
 // an ending.」实参 `(bool IsGameOver)`，可选实参 `-`（无过滤），返回 void。
-// ★ 必须压 **布尔**（`ForBoolean`）而不是整数：Lua 里 **`0` 是 truthy** ⇒ 压整数会让
-//   "打赢了"（false）被模组当成"死了"（批次 388-fix 在同一类问题上栽过一次）。
+// 必须压 布尔（`ForBoolean`）而不是整数：Lua 里 `0` 是 truthy ⇒ 压整数会让
+//   "打赢了"（false）被模组当成"死了"（-fix 在同一类问题上栽过一次）。
 
 
-// 批次 397（2026-10-07）：`MC_POST_FIRE_TEAR`(61)。
+// `MC_POST_FIRE_TEAR`(61)。
 // 契约原文：「Called when the player fires a tear. … In Repentance, it works for tears fired
 // with Incubus.」实参 `(EntityTear)`，可选实参 `-`（无过滤），返回 void。
 // 调用点（`EntryRelayFireTearCallback`）在**原函数返回之后**派发 —— 泪弹是它的返回值。
@@ -6005,7 +5973,7 @@ std::uint64_t DispatchPostGetCollectible(void* itemPool, std::uint32_t itemPoolT
     isaac::runtime::EngineGuardEnterDispatch();
     LuaCallbackInvoker invoker{0, false, false};
     // PC 签名：`(SelectedCollectible, ItemPoolType, Decrease [bool], Seed [int])`。
-    // ★ 这一条与 `MC_PRE_GET_COLLECTIBLE` 的差别就在第一个实参：PRE 那侧引擎还没选，所以
+    // 这一条与 `MC_PRE_GET_COLLECTIBLE` 的差别就在第一个实参：PRE 那侧引擎还没选，所以
     // 只有 `(poolType, decrease, seed)`；POST 这一侧我们**拿得到**刚选出来的道具，必须放在
     // 第一位 —— EID 的 `EID:postGetCollectible(selectedCollectible, itemPoolType)` 就是按
     // 这个顺序读的（`main.lua:259`）。
@@ -6024,14 +5992,14 @@ std::uint64_t DispatchPostGetCollectible(void* itemPool, std::uint32_t itemPoolT
     return (std::uint64_t{1} << 32) | static_cast<std::uint32_t>(outcome.integer);
 }
 
-// 批次 392（2026-10-07）：直读标记与"直读壳"都定义在本文件上部（挨着三条取值助手），
+// 直读标记与"直读壳"都定义在本文件上部（挨着三条取值助手），
 // 见那里的说明 —— 这条派发函数只是它的消费者之一：中继看到标记就**跳过这里**、直接调原函数。
-// 批次 390（2026-10-07）：`MC_INPUT_ACTION`。契约见 `lua_runtime.hpp` 的 `InputActionOutcome`。
+// `MC_INPUT_ACTION`。契约见 `lua_runtime.hpp` 的 `InputActionOutcome`。
 //
-// ★★ 性能是这条的主要约束：`IsActionPressed` 每秒被引擎问约 1470 次（官方"执行信息栏"），
+// 性能是这条的主要约束：`IsActionPressed` 每秒被引擎问约 1470 次（官方"执行信息栏"），
 //   所以**没有模组登记时必须一个 Lua 调用都不做** —— 那一步（`CountOf == 0`）就在最前面。
-// ★ 重入：模组在回调里再问输入（minimapi 就调 `Input.IsActionPressed`）时，内层不再派发。
-//   ★★ 批次 392 更正（2026-10-07）：这句原来写的是"我们的 `Input.*` **不走**引擎这条查询
+// 重入：模组在回调里再问输入（minimapi 就调 `Input.IsActionPressed`）时，内层不再派发。
+//   更正（2026-10-07）：这句原来写的是"我们的 `Input.*` 不走引擎这条查询
 //   （契约也要求覆盖不影响 Lua 读取）"——**那是错的**，反汇编已证伪：Lua 的 `Input.*` 绑的
 //   `0x3F9B6C` 正是尾跳进本中继的靶点（`ManagerBase::IsAction*`）⇒ 当时我们的读取**确实**会被
 //   覆盖（MCM 光标被冻住就是这么来的）。现在这两道防线是：① 我们这侧一律套
@@ -6049,7 +6017,7 @@ InputActionOutcome DispatchLogicalInputAction(std::uint32_t luaAction,
     InputActionOutcome outcome{};
     if (!IsReady() || g_LuaState == nullptr) return outcome;
     if (!isaac::runtime::BuiltinCallbackEnabled(isaac::runtime::kCallbackInputAction)) {
-        return outcome;  // ★ 快路径（绝大多数帧走这里）
+        return outcome;  // 快路径（绝大多数帧走这里）
     }
     static bool inInputActionDispatch = false;
     if (inInputActionDispatch) {
@@ -6068,7 +6036,7 @@ InputActionOutcome DispatchLogicalInputAction(std::uint32_t luaAction,
         invoker.arguments.AddNil();
     }
     invoker.arguments.AddInteger(static_cast<std::int64_t>(inputHook));
-    // ★★ 批次 393（2026-10-07）：`buttonAction` 必须给**模组（PC）口径**的号，不是引擎内部号。
+    // `buttonAction` 必须给模组（PC）口径的号，不是引擎内部号。
     //
     // PC 契约里这个实参就是 `ButtonAction` 的值；而引擎轮询时给我们的 `action` 是**内部号**，
     // 两张表只在 0..15 同号：`ACTION_MAP(13)` 恰好同号（所以 minimapi 从来不受影响，这也是
@@ -6081,7 +6049,7 @@ InputActionOutcome DispatchLogicalInputAction(std::uint32_t luaAction,
     invoker.arguments.AddInteger(static_cast<std::int64_t>(luaAction));
     isaac::runtime::CallbackDispatcher dispatcher{g_CallbackRegistry, invoker};
     inInputActionDispatch = true;
-    // ★★★ 2026-10-07（批次 390 修复）：下面这一条的**过滤器实参必须是 `inputHook`**，
+    // 2026-10-07（修复）：下面这一条的过滤器实参必须是 `inputHook`，
     // **不能**是 `kNoCallbackFilter`。
     //
     // 为什么（真机实证 + 代码）：`MC_INPUT_ACTION` 契约里的 **Optional Args 就是 `InputHook`** ——
@@ -6097,7 +6065,7 @@ InputActionOutcome DispatchLogicalInputAction(std::uint32_t luaAction,
     //   * 声明了 `filter == inputHook` 的登记 ⇒ 匹配（minimapi 声明 PRESSED，PRESSED 那次就能跑）；
     //   * 没声明过滤器的登记（`kNoCallbackFilter`）⇒ 第一个条件为假 ⇒ 照常匹配（MCM 就是这种）；
     //   * 声明了**别的** hook 的登记 ⇒ 跳过 —— 与它自己的声明、也与 PC 语义一致。
-    // ★ 回归断言钉在 `runtime/tests/test_lua_callback_dispatch_sites.py`（那条门禁还会核对
+    // 回归断言钉在 `runtime/tests/test_lua_callback_dispatch_sites.py`（那条门禁还会核对
     //   "派发点名单 ↔ 源码里的派发调用"，所以这三行的**写法**也别乱改）。
     const isaac::runtime::CallbackDispatchOutcome result =
         dispatcher.DispatchModifying(isaac::runtime::kCallbackInputAction,
@@ -6107,7 +6075,7 @@ InputActionOutcome DispatchLogicalInputAction(std::uint32_t luaAction,
     if (!result.anyNonNil) {
         return outcome;  // 没有模组想覆盖这次查询
     }
-    // ★ 覆盖口径：官方教程原文 "`Isaac.RunCallback` will stop at the first callback that returns a
+    // 覆盖口径：官方教程原文 "`Isaac.RunCallback` will stop at the first callback that returns a
     //   value and return it." ⇒ 取**第一条**返回非 nil 的登记（`DispatchModifying` 的汇总就是这个口径）。
     //   ⚠️ 已知差别：我们**仍然会把后面的登记也叫一遍**（派发器不做短路），PC 会停。
     outcome.overridden = true;
@@ -6160,7 +6128,7 @@ std::uint64_t DispatchPreGetCollectible(void* itemPool, std::uint32_t itemPoolTy
     invoker.arguments.AddBoolean(noDecrease == 0);
     invoker.arguments.AddInteger(static_cast<std::int64_t>(seed));
     isaac::runtime::CallbackDispatcher dispatcher{g_CallbackRegistry, invoker};
-    // ★ 2026-09-20 批次 103：这一条原来**手工取第 0 条登记**（`g_CallbackRegistry.At(id, 0)`），
+    // 2026-09-20 这一条原来手工取第 0 条登记（`g_CallbackRegistry.At(id, 0)`），
     // 于是同一 id 上第二条及以后的登记永远收不到事件 —— 与 PC 的"同一 id 可登记多条、按登记顺序
     // 全部调用"不符。现在改走通用派发器（`DispatchModifying`），因此同时获得了：
     //   * 多条登记全部被调用；
@@ -6183,7 +6151,7 @@ std::uint64_t DispatchPreGetCollectible(void* itemPool, std::uint32_t itemPoolTy
     return (std::uint64_t{1} << 33) | (std::uint64_t{1} << 32) | value;
 }
 
-// ---- 批次 106：`Level:GetStartingRoomIndex()` 的派生记账（**外部链接**）-----------------
+// ---- `Level:GetStartingRoomIndex()` 的派生记账（外部链接）-----------------
 //
 // ⚠️ 这两个函数必须定义在**匿名命名空间之外**：它们要给 `remaining_api.cpp`（另一个 TU）链接。
 // 本批第一版把它们定义在匿名命名空间里（内部链接）⇒ 只编译 API 层的宿主 harness 集体链接失败，

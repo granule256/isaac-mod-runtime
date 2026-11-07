@@ -9,7 +9,7 @@
 #include "interfaces/lua/seed_effects_api.hpp"
 
 #include "interfaces/lua/lua_integer_argument.hpp"
-#include "interfaces/lua/field_api.hpp"   //: 批次 297：`kGameFieldApis`（字段读取型数据行）
+#include "interfaces/lua/field_api.hpp"   // `kGameFieldApis`（字段读取型数据行）
 #include "interfaces/lua/engine_method_lookup.hpp"
 
 #include "interfaces/lua/api_sequence_probe.hpp"
@@ -27,8 +27,8 @@
 #include "lua_object_handles.hpp"
 #include "lua_runtime_state.hpp"
 #include "runtime_constants.hpp"
-//: 批次 342（2026-10-04）：`kGameFieldApis` 里 `Game:Darken` 那两格要做**编译期对账**
-//: （`runtime_constants.hpp` 的常量 vs 布局表生成物），所以这个 TU 要拿到生成的布局头。
+// `kGameFieldApis` 里 `Game:Darken` 那两格要做编译期对账
+// （`runtime_constants.hpp` 的常量 vs 布局表生成物），所以这个 TU 要拿到生成的布局头。
 #include "game_layout.hpp"
 
 #include <cstddef>
@@ -58,10 +58,10 @@ std::atomic<std::uint32_t> g_LastIsPaused{0};
 // 探针：`Game:GetNumPlayers()` 最后一次返回值（EID 的 `EID.player` 依赖它）。
 std::atomic<std::uint32_t> g_LastNumPlayers{0};
 
-// 探针（批次 214）：`Seeds:AddSeedEffect` / `RemoveSeedEffect` 被调用了几次（两条共用一个计数）。
+// 探针：`Seeds:AddSeedEffect` / `RemoveSeedEffect` 被调用了几次（两条共用一个计数）。
 // 为什么要它：这两条按设计**不生效**（引擎唯一入口吃"名字字符串"，我们拿不到"枚举 → 名字"这条路，
 // 取证见 `SeedsAddSeedEffect` 上面那段）⇒ 真机上唯一能证明"模组真的调了、我们真的接住了"的就是这个数。
-// ★★ 必须放在**匿名命名空间之外**：放进去就变成内部链接、ELF 符号表里查不到，
+// 必须放在匿名命名空间之外：放进去就变成内部链接、ELF 符号表里查不到，
 //    读数工具（`tools/read_device_state_via_gdb.py` 的 `SYMS`）就永远读不到它。
 //    本批第一版正是放在里面 —— `runtime/tests/test_entity_field_write_probe.py` 的
 //    "探针必须可读" 那组断言把它抓了出来。
@@ -84,19 +84,19 @@ using LuaRuntime::LevelHandle;
 using LuaRuntime::RoomHandle;
 using LuaRuntime::SeedHandle;
 using LuaRuntime::kSeedsMetatable;
-// 批次 306（2026-10-03）：`Seeds:GetNextSeed()` 就是"对 `Seeds + 0x8` 那个内嵌 RNG 调 `RNG::Next()`"
+// `Seeds:GetNextSeed()` 就是"对 `Seeds + 0x8` 那个内嵌 RNG 调 `RNG::Next()`"
 // ⇒ **复用** `RNG:Next` 那一条已经立好的发布点与 16 字节入口指纹（`RngNextThunk` / `ValidateRngNextBinding`）。
-// ★ 不自己抄一份 xorshift：PC 是把 `RNG::Next` 内联进绑定本体的（指令级对照写在
+// 不自己抄一份 xorshift：PC 是把 `RNG::Next` 内联进绑定本体的（指令级对照写在
 //   `runtime_constants.hpp` 的 `kSeedsRngOffset` 段），Switch 侧它是**独立函数** ⇒ 调它才是同一条语义。
 using LuaRuntime::RngNextThunk;
 using LuaRuntime::ValidateRngNextBinding;
-// 批次 207（2026-09-29）：`Game:GetHUD()` 的返回值与它的两个方法。
+// `Game:GetHUD()` 的返回值与它的两个方法。
 using LuaRuntime::HudHandle;
 using LuaRuntime::kHudMetatable;
 // 玩家数量的**唯一**来源：与 `Isaac.GetPlayer` 共用同一次判定（真机 `01789207110` 的根因）。
 using isaac::runtime::EnginePlayerArray;
 using isaac::runtime::ResolveEnginePlayerArray;
-// 批次 140：`Game:GetPlayer(index)` 用的是"取第 index 个玩家"那一条链（与 `Isaac.GetPlayer` 同源）。
+// `Game:GetPlayer(index)` 用的是"取第 index 个玩家"那一条链（与 `Isaac.GetPlayer` 同源）。
 using isaac::runtime::PushEntityCallbackArgument;
 using isaac::runtime::ResolveEnginePlayerAt;
 
@@ -110,16 +110,16 @@ int GameGetFrameCount(lua_State* state);
 int GameGetSeeds(lua_State* state);
 int SeedsIsCustomRun(lua_State* state);
 int SeedsGetStartSeed(lua_State* state);
-// 批次 214（2026-09-30）：中文版 MCM（`!!Mod Config Menu Chinese`，工坊 2494192799）要这三条，
+// 中文版 MCM（`!!Mod Config Menu Chinese`，工坊 2494192799）要这三条，
 // 英文版（`!! Mod Config Menu Pure`）要其中 `Has`/`Add`/`Remove`；两者都缺、且都在**开菜单**那条路上。
-// ★ 语义与依据见实现处注释；`Add`/`Remove` 只有"不抛错的空实现"这一条路（证据见实现处）。
+// 语义与依据见实现处注释；`Add`/`Remove` 只有"不抛错的空实现"这一条路（证据见实现处）。
 int SeedsHasSeedEffect(lua_State* state);
 int SeedsAddSeedEffect(lua_State* state);
-// 批次 274（2026-10-02）：`Seeds:ForgetStageSeed(LevelStage Stage)`（语料 1 处）。
+// `Seeds:ForgetStageSeed(LevelStage Stage)`（语料 1 处）。
 // `this` 不是句柄存的地址，而是 `Game + kGameSeedsObjectOffset` 现算 —— 与 `Seeds:GetStartSeed()`
 // 同一条思路（`Seeds` 是 `Game` 里**内嵌**的子对象）。
 int SeedsForgetStageSeed(lua_State* state);
-// 批次 306（2026-10-03）：`Seeds:GetStageSeed(LevelStage)` 与 `Seeds:GetNextSeed()`。
+// `Seeds:GetStageSeed(LevelStage)` 与 `Seeds:GetNextSeed()`。
 // 两条都是**手写**而不是数据行，理由有数可查（写在实现处）：`Seeds` 句柄**不持引擎指针**
 // （接收者要 `Game + kGameSeedsObjectOffset` 现算 ⇒ 先要有 `FieldReceipt::Seeds` 这一档），
 // 而 `GetNextSeed` 还要**调引擎的 `RNG::Next()`** ⇒ 数据行机制本来也表达不了。
@@ -128,7 +128,7 @@ int SeedsForgetStageSeed(lua_State* state);
 int SeedsGetStageSeed(lua_State* state);
 int SeedsGetNextSeed(lua_State* state);
 int SeedsRemoveSeedEffect(lua_State* state);
-// 批次 207（2026-09-29）：`Game:GetHUD()` 与它的返回值 `HUD` 的两个方法。
+// `Game:GetHUD()` 与它的返回值 `HUD` 的两个方法。
 // MCM 的 `RoomIsSafe()` 与 `OpenConfigMenu`/`CloseConfigMenu` 都要用（见 `api_catalog.cpp` 的条目注释）。
 int GameGetHUD(lua_State* state);
 int HudIsVisible(lua_State* state);
@@ -137,14 +137,14 @@ int HudRender(lua_State* state);
 int HudShowItemText(lua_State* state);
 int HudShowFortuneText(lua_State* state);
 int GameGetVictoryLap(lua_State* state);
-// 批次 267（2026-10-02，语料 API 恢复的 `needs_new_shape` 桶）：`Game:SpawnParticles(...)`
+// （2026-10-02，语料 API 恢复的 `needs_new_shape` 桶）：`Game:SpawnParticles(...)`
 // —— 必须手写的理由（`ColorMod const&` 要从 Lua 的 `Color` 构造，形状机制表达不了那一步）
 // 与 ABI 证据写在实现处注释与 `runtime_constants.hpp` 的 `kGameSpawnParticlesOffset` 段。
 int GameSpawnParticles(lua_State* state);
-// 批次 140（2026-09-26）：`Game:GetPlayer(index)` —— The Specialist for Good Items 的
+// `Game:GetPlayer(index)` —— The Specialist for Good Items 的
 // `main.lua:447` 在 `MC_POST_NEW_ROOM` 里用它取玩家（缺它整条回调被摘，跳舞/放歌都跑不到）。
 int GameGetPlayer(lua_State* state);
-// 批次 050（2026-09-19）：`Game:ChangeRoom(int roomIndex, int dimension)` —— **直接调引擎方法**。
+// `Game:ChangeRoom(int roomIndex, int dimension)` —— 直接调引擎方法。
 // GoodTrip 的传送主路径（`scripts/trip.lua` 6 处）就是 `Game():ChangeRoom(目标格, -1)`；
 // 第二参 `-1` 在 PC 语义里是"按当前维度"。缺它 = method 不存在 ⇒ 整条回调被打断。
 
@@ -158,16 +158,16 @@ constexpr LuaHandlerBinding kGameHandlers[] = {
     {0x02010007, &GameGetFrameCount},
     {0x02010008, &GameGetSeeds},
     {0x02010009, &GameGetVictoryLap},
-    // 批次 207（2026-09-29）：`Game:GetHUD()` —— MCM 每次开/关菜单都要用它拿 HUD。
+    // `Game:GetHUD()` —— MCM 每次开/关菜单都要用它拿 HUD。
     // id 取 Game 域下一个空号 0x000D（目录行与常量见 `api_catalog.cpp` / `runtime_constants.hpp`）。
     {0x0201000D, &GameGetHUD},
-    // 批次 267（2026-10-02）：`Game:SpawnParticles`（域内序号 0x0014，取 Game 域 max+1）。
+    // `Game:SpawnParticles`（域内序号 0x0014，取 Game 域 max+1）。
     {0x02010014, &GameSpawnParticles},
-    // 批次 140（2026-09-26）：`Game:GetPlayer(index)`。真机证据：The Specialist for Good Items 的
+    // `Game:GetPlayer(index)`。真机证据：The Specialist for Good Items 的
     // `main.lua:447` 在 `MC_POST_NEW_ROOM` 里调它，报 `attempt to call a nil value (method 'GetPlayer')`
     // ⇒ 整条回调被派发器摘掉 ⇒ 用户看到"没音乐也不跳舞"。口径见实现处的注释（PC 契约逐字）。
     {0x0201000C, &GameGetPlayer},
-    // 批次 340（2026-10-04）：`Game:Spawn(...)`（**手写**：引擎 `Game::SpawnEx` 的第 8 个形参
+    // `Game:Spawn(...)`（手写：引擎 `Game::SpawnEx` 的第 8 个形参
     // **走栈**，通用跳板只填 `x0..x7`/`d0..d7` ⇒ 数据行那条路会把栈上那格留成垃圾；
     // 手写由编译器按编译期签名放栈 ✓）。实现与 `Isaac.Spawn` 共用（都在 `isaac_api.cpp`）。
     {0x02010017, &GameSpawn},
@@ -180,13 +180,13 @@ constexpr LuaHandlerBinding kGameHandlers[] = {
 constexpr LuaHandlerBinding kSeedsHandlers[] = {
     {0x0F010001, &SeedsIsCustomRun},
     {0x0F010002, &SeedsGetStartSeed},
-    // 批次 214：中文版 MCM 要这三条（缺任一条都会打断它的开菜单回调）。
+    // 中文版 MCM 要这三条（缺任一条都会打断它的开菜单回调）。
     {0x0F010004, &SeedsHasSeedEffect},
     {0x0F010005, &SeedsAddSeedEffect},
     {0x0F010006, &SeedsRemoveSeedEffect},
-    // 批次 274：`Seeds:ForgetStageSeed(stage)`（取号 = Seeds 域下一个空号 0x0007）。
+    // `Seeds:ForgetStageSeed(stage)`（取号 = Seeds 域下一个空号 0x0007）。
     {0x0F010007, &SeedsForgetStageSeed},
-    // 批次 306（2026-10-03）：`Seeds:GetStageSeed(stage)` / `Seeds:GetNextSeed()`
+    // `Seeds:GetStageSeed(stage)` / `Seeds:GetNextSeed()`
     //（取号 = 域内接着的两个空号 0x0008 / 0x0009）。
     {0x0F010008, &SeedsGetStageSeed},
     {0x0F010009, &SeedsGetNextSeed},
@@ -208,7 +208,7 @@ constexpr char kHudOwner[] = "HUD";
 // `Game` 家族在 Catalog 里的 owner 名（绑定表按它挑条目）。
 constexpr char kGameOwner[] = "Game";
 
-// --- 批次 3：`Game` 的两个只读标量 ---------------------------------------------
+// --- `Game` 的两个只读标量 ---------------------------------------------
 //
 // 这两个方法都要读引擎内存，而 `game_observer` 的观察函数只回答"读到了什么"、不暴露
 // `Game*` 本身，所以这里按 `interfaces/lua/isaac_api.cpp` 的同一套写法自带最小读取原语：
@@ -216,7 +216,7 @@ constexpr char kGameOwner[] = "Game";
 // 是本进程 malloc 出来的伪造块，本来就一定可读）。
 //
 // **只读**：这两个方法都不写引擎内存。
-// 「这段地址可读吗」：**唯一实现在引擎内存访问层里**（2026-09-24 批次 102 收敛）。
+// 「这段地址可读吗」：唯一实现在引擎内存访问层里（2026-09-24 收敛）。
 // 此前四个 API 族各有一份逐字相同的拷贝（去掉注释后各 781 字符）；判决条件一条没改，
 // 只是"实现在几处"从 4 变成了 1。**函数名保留** —— `test_lua_missing_members_batch028`
 // 按这个名字核对四个手写处理器体里有没有做可读性检查。
@@ -235,7 +235,7 @@ bool ReadEngine(std::uintptr_t address, T* value) noexcept {
 
 // 「这段地址可写吗」与写入口：与读侧同一套，实现在引擎内存访问层里（**唯一一份**）。
 //
-// ★ 批次 207（2026-09-29）加写侧：`HUD:SetVisible(bool)` 是 `Game` 家族**第一条写引擎内存**的 API
+// 加写侧：`HUD:SetVisible(bool)` 是 `Game` 家族第一条写引擎内存的 API
 //   （此前 `Game` 家族四个读数方法都只读，`game_api.cpp` 顶上的注释还写着"只读"）。
 //   写与读的危险等级不同 —— 写错地址是静默破坏别人的内存（随机崩溃/存档损坏且事后无从归因），
 //   所以这里照 `isaac_api.cpp` 的同一形态：**先确认可写，再写**，判定不通过就一个字节都不落。
@@ -328,7 +328,7 @@ int GameGetNumPlayers(lua_State* state) {
 //
 // 为什么先这样做：EID 的 `features/eid_api.lua:2046` 直接 `game:GetSeeds():IsCustomRun()`，
 // nil 会让整条 update 回调报错并被派发器摘除（真机报告 `01789210180`）。
-// ★ 批次 195（2026-09-29）：句柄仍然只是个"身份"，但**两个方法的返回值不再是自洽占位** ——
+// 句柄仍然只是个"身份"，但两个方法的返回值不再是自洽占位 ——
 //   `GetStartSeed`/`IsCustomRun` 现在按调用时的 `Game + 0x25D40` 那条链真读引擎
 //   （偏移与证据见 `runtime_constants.hpp` 的 `kGameSeedsObjectOffset`）。
 int GameGetSeeds(lua_State* state) {
@@ -383,13 +383,13 @@ int GameGetVictoryLap(lua_State* state) {
 //   * 玩家向量读得到且非空：`0 <= index < count` ⇒ 那一个；**下标"没被用上"（越界或负数）⇒ 最后一个**；
 //   * 向量为空 / 读不到 / 元素为空 / vptr 不符 ⇒ **nil**（两页正文都写"在任何玩家初始化之前调用可返回 nil"）。
 //
-// ★ 为什么越界给"最后一个"而不是 nil（后者看着更"安全"）：The Specialist for Good Items 的
+// 为什么越界给"最后一个"而不是 nil（后者看着更"安全"）：The Specialist for Good Items 的
 //   `main.lua:446` 写的是 `for playerNum = 1, game:GetNumPlayers() do local player = game:GetPlayer(playerNum)`
 //   —— **1 基**循环，单人局第一句就是 `GetPlayer(1)`（越界）；返回 nil 会立刻在 `:450` 的
 //   `player:GetPlayerType()` 上抛错、整条 `MC_POST_NEW_ROOM` 回调被摘（这正是本轮在修的现象）。
 //   按正文给"最后一个"才是与模组在 PC 上的行为一致的做法。
 //
-// ★ 为什么不像 `Isaac.GetPlayer` 那样越界给 nil：那一条是**既有行为**且有门禁钉着
+// 为什么不像 `Isaac.GetPlayer` 那样越界给 nil：那一条是既有行为且有门禁钉着
 //   （`test_lua_entity_player.py:731/736`、`test_lua_isaac_table.py:480` 断言越界/负数为 nil），
 //   本轮不动它；两处口径的差异（以及 `Isaac.md:326` 那条 `.reporplus` 正文写的是
 //   "非法 id ⇒ 按 0 处理"、属于 Repentance+ 而非本版本）登记在 `api_deviation.cpp` 的 0x0201000A。
@@ -424,7 +424,7 @@ int GameGetPlayer(lua_State* state) {
 // `Seeds:IsCustomRun()`：PC 语义是"挑战局**或**带种子的局"（`tools/pc_contract_docs/Seeds.md:111`
 // 签名 + `:112` 正文）。
 //
-// ★ 批次 195（2026-09-29）：**真读数** —— `Game + 0x25D40` 那**一个字节**（`Seeds + 0x0`）非 0
+// 真读数 —— `Game + 0x25D40` 那一个字节（`Seeds + 0x0`）非 0
 // 即"本局用的是玩家自选种子"。三处写（控制台 `seed <串>` / 角色选择界面输入种子 / `StartDebug`）、
 // 三处读（`Seeds::AchievementUnlocksDisallowed` 的 `非 0 ⇒ 本局禁成就`、`Seeds::Restart` 的
 // `非 0 ⇒ 沿用同一颗种子`、本函数）互相印证；逐条指令见 `runtime_constants.hpp` 的
@@ -454,14 +454,14 @@ int SeedsIsCustomRun(lua_State* state) {
 }
 
 // ---------------------------------------------------------------------------
-// 批次 214：`Seeds:HasSeedEffect` / `AddSeedEffect` / `RemoveSeedEffect`
+// `Seeds:HasSeedEffect` / `AddSeedEffect` / `RemoveSeedEffect`
 // ---------------------------------------------------------------------------
 //
 // 谁在用：MCM 的 `OpenConfigMenu()` 里 `seeds:AddSeedEffect(SeedEffect.SEED_NO_HUD)`（顺手隐藏 HUD）、
 // `CloseConfigMenu()` 里 `RemoveSeedEffect(...)`。**那几行不在 `pcall` 里** ⇒ 少一条就把"开菜单"
 // 那条路径打断（症状与"菜单画不出来"一模一样）。
 //
-// ★ 引擎侧取证（2026-09-30 反汇编）：
+// 引擎侧取证（2026-09-30 反汇编）：
 //   * `Seeds` 对象 = `Game + kGameSeedsObjectOffset`；布局见 `Seeds::Seeds @0x49CBD4`：
 //     `+0x00` u8、`+0x04` u32（= 起始种子，`SetStartSeed` 写它）、`+0x08` 一个 RNG、
 //     **`+0x58` 起是 `std::set<eSeedEffect>`**（libc++ `__tree`：end 在 `+0x58`、根在 `+0x60`）。
@@ -479,9 +479,9 @@ int SeedsIsCustomRun(lua_State* state) {
 
 // 2026-10-20更正：PC整数绑定直接set插入/删除，现按同一容器语义调用游戏分配器和
 // libc++树平衡/删除，不再依赖菜单名字。旧“不可信/空实现”说明保留为历史，当前代码已替换。
-//: 树深度上限：红黑树高度 = 2*log2(n)，这里的元素最多几十个 ⇒ 64 层远远够；有环也不会死循环。
-//: ★ 查找循环**内联在处理器正文里**（不抽公共助手）：桩检测器按"处理器正文里有没有碰引擎的标记"
-//:   判桩，把读整个藏进助手会让这条真实现被重新判成"安全桩"（`input_api.cpp` 里记过同一个坑）。
+// 树深度上限：红黑树高度 = 2*log2(n)，这里的元素最多几十个 ⇒ 64 层远远够；有环也不会死循环。
+// 查找循环内联在处理器正文里（不抽公共助手）：桩检测器按"处理器正文里有没有碰引擎的标记"
+// 判桩，把读整个藏进助手会让这条真实现被重新判成"安全桩"（`input_api.cpp` 里记过同一个坑）。
 constexpr int kSeedsEffectSearchDepth = 64;
 
 int SeedsHasSeedEffect(lua_State* state) {
@@ -535,10 +535,10 @@ int SeedsAddSeedEffect(lua_State* state) {
 // `Seeds:ForgetStageSeed(LevelStage Stage)` —— PC 契约 `tools/pc_contract_docs/Seeds.md`，语料 1 处。
 //
 // 引擎入口 `Seeds::ForgetStageSeed(eLevelStage)` @ `0x4A1228`（arity 1、返回 `void`）。
-// ★ `this` 不是句柄里存的地址：`Seeds` 是 **`Game` 里内嵌的子对象**（`Game + 0x25D40`，
+// `this` 不是句柄里存的地址：`Seeds` 是 `Game` 里内嵌的子对象（`Game + 0x25D40`，
 //   证据见 `kGameSeedsObjectOffset` 段），所以每次按当前 `Game` 基址现算 ——
 //   与 `Seeds:GetStartSeed()` 逐字同一条思路（换局/重建 `Game` 都不会拿到过期地址）。
-// ★ 入口 16 字节守卫写在 `runtime_constants.hpp`；这里用与 `Game:SpawnParticles` 相同的
+// 入口 16 字节守卫写在 `runtime_constants.hpp`；这里用与 `Game:SpawnParticles` 相同的
 //   `EngineOffsetAddress + VerifyEntryBytes` 两条关。
 //
 // 失败降级：拿不到 `Game` / 入口对不上 ⇒ **什么都不做、不报错**（PC 返回 `void`）。
@@ -578,16 +578,16 @@ int SeedsRemoveSeedEffect(lua_State* state) {
 // （`#### int GetStageSeed ( [LevelStage](enums/LevelStage.md) Stage )`）。
 //
 // 引擎侧 = 读 `Seeds + 0x18 + 4*Stage` 的一个 u32。**两条独立证据**（逐条写在
-// `runtime_constants.hpp` 的批次 306 段）：
+// `runtime_constants.hpp` 的段）：
 //   * Switch 侧：`Seeds::Seeds()` 构造函数把内嵌 `RNG` 放在 `+0x8`（16 字节 ⇒ 到 `+0x18` 为止），
 //     而 `Seeds::ForgetStageLevel(eLevelStage) @ 0x4A1228` 直接按下标读写这一格
 //     （`add x19,x0,w1,uxtw #2` → `ldr w1,[x19,#0x18]` → … → `str w0,[x19,#0x18]`）；
 //   * PC 侧：`GetStageSeed @ 0x705F30` = `mov eax, [esi + 4*eax + 0x18]` —— **基址与步长逐字相同**。
 //
-// ★ 谁在用：`BOIStageAPI15` 用 `GetStageSeed(stage)` 去 `StageRNG:SetSeed(...)`（3 处）、
+// 谁在用：`BOIStageAPI15` 用 `GetStageSeed(stage)` 去 `StageRNG:SetSeed(...)`（3 处）、
 //   `MusicModCallback` 用它挑曲目（1 处）。返回 nil 会让 `SetSeed(nil)` 那条整块抛错。
 //
-// ★ **边界**：PC 那条绑定**没有边界检查**（函数开头只有一句"本局已开始"的断言）⇒ 越界就是读飞。
+// 边界：PC 那条绑定没有边界检查（函数开头只有一句"本局已开始"的断言）⇒ 越界就是读飞。
 //   我们按 16 个槽降级（`+0x18` 到 `+0x58` 的 `__tree` 终点之间正好 16 个 u32）：
 //   **越界返回 0、不报错** —— 与 `BoolBitArrayOfArg` 的越界降级同一口径的**刻意偏离**
 //   （报错会摘掉整条模组回调，比"这个 stage 没种子"严重得多）。
@@ -607,7 +607,7 @@ int SeedsGetStageSeed(lua_State* state) {
         kGameSeedsObjectOffset + kSeedsStageSeedArrayOffset +
         kSeedsStageSeedStride * static_cast<std::uintptr_t>(stage);
     if (game != 0 && within <= UINTPTR_MAX - game && ReadEngine(game + within, &raw)) {
-        // ★ PC 的返回类型是 `int` ⇒ 按 int32 呈现（与 `GetStartSeed` 同一口径）。
+        // PC 的返回类型是 `int` ⇒ 按 int32 呈现（与 `GetStartSeed` 同一口径）。
         lua_pushinteger(state, static_cast<lua_Integer>(static_cast<std::int32_t>(raw)));
         return 1;
     }
@@ -617,20 +617,20 @@ int SeedsGetStageSeed(lua_State* state) {
 
 // `Seeds:GetNextSeed()` —— 契约 `tools/pc_contract_docs/Seeds.md:56/58`（`#### int GetNextSeed ( )`）。
 //
-// ★ 它**不是**一次字段读：PC 的绑定本体（`0x6C4560`）把 `RNG::Next()` **内联**在里面 ——
+// 它不是一次字段读：PC 的绑定本体（`0x6C4560`）把 `RNG::Next()` 内联在里面 ——
 //   读 `Seeds+0x8/+0xc/+0x10/+0x14` 四个字做 xorshift、**写回 `Seeds+0x8`**、并在 `eax` 里返回。
 //   Switch 侧同一个函数（`RNG::Next() @ 0x44E464`）是**独立符号**、指令逐句同形
 //   （`ldp w9,w10,[x19,#0x4]` / `ldr w9,[x19,#0xc]` / `str w0,[x19]`）。
 //   ⇒ 正确做法 = **调引擎自己的 `RNG::Next()`**、`this` 传 `Seeds + 0x8`，
 //     而不是自己抄一份 xorshift（抄了就是第二份真值源，迟早与引擎漂）。
 //
-// ★ 复用 `RNG:Next` 那条已经立好的发布链路（`RngNextThunk()` + 16 字节入口指纹
+// 复用 `RNG:Next` 那条已经立好的发布链路（`RngNextThunk()` + 16 字节入口指纹
 //   `ValidateRngNextBinding()`）—— **同一条引擎函数、同一份指纹，不另立一份**。
 //
-// ★ 谁在用：`TBOI_Better-Voiding` 把它当 `Game:Spawn` 的种子、`IsaacOnTwitchReloaded`
+// 谁在用：`TBOI_Better-Voiding` 把它当 `Game:Spawn` 的种子、`IsaacOnTwitchReloaded`
 //   把它喂给 `MakeChampion(seed)`（3 处）。**这条会推进引擎的种子 RNG**（与 PC 一致）。
 //
-// ★ 退化：拿不到 `Game*` / 绑定不可用 ⇒ 压 **0**（PC 的返回类型是 `int`；压 nil 会让
+// 退化：拿不到 `Game*` / 绑定不可用 ⇒ 压 0（PC 的返回类型是 `int`；压 nil 会让
 //   `Spawn(..., nil)` 与 `MakeChampion(nil)` 抛错）。**不报错**。
 int SeedsGetNextSeed(lua_State* state) {
     static_cast<void>(luaL_checkudata(state, 1, kSeedsMetatable));
@@ -645,8 +645,8 @@ int SeedsGetNextSeed(lua_State* state) {
         lua_pushinteger(state, 0);
         return 1;
     }
-    //: `RNG::Next()` 的返回值就是新种子（`RNG::Next @ 0x44e4ac` 把结果放在 `w0`，
-    //:  `0x44e4b0` 再写回 `[x19]`）—— 与 `RNG:Next` 那个处理器读回内存是同一个值的两种取法。
+    // `RNG::Next()` 的返回值就是新种子（`RNG::Next @ 0x44e4ac` 把结果放在 `w0`，
+    // `0x44e4b0` 再写回 `[x19]`）—— 与 `RNG:Next` 那个处理器读回内存是同一个值的两种取法。
     using NextFn = std::uint32_t (*)(void*);
     const std::uint32_t next =
         isaac::runtime::engine_call::AsFunction<NextFn>(method)(
@@ -679,7 +679,7 @@ int SeedsGetStartSeed(lua_State* state) {
     return 1;
 }
 
-// `Game:GetHUD()`（批次 207，2026-09-29）：返回一个 `HUD` 句柄（**不持有引擎指针**，
+// `Game:GetHUD()`：返回一个 `HUD` 句柄（不持有引擎指针，
 // 见 `HudHandle` 的注释）。
 //
 // PC 契约 `tools/pc_contract_docs/Game.md`（`HUD GetHUD ( )`，`.alldlc`）。消费者是 MCM：
@@ -698,20 +698,20 @@ int SeedsGetStartSeed(lua_State* state) {
 // Color(...), h)` —— **真实体调用**（`self` 在栈上），颜色**总是显式给**（所以缺省那一支只有
 // 契约口径可依，见下）。
 //
-// ★ ABI（反汇编 `0x3598F8`，逐条见 `runtime_constants.hpp` 的 `kGameSpawnParticlesOffset` 段）：
+// ABI（反汇编 `0x3598F8`，逐条见 `runtime_constants.hpp` 的 `kGameSpawnParticlesOffset` 段）：
 //   `(this=x0, pos=x1, variant=w2, count=w3, speed=s0, colorMod=x4, height=s1, subtype=w5)`，
 //   返回 `void`。两处容易写错的地方都有指令为证：`Height` 走 **`s1`**（不是因为它是第 6 个参数
 //   就走 s1 —— 是因为 `speed` 占了 `s0`），而且引擎会拿 `height == 100000.0f` 比一次决定分支
 //   ⇒ 缺省值必须按契约原文给 `100000`，不能给 0。
 //
-// ★ 为什么不写成数据行（项目的第一选择）：`ColorMod const&` 不是"把 Lua 值按标量宽度搬进寄存器"，
+// 为什么不写成数据行（项目的第一选择）：`ColorMod const&` 不是"把 Lua 值按标量宽度搬进寄存器"，
 //   而是**要先从 Lua 的 `Color` 句柄构造一个 44 字节的引擎对象**（`kColorModSize = 0x2C`、
 //   tint@+0x00、shift@+0x10 —— 见 `kSpriteColorOffset` 段）⇒ 形状机制表达不了这一步，只能手写。
-//   ★ 颜色 → `ColorMod` 的**映射**与 `sprite_api.cpp` 写 `Sprite.Color` 时那一份**逐字同源**
+//   颜色 → `ColorMod` 的映射与 `sprite_api.cpp` 写 `Sprite.Color` 时那一份逐字同源
 //     （tint = R/G/B/A、shift = 三个偏移分量、其余留 0）；两处必须一起改。
 //
-// ★ 失败降级：拿不到 `Game*` / 入口指纹不符 ⇒ **什么都不做**（返回 `void`，与 PC 同）且**不报错**
-//   —— 这是批次 250 定的口径（读不到原生状态不许抛 Lua 错误）。
+// 失败降级：拿不到 `Game*` / 入口指纹不符 ⇒ 什么都不做（返回 `void`，与 PC 同）且不报错
+//   —— 这是定的口径（读不到原生状态不许抛 Lua 错误）。
 int GameSpawnParticles(lua_State* state) {
     luaL_checkudata(state, 1, kGameMetatable);
     const int arguments = lua_gettop(state);  // 含 `self`
@@ -731,17 +731,17 @@ int GameSpawnParticles(lua_State* state) {
     const auto count = static_cast<std::int32_t>(lua_tointegerx(state, 4, nullptr));
     const float speed = static_cast<float>(luaL_checknumber(state, 5));
 
-    //: 引擎侧的 `ColorMod`（44 字节，布局见 `kColorModSize` 段）**批次 271 起住在
-    //: `engine_color_mod.hpp`** —— 本条的 `Color` 参数与 `Entity:SetColor` 的第一个参数
-    //: 是**同一个类型**，映射只留一份（原先这里是个函数内局部结构，再抄一份就是第三份）。
-    //: 下面这行 `static_assert` **保留在原地**：门禁 `test_lua_game_spawn_particles.py`
-    //: 钉住"这个处理器确实在用那个被钉住尺寸的类型"；尺寸本身的断言在头里也有一份。
+    // 引擎侧的 `ColorMod`（44 字节，布局见 `kColorModSize` 段）起住在
+    // `engine_color_mod.hpp` —— 本条的 `Color` 参数与 `Entity:SetColor` 的第一个参数
+    // 是同一个类型，映射只留一份（原先这里是个函数内局部结构，再抄一份就是第三份）。
+    // 下面这行 `static_assert` 保留在原地：门禁 `test_lua_game_spawn_particles.py`
+    // 钉住"这个处理器确实在用那个被钉住尺寸的类型"；尺寸本身的断言在头里也有一份。
     static_assert(sizeof(EngineColorMod) == kColorModSize,
                   "ColorMod 的字段数变了（见 kColorModSize 的取证）");
     EngineColorMod color = isaac::runtime::DefaultEngineColorMod();
     if (lua_toboolean(state, 6)) {
-        //: 缺省（不给第 5 个参数）就是契约的 `Color.Default` —— 白色不透明，
-        //: 也就是 `DefaultEngineColorMod()` 那份全 1 的 tint。
+        // 缺省（不给第 5 个参数）就是契约的 `Color.Default` —— 白色不透明，
+        // 也就是 `DefaultEngineColorMod()` 那份全 1 的 tint。
         if (!isaac::runtime::FillEngineColorMod(state, 6, &color)) {
             return luaL_error(state, "Game:SpawnParticles expects a Color");
         }
@@ -764,7 +764,7 @@ int GameSpawnParticles(lua_State* state) {
     if (game == 0 || !isaac::runtime::EngineEntryWordMatches(method, kGameSpawnParticlesEntryWord)) {
         return 0;  // 降级：什么都不做、不报错（PC 的返回类型就是 void）
     }
-    //: 参数表按 ABI 逐条对齐（`Vector2 const&` 与 `ColorMod const&` 都是**指针**）。
+    // 参数表按 ABI 逐条对齐（`Vector2 const&` 与 `ColorMod const&` 都是指针）。
     using GameSpawnParticlesFn =
         void (*)(void*, const LuaRuntime::VectorHandle*, int, int, float, const EngineColorMod*,
                  float, unsigned int);
@@ -829,13 +829,13 @@ int HudIsVisible(lua_State* state) {
 
 // `HUD:SetVisible(bool Visible = false)`：PC 契约 `tools/pc_contract_docs/HUD.md:54/56`。
 //
-// ★ PC 的缺省值是 **`false`**（文档签名里就写着），所以 Lua 侧**不传参数时按 `false` 写 0**
+// PC 的缺省值是 `false`（文档签名里就写着），所以 Lua 侧不传参数时按 `false` 写 0
 //   —— 与 `Entity:IsActiveEnemy(bool includeDead)` 那种"不传即 false"同一口径。
 //   参数非布尔（数字/字符串/nil）时也按 `false` 处理、**不抛错**：`lua_toboolean` 就是 PC 侧
 //   Lua→C++ `bool` 的转换口径（0 与空串为真，只有 `false`/`nil` 为假），而 MCM 传的一律是
 //   `false`/`true` 字面量。
 //
-// ★★ **本模块第一条"写 UI 状态"的 API**：写的就是 `HUD + 0xC53FA` 那一个字节，也就是
+// 本模块第一条"写 UI 状态"的 API：写的就是 `HUD + 0xC53FA` 那一个字节，也就是
 //    `HUD::Render()` 用来决定"整块 HUD 画不画"的开关。写坏这一格的代价是 HUD 不见（直到重进
 //    游戏），所以：只在 `Game*` 与那一字节都通过可写判定时才落值（`WriteEngine` 内部先判定），
 //    写失败**不报错** —— MCM 的 `OpenConfigMenu`/`CloseConfigMenu`（`modconfig.lua:2939/2961`）
@@ -947,7 +947,7 @@ int GameIsPaused(lua_State* state) {
     if (lua_gettop(state) != 1) {
         return luaL_error(state, "Game:IsPaused accepts no arguments");
     }
-    // ★ 2026-09-19（批次 043）：这里原本有一道 `InManagedCallbackScope()` 守卫，
+    // 2026-09-19：这里原本有一道 `InManagedCallbackScope()` 守卫，
     // 不在托管回调里就直接抛错（"… is only available during a Runtime callback"）。
     // **PC 没有这条限制**：模组在**加载期**读引擎状态是常见写法（GoodTrip 的
     // `scripts/floor.lua:11-17` 就在加载期读 `Game():GetLevel()`/`GetRoom()`/`Level:GetStage()`），
@@ -998,7 +998,7 @@ int GameIsGreedMode(lua_State* state) {
     return PushNativeFallbackBoolean(state, kFbGameIsGreedMode, false);
 }
 
-// `Game:ChangeRoom(int roomIndex, int dimension)`（批次 050）。
+// `Game:ChangeRoom(int roomIndex, int dimension)`。
 // 底座：`IsaacRepentance::Game::ChangeRoom(int, int)` @ `0x353FE0`（符号
 // `_ZN15IsaacRepentance4Game10ChangeRoomEii`），模块基址 + 偏移 + 入口 4 字节指纹
 // （判据见 `engine_method_lookup.hpp`）。
@@ -1023,7 +1023,7 @@ int GameGetItemPool(lua_State* state) {
     }
     void* itemPool = nullptr;
     if (ReadCurrentGameItemPool(GameOwnerSlot(), &itemPool) != GameItemPoolObservation::Success) {
-        // ★ 批次 250：给**空壳句柄**（既不报错、也不给 nil）。`ItemPool` 句柄本身不持指针
+        // 给空壳句柄（既不报错、也不给 nil）。`ItemPool` 句柄本身不持指针
         // （方法每次从全局槽现查），所以空壳没有野指针风险，只是它的方法会各自回退。
         // **PC 在这里返回的是对象** —— 同一个文件上面的 `Game:GetLevel` 一直是"永远给句柄"
         // 的写法（它从不失败），这里与它对齐；口径与理由见 `native_state_fallback.hpp`。
@@ -1050,7 +1050,7 @@ int GameGetRoom(lua_State* state) {
     }
     void* room = nullptr;
     if (ReadCurrentGameRoom(GameOwnerSlot(), &room) != GameRoomObservation::Success) {
-        // ★ 批次 250：给**空壳句柄**（既不报错、也不给 nil）。**PC 在这里返回的是对象** ——
+        // 给空壳句柄（既不报错、也不给 nil）。PC 在这里返回的是对象 ——
         // 模组作者就是敢直接写 `Game():GetRoom():GetType()`（GoodTrip 的 `scripts/floor.lua:15`
         // 直接把结果存进 `M.room` 再调它的方法）；给 nil 会让那句 "attempt to index a nil value"
         // 把**整个模组**的加载打断，而给空壳只是让该房间的方法各自回退。
@@ -1125,7 +1125,7 @@ int GameIndex(lua_State* state) {
         }
         if (std::strcmp(field, "TimeCounter") == 0) {
             // **有符号**读：控制台 `time` 命令用的是 `ldrsw`。
-            // ★ 写侧见 `remaining_api.cpp` 的 `TryWriteGameTimeCounter`（BUG-014，2026-10-26 补：
+            // 写侧见 `remaining_api.cpp` 的 `TryWriteGameTimeCounter`（BUG-014，2026-10-26 补：
             //   此前这个字段只有 getter，`__newindex` 只记忽略 ⇒ TimeMachine 的计时补偿丢失）。
             std::int32_t value = 0;
             if (game <= UINTPTR_MAX - kGameTimeCounterOffset &&
@@ -1160,49 +1160,49 @@ int GameIndex(lua_State* state) {
     return 1;
 }
 
-//: 批次 051：`Game` 的**引擎方法数据行**（机制见 `engine_method_api.hpp`）。
+// `Game` 的引擎方法数据行（机制见 `engine_method_api.hpp`）。
 constexpr EngineMethodRow kGameEngineRows[] = {
     // 0x000A `Game:ChangeRoom(int, int)`：`x0 = this(Game/Level)`、`w1 = 房间格`、`w2 = 维度`（-1 = 当前）。
     {0x0201000A, kGameChangeRoomOffset, kGameChangeRoomEntryWord, FieldReceipt::Level,
      EngineCallShape::Void2, 2, 0xFF},
     // 0x000B `Game:StartRoomTransition(int, Direction, RoomTransitionAnim, EntityPlayer, int)`
     //   —— GoodTrip 传送的**默认路径**（`scripts/trip.lua:207`）。5 个参数、第 4 个是玩家指针，
-    //   所以这一行用的是批次 055 的"任意签名"形状（描述符见 `isaac_api.cpp` 的 `kEngineCallShapes`）。
+    //   所以这一行用的是的"任意签名"形状（描述符见 `isaac_api.cpp` 的 `kEngineCallShapes`）。
     //   PC 文档（`Game.md`）逐字为
     //   `void StartRoomTransition(int RoomIndex, Direction, RoomTransitionAnim Animation = WALK,
     //    EntityPlayer Player = nil, int Dimension = -1)`。
     {0x0201000B, kGameStartRoomTransitionOffset, kGameStartRoomTransitionEntryWord,
      FieldReceipt::Level, EngineCallShape::VoidIntIntIntHandleInt, 5, 0xFF},
-    // ---- 批次 238：`Game:AddDevilRoomDeal`（void AddDevilRoomDeal ( )）
-    // 符号 `_ZN15IsaacRepentance4Game16AddDevilRoomDealEv`；形状按符号参数表取（见 `runtime_constants.hpp` 的批次 238 段）。
+    // ---- `Game:AddDevilRoomDeal`（void AddDevilRoomDeal ( )）
+    // 符号 `_ZN15IsaacRepentance4Game16AddDevilRoomDealEv`；形状按符号参数表取（见 `runtime_constants.hpp` 的段）。
     {0x0201000E, kGameAddDevilRoomDealOffset, kGameAddDevilRoomDealEntryWord, FieldReceipt::Level,
      EngineCallShape::Void0, 0, 0xFF},
-    // ---- 批次 238：`Game:Update`（void Update ( )）
-    // 符号 `_ZN15IsaacRepentance4Game6UpdateEv`；形状按符号参数表取（见 `runtime_constants.hpp` 的批次 238 段）。
+    // ---- `Game:Update`（void Update ( )）
+    // 符号 `_ZN15IsaacRepentance4Game6UpdateEv`；形状按符号参数表取（见 `runtime_constants.hpp` 的段）。
     {0x0201000F, kGameUpdateOffset, kGameUpdateEntryWord, FieldReceipt::Level,
      EngineCallShape::Void0, 0, 0xFF},
-    // ---- 批次 239：`Game:GetGreedBossWaveNum`（int GetGreedBossWaveNum ( )）
+    // ---- `Game:GetGreedBossWaveNum`（int GetGreedBossWaveNum ( )）
     // 接收者与同族既有的 `Game:ChangeRoom`/`Game:Update` 一致（`FieldReceipt::Level`：
     // 引擎里 `Level` 内嵌在 `Game` 起始处，所以同一条解析链）。
     {0x02010010, kGameGetGreedBossWaveNumOffset, kGameGetGreedBossWaveNumEntryWord,
      FieldReceipt::Level, EngineCallShape::Int0, 0, 0xFF},
-    // ---- 批次 252（2026-10-01）：`Game:ShowHallucination`（void ShowHallucination (
+    // ---- `Game:ShowHallucination`（void ShowHallucination (
     //   int FrameCount, BackdropType Backdrop = BackdropType.NUM_BACKDROPS )）
-    // PC 契约 `Game.md:484`。★ 那个缺省值**不是 0**（`NUM_BACKDROPS` 是枚举末值）
+    // PC 契约 `Game.md:484`。那个缺省值不是 0（`NUM_BACKDROPS` 是枚举末值）
     // ⇒ 不能用"尾部可省"（省略时寄存器保持 0，而 0 不是那个缺省）⇒ 形状用 `Void2`、两个参数都必填；
     // 语料也传满 2 个（`BOIStageAPI15/.../roomgfx.lua:160` 的 `ShowHallucination(0, backdrop)`）。
     {0x02010011, kGameShowHallucinationOffset, kGameShowHallucinationEntryWord,
      FieldReceipt::Level, EngineCallShape::Void2, 2, 0xFF},
-    // ---- 批次 253（2026-10-01）：`Game:CharmFart`
+    // ---- `Game:CharmFart`
     //   （void CharmFart ( Vector Position, float Radius, Entity Source )），PC 契约 `Game.md:102`。
-    // ★ 第 1 个参数是 `Vector2 const&`（走指针，见 `EngineArgKind::Vector2Ref`）；
+    // 第 1 个参数是 `Vector2 const&`（走指针，见 `EngineArgKind::Vector2Ref`）；
     //   第 3 个是**裸实体指针**（`PNS_6EntityE`）⇒ 用 `Handle` 种类。
     {0x02010012, kGameCharmFartOffset, kGameCharmFartEntryWord, FieldReceipt::Level,
      EngineCallShape::VoidVector2RefFloatHandle, 3, 0xFF},
-    // ---- 批次 254（2026-10-01）：`Game:MoveToRandomRoom`
+    // ---- `Game:MoveToRandomRoom`
     //   （void MoveToRandomRoom ( boolean IAmErrorRoom, int Seed, EntityPlayer Player )），
     //   PC 契约 `Game.md:424`。接收者与同族一致（`FieldReceipt::Level`）。
-    // ★ 引擎符号 `_ZN15IsaacRepentance4Game16MoveToRandomRoomEbjPNS_13Entity_PlayerE`
+    // 引擎符号 `_ZN15IsaacRepentance4Game16MoveToRandomRoomEbjPNS_13Entity_PlayerE`
     //   ⇒ `(bool, i32, Entity_Player*)`；第 3 个是**裸实体指针** ⇒ `Handle` 种类（`nil` = 空指针）。
     //   形状 `VoidBoolIntHandle`（本批新增；三种参数种类都已在表里，只差这一行组合）。
     //   语料传满 3 个（`BOIStageAPI15/.../callbacks.lua:142`）。
@@ -1210,53 +1210,53 @@ constexpr EngineMethodRow kGameEngineRows[] = {
      FieldReceipt::Level, EngineCallShape::VoidBoolIntHandle, 3, 0xFF},
 };
 
-//: 批次 297（2026-10-03）：`Game` 族的**字段读取型数据行**（此前 `Game` 一条都没有 ——
-//: `AttachGameMethods` 的字段表参数一直是 `nullptr, 0`）。
-//: ★ 家族的行表住在**自己的 TU** 里（与 `kLevelFieldApis` 在 `remaining_api.cpp`、
-//:   `kFieldApis` 在 `isaac_api.cpp` 同一条规矩）。
-//: ★ 接收者用 `FieldReceipt::Level` —— 枚举注释里本来就写着"`Game`/`Level`（引擎里 Level
-//:   内嵌在 Game 起始处，解析链同一条）"⇒ `Game` 与 `Level` 拿到的是**同一个地址**，
-//:   不需要新接收者。
+// `Game` 族的字段读取型数据行（此前 `Game` 一条都没有 ——
+// `AttachGameMethods` 的字段表参数一直是 `nullptr, 0`）。
+// 家族的行表住在自己的 TU 里（与 `kLevelFieldApis` 在 `remaining_api.cpp`、
+// `kFieldApis` 在 `isaac_api.cpp` 同一条规矩）。
+// 接收者用 `FieldReceipt::Level` —— 枚举注释里本来就写着"`Game`/`Level`（引擎里 Level
+// 内嵌在 Game 起始处，解析链同一条）"⇒ `Game` 与 `Level` 拿到的是同一个地址，
+// 不需要新接收者。
 constexpr FieldApiRow kGameFieldApis[] = {
     // `Game:GetStateFlag(int Flag)`（13 处 / 3 个模组）：读 `Game + 0x26FA50` 那个
     // **位数组**（每字节 8 个标志 ⇒ `offset2` = 1）的第 `Flag` 位。
-    // ★ 基址与位号的取证（两处**互相独立**的位点位）：`Level::IsBackwardsPath() @ 0x3E1DBC`
+    // 基址与位号的取证（两处互相独立的位点位）：`Level::IsBackwardsPath() @ 0x3E1DBC`
     //   读 `0x26FA56` 的 **bit 0**（`48 = STATE_BACKWARDS_PATH`）、
     //   `Level::CanSpawnDevilRoom() @ 0x3E79A0` 读 `0x26FA55` 的 **bit 7**
     //   （`47 = STATE_BACKWARDS_PATH_INIT`）；另有 `Level::Init @ 0x3E0F5C` 把
-    //   「基址 `0x26FA50` + 字节 6」直接写出来。详见 `runtime_constants.hpp` 的批次 297 段。
-    // ★ 降级档 `False`；越界标志号也走这一档（PC 那条绑定同样没有边界检查）。
+    //   「基址 `0x26FA50` + 字节 6」直接写出来。详见 `runtime_constants.hpp` 的段。
+    // 降级档 `False`；越界标志号也走这一档（PC 那条绑定同样没有边界检查）。
     // 契约：`tools/pc_contract_docs/Game.md` 的 `GetStateFlag` 行。
     {0x02010015, kGameStateFlagsOffset, 1, FieldKind::BoolBitArrayOfArg, FieldMissing::False,
      FieldReceipt::Level, 0xFF},
-    // ---- 批次 300（2026-10-03）：`Game:SetStateFlag(int Flag, boolean Value)`（1 处）----
+    // ---- `Game:SetStateFlag(int Flag, boolean Value)`（1 处）----
     // **写侧**：按实参给的标志号去同一个位数组里读改写那一位（`BoolBitArrayOfWriteArg`）。
     // PC 侧对应绑定是 `0x55DC20`（对 `Game+0x1822C` 那个 32 位字数组做读改写）—— 与
     // `GetStateFlag` 的 `0x4E61D0` **同一格**；Switch 侧的基址/位号取证见
-    // `runtime_constants.hpp` 的批次 297 段（本批只加**写**的那一半）。
+    // `runtime_constants.hpp` 的段（本批只加写的那一半）。
     // 契约：`tools/pc_contract_docs/Game.md` 的 `SetStateFlag` 行。
     {0x02010016, kGameStateFlagsOffset, 1, FieldKind::BoolBitArrayOfWriteArg,
      FieldMissing::False, FieldReceipt::Level, 0xFF},
-    // ---- 批次 342（2026-10-04）：`Game:Darken(float Darkness, int Timeout)`（1 处 / 1 个模组）----
+    // ---- `Game:Darken(float Darkness, int Timeout)`（1 处 / 1 个模组）----
     // PC 契约 `tools/pc_contract_docs/Game.md:129`：`#### void Darken ( float Darkness, int Timeout )`。
     // PC 绑定本体（`0x432F60`，`__thiscall`）= 把两个标量形参各存进一个成员 ⇒ **写两格**。
-    // ★ 走**新开的** `FieldKind::FloatThenIntFromArgs`（批次 342）：数值 → `offset`（float）、
+    // 走新开的 `FieldKind::FloatThenIntFromArgs`：数值 → `offset`（float）、
     //   整数 → `offset2`（i32）。既有 kind 每一种都只动一格 ⇒ 覆盖不了「两实参写两格」。
-    // ★ Switch 侧那两格 = `Game + 0x24F9C0`（TargetDarkness，float）与 `Game + 0x24F9B8`
+    // Switch 侧那两格 = `Game + 0x24F9C0`（TargetDarkness，float）与 `Game + 0x24F9B8`
     //   （Timeout，int）—— 布局表 `tools/layout_tables/game.json` 的两行都是 `confirmed`。
-    //   ★★ **两格不相邻**（中间夹着 `+0x24F9BC` 那个插值量）⇒ 必须两个独立偏移，
+    //   两格不相邻（中间夹着 `+0x24F9BC` 那个插值量）⇒ 必须两个独立偏移，
     //     绝不能用一条 `u64`/`u32` 掩盖（那会静默写坏中间那一格）。用例里有专门的反回归断言。
-    // ★ 证据（默认值成对写入 `Entity_NPC::ai_lamb`、每帧递减 `Game::Update`、渲染读
-    //   `Room::GetLightingAlpha`）写在 `runtime_constants.hpp` 的批次 342 段与布局表那两行的
+    // 证据（默认值成对写入 `Entity_NPC::ai_lamb`、每帧递减 `Game::Update`、渲染读
+    //   `Room::GetLightingAlpha`）写在 `runtime_constants.hpp` 的段与布局表那两行的
     //   `evidence` 里（`--verify` 会重新反汇编逐条核对）。
-    // ★ 降级档写 `Zero` 只为满足行结构（本 kind **不返回值**，`missing` 用不上）。
+    // 降级档写 `Zero` 只为满足行结构（本 kind 不返回值，`missing` 用不上）。
     {0x02010018, kGameTargetDarknessOffset, static_cast<std::uint32_t>(kGameDarknessTimeoutOffset),
      FieldKind::FloatThenIntFromArgs, FieldMissing::Zero, FieldReceipt::Level, 0xFF},
 };
 
-//: 批次 342（2026-10-04）：`Darken` 那两格的偏移在**两处**各有一个具名常量 —— 本表用的住在
-//: `runtime_constants.hpp`（字段行的门禁只认那里），布局表生成的 `layout::kGame…Offset`
-//: 服务别处。同一个值写两遍迟早漂移 ⇒ 编译期钉死（与批次 290/291/292/301/333/336/341 同一做法）。
+// `Darken` 那两格的偏移在两处各有一个具名常量 —— 本表用的住在
+// `runtime_constants.hpp`（字段行的门禁只认那里），布局表生成的 `layout::kGame…Offset`
+// 服务别处。同一个值写两遍迟早漂移 ⇒ 编译期钉死（与同一做法）。
 static_assert(kGameTargetDarknessOffset == layout::kGameTargetDarknessOffset,
               "TargetDarkness 的偏移在 runtime_constants.hpp 与布局表生成物之间不一致");
 static_assert(kGameDarknessTimeoutOffset == layout::kGameDarknessTimeoutOffset,
@@ -1269,25 +1269,25 @@ std::size_t AttachGameMethods(lua_State* state) noexcept {
                               kGameEngineRows, sizeof(kGameEngineRows) / sizeof(kGameEngineRows[0]));
 }
 
-//: 批次 335（2026-10-03）：`Seeds` 的**引擎方法数据行**。
-//:
-//: ★ 为什么此前 `Seeds` 家族一条引擎方法行都没有：那三条手写方法
-//:   （`GetStageSeed` / `GetNextSeed` / `ForgetStageSeed`）之所以手写，注释里写得很清楚 ——
-//:   「`Seeds` 句柄**不持引擎指针**（接收者要 `Game + kGameSeedsObjectOffset` 现算
-//:   ⇒ 先要有 `FieldReceipt::Seeds` 这一档）」。本批把那一档补上了
-//:   （见 `field_api.hpp` 与 `isaac_api.cpp` 的 `ResolveFieldReceipt`），
-//:   于是 `Seeds:SetStartSeed` 可以落成 16 字节数据行（**0 字节代码**）。
-//: ★ 既有的三条手写方法**本批不动**（改动最小）：它们各有自己的取证与语义
-//:   （`GetNextSeed` 还要推进内嵌 RNG），重写成数据行是另一笔账。
-//:
-//: `Seeds:SetStartSeed(int)` —— PC 契约 `tools/pc_contract_docs/Seeds.md:170/172`
-//: （逐字 `#### void SetStartSeed ( string StartSeed )` + "Empty string means we will pick
-//: a new random seed."）。语料 `IsaacOnTwitchReloaded/scripts/events.lua:1433` 与 `:1465`
-//: 传的是 **数字**（`seeds:GetNextSeed()` 的返回值）⇒ 走引擎的**数字重载**
-//: `Seeds::SetStartSeed(unsigned int)` @ `0x4A1114`（字符串版只是"解析 + 尾调"它）。
-//: 形状复用现成的 `EngineCallShape::Void1`（`void(this, i32)`）—— 本批**零新形状**。
-//: 逐条证据（两个重载的 mangled 名、字符串版的尾调关系、数字版的分支）见
-//: `runtime_constants.hpp` 的批次 335 段。
+// `Seeds` 的引擎方法数据行。
+//
+// 为什么此前 `Seeds` 家族一条引擎方法行都没有：那三条手写方法
+// （`GetStageSeed` / `GetNextSeed` / `ForgetStageSeed`）之所以手写，注释里写得很清楚 ——
+// 「`Seeds` 句柄不持引擎指针（接收者要 `Game + kGameSeedsObjectOffset` 现算
+// ⇒ 先要有 `FieldReceipt::Seeds` 这一档）」。本批把那一档补上了
+// （见 `field_api.hpp` 与 `isaac_api.cpp` 的 `ResolveFieldReceipt`），
+// 于是 `Seeds:SetStartSeed` 可以落成 16 字节数据行（0 字节代码）。
+// 既有的三条手写方法本批不动（改动最小）：它们各有自己的取证与语义
+// （`GetNextSeed` 还要推进内嵌 RNG），重写成数据行是另一笔账。
+//
+// `Seeds:SetStartSeed(int)` —— PC 契约 `tools/pc_contract_docs/Seeds.md:170/172`
+// （逐字 `#### void SetStartSeed ( string StartSeed )` + "Empty string means we will pick
+// a new random seed."）。语料 `IsaacOnTwitchReloaded/scripts/events.lua:1433` 与 `:1465`
+// 传的是 数字（`seeds:GetNextSeed()` 的返回值）⇒ 走引擎的数字重载
+// `Seeds::SetStartSeed(unsigned int)` @ `0x4A1114`（字符串版只是"解析 + 尾调"它）。
+// 形状复用现成的 `EngineCallShape::Void1`（`void(this, i32)`）—— 本批零新形状。
+// 逐条证据（两个重载的 mangled 名、字符串版的尾调关系、数字版的分支）见
+// `runtime_constants.hpp` 的段。
 constexpr EngineMethodRow kSeedsEngineRows[] = {
     // 0x000A `SetStartSeed(int)`（id 取 Seed 域下一个空号；目录行见 `api_catalog.cpp`）。
     {0x0F01000A, kSeedsSetStartSeedOffset, kSeedsSetStartSeedEntryWord, FieldReceipt::Seeds,
@@ -1295,7 +1295,7 @@ constexpr EngineMethodRow kSeedsEngineRows[] = {
 };
 
 std::size_t AttachSeedsMethods(lua_State* state) noexcept {
-    // 批次 335：与 `AttachGameMethods` 同形 —— 手写绑定表与引擎方法数据行**并存**
+    // 与 `AttachGameMethods` 同形 —— 手写绑定表与引擎方法数据行并存
     // （`AttachOwnerMethods` 先按手写绑定行匹配、匹配不到再按数据行挂，所以同一 owner
     //  里两者可以共存；`Seeds` 那三条手写方法继续走绑定表）。
     return AttachApi700Methods(state,"Seeds") + AttachApi300Methods(state,"Seeds") + AttachApi200Methods(state,"Seeds") + AttachOwnerMethods(state, kSeedsOwner, kSeedsHandlers,
@@ -1304,7 +1304,7 @@ std::size_t AttachSeedsMethods(lua_State* state) noexcept {
                               sizeof(kSeedsEngineRows) / sizeof(kSeedsEngineRows[0]));
 }
 
-// 批次 207（2026-09-29）：`HUD` 家族（`Game:GetHUD()` 的返回值）的方法表装配。
+// `HUD` 家族（`Game:GetHUD()` 的返回值）的方法表装配。
 // 与 `AttachSeedsMethods` 同形：句柄无字段 ⇒ 元表建在 `lua_runtime.cpp` 的 `RegisterGameApi`
 // 里，`__index` 直接就是这张表。
 std::size_t AttachHudMethods(lua_State* state) noexcept {

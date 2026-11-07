@@ -19,45 +19,45 @@
 
 namespace isaac::runtime::console {
 
-//: 引擎的动作查询跳板（`Manager::IsActionPressed` 那一族的跳板会**自己装 Manager 单例**，
-//: 所以第一个参数与最后一个 `Entity*` 都传 `nullptr`）。与模组菜单同一个调用形状。
+// 引擎的动作查询跳板（`Manager::IsActionPressed` 那一族的跳板会自己装 Manager 单例，
+// 所以第一个参数与最后一个 `Entity*` 都传 `nullptr`）。与模组菜单同一个调用形状。
 using ActionQueryFn = bool (*)(void*, std::uint32_t, std::uint32_t, void*);
-//: `Font::DrawStringScaledUTF8(Font*, text, x, y, xScale, yScale, Color const*, boxWidth, center)`。
+// `Font::DrawStringScaledUTF8(Font*, text, x, y, xScale, yScale, Color const*, boxWidth, center)`。
 using DrawTextFn = void (*)(void*, const char*, float, float, float, float, const void*, int, bool);
 using FontLineHeightFn = std::uint16_t (*)(const void*);
-//: `Font::GetStringWidthUTF8(Font*, text)` —— 量一行 ASCII 的宽度（**未缩放**像素）。
-//: 与 `lua_runtime_state.hpp` 里那个 Lua 侧同名的 typedef 是同一个函数、同一套签名。
+// `Font::GetStringWidthUTF8(Font*, text)` —— 量一行 ASCII 的宽度（未缩放像素）。
+// 与 `lua_runtime_state.hpp` 里那个 Lua 侧同名的 typedef 是同一个函数、同一套签名。
 using StringWidthFn = int (*)(const void*, const char*);
 
-//: 引擎自己的菜单代码就是这么问按键的（"任意手柄"，见 `mod_menu_native.cpp` 里那三条依据）。
+// 引擎自己的菜单代码就是这么问按键的（"任意手柄"，见 `mod_menu_native.cpp` 里那三条依据）。
 inline constexpr std::uint32_t kAnyController = 0xFFFFFFFFU;
-//: 按键诊断扫描的动作号范围（`ButtonAction` 的号都小于 28）。
+// 按键诊断扫描的动作号范围（`ButtonAction` 的号都小于 28）。
 inline constexpr std::uint32_t kActionScanLimit = 32;
-//: 呼出需要**连续按住**多少帧（约 0.8 秒 @60fps）。
-//: 为什么不是"按住的上升沿"：A/B 在局内是射击面键，连打时两键会在同一帧内同时按下
-//: （真机实测会误触弹出软键盘）；"持续按住 0.8 秒"是更强的事件，连打时凑不出来。
+// 呼出需要连续按住多少帧（约 0.8 秒 @60fps）。
+// 为什么不是"按住的上升沿"：A/B 在局内是射击面键，连打时两键会在同一帧内同时按下
+// （真机实测会误触弹出软键盘）；"持续按住 0.8 秒"是更强的事件，连打时凑不出来。
 inline constexpr std::uint32_t kConsoleTriggerHoldFrames = 48;
-//: 输出在屏幕上保留多少帧（约 3 秒 @60fps）。
-//: ★ 批次 123（用户要求）：原来是 8 秒，太长 ⇒ 改成 3 秒。
+// 输出在屏幕上保留多少帧（约 3 秒 @60fps）。
+// （用户要求）：原来是 8 秒，太长 ⇒ 改成 3 秒。
 inline constexpr std::uint32_t kOverlayHoldFrames = 60U * 3U;
-//: 覆盖层的画法（**纯 ASCII 字体**，所以只画英文；中文要用模组那套带字形核对的字体层）。
-//: ★ 批次 123（用户要求）：字体调小（1.35 → 0.75，够看清就行）、整块**贴右上角**。
-//: 右对齐怎么算：用引擎自己的 `Font::GetStringWidthUTF8` 量出每行宽度（**未缩放**的像素），
-//: 取最宽的一行算统一的左端 x = 屏幕宽 − 右边距 − 最宽行 × 缩放。**不猜字符宽度**。
+// 覆盖层的画法（纯 ASCII 字体，所以只画英文；中文要用模组那套带字形核对的字体层）。
+// （用户要求）：字体调小（1.35 → 0.75，够看清就行）、整块贴右上角。
+// 右对齐怎么算：用引擎自己的 `Font::GetStringWidthUTF8` 量出每行宽度（未缩放的像素），
+// 取最宽的一行算统一的左端 x = 屏幕宽 − 右边距 − 最宽行 × 缩放。不猜字符宽度。
 inline constexpr float kOverlayScale = 0.75F;
-//: 距屏幕上边的留白（第一行标题的顶端）与距屏幕右边的留白。
+// 距屏幕上边的留白（第一行标题的顶端）与距屏幕右边的留白。
 inline constexpr float kOverlayTopMargin = 12.0F;
 inline constexpr float kOverlayRightMargin = 14.0F;
-//: 量不出宽度时的**退化位置**（退回左上角）与屏幕宽读不到时的兜底宽度 ——
-//: 这两种情况都很少见，但宁可位置不理想，也不能把字挤到屏幕外（右对齐算错就会那样）。
+// 量不出宽度时的退化位置（退回左上角）与屏幕宽读不到时的兜底宽度 ——
+// 这两种情况都很少见，但宁可位置不理想，也不能把字挤到屏幕外（右对齐算错就会那样）。
 inline constexpr float kOverlayFallbackLeftX = 12.0F;
 inline constexpr float kOverlayFallbackScreenWidth = 1280.0F;
 inline constexpr float kOverlayStepFallback = 12.0F;  // 行距兜底（取不到 lineHeight 时用）
 inline constexpr float kOverlayColor[4] = {0.93F, 0.97F, 0.87F, 1.0F};
 inline constexpr char kOverlayTitle[] = "CONSOLE  (hold A+B)";
 
-//: `IsaacRepentance::WIDTH`（屏幕宽，float）。槽里放的是**指向 float 的指针** ⇒ 槽 → 指针 → float。
-//: 读不到或数值不合理（≤1 / >8192 ⇒ 溢出成垃圾）就回兜底宽度：右对齐只用它算 x，不值得因此不画。
+// `IsaacRepentance::WIDTH`（屏幕宽，float）。槽里放的是指向 float 的指针 ⇒ 槽 → 指针 → float。
+// 读不到或数值不合理（≤1 / >8192 ⇒ 溢出成垃圾）就回兜底宽度：右对齐只用它算 x，不值得因此不画。
 [[nodiscard]] inline float ScreenWidth(std::uintptr_t base) noexcept {
     const std::uintptr_t slot = LoadPointerField(base, kIsaacScreenWidthSlotOffset);
     float width = 0.0F;

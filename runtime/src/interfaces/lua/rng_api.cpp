@@ -1,6 +1,6 @@
 #include "interfaces/lua/rng_api.hpp"
 
-#include "infrastructure/call/engine_call_access.hpp"  // 引擎调用层（批次 110：调引擎只在这里转换签名）
+#include "infrastructure/call/engine_call_access.hpp"  // 引擎调用层（调引擎只在这里转换签名）
 #include "interfaces/lua/lua_integer_argument.hpp"
 #include "interfaces/lua/owner_binding.hpp"
 
@@ -19,7 +19,7 @@ extern "C" {
 #include <lauxlib.h>
 }
 
-//: 引擎调用层的短别名（批次 110）：本文件里"把已核对过的地址变成可调用签名"只走它。
+// 引擎调用层的短别名：本文件里"把已核对过的地址变成可调用签名"只走它。
 namespace engine_call = isaac::runtime::engine_call;
 
 namespace isaac::runtime {
@@ -63,7 +63,7 @@ using LuaRuntime::ValidateRngSetSeedBinding;
 int RngSetSeed(lua_State* state);
 int RngNext(lua_State* state);
 int RngGetSeed(lua_State* state);
-// 批次 195（2026-09-29）：PC 的 `RNG:RandomInt(int Max)` / `RNG:RandomFloat()`。
+// PC 的 `RNG:RandomInt(int Max)` / `RNG:RandomFloat()`。
 int RngRandomInt(lua_State* state);
 int RngRandomFloat(lua_State* state);
 
@@ -71,7 +71,7 @@ constexpr LuaHandlerBinding kRngHandlers[] = {
     {0x07010001, &RngSetSeed},
     {0x07010002, &RngNext},
     {0x07010003, &RngGetSeed},
-    // 批次 195：id 取域内**下一个空号**（`0x0003` 之后连着的两个，见 `api_catalog.cpp`
+    // id 取域内下一个空号（`0x0003` 之后连着的两个，见 `api_catalog.cpp`
     // 同两行的注释）—— 与 `Isaac`/`EntityPlayer` 家族取号的规则相同。
     {0x07010004, &RngRandomInt},
     {0x07010005, &RngRandomFloat},
@@ -119,7 +119,7 @@ int RngNext(lua_State* state) {
     return 1;
 }
 
-// `RNG:GetSeed()`（批次 13，2026-09-16）：PC 文档 `analysis/isaacdocs-snapshot/docs/RNG.md:56`
+// `RNG:GetSeed()`：PC 文档 `analysis/isaacdocs-snapshot/docs/RNG.md:56`
 // —— "Returns the current seed of the RNG object"，返回类型 `int`。
 //
 // 为什么不需要引擎调用：RNG 的种子就是它自己的**头 4 字节**。证据在
@@ -140,7 +140,7 @@ int RngGetSeed(lua_State* state) {
     return 1;
 }
 
-// 批次 195（2026-09-29）：`RNG:RandomInt(int Max)` / `RNG:RandomFloat()`。
+// `RNG:RandomInt(int Max)` / `RNG:RandomFloat()`。
 //
 // **为什么必须补这两条**（不是"顺手加的"）：语料里的 Trinity 写的是
 // `GetCollectibleRNG(CollectibleType.BIRTHRIGHT):RandomFloat()`（`analysis/mod-corpus/Trinity/main.lua:173`）
@@ -155,7 +155,7 @@ int RngGetSeed(lua_State* state) {
 //   * `RNG::Random(unsigned Max)` → `uint`（引擎自己在 `UsePill` 里 `.Random(50)`、`UseCard` 里 `.Random(97)`）；
 //   * `RNG::Random()` → `float`。
 //
-// ★ 与另外三条一样，这里操作的是**本句柄自己的 16 字节快照**（PC 改的是实体里那颗 RNG）——
+// 与另外三条一样，这里操作的是本句柄自己的 16 字节快照（PC 改的是实体里那颗 RNG）——
 //   这正是 `api_deviation.cpp` 的 `0x0E010054` 与 `0x0E010033`~`0x0E010036` 那几条 `design`
 //   登记的口径差异；"同一个句柄上连续 `Next()`/`RandomInt()` 得到的序列与 PC 相同"。
 //

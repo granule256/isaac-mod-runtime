@@ -19,7 +19,7 @@ namespace isaac::runtime {
 //
 // Returns how many methods were attached.
 [[nodiscard]] std::size_t AttachMusicMethods(lua_State* state) noexcept;
-// 批次 045：`SFXManager()` 的方法表与构造器（元表/全局由中枢建）。
+// `SFXManager()` 的方法表与构造器（元表/全局由中枢建）。
 [[nodiscard]] std::size_t AttachSfxManagerMethods(lua_State* state) noexcept;
 int SfxManagerCtor(lua_State* state);
 

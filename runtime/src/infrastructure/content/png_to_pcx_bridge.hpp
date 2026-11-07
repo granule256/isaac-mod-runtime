@@ -17,7 +17,7 @@ bool PngToPcxStreaming(const uint8_t* png, size_t png_size, InflateRowsFn inflat
 
 using InflateFn = int (*)(uint8_t* dest, size_t dest_len, const uint8_t* src, size_t src_len);
 
-// ── 一次转码的**峰值内存预算**与**峰值上界公式**（批次 402）────────────────────────
+// 一次转码的峰值内存预算与峰值上界公式
 //
 // ## 为什么要有这段（真机事故换来的）
 //
@@ -44,12 +44,12 @@ using InflateFn = int (*)(uint8_t* dest, size_t dest_len, const uint8_t* src, si
 // ## 预算为什么是 64 MiB（= 假堆的一半）
 //
 //   假堆总 128 MiB，而它**同时**装着 Lua 状态、模块自身、转码缓存等常驻量 —— 真机实测
-//   `arena` 已用 **47.4 MiB**（批次 181 读数更正，见 `mod_menu_native.hpp` 那段）。
+//   `arena` 已用 47.4 MiB（读数更正，见 `mod_menu_native.hpp` 那段）。
 //   把"单次转码峰值"卡在**一半（64 MiB）**：即便算上那 47.4 MiB 常驻，仍留有 ≥16 MiB 活动余量
 //   （128 − 47.4 − 64 ≈ 16.6 MiB）给 malloc 碎片与引擎侧临时分配。这个数不像旧值那样"凭空"——
 //   旧值 `kMaxDecodedBytes = 256 MiB` > 假堆总量，本身就是个必然踩穿的洞。
 //
-// ★ 预算与公式**只此一份**：`PngToPcx`（设备侧转码）与调用方预检（`ImagePcxPngVerdict`）都用它，
+// 预算与公式只此一份：`PngToPcx`（设备侧转码）与调用方预检（`ImagePcxPngVerdict`）都用它，
 //   口径不可能漂移；改动只改这里。
 inline constexpr std::uint64_t kPngToPcxPeakBudgetBytes = 64ull * 1024 * 1024;
 
@@ -70,7 +70,7 @@ inline constexpr std::uint64_t kPcxStreamBlockOverhead = 2 * sizeof(void*);
     return workspace + blocks * perBlock;
 }
 
-//: 上面那条最坏峰值公式的实现。调用方预检只需 IHDR（W/H/颜色类型）+ 文件长度即可先算它。
+// 上面那条最坏峰值公式的实现。调用方预检只需 IHDR（W/H/颜色类型）+ 文件长度即可先算它。
 [[nodiscard]] constexpr std::uint64_t PngToPcxPeakUpperBound(std::uint64_t png_size,
                                                              std::uint64_t width,
                                                              std::uint64_t height,
@@ -85,7 +85,7 @@ inline constexpr std::uint64_t kPcxStreamBlockOverhead = 2 * sizeof(void*);
 //   128 字节头 + 8bpp × 4 平面（RGBA）逐行逐平面 RLE，无尾部调色板（与本体 `*.pcx` 逐字段一致）。
 // 成功：`*out` 指向新分配的缓冲（调用方须 `delete[]` 释放）、`*out_size` 写入字节数，返回 true。
 // 形态不支持（调色板/16bit/隔行/未知色型）或字节损坏：返回 false（不抛、不崩、不越界读）。
-// ★ 批次 402：**任何分配失败 / 峰值超 `kPngToPcxPeakBudgetBytes` 也返回 false**（绝不抛、绝不 abort）。
+// 任何分配失败 / 峰值超 `kPngToPcxPeakBudgetBytes` 也返回 false（绝不抛、绝不 abort）。
 bool PngToPcx(const uint8_t* png, size_t png_size, InflateFn inflate_one,
               uint8_t** out, size_t* out_size) noexcept;
 

@@ -32,7 +32,7 @@ struct ColorField {
 // features/eid_api.lua:1440`、`main.lua:232`），而本实现原先只认短名 —— 结果 EID 那种写法会在
 // 赋值处直接报错。短名保留为**别名**：PC 上能跑的 Mod 不会因此失效，多接受一组名字没有代价。
 //
-// 批次 3 追加 `RO`/`GO`/`BO`（PC `Color` 文档的变量名，
+// 追加 `RO`/`GO`/`BO`（PC `Color` 文档的变量名，
 // `analysis/isaacdocs-snapshot/docs/Color.md:115`–`141`）：三个颜色**偏移**分量，与
 // `Color(R,G,B,A,RO,GO,BO)` 构造函数的后三个参数对应。
 constexpr ColorField kColorFields[] = {

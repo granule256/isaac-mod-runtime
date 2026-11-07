@@ -231,7 +231,7 @@ def main(argv: list[str] | None = None) -> int:
         if output_parent is not None:
             files = snapshot(outputs_dir)
             restore(files, output_parent)
-            # ★ 键里**故意不含输出路径**（每个模块都用临时目录，含进去就永不命中），
+            # 键里故意不含输出路径（每个模块都用临时目录，含进去就永不命中），
             # 于是"上次跑的时候输出文件叫什么名字"可能与这次不同（实测踩过：缓存里叫
             # `out.json`、调用方要 `remaining-getters.json` ⇒ 命中后调用方找不到文件，
             # 报 FileNotFoundError，看起来像 Ghidra 坏了）。

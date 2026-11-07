@@ -7,7 +7,7 @@
 namespace isaac::runtime {
 namespace {
 
-//: `Isaac.GetItemIdByName` 的名字块（717 条，按名字升序）。
+// `Isaac.GetItemIdByName` 的名字块（717 条，按名字升序）。
 constexpr char kCollectibleNameBlob[8317] = {
     "120 Volt\0"
     "1up!\0"
@@ -728,7 +728,7 @@ constexpr char kCollectibleNameBlob[8317] = {
     "Zodiac\0"
 };
 
-//: `Isaac.GetCardIdByName` 的名字块（87 条，按名字升序）。
+// `Isaac.GetCardIdByName` 的名字块（87 条，按名字升序）。
 constexpr char kCardNameBlob[1366] = {
     "0 - The Fool\0"
     "0 - The Fool\?\0"
@@ -819,7 +819,7 @@ constexpr char kCardNameBlob[1366] = {
     "XXI - The World\?\0"
 };
 
-//: `Isaac.GetPillEffectByName` 的名字块（50 条，按名字升序）。
+// `Isaac.GetPillEffectByName` 的名字块（50 条，按名字升序）。
 constexpr char kPillEffectNameBlob[617] = {
     "48 Hour Energy!\0"
     "\?\?\?\0"
@@ -873,7 +873,7 @@ constexpr char kPillEffectNameBlob[617] = {
     "X-Lax\0"
 };
 
-//: `Isaac.GetPlayerTypeByName` 的名字块（21 条，按名字升序）。
+// `Isaac.GetPlayerTypeByName` 的名字块（21 条，按名字升序）。
 constexpr char kPlayerTypeNameBlob[160] = {
     "\?\?\?\0"
     "Apollyon\0"
@@ -898,7 +898,7 @@ constexpr char kPlayerTypeNameBlob[160] = {
     "The Soul\0"
 };
 
-//: `Isaac.GetChallengeIdByName` 的名字块（44 条，按名字升序）。
+// `Isaac.GetChallengeIdByName` 的名字块（44 条，按名字升序）。
 constexpr char kChallengeNameBlob[527] = {
     "Aprils fool\0"
     "BEANS!\0"
@@ -946,7 +946,7 @@ constexpr char kChallengeNameBlob[527] = {
     "XXXXXXXXL\0"
 };
 
-//: `Isaac.GetTrinketIdByName` 的名字块（188 条，按名字升序）。
+// `Isaac.GetTrinketIdByName` 的名字块（188 条，按名字升序）。
 constexpr char kTrinketNameBlob[2309] = {
     "'M\0"
     "\?\?\?'s Soul\0"
@@ -1138,7 +1138,7 @@ constexpr char kTrinketNameBlob[2309] = {
     "Your Soul\0"
 };
 
-//: `Isaac.GetItemIdByName` 的条目表（与上面名字块一一对应）。
+// `Isaac.GetItemIdByName` 的条目表（与上面名字块一一对应）。
 constexpr IsaacNameEntry kCollectibleNameEntries[] = {
     {0, 559, -1},
     {9, 11, -1},
@@ -1859,7 +1859,7 @@ constexpr IsaacNameEntry kCollectibleNameEntries[] = {
     {8309, 392, -1},
 };
 
-//: `Isaac.GetCardIdByName` 的条目表（与上面名字块一一对应）。
+// `Isaac.GetCardIdByName` 的条目表（与上面名字块一一对应）。
 constexpr IsaacNameEntry kCardNameEntries[] = {
     {0, 1, -1},
     {13, 56, -1},
@@ -1950,7 +1950,7 @@ constexpr IsaacNameEntry kCardNameEntries[] = {
     {1348, 77, -1},
 };
 
-//: `Isaac.GetPillEffectByName` 的条目表（与上面名字块一一对应）。
+// `Isaac.GetPillEffectByName` 的条目表（与上面名字块一一对应）。
 constexpr IsaacNameEntry kPillEffectNameEntries[] = {
     {0, 20, -1},
     {16, 31, -1},
@@ -2004,7 +2004,7 @@ constexpr IsaacNameEntry kPillEffectNameEntries[] = {
     {610, 39, -1},
 };
 
-//: `Isaac.GetPlayerTypeByName` 的条目表（与上面名字块一一对应）。
+// `Isaac.GetPlayerTypeByName` 的条目表（与上面名字块一一对应）。
 constexpr IsaacNameEntry kPlayerTypeNameEntries[] = {
     {0, 4, 25},
     {4, 15, 34},
@@ -2029,7 +2029,7 @@ constexpr IsaacNameEntry kPlayerTypeNameEntries[] = {
     {150, 17, 40},
 };
 
-//: `Isaac.GetChallengeIdByName` 的条目表（与上面名字块一一对应）。
+// `Isaac.GetChallengeIdByName` 的条目表（与上面名字块一一对应）。
 constexpr IsaacNameEntry kChallengeNameEntries[] = {
     {0, 32, -1},
     {12, 13, -1},
@@ -2077,7 +2077,7 @@ constexpr IsaacNameEntry kChallengeNameEntries[] = {
     {516, 21, -1},
 };
 
-//: `Isaac.GetTrinketIdByName` 的条目表（与上面名字块一一对应）。
+// `Isaac.GetTrinketIdByName` 的条目表（与上面名字块一一对应）。
 constexpr IsaacNameEntry kTrinketNameEntries[] = {
     {0, 138, -1},
     {3, 57, -1},
@@ -2269,8 +2269,8 @@ constexpr IsaacNameEntry kTrinketNameEntries[] = {
     {2298, 173, -1},
 };
 
-//: 名字块按名字升序 ⇒ 下面的查找走**二分**（表最大 960 条，无脑线性扫也能过，
-//: 但二分让「每帧查几次」的模组不吃亏；前提是同一份升序，见生成器的排序）。
+// 名字块按名字升序 ⇒ 下面的查找走二分（表最大 960 条，无脑线性扫也能过，
+// 但二分让「每帧查几次」的模组不吃亏；前提是同一份升序，见生成器的排序）。
 constexpr IsaacNameTable kIsaacNameTables[] = {
     {kCollectibleNameBlob, kCollectibleNameEntries, sizeof(kCollectibleNameEntries) / sizeof(kCollectibleNameEntries[0])},
     {kCardNameBlob, kCardNameEntries, sizeof(kCardNameEntries) / sizeof(kCardNameEntries[0])},

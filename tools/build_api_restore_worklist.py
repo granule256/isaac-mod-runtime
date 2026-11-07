@@ -1,29 +1,8 @@
 #!/usr/bin/env python3
-"""生成「批量恢复 Lua API」的待办清单（机器可读 + 人读汇总）。
+"""生成 Lua API 恢复工作清单及汇总报告。
 
-这份清单是 `docs/批量恢复API的流水线.md` 的**第 0 道闸门**：它把「17 个语料模组里
-运行时找不到的 API」逐条判成**走哪条机制**，并把每条**现在还不能做**的原因指出来。
-
-它存在的理由（都是踩过的坑，见流水线文档的「错误模式库」）：
-  * 库存工具 `build_lua_api_inventory.py` 的 `thunk_readiness=ready` **只看参数不看返回**
-    ⇒ 把 `Room:GetCenterPos()`（返回 16 字节的 `Vector`、走 `x8` 间接结果寄存器）
-    也标成 ready，而引擎调用跳板**只支持标量返回** ⇒ 照它做会直接做不了。
-    本脚本因此**新增一道「返回类型」闸门**：从 `tools/pc_contract_docs/<Owner>.md`
-    读 PC 契约的返回类型，是 `Vector`/`KColor` 就单列出来。
-  * 库存工具的 `REACHABLE_OWNERS` 只有 7 个类，比运行时实际能力**保守**
-    ⇒ 本脚本改为**去运行时代码里找证据**（`FieldReceipt::<Owner>` / `<Owner>Metatable` /
-    `<Owner>Handle`），把「接收者到底在不在」变成可复核的事实。
-
-用法：
-    python3 tools/build_api_restore_worklist.py            # 生成 + 写文件
-    python3 tools/build_api_restore_worklist.py --print    # 只打印汇总，不写文件
-
-产物：
-    dist/api-restore-worklist.json   （机器可读，逐条）
-    dist/api-restore-worklist.md     （人读汇总，按机制分组）
-
-★ 这份清单**只决定"往哪个桶里放"**，不代替任何一步取证：
-  条目要真的落地，仍必须过流水线里「契约原文」与「符号/布局取证」两道闸门。
+合并模组缺口、接口目录、PC 契约和运行时接收者信息，区分可复用的数据驱动
+绑定、需要原生调用的接口及证据不足的条目。检查模式用于核对清单完整性。
 """
 
 from __future__ import annotations
@@ -78,26 +57,26 @@ HUMAN_ORDER = [
 #: 纪律（流水线 G1）：确认是伪缺口的**要划掉并写明理由，不许悄悄销账** —— 所以理由写在这里，
 #: 而不是简单地把条目从报告里删掉。判据形态：运行时其实已经能答，只是**实现不走
 #: `api_catalog.cpp`**（`tools/mod_api_gap_report.py` 只读 catalog ⇒ 看不见）。
-#: ★★ **派生 owner 的方法会自动消失，不必登记在这里**（批次 298 实测）：`mod_api_gap_report.py`
+#: 派生 owner 的方法会自动消失，不必登记在这里（实测）：`mod_api_gap_report.py`
 #: 解析模组的缺口时会**沿 owner 的继承链**看基类 —— 一旦我们给基类 owner 加了实现
 #: （例如 `GridEntity:GetSprite`），清单里那条**派生 owner** 的行（`GridEntityRock:GetSprite`）
 #: 就**自己**不见了（两条各记 14 处、同一个模组、同一个接收者写法）。所以那一类"同方法名、
 #: 不同 owner"的行**不需要**写进这张表 —— 写了也不会出现在报告里（这张表只对"仍在缺口里、
 #: 但人工核过其实能用"的条目生效）。
-#: ★★ **`needs_new_receiver` 那个桶里混着「虚函数」—— 读它的时候要留神**（批次 299 实测）：
+#: `needs_new_receiver` 那个桶里混着「虚函数」—— 读它的时候要留神（实测）：
 #: 桶的标签是「引擎方法行要一个能取到 this 的 receipt」，但至少三条**不是**差接收者，而是
 #: **虚函数**（项目纪律：引擎方法行要求「同名方法**只有一个类实现**」）：
 #:
 #:   * `GridEntity:Destroy(bool)` —— 3 份实现（`GridEntity` / `_Door` / `_Rock`）；
 #:   * `GridEntity:PostInit()`    —— 4 份（`GridEntity` / `_Gravity` / `_Pit` / `_Poop`）；
-#:   * `Entity:CanShutDoors()` / `EntityNPC:CanShutDoors()` —— 5+ 份，★ 而且**PC 的绑定本体**
+#:   * `Entity:CanShutDoors()` / `EntityNPC:CanShutDoors()` —— 5+ 份，而且PC 的绑定本体
 #:     本来就是走 vtable 的（`mov eax,[ecx]` 之后 `call [eax+0x44]` 一类）⇒ 直调基类会
 #:     **跳过子类行为**、与 PC 不一致（例如石头 `Destroy` 不喷掉落物）。
 #:
 #: ⇒ 这几条（合 13 处）的正确出路是给引擎方法行加**「按 vtable 槽号调用」**的支持 ——
-#:   ★ 槽号能从 vtable 数据**直接读出来**（在 `_ZTV<类>` 块里找基类实现的地址、算槽下标），
+#:   槽号能从 vtable 数据直接读出来（在 `_ZTV<类>` 块里找基类实现的地址、算槽下标），
 #:   所以那会是一条证据充分的新机制；**不是**补接收者能解决的。
-#: ★ 判断办法：`python3 tools/mangled_impl_count.py <方法名>` 看看有几份实现；
+#: 判断办法：`python3 tools/mangled_impl_count.py <方法名>` 看看有几份实现；
 #:   ≥2 份就到 PC 侧看那条绑定是不是 `call [eax+偏移]`（虚调）。
 CONFIRMED_PSEUDO_GAPS: dict[str, str] = {
     "Vector:__sub": (
@@ -242,13 +221,13 @@ def runtime_receiver_evidence() -> dict[str, str]:
 
 #: `strcmp(<expr>, "名字")` —— 这是 `__index` 里的**名字分派**：它既不在 `api_catalog.cpp`
 #: 里、也不是数据行，`tools/mod_api_gap_report.py`（只读 catalog）**完全看不见它**。
-#: 教训：批次 195→201 的 `EntityPickup:IsShopItem` 与 `GridEntityDoor.IsOpen` 都属这一类，
+#: 教训：→201 的 `EntityPickup:IsShopItem` 与 `GridEntityDoor.IsOpen` 都属这一类，
 #: 「工具说缺、其实早就能用」。所以清单的第 1 道闸门必须把它扫出来。
 STRCMP_DISPATCH = re.compile(r'strcmp\s*\(\s*[^,]+,\s*"([A-Za-z_][A-Za-z0-9_]*)"\s*\)')
 
 #: `lua_setfield(state, -2, "__sub")` —— **元表上的运算符/协议字段**。
 #:
-#: 为什么也要扫（批次 261 补）：`Vector:__sub` 在待办清单里挂了很久，但运行时的 `Vector`
+#: 为什么也要扫（补）：`Vector:__sub` 在待办清单里挂了很久，但运行时的 `Vector`
 #: **元表上早就挂着 `__sub`**，而且 `VectorIndex` 对 `__` 开头的键**直接从元表取函数对象**
 #: （`vector_api.cpp`，2026-09-12 为真机报告 `01789211254` 加的）⇒ `v:__sub(other)` 与
 #: `v - other` 语义完全一致、**不需要新增任何东西**。它与 `strcmp` 那一类是同一个毛病
@@ -375,7 +354,7 @@ def gate_check(row: dict) -> list[str]:
                 f"G3 形状：文档参数 {row['pc_arity']} 个 vs 符号 {row['symbol_arity']} 个"
                 "—— 按符号签名取（默认参数照样占寄存器）"
             )
-    # ★ 返回 16 字节值类型是**跨桶**的闸门：不管它在哪个桶里，都不能走引擎方法数据行。
+    # 返回 16 字节值类型是跨桶的闸门：不管它在哪个桶里，都不能走引擎方法数据行。
     if row["pc_return_class"] == "struct16" and row["mechanism"] != "blocked_decision":
         gates.append(
             f"G3 能力：返回 {row['pc_return']}（16 字节、x8 间接结果寄存器）"
@@ -411,7 +390,7 @@ def main() -> int:
         if meta is None:
             missing_inv.append(api)
             continue
-        # ★ G1 结案名单：人工核过是伪缺口 ⇒ 从清单里**划掉**（理由写在 `CONFIRMED_PSEUDO_GAPS`，
+        # G1 结案名单：人工核过是伪缺口 ⇒ 从清单里划掉（理由写在 `CONFIRMED_PSEUDO_GAPS`，
         #   不许悄悄销账）。进这里的必须先在名单里写明判据。
         if api in CONFIRMED_PSEUDO_GAPS:
             confirmed_pseudo.append(api)

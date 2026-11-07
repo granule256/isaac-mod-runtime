@@ -88,7 +88,7 @@ constexpr std::uint32_t kContentMountProbeAfterDraws = 600;
 // 次数给（加载阶段每秒上千次，约等于运行二三十秒），刻意放得比绘制口径晚，只有主口径没出现时
 // 才会成为先到的那一个。
 constexpr std::uint32_t kContentMountProbeFallbackAfterUpdates = 30000;
-// --- 引擎 ItemConfig 链探针（批次 2b，2026-09-13 修正）-------------------------
+// --- 引擎 ItemConfig 链探针（b，2026-09-13 修正）-------------------------
 //
 // 目的：`Isaac.GetItemConfig()` 与 `ItemConfig` 只读视图在实现之后，必须用一次真机报错确认
 // **内嵌对象**这条链路（`IC = Manager + 0x36538`，加法）与 `733 × 8 == 0x16E8` 的长度硬判据。
@@ -140,7 +140,7 @@ constexpr std::uint32_t kContentMountProbeFallbackAfterUpdates = 30000;
 // 触发口径（与上一轮一致）：等到 `players[0]` 非空才报一次；另有 `kEnginePlayerProbeFallbackCalls`
 // 调用次数兜底，每会话最多一次。
 //
-// **2026-09-13 批次 2c 起：本探针在回调错误探针（`ISAACERR`）报错之前不触发。**
+// 2026-09-13 c 起：本探针在回调错误探针（`ISAACERR`）报错之前不触发。
 // 上一轮它一进房间就崩（`players[0]` 非空即报），于是会话在 EID 的回调错误发生之前就结束了，
 // 拿不到"回调报错"这条信息 —— 而本轮最需要的正是那条信息。做法见
 // `kEnginePlayerProbeDeferUntilErrorProbe`。探针自身的触发时机（每帧判一次 `players[0]`）没有改，
@@ -148,7 +148,7 @@ constexpr std::uint32_t kContentMountProbeFallbackAfterUpdates = 30000;
 constexpr std::uint64_t kItemConfigProbeMagic = 0x3247494341415349ULL;  // "ISAACIG2"
 // 兜底：调用这么多次（每帧一次）还没看到玩家数组非空，也报一次，避免"没崩"被误读成"偏移又错了"。
 constexpr std::uint32_t kEnginePlayerProbeFallbackCalls = 20000;
-// --- 回调 Lua 错误探针（批次 2c，2026-09-13）----------------------------------
+// --- 回调 Lua 错误探针（c，2026-09-13）----------------------------------
 //
 // 目的：把"回调里的 Lua 错误"变成可读证据。现象是 EID 能加载、游戏不崩、屏幕上什么都不显示；
 // 而派发器在回调 `lua_pcallk` 失败时会 `luaL_unref` 并 `registry->Remove(...)` **静默摘除**那个
@@ -313,7 +313,7 @@ constexpr std::size_t kCallbackErrorProbeTextBytes = 176;
 // 2026-09-12 第九轮：3600 → **2700**（进房约 45 秒，用户要求）。
 // 实测 3600 次 update ≈ 60 秒（update 约 60 次/秒），按同比例取 2700 ≈ 45 秒：
 // 既要让玩家有足够时间进房间并停留观察，又不让每轮取证都等满一分钟。
-// ★ 2026-09-12 第九稿：2700（约 45 秒）→ **14400（约 4 分钟）**。
+// 2026-09-12 第九稿：2700（约 45 秒）→ 14400（约 4 分钟）。
 //
 // 为什么加长：兜底口径的用途是"即使什么都没错，也留一份读数"，而 45 秒会**打断试玩**
 // （用户实测"刚进主界面就被关掉"，因为当时的触发条件里还混进了一个粘性标志，见
@@ -329,9 +329,9 @@ constexpr std::uint32_t kCallbackErrorProbeFallbackCalls = 14400;
 // 需要复跑 `ISAACIG2` 时把这一个常量改成 `false` 即可，不需要动触发逻辑。
 constexpr bool kEnginePlayerProbeDeferUntilErrorProbe = true;
 
-// --- 房间实体容器探针（批次 4 真机确认，2026-09-13）-----------------------------------
+// --- 房间实体容器探针（真机确认，2026-09-13）-----------------------------------
 //
-// 目的：`Room + 0x1950` 是**内嵌** `EntityList` 这条静态结论（批次 4 反汇编定位，见
+// 目的：`Room + 0x1950` 是内嵌 `EntityList` 这条静态结论（反汇编定位，见
 // `runtime_constants.hpp` 的「房间实体容器」段与 `docs/问题与解决记录.md`）**从未上过真机**。
 // 本探针用一次报错同时确认：两级 `Game` 链（槽 → 指针 → `Game*`）、`Room*`、容器指纹
 // （三个固定容量值）、三张表的 begin/count、首个实体的全部字段，以及一次自遍历

@@ -8,7 +8,7 @@
 // 资源层（L3）设施（一）：`EngineArrayOwner` —— 跨边界数组的唯一持有方式
 // ============================================================================
 //
-// 设计稿：`docs/设计-资源层-所有权与缓存-20260924.md`（批次 115）。
+// 设计稿：`docs/设计-资源层-所有权与缓存-20260924.md`。
 //
 // **要治的问题**：引擎分配的内存由我们释放、我们分配的交给引擎释放 —— 这件事过去靠
 // **逐处手工配对 + 注释纪律**，漏一条路就是泄漏，改错一次就是重复释放/悬垂（后者严重得多）。
@@ -28,16 +28,16 @@
 // 而且只允许有一条纪律，做成通用指针反而更容易被误用（设计稿 §三。
 namespace isaac::runtime::engine_resources {
 
-//: 引擎释放函数指针的形状（`operator delete[]`），由调用方从绑定表里取。
+// 引擎释放函数指针的形状（`operator delete[]`），由调用方从绑定表里取。
 using ReleaseFn = void (*)(void*);
 
 class EngineArrayOwner {
 public:
-    //: 空持有者（`pointer_ == nullptr` ⇒ 析构不调释放函数）。
+    // 空持有者（`pointer_ == nullptr` ⇒ 析构不调释放函数）。
     EngineArrayOwner() noexcept = default;
 
-    //: 接管一块由引擎分配器给出、需要**我们**还给引擎的数组；
-    //: `release == nullptr` 或 `pointer == nullptr` 时退化为"不管"（析构不调任何东西）。
+    // 接管一块由引擎分配器给出、需要我们还给引擎的数组；
+    // `release == nullptr` 或 `pointer == nullptr` 时退化为"不管"（析构不调任何东西）。
     EngineArrayOwner(ReleaseFn release, void* pointer) noexcept
         : pointer_(pointer), release_(release) {}
 
@@ -63,12 +63,12 @@ public:
         return *this;
     }
 
-    //: 只读用（不转移所有权）。
+    // 只读用（不转移所有权）。
     [[nodiscard]] void* get() const noexcept { return pointer_; }
     [[nodiscard]] bool empty() const noexcept { return pointer_ == nullptr; }
 
-    //: 把裸指针**交给引擎**（由引擎负责释放），之后本对象不再管它。
-    //: 返回原指针，供 `return owner.Release();` 这种形状使用。
+    // 把裸指针交给引擎（由引擎负责释放），之后本对象不再管它。
+    // 返回原指针，供 `return owner.Release();` 这种形状使用。
     [[nodiscard]] void* Release() noexcept {
         void* pointer = pointer_;
         pointer_ = nullptr;
@@ -76,7 +76,7 @@ public:
         return pointer;
     }
 
-    //: 提前归还（等价于析构；析构再调用是幂等的）。
+    // 提前归还（等价于析构；析构再调用是幂等的）。
     void Reset() noexcept {
         if (pointer_ != nullptr && release_ != nullptr) {
             release_(pointer_);

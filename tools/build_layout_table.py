@@ -153,7 +153,7 @@ def verify_evidence(table: dict, nro: pathlib.Path) -> list[str]:
             found = next((line for line in window if line.startswith(wanted_hex)), None)
             if found is None:
                 # 有的函数很长（4096 字节不够）——扩大再找。
-                # ★ 2026-10-03（批次 302）：从 16384 提到 **65536** —— `Room::Init`
+                # 2026-10-03：从 16384 提到 65536 —— `Room::Init`
                 #   （`0x45C020` → 下一个符号 `Room::reset_outputs @ 0x461DBC`）有 **23964 字节**，
                 #   它里面那两条"按房型给地板/墙 `SetColorize`"的证据（`0x460940` / `0x460974`）
                 #   在 16384 的窗口里**看不到**，于是被误判成"函数里找不到这条指令"。

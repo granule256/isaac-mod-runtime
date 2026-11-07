@@ -20,7 +20,7 @@ namespace isaac::runtime {
 //     `EngineGuardProbe*` 的尝试数/系统调用数/系统调用 tick/缓存命中数、绘制调用数。
 //
 // **刻意不引用 libnx**：时间戳走 `engine_memory_guard.hpp` 的 `EngineGuardTick()`（`mrs cntpct_el0`，
-// **物理**计数器；批次 085 的真机崩溃证明虚拟计数器 `cntvct_el0` 在 EL0 被禁止读），
+// 物理计数器；的真机崩溃证明虚拟计数器 `cntvct_el0` 在 EL0 被禁止读），
 // 频率走 `EngineGuardTicksPerSecond()`（**常量** 19.2 MHz，不读寄存器）。原来的 `svcSleepThread`
 // 标定会把 `lib/nx/nx.h` 拉进来，与同一编译单元里的 `<switch.h>` 冲突（`SplConfigItem` 重定义、
 // `MemoryInfo` 字段顺序不同），所以这里不睡、不引平台头、也不读频率寄存器。
@@ -85,7 +85,7 @@ inline EngineFrameProbeState& EngineFrameProbe() noexcept {
 }
 
 inline void EngineFrameProbeCalibrate(EngineFrameProbeState& state) noexcept {
-    // 频率取 19.2 MHz 常量（批次 085 起不再读 `cntfrq_el0`：那个寄存器在 EL0 是否可读没有证据，
+    // 频率取 19.2 MHz 常量（起不再读 `cntfrq_el0`：那个寄存器在 EL0 是否可读没有证据，
     // 而值恒为 19.2 MHz）。比"睡 1 ms 再数 tick"更准，也不需要 libnx。
     const std::uint64_t perSecond = EngineGuardTicksPerSecond();
     state.ticksPerMs = perSecond / 1000ULL != 0 ? perSecond / 1000ULL : 19200ULL;

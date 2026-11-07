@@ -1,71 +1,9 @@
 #!/usr/bin/env python3
-"""生成"实体名 → (Type, Variant)"查表（`runtime/source/program/entity_name_table.*`）。
+"""生成实体名称到 Type、Variant 的 C++ 查找表。
 
-## 为什么需要它（2026-09-29 批次 207）
-
-MCM（Mod Config Menu）在 `PostGameStarted` 里就调
-`Isaac.GetEntityTypeByName("Potato Dummy")` / `Isaac.GetEntityVariantByName("Potato Dummy")`
-（`analysis/mod-corpus/isaac-mod-config-menu/scripts/modconfig.lua:260/261`）。
-这两条 API 在我们这边**根本不存在** ⇒ "attempt to call a nil value" ⇒ 那一段直接抛错。
-PC 契约：`tools/pc_contract_docs/Isaac.md:218`（`GetEntityTypeByName` 找不到返回 `0`）、
-`:235`（`GetEntityVariantByName` 找不到返回 `-1`）。
-
-## 数据从哪来 / 为什么源文件在仓库里
-
-本体的 `entities2.xml` **不在仓库里**（`The Binding of Isaac_ Afterbirth+ …` 整个目录被
-`.gitignore` 挡掉，是用户的游戏 dump）。这与 `pc_lua_enum_data`（输入是用户 PC 本体的
-`enums.lua`）当年遇到的困境一模一样：**输入不在仓库 ⇒ 这一类工作对任何其他人都不可做**。
-
-所以本批按 `tools/pc_enum_docs/` 的先例办：把**提取出来的名字表**作为
-`tools/entity_name_source.txt` 进仓库（逐行 `名字<TAB>Type<TAB>Variant`、按名字排序），
-生成器只做"文本 → C++"，于是：
-
-* 生成物**在任何干净检出里都可复核**（门禁 `test_entity_name_table.py` 跑 `--check`）；
-* 重新提取（`--import-xml`）只在有游戏 dump 的机器上做，属于维护动作，不进门禁。
-
-## 两份 XML 的关系（2026-09-29 实测，决定了这个表怎么拼）
-
-Switch romfs 里有两份：`Program #0/1/resources/entities2.xml`（763 条，**AB+ 英文名**）与
-`Program #0/1/rp_patch/resources/entities2.xml`（1337 条，**Repentance 名，很多是本地化键**
-形如 `#BOIL`）。实测两者的 `(id, variant)` 键集合是**包含关系**（base 的 701 个键 rp 全有，
-rp 多出 436 个），而**同键另有 331 条名字不同**（`Lokii` → `#LOKII`）。
-
-⇒ 拼法：**base 的英文名全部保留**（那是模组真正会去查的名字，例如 `Lokii`），
-**再加 rp 里 base 没有的键**（Repentance 新增实体，只有 `#KEY` 形式的名字）。
-名字唯一化：同名取第一次出现（base 优先）。
-
-## 已知偏离（写在明处）
-
-* **只看得到本体 XML 里的名字**。PC 上模组可以在 `content/entities2.xml` 里加实体，
-  那时 PC 的 `GetEntityTypeByName("模组实体名")` 能查到、我们查不到（返回 `0`/`-1`）。
-  ⇒ 这正是 MCM 那个 `"Potato Dummy"` 的情形：那名字**只在 MCM 自己的代码里出现**
-  （全仓库扫描过），是它留给"某个装了土豆假人的模组"的兼容分支 ⇒ 我们与本体 PC 一样返回
-  `0` / `-1`，MCM 的 `if potatoType and potatoVariant > 0` 自然走"没有"那一支。
-* 因此这张表**不是**"引擎的实体配置"，而是"本体 XML 的静态快照"。名字表随 DLC/补丁变化时
-  要重新 `--import-xml`。
-
-## 名字里的怪字符（三个坑，都在生成器里堵住了）
-
-1. **制表符**：`name="Telekinesis<TAB>Halo"` —— 不转义的话，`entity_name_source.txt`
-   的分隔符就废了（一行解析出四个字段）。
-2. **字面量尺寸**：`"Player\0"` 在数组里占 **7** 字节（6 字符 + 显式 `\0`），
-   下标按 `len(名字 UTF-8 字节) + 1` 累加。
-   ★ **不是 `+2`**：相邻的字符串字面量在 C++ 里先拼接，隐式结尾 `\0` 只有整串末尾一个。
-   这里算错过一次（把 `+2` 当公式），后果见 `render_implementation()` 的修正说明。
-   ★ 另：**数组声明的大小 = 内容字节数 + 1** —— C++ 不允许 `char[N]` 把字面量的隐式结尾 `\0`
-   丢掉（C 允许），尾后要多留一格。这一条同样是编译打回来才补上的。
-3. **`?`**：`???'s Only Friend` 里的 `???` 是 C++ 的历史三字符组（trigraph），
-   C++17 才删掉、编译器仍报 `-Wtrigraphs`，本项目全量 `-Werror` ⇒ 必须写成 `\\?`
-   （标准里的简单转义序列，语义与 `?` 相同）。
-4. **XML 实体引用**：`name="Mom&apos;s Chest"` —— XML 解析器会还原成 `Mom's Chest`。
-   我们的属性正则**不会**，所以 `parse_xml()` 必须自己走一遍 `unescape_xml()`；
-   漏了它，这一类名字（rp_patch 里 33 个）在我们这边就查不到。
-
-## 用法
-
-    python3 tools/generate_entity_name_table.py --write
-    python3 tools/generate_entity_name_table.py --check
-    python3 tools/generate_entity_name_table.py --import-xml "<romfs 的 Program #0/1 目录>"
+从游戏 entities2.xml 导入名称和编号，合并文本源后生成查找表。
+XML 解析保留实体名称的转义语义；生成的静态表覆盖本体实体，模组内容由
+运行时名称注册处理。游戏原件通过显式输入提供，不随源码分发。
 """
 
 from __future__ import annotations

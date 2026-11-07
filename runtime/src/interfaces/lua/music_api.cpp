@@ -1,16 +1,16 @@
 #include "interfaces/lua/api100_bindings.hpp"
 #include "interfaces/lua/music_api.hpp"
 
-#include "infrastructure/call/engine_call_access.hpp"  // 引擎调用层（批次 110：调引擎只在这里转换签名）
-#include "interfaces/lua/api_call_stats.hpp"           // 批次 154：编号保险的计数
-#include "interfaces/lua/engine_method_api.hpp"        // 批次 154：`CheckMusicId`
-#include "interfaces/lua/engine_method_lookup.hpp"     // 批次 185：`EngineOffsetAddress<IsReadable>`
+#include "infrastructure/call/engine_call_access.hpp"  // 引擎调用层（调引擎只在这里转换签名）
+#include "interfaces/lua/api_call_stats.hpp"           // 编号保险的计数
+#include "interfaces/lua/engine_method_api.hpp"        // `CheckMusicId`
+#include "interfaces/lua/engine_method_lookup.hpp"     // `EngineOffsetAddress<IsReadable>`
 #include "interfaces/lua/owner_binding.hpp"
 #include "interfaces/lua/lua_integer_argument.hpp"
 
 #include "lua_object_handles.hpp"
 #include "lua_runtime_state.hpp"
-#include "runtime_constants.hpp"  // 批次 185/408：`kSoundEffectsIsPlayingOffset` / `kSoundEffectsPlayOffset`
+#include "runtime_constants.hpp"  // `kSoundEffectsIsPlayingOffset` / `kSoundEffectsPlayOffset`
 #if defined(EXL_DIAGNOSTIC_STAGE) && EXL_DIAGNOSTIC_STAGE == 48
 #include "hook_manager.hpp"
 #endif
@@ -23,11 +23,11 @@ extern "C" {
 #include <lauxlib.h>
 }
 
-//: 引擎调用层的短别名（批次 110）：本文件里"把已核对过的地址变成可调用签名"只走它。
+// 引擎调用层的短别名：本文件里"把已核对过的地址变成可调用签名"只走它。
 namespace engine_call = isaac::runtime::engine_call;
 
 // ============================================================================
-// 批次 408（2026-10-08）：`SFXManager:Play` 的**真机探针**（无条件计数，读数工具按符号直读）
+// `SFXManager:Play` 的真机探针（无条件计数，读数工具按符号直读）
 // ============================================================================
 //
 // 目的：把"模组到底调没调 Play / 我们有没有把调用递进引擎 / 递进去时参数是什么 / 没递进去时
@@ -41,7 +41,7 @@ namespace engine_call = isaac::runtime::engine_call;
 //   `g_SfxPlayLast*`     —— 最近一次**递进去**的实参（id/volume/frameDelay/loop/pitch/pan）
 //   `g_SfxPlayLastFailure` —— 最近一次**没递进去**的失败码（0 = 没失败过；1/2/3/4 同 `g_MusicResolveFailure`）
 //
-// ★ 浮点参数按**位模式**存 `u32`（`std::bit_cast`），读数端按 `float` 解 —— 与 `g_Isaac*` 一族
+// 浮点参数按位模式存 `u32`（`std::bit_cast`），读数端按 `float` 解 —— 与 `g_Isaac*` 一族
 //   存 `int32` 位模式的做法同形（u32 全局必须掩码，见 `tools/read_device_state_via_gdb.py` 的
 //   `U32ReadMaskingTests`）。
 extern "C" {
@@ -70,8 +70,8 @@ using LuaRuntime::ResolveMusicPause;
 using LuaRuntime::ResolveMusicPlay;
 using LuaRuntime::ResolveMusicResume;
 using LuaRuntime::ResolveMusicUpdateVolume;
-using LuaRuntime::ResolveSoundEffectsForCall;  // 批次 185：`SFXManager:IsPlaying` 的接收者解析
-using LuaRuntime::ResolveSoundEffectsPlayForCall;  // 批次 408：`SFXManager:Play` 的接收者解析
+using LuaRuntime::ResolveSoundEffectsForCall;  // `SFXManager:IsPlaying` 的接收者解析
+using LuaRuntime::ResolveSoundEffectsPlayForCall;  // `SFXManager:Play` 的接收者解析
 
 int MusicGetCurrentMusicId(lua_State* state);
 int MusicPause(lua_State* state);
@@ -83,11 +83,11 @@ constexpr LuaHandlerBinding kMusicHandlers[] = {
     {0x06010001, &MusicGetCurrentMusicId},
     {0x06010002, &MusicPause},
     {0x06010003, &MusicResume},
-    // 批次 137（2026-09-26）：`MusicManager:UpdateVolume()` —— The Specialist for Good Items
+    // `MusicManager:UpdateVolume()` —— The Specialist for Good Items
     // 的"捡到四级物品放歌"要用它（把音乐音量重新同步到选项菜单的设置）。底座
     // `Music::UpdateVolume()` @ `0x427908`（见 `runtime_constants.hpp` 的同名常量）。
     {0x06010006, &MusicUpdateVolume},
-    // 批次 138（2026-09-26）：`MusicManager:Play(ID, Volume = 1)` —— 同一模组**放歌的主路径**
+    // `MusicManager:Play(ID, Volume = 1)` —— 同一模组放歌的主路径
     // （`main.lua:483/489/494` 的 `MusicManager():Play(id, 1)`）。底座
     // `Music::Play(eMusic, float)` @ `0x427238`。
     {0x06010007, &MusicPlay},
@@ -95,25 +95,25 @@ constexpr LuaHandlerBinding kMusicHandlers[] = {
 
 constexpr char kMusicOwner[] = "MusicManager";
 
-//: 引擎**函数地址**的可读判据（`EngineOffsetAddress<IsReadable>` 要的模板参数形态）。
-//: 与 `game_api.cpp` / `sprite_api.cpp` / `remaining_api.cpp` 各自那一份**逐字同源** ——
-//: 四族历史上各有一份拷贝、判决条件一条没改（只把实现收进 L1 的
-//: `engine_memory::EngineMemoryReadable`）。批次 185 给 music 族补上这一份；
-//: 本文件里它服务 `SFXManager:IsPlaying` 与 `SFXManager:Play` 两条（批次 408 起 Play 也要走守卫）。
+// 引擎函数地址的可读判据（`EngineOffsetAddress<IsReadable>` 要的模板参数形态）。
+// 与 `game_api.cpp` / `sprite_api.cpp` / `remaining_api.cpp` 各自那一份逐字同源 ——
+// 四族历史上各有一份拷贝、判决条件一条没改（只把实现收进 L1 的
+// `engine_memory::EngineMemoryReadable`）。给 music 族补上这一份；
+// 本文件里它服务 `SFXManager:IsPlaying` 与 `SFXManager:Play` 两条（起 Play 也要走守卫）。
 bool IsEngineMemoryReadable(std::uintptr_t address, std::size_t length) noexcept {
     return isaac::runtime::engine_memory::EngineMemoryReadable(address, length);
 }
 
-// ---- `SFXManager()`（批次 045，为 GoodTrip 补）------------------------------------------
+// ---- `SFXManager()`（，为 GoodTrip 补）------------------------------------------
 //
 // PC 里 `SFXManager()` 是**全局函数**，返回引擎音效管理器单例；模组用
 // `SFXManager():Play(SoundEffect, Volume, Pitch, Loop, Pan)` 放音（GoodTrip `scripts/trip.lua:8/74`）。
 // 缺它时是 "attempt to call a nil value (global 'SFXManager')" ⇒ **模组整个加载失败**（真机实测）。
 //
-// **批次 045 只补了"对象与方法都在、调用不报错"**：当时引擎音效单例与 `Play` 的地址尚未取证 ⇒
+// 只补了"对象与方法都在、调用不报错"：当时引擎音效单例与 `Play` 的地址尚未取证 ⇒
 // `Play` 曾是**明确的空实现**（不假装成功、也不报错），`IsPlaying` 恒 false；形状与 PC 一致。
-// ★ 批次 185（2026-09-28）把 `IsPlaying` 补成真调引擎；**批次 408（2026-10-08）把 `Play` 也补上**
-//   （引擎入口 `SoundEffects::Play` @ `0x4A2FD0`，取证见 `runtime_constants.hpp` 的批次 408 段）
+// 把 `IsPlaying` 补成真调引擎；把 `Play` 也补上
+//   （引擎入口 `SoundEffects::Play` @ `0x4A2FD0`，取证见 `runtime_constants.hpp` 的段）
 //   —— 上面那句"`Play` 是空实现"到此为止已**过时**，留着是为了记住它曾经的样子。
 // 音效与音乐同属"声音"⇒ 复用域 `0x06`、取域内空号 0x0004/0x0005（文件与 owner 的对应关系
 // 由契约测试那张"文件 → 允许的 owner 集合"表登记）。
@@ -121,7 +121,7 @@ struct SfxManagerHandle {
     int reserved{0};
 };
 
-// ---- 批次 408：Play 探针的写入助手（无条件；见文件顶部那张表）----------------------------
+// ---- Play 探针的写入助手（无条件；见文件顶部那张表）----------------------------
 //
 // 浮点按位模式存（读数端按 `float` 解）；`loop` 存 0/1。三个助手都只在 `SfxManagerPlay` 里调。
 std::uint32_t FloatBits(float value) noexcept {
@@ -146,23 +146,23 @@ void RecordSfxPlayFailure(std::uint32_t code) noexcept {
 }
 
 // `SFXManager:Play(SoundEffect ID, float Volume, int FrameDelay, boolean Loop, float Pitch, float Pan)`
-// —— **批次 408（2026-10-08）从"空实现"改成真调引擎**（引擎入口 `SoundEffects::Play` @ `0x4A2FD0`；
-// 三条独立证据 + 16 字节指纹见 `runtime_constants.hpp` 的批次 408 段；PC 契约
+// —— 从"空实现"改成真调引擎（引擎入口 `SoundEffects::Play` @ `0x4A2FD0`；
+// 三条独立证据 + 16 字节指纹见 `runtime_constants.hpp` 的段；PC 契约
 // `tools/pc_contract_docs/SFXManager.md:53`）。
 //
-// ★ 参数形状（**完整照 PC 契约，不自己发明**）：`ID, Volume=1, FrameDelay=2, Loop=false, Pitch=1, Pan=0`。
-//   校验口径**沿用批次 045 的现状、一个字不加严**：只钉"第 2 个参数是整数"，不钉范围、不钉个数
+// 参数形状（完整照 PC 契约，不自己发明）：`ID, Volume=1, FrameDelay=2, Loop=false, Pitch=1, Pan=0`。
+//   校验口径沿用的现状、一个字不加严：只钉"第 2 个参数是整数"，不钉范围、不钉个数
 //   （比 PC 严害过我们很多次）。第 3~7 个参数缺省时补 PC 的缺省值，给了就用给的 ——
 //   `lua_isnumber` / `lua_toboolean` 都**不会抛错**（不是数字/布尔就落到缺省，与 PC 的容忍一致）。
 //   ⚠️ 契约里 `FrameDelay` 是 **`int`（缺省 `2`）**，不是浮点、不是 `0`；引擎符号
 //      `…Efibff` 也把它标成 `i`（见常量注释）。
 //
-// ★ 参数**按 ABI 顺序**递：`x0 = 音效子对象`、`w1 = ID`、`s0 = Volume`、`w2 = FrameDelay`、
+// 参数按 ABI 顺序递：`x0 = 音效子对象`、`w1 = ID`、`s0 = Volume`、`w2 = FrameDelay`、
 //   `w3 = Loop`、`s1 = Pitch`、`s2 = Pan`（`AsFunction` 的**带签名**函数指针在编译期完成编组，
 //   所以这里直接按 `(void*, int32, float, int32, int, float, float)` 调）。
 //   `Loop` 形参写成 `int`（递 0/1）：设备侧 `bool` 与 `int` 都落在同一个 `w3`，宿主夹具也按 `int` 接。
 //
-// ★ 三道守卫（**调用之前**，与同文件 `SfxManagerIsPlaying` 逐条同形）：
+// 三道守卫（调用之前，与同文件 `SfxManagerIsPlaying` 逐条同形）：
 //   ① `EngineOffsetAddress<IsEngineMemoryReadable>(kSoundEffectsPlayOffset)` —— 模块基址 + 偏移 + 可读；
 //   ② `ResolveSoundEffectsPlayForCall` 内部的"当前回调的 Manager → `Manager + 0x364A8` 音效子对象"；
 //   ③ 同一个函数里的 16 字节入口指纹。
@@ -200,23 +200,23 @@ int SfxManagerPlay(lua_State* state) {
     return 0;
 }
 
-// `SFXManager:IsPlaying(SoundEffect ID)` —— 批次 185（2026-09-28）从"**恒 false**"改成**真调引擎**。
+// `SFXManager:IsPlaying(SoundEffect ID)` —— 从"恒 false"改成真调引擎。
 //
 // PC 契约 `tools/pc_contract_docs/SFXManager.md:48`：「boolean IsPlaying ( SoundEffect ID )」。
 //
-// ★ 接收者**不在 Lua 栈上**：PC 里 `SFXManager()` 是个**全局函数**、返回引擎的音效单例，
+// 接收者不在 Lua 栈上：PC 里 `SFXManager()` 是个全局函数、返回引擎的音效单例，
 //   而我们这个 handle 是**空结构** ⇒ 接收者只能从"当前回调的 Manager"解析
 //   （`Manager + kManagerSoundEffectsOffset`，偏移的反汇编取证见 `runtime_constants.hpp`）。
 //   这与 `MusicManager:` 一族同形 ⇒ 复用同一套两跳取 Manager 的 `ResolveSoundEffectsForCall`。
-//   ★ 这也是它**不能**走"数据行"（`engine_method_api.hpp` 那张 16 字节表）的原因：
+//   这也是它不能走"数据行"（`engine_method_api.hpp` 那张 16 字节表）的原因：
 //     数据行的接收者只能来自 `FieldReceipt` —— 也就是**从 Lua 栈上那个 self 句柄**解出来的。
 //
-// ★ 三道守卫都在调用**之前**：`EngineOffsetAddress` 管"模块基址 + 偏移 + 该地址可读"，
+// 三道守卫都在调用之前：`EngineOffsetAddress` 管"模块基址 + 偏移 + 该地址可读"，
 //   `ResolveSoundEffectsForCall` 内部的 `ValidateMusicMethod` 管"入口 16 字节指纹"。
 //   三道任一不过就**什么都不做**（压 false）—— 偏移写错会调到别的函数上去改引擎状态，
 //   **没有**"反正调一下试试"这种选项。
 //
-// ★ 失败与"引擎说没在播"在 Lua 侧**分不开**（都只能压 `false`）：PC 的返回类型就是 boolean，
+// 失败与"引擎说没在播"在 Lua 侧分不开（都只能压 `false`）：PC 的返回类型就是 boolean，
 //   压 nil 会让模组 `if x then` 判错、甚至把整条回调摘掉。**不报错**也是同族口径
 //   （拿不到实例时按 PC 的返回类型降级）。要区分就去看 `ResolveSoundEffectsForCall`
 //   记下的失败码（1 = 不在托管回调里 / 2 = Manager 或子对象读不到 / 3 = 方法地址缺失 /
@@ -407,7 +407,7 @@ int MusicResume(lua_State* state) {
     return 0;
 }
 
-// 批次 137：`MusicManager:UpdateVolume()`（无参、void）。形状与 `Pause`/`Resume` 逐字相同 ——
+// `MusicManager:UpdateVolume()`（无参、void）。形状与 `Pause`/`Resume` 逐字相同 ——
 // 接收者仍是由回调的 Manager 派生的 Music 对象（`ResolveMusicUpdateVolume` 内两跳：先判
 // "在托管回调里"，再按 `manager + kManagerMusicOffset` 解析 + 16 字节入口守卫），
 // 所以"不在回调里 / 绑定不可用"时报错而不是静默假装成功。
@@ -427,7 +427,7 @@ int MusicUpdateVolume(lua_State* state) {
     return 0;
 }
 
-// 批次 138：`MusicManager:Play(eMusic ID, float Volume = 1)` —— The Specialist for Good Items
+// `MusicManager:Play(eMusic ID, float Volume = 1)` —— The Specialist for Good Items
 // "放歌"的**主路径**。PC 契约 `tools/pc_contract_docs/MusicManager.md:102` 逐字：
 //   `#### void Play ( [Music](enums/Music.md) ID, float Volume = 1 ) {: .copyable aria-label='Functions' }`
 // **同一个契约页第 103~104 行**还明写"ID 为负或超出范围时 PC 会**崩游戏**"（`???+ bug "Bug"`）——
@@ -445,7 +445,7 @@ int MusicPlay(lua_State* state) {
         return luaL_error(state, "Music:Play accepts (music[, volume])");
     }
     const lua_Number volume = volumeGiven ? lua_tonumber(state, 3) : 1.0;
-    // ★★ 批次 154（2026-09-27）：**编号保险**（见 `engine_method_api.hpp` 的 `CheckMusicId`）。
+    // 编号保险（见 `engine_method_api.hpp` 的 `CheckMusicId`）。
     //
     // 与下面那段"照 PC 语义不挡"的说明**不矛盾**，是对它的收窄：PC 上模组拿到的编号不会是 `-1`，
     // 因为 PC 在模组脚本看到它之前就把模组的 `content/music.xml` 加载好了；我们这边会因为
@@ -478,74 +478,74 @@ int MusicPlay(lua_State* state) {
 
 } // namespace
 
-//: 批次 239（2026-09-30）：`MusicManager` 的**引擎方法数据行**（机制见 `engine_method_api.hpp`）。
-//:
-//: ★ 为什么这 7 条走数据行、而上面的 `Pause`/`Resume`/`Play`/`UpdateVolume` 是手写处理器：
-//: 那 4 条写在数据行机制（批次 051）之前，而且各自带一份"入口 16 字节指纹"的手写核对。
-//: 数据行机制把"接收者解析 + 入口 4 字节核对 + 参数编组"收成了一份共享实现，
-//: 所以从批次 239 起，`MusicManager` 的新 API 一律走数据行（**16 字节只读、0 字节代码**）。
-//:
-//: 接收者 = `FieldReceipt::Music`（**不从 Lua 栈上取**，见 `field_api.hpp` 那条的注释）：
-//: `MusicManager()` 在 Lua 里是占位句柄，引擎的 `Music` 在 `Manager + kManagerMusicOffset`。
+// `MusicManager` 的引擎方法数据行（机制见 `engine_method_api.hpp`）。
+//
+// 为什么这 7 条走数据行、而上面的 `Pause`/`Resume`/`Play`/`UpdateVolume` 是手写处理器：
+// 那 4 条写在数据行机制之前，而且各自带一份"入口 16 字节指纹"的手写核对。
+// 数据行机制把"接收者解析 + 入口 4 字节核对 + 参数编组"收成了一份共享实现，
+// 所以从起，`MusicManager` 的新 API 一律走数据行（16 字节只读、0 字节代码）。
+//
+// 接收者 = `FieldReceipt::Music`（不从 Lua 栈上取，见 `field_api.hpp` 那条的注释）：
+// `MusicManager()` 在 Lua 里是占位句柄，引擎的 `Music` 在 `Manager + kManagerMusicOffset`。
 constexpr EngineMethodRow kMusicEngineRows[] = {
-    // ---- 批次 239：`MusicManager:DisableLayer`（void DisableLayer ( int LayerId = 0 )）
+    // ---- `MusicManager:DisableLayer`（void DisableLayer ( int LayerId = 0 )）
     // PC 契约 `tools/pc_contract_docs/MusicManager.md:47`。语料**一个参数都不传**
     // （`BOIStageAPI15/.../callbacks.lua` 的 `shared.Music:DisableLayer()`）⇒ 形状 `VoidIntOpt1`
     // 声明尾部 1 个可省（复用 `Void1` 会因为"参数个数严格相等"直接报错、摘掉整条回调）。
     {0x06010008, kMusicDisableLayerOffset, kMusicDisableLayerEntryWord, FieldReceipt::Music,
      EngineCallShape::VoidIntOpt1, 1, 0xFF},
-    // ---- 批次 239：`MusicManager:IsLayerEnabled`（boolean IsLayerEnabled ( int LayerId = 0 )）
+    // ---- `MusicManager:IsLayerEnabled`（boolean IsLayerEnabled ( int LayerId = 0 )）
     // PC 契约 `MusicManager.md:87`。语料同样不传参数 ⇒ `BoolIntOpt1`（尾部 1 个可省）。
     {0x06010009, kMusicIsLayerEnabledOffset, kMusicIsLayerEnabledEntryWord, FieldReceipt::Music,
      EngineCallShape::BoolIntOpt1, 1, 0xFF},
-    // ---- 批次 239：`MusicManager:EnableLayer`（void EnableLayer ( int LayerId = 0, boolean Instant = false )）
+    // ---- `MusicManager:EnableLayer`（void EnableLayer ( int LayerId = 0, boolean Instant = false )）
     // PC 契约 `MusicManager.md:57`。语料不传参数（`shared.Music:EnableLayer()`）⇒ `VoidIntBoolOpt2`
     // 声明尾部 2 个可省（两个缺省值都是 0 ⇒ 省略时寄存器保持 0 恰好就是 PC 缺省）。
     {0x0601000A, kMusicEnableLayerOffset, kMusicEnableLayerEntryWord, FieldReceipt::Music,
      EngineCallShape::VoidIntBoolOpt2, 2, 0xFF},
-    // ---- 批次 239：`MusicManager:VolumeSlide`（void VolumeSlide ( float TargetVolume, float FadeRate = 0.08 )）
+    // ---- `MusicManager:VolumeSlide`（void VolumeSlide ( float TargetVolume, float FadeRate = 0.08 )）
     // PC 契约 `MusicManager.md:130`。语料传 2 个（`musicmgr:VolumeSlide(0.1, 0.05)`）⇒
     // `VoidFloatFloatOpt1`（尾部 1 个可省，省略时 `d1` 保持 0）。
     {0x0601000B, kMusicVolumeSlideOffset, kMusicVolumeSlideEntryWord, FieldReceipt::Music,
      EngineCallShape::VoidFloatFloatOpt1, 2, 0xFF},
-    // ---- 批次 239：`MusicManager:GetQueuedMusicID`（Music GetQueuedMusicID ( )）
+    // ---- `MusicManager:GetQueuedMusicID`（Music GetQueuedMusicID ( )）
     // PC 契约 `MusicManager.md:77`。无参、返回 eMusic（枚举 ⇒ 整数）⇒ `Int0`。
     {0x0601000C, kMusicGetQueuedMusicIdOffset, kMusicGetQueuedMusicIdEntryWord,
      FieldReceipt::Music, EngineCallShape::Int0, 0, 0xFF},
-    // ---- 批次 239：`MusicManager:PitchSlide`（void PitchSlide ( float TargetPitch )）
+    // ---- `MusicManager:PitchSlide`（void PitchSlide ( float TargetPitch )）
     // PC 契约 `MusicManager.md:97` —— **无缺省值** ⇒ 直接复用既有的 `VoidFloat1`。
     {0x0601000D, kMusicPitchSlideOffset, kMusicPitchSlideEntryWord, FieldReceipt::Music,
      EngineCallShape::VoidFloat1, 1, 0xFF},
-    // ---- 批次 239：`MusicManager:ResetPitch`（void ResetPitch ( )）
+    // ---- `MusicManager:ResetPitch`（void ResetPitch ( )）
     // PC 契约 `MusicManager.md:114`。无参、返回 void ⇒ `Void0`。
     {0x0601000E, kMusicResetPitchOffset, kMusicResetPitchEntryWord, FieldReceipt::Music,
      EngineCallShape::Void0, 0, 0xFF},
-    // ---- 批次 252（2026-10-01）：`MusicManager:Queue`（void Queue ( Music ID )）
+    // ---- `MusicManager:Queue`（void Queue ( Music ID )）
     // PC 契约 `MusicManager.md:109`，**无缺省值**；语料传 1 个
     // （`BOIStageAPI15/.../callbacks.lua:545` 的 `shared.Music:Queue(shouldQueue)`）
     // ⇒ 形状 `Void1`、`argumentCount` = 1。
     {0x0601000F, kMusicQueueOffset, kMusicQueueEntryWord, FieldReceipt::Music,
      EngineCallShape::Void1, 1, 0xFF},
-    // ---- 批次 252：`MusicManager:Crossfade`（void Crossfade ( Music ID, float FadeRate = 0.08 )）
+    // ---- `MusicManager:Crossfade`（void Crossfade ( Music ID, float FadeRate = 0.08 )）
     // PC 契约 `MusicManager.md:35`；语料传 2 个（`MusicModCallback/.../repentance.lua:771`）
     // ⇒ `VoidIntFloatOpt1`（本批新增的形状；尾部 1 个可省，省略时 `d1` 保持 0）。
     {0x06010010, kMusicCrossfadeOffset, kMusicCrossfadeEntryWord, FieldReceipt::Music,
      EngineCallShape::VoidIntFloatOpt1, 2, 0xFF},
 };
 
-//: 批次 305（2026-10-03）：`MusicManager` 的**字段数据行**（第 3 条数据行表形态）。
-//:
-//: `Disable()` / `Enable()` / `IsEnabled()` 三条在 PC 上都是 `Music` 上的**一个字节**
-//: （`+0x328`）：`Disable` = 写 0、`Enable` = 写 1、`IsEnabled` = 读它（三条绑定各一条指令，
-//: `tools/pc_exe_binding.py` 给的是 `0x7FAC30` / `0x7AC20` / `0x7FAC40`）。
-//: Switch 侧那一格是 `Music + 0x3F0`：构造函数用 `mov w8,#1` + `strb w8,[x19,#0x3f0]` 初始化
-//: （默认**启用**，与 PC 一致），`Music::Update` 读它当闸（`ldrb w8,[x0,#0x3f0]` + `cbnz → 更新音乐`）
-//: ⇒ 取证与"为什么不许平移 PC 的 `0x328`"见 `runtime_constants.hpp` 的批次 305 段。
-//:
-//: ★ 前两条走**新种类 `FieldKind::BoolWriteConst`**（往 1 字节字段写**常量**、**不收实参**、
-//:   返回 0 个值）；第三条是既有的 `FieldKind::Bool`（读 1 字节压布尔）。
-//: ★ 接收者是既有的 `FieldReceipt::Music`（批次 239 立的：`Music` 是 `Manager` 的内嵌子对象，
-//:   接收者**算出来**而不是从栈上取）。
+// `MusicManager` 的字段数据行（第 3 条数据行表形态）。
+//
+// `Disable()` / `Enable()` / `IsEnabled()` 三条在 PC 上都是 `Music` 上的一个字节
+// （`+0x328`）：`Disable` = 写 0、`Enable` = 写 1、`IsEnabled` = 读它（三条绑定各一条指令，
+// `tools/pc_exe_binding.py` 给的是 `0x7FAC30` / `0x7AC20` / `0x7FAC40`）。
+// Switch 侧那一格是 `Music + 0x3F0`：构造函数用 `mov w8,#1` + `strb w8,[x19,#0x3f0]` 初始化
+// （默认启用，与 PC 一致），`Music::Update` 读它当闸（`ldrb w8,[x0,#0x3f0]` + `cbnz → 更新音乐`）
+// ⇒ 取证与"为什么不许平移 PC 的 `0x328`"见 `runtime_constants.hpp` 的段。
+//
+// 前两条走新种类 `FieldKind::BoolWriteConst`（往 1 字节字段写常量、不收实参、
+// 返回 0 个值）；第三条是既有的 `FieldKind::Bool`（读 1 字节压布尔）。
+// 接收者是既有的 `FieldReceipt::Music`（立的：`Music` 是 `Manager` 的内嵌子对象，
+// 接收者算出来而不是从栈上取）。
 constexpr FieldApiRow kMusicFieldApis[] = {
     {0x06010011, kMusicEnabledOffset, 0, FieldKind::BoolWriteConst, FieldMissing::False,
      FieldReceipt::Music, 0xFF},
@@ -558,8 +558,8 @@ static_assert(sizeof(kMusicFieldApis) / sizeof(kMusicFieldApis[0]) == 3,
               "行数与 id 段（0x0011 / 0x0012 / 0x0013）要一起改");
 
 std::size_t AttachMusicMethods(lua_State* state) noexcept {
-    // 批次 239：手写处理器表与引擎方法数据行表一起挂 —— 绑定循环按 id 匹配，不会串族。
-    // 批次 305：再加上字段数据行表（`Disable`/`Enable`/`IsEnabled`）。
+    // 手写处理器表与引擎方法数据行表一起挂 —— 绑定循环按 id 匹配，不会串族。
+    // 再加上字段数据行表（`Disable`/`Enable`/`IsEnabled`）。
     return AttachApi100Methods(state,"MusicManager") + AttachOwnerMethods(state, kMusicOwner, kMusicHandlers,
                               sizeof(kMusicHandlers) / sizeof(kMusicHandlers[0]),
                               kMusicFieldApis,
@@ -567,8 +567,8 @@ std::size_t AttachMusicMethods(lua_State* state) noexcept {
                               kMusicEngineRows, sizeof(kMusicEngineRows) / sizeof(kMusicEngineRows[0]));
 }
 
-//: `SFXManager()` 返回对象的构造器（**元表与全局由中枢 `lua_runtime.cpp` 建** —— 家族 TU
-//: 不许自己写注册/建表循环，这是契约门禁的明文要求）。
+// `SFXManager()` 返回对象的构造器（元表与全局由中枢 `lua_runtime.cpp` 建 —— 家族 TU
+// 不许自己写注册/建表循环，这是契约门禁的明文要求）。
 int SfxManagerCtor(lua_State* state) {
     if (lua_gettop(state) != 0) {
         return luaL_error(state, "SFXManager accepts no arguments");
@@ -580,7 +580,7 @@ int SfxManagerCtor(lua_State* state) {
     return 1;
 }
 
-//: `SFXManager` 的**方法表**（由中枢建元表时调用；本文件不建元表、也不注册全局）。
+// `SFXManager` 的方法表（由中枢建元表时调用；本文件不建元表、也不注册全局）。
 std::size_t AttachSfxManagerMethods(lua_State* state) noexcept {
     return AttachOwnerMethods(state, kSfxManagerOwner, kSfxManagerHandlers,
                               sizeof(kSfxManagerHandlers) / sizeof(kSfxManagerHandlers[0]));

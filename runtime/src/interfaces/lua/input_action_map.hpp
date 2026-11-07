@@ -2,7 +2,7 @@
 
 // ============================================================================
 // 模组（PC 口径）的**动作号** → Switch（`KAGE::Input`）引擎的**内部动作号**：
-// 独立的翻译表（批次 230，2026-09-30）
+// 独立的翻译表
 // ============================================================================
 //
 // ## 为什么需要这张表（"推摇杆下 = 按左"的根因）
@@ -46,7 +46,7 @@
 //    「`IsActionTriggered(16)` 且 `IsActionPressed(8)`（炸弹）且 `IsActionPressed(10)`（药丸）」
 //    时调 `PlayerManager::SpawnCoPlayer(-1)` + `Entity_Player::SetControllerIndex(device,1)`
 //    —— 这正是 PC 上"按住炸弹+卡牌、再按 Start 加一个手柄"的加入机制。
-// 6. **真机读数**（批次 222，`dist/gdb-read-20260930-1633*-snapshot.txt`）：推左 ⇒ 引擎把
+// 6. 真机读数（，`dist/gdb-read-20260930-1633*-snapshot.txt`）：推左 ⇒ 引擎把
 //    0 与 **17** 答成按住、推右 ⇒ 1 与 **18**、推下 ⇒ 3 与 **20**（四点全对上）。
 // 7. 设备动作数 = **24**（真机 `设备+0x1c`），而上面的表正好用满 0..23
 //    ⇒ Switch 上**没有** `FULLSCREEN/MUTE/RESTART/MENULT/MENURT/MENUEX/EMOTES/CONSOLE`
@@ -82,7 +82,7 @@
 //
 // 而本仓库**自己**暴露的 `ButtonAction` 表（`runtime/source/lua_runtime.cpp` 的
 // `kButtonActionConstants`）目前是 `24=MENULT / 25=MENURT / 26=MENUTAB / 28=CONSOLE`
-// （= AB+ 那一套；批次 218 只校过 16/17/18，24 之后还没校）。
+// （= AB+ 那一套；只校过 16/17/18，24 之后还没校）。
 //
 // ⇒ 一个号同时被两种写法指着时，本表的取舍是**"取 Switch 上真的存在的那一个"**：
 //   * `24 → 21`、`25 → 22`：`MENULB/MENURB` 在 Switch 上就是 L/R（默认表 21←L、22←R；
@@ -114,17 +114,17 @@
 
 namespace isaac::runtime {
 
-//: 模组（PC/`ButtonAction`）动作号的上界：PC Rep+ 最大用到 32（`ACTION_CONSOLE`）。
+// 模组（PC/`ButtonAction`）动作号的上界：PC Rep+ 最大用到 32（`ACTION_CONSOLE`）。
 inline constexpr std::uint32_t kLuaActionCapacity = 33;
 
-//: "这个动作在 Switch 引擎里没有对应项"的哨兵。调用点必须**直接答 `false` / `0.0`**，
-//: **不许**把这个值当动作号递给引擎（设备层对越界号会答 false，但那是巧合、不是本表的意思）。
+// "这个动作在 Switch 引擎里没有对应项"的哨兵。调用点必须直接答 `false` / `0.0`，
+// 不许把这个值当动作号递给引擎（设备层对越界号会答 false，但那是巧合、不是本表的意思）。
 inline constexpr std::uint32_t kNoEngineAction = 0xFFFFFFFFu;
 
-//: Switch 引擎的内部动作总数（真机 `设备+0x1c` 实测 = 24；`IsActionPressed` 的序言拿它做越界判据）。
+// Switch 引擎的内部动作总数（真机 `设备+0x1c` 实测 = 24；`IsActionPressed` 的序言拿它做越界判据）。
 inline constexpr std::uint32_t kSwitchEngineActionCount = 24;
 
-//: 模组动作号 → 引擎内部动作号（`kNoEngineAction` = Switch 上没有这个动作）。逐行证据见文件头。
+// 模组动作号 → 引擎内部动作号（`kNoEngineAction` = Switch 上没有这个动作）。逐行证据见文件头。
 inline constexpr std::uint32_t kLuaActionToEngineAction[kLuaActionCapacity] = {
     /*  0 ACTION_LEFT           */ 0u,
     /*  1 ACTION_RIGHT          */ 1u,
@@ -161,28 +161,28 @@ inline constexpr std::uint32_t kLuaActionToEngineAction[kLuaActionCapacity] = {
     /* 32 ACTION_CONSOLE        */ kNoEngineAction,
 };
 
-//: 取"这个模组动作号在 Switch 引擎里是几号"；越界与"平台上没有"都返回 `kNoEngineAction`。
+// 取"这个模组动作号在 Switch 引擎里是几号"；越界与"平台上没有"都返回 `kNoEngineAction`。
 [[nodiscard]] constexpr std::uint32_t TranslateLuaActionToEngineAction(
     std::uint32_t lua_action) noexcept {
     return lua_action < kLuaActionCapacity ? kLuaActionToEngineAction[lua_action] : kNoEngineAction;
 }
 
-//: 这个模组动作号在 Switch 引擎里有没有对应项（没有 ⇒ 调用点直接答 false / 0）。
+// 这个模组动作号在 Switch 引擎里有没有对应项（没有 ⇒ 调用点直接答 false / 0）。
 [[nodiscard]] constexpr bool LuaActionExistsOnSwitch(std::uint32_t lua_action) noexcept {
     return TranslateLuaActionToEngineAction(lua_action) != kNoEngineAction;
 }
 
 // ============================================================================
-// 反方向：引擎内部动作号 → 模组（PC）动作号（批次 393，2026-10-07）
+// 反方向：引擎内部动作号 → 模组（PC）动作号
 // ============================================================================
 //
 // ## 为什么需要它：`MC_INPUT_ACTION` 的 `buttonAction` 实参
 //
 // 上面那张表解决的是"模组问引擎"（`Input.IsActionPressed(PC号)`）。回调是**反过来**：
 // 引擎在轮询时说"我现在问的是内部 20 号"，而 PC 契约里这个实参是**模组的 `ButtonAction` 值**。
-// 我们批次 390/392 一直是把**引擎内部号**原样递过去的 ⇒ 比较动作号的模组会判错。
+// 我们一直是把引擎内部号原样递过去的 ⇒ 比较动作号的模组会判错。
 //
-// ★ 为什么以前没被咬到：`ACTION_MAP = 13` 在两张表里**恰好同号**（minimapi 用的就是它），
+// 为什么以前没被咬到：`ACTION_MAP = 13` 在两张表里恰好同号（minimapi 用的就是它），
 //   而错开的那一段（16..23）在使用中的模组里没有消费者 —— 但这是运气，不是正确性。
 //   已知的真消费者形状：`InputHelper.HandleForceActionPressed` 用
 //   `forcingActionPressed[controllerIndex][buttonAction]` 存"要强制的动作"
@@ -228,11 +228,11 @@ inline constexpr std::uint32_t kEngineActionToLuaAction[kSwitchEngineActionCount
     /* 23 MENUTAB（Switch = X）   */ 26u,
 };
 
-//: 取"引擎这个内部动作号在模组（PC）口径下是几号"。
-//:
-//: 越界（≥ `kSwitchEngineActionCount`）**原样返回**、不编造：引擎只会轮询 0..23
-//: （设备动作数 24，真机 `设备+0x1c` 实测），出现越界号说明调用方不是引擎 —— 那时把原值透传，
-//: 比编一个"看起来合法"的 PC 号安全（消费点 `DispatchInputAction` 的注释里也写了这一条）。
+// 取"引擎这个内部动作号在模组（PC）口径下是几号"。
+//
+// 越界（≥ `kSwitchEngineActionCount`）原样返回、不编造：引擎只会轮询 0..23
+// （设备动作数 24，真机 `设备+0x1c` 实测），出现越界号说明调用方不是引擎 —— 那时把原值透传，
+// 比编一个"看起来合法"的 PC 号安全（消费点 `DispatchInputAction` 的注释里也写了这一条）。
 [[nodiscard]] constexpr std::uint32_t TranslateEngineActionToLuaAction(
     std::uint32_t engine_action) noexcept {
     return engine_action < kSwitchEngineActionCount ? kEngineActionToLuaAction[engine_action]

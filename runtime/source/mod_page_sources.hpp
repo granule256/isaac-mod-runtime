@@ -21,29 +21,29 @@
 
 namespace isaac::runtime {
 
-//: 读文本的回调：成功时把内容写进 `buffer`（NUL 结尾）并给出长度，返回 true。
+// 读文本的回调：成功时把内容写进 `buffer`（NUL 结尾）并给出长度，返回 true。
 using ModPageTextReader = bool (*)(void* context, const char* path, char* buffer,
                                    std::size_t capacity, std::size_t* length);
 
-//: 每个模组目录的 `metadata.xml` 路径都拼在这块缓冲里（用一个就覆盖一个，不长期保存）。
+// 每个模组目录的 `metadata.xml` 路径都拼在这块缓冲里（用一个就覆盖一个，不长期保存）。
 inline constexpr std::size_t kModPageMetadataPathCapacity = 256;
-//: `metadata.xml` 的读入上限：它只有几十行，8 KiB 足够；超了就当读不到（退目录名）。
+// `metadata.xml` 的读入上限：它只有几十行，8 KiB 足够；超了就当读不到（退目录名）。
 inline constexpr std::size_t kModPageMetadataCapacity = 8192;
 
-//: "先解析挂载、再读"这条纪律的**代码化**（2026-09-19 的教训：`File::OpenRead` 对打开失败
-//: 是直接 **Abort**，所以**绝不盲开**文件 —— 必须先问引擎"这个路径有没有挂载实体"）。
-//:
-//: 返回三态而不是 bool：调用方要能区分"文件本来就没有"（正常，退目录名）与"有文件但读失败"
-//: （异常，值得记一笔）—— 混成一个 false 会让"读崩了"看起来像"这个模组没写 metadata.xml"。
+// "先解析挂载、再读"这条纪律的代码化（2026-09-19 的教训：`File::OpenRead` 对打开失败
+// 是直接 Abort，所以绝不盲开文件 —— 必须先问引擎"这个路径有没有挂载实体"）。
+//
+// 返回三态而不是 bool：调用方要能区分"文件本来就没有"（正常，退目录名）与"有文件但读失败"
+// （异常，值得记一笔）—— 混成一个 false 会让"读崩了"看起来像"这个模组没写 metadata.xml"。
 enum class MountedReadResult : std::uint32_t {
-    Read,             //: 解析到挂载点且读成功
-    NotMounted,       //: 引擎说这个路径没有挂载实体 ⇒ 正常情况，调用方退目录名
-    ReadFailed,       //: 有挂载实体但读失败（长度/内容不符）⇒ 异常
-    InvalidArgument,  //: 参数不合法
+    Read,             // 解析到挂载点且读成功
+    NotMounted,       // 引擎说这个路径没有挂载实体 ⇒ 正常情况，调用方退目录名
+    ReadFailed,       // 有挂载实体但读失败（长度/内容不符）⇒ 异常
+    InvalidArgument,  // 参数不合法
 };
 
-//: `resolver` = "这个路径解析成什么挂载路径"（真机上是 `ContentGetMountedFilePath`；
-//: 返回 false = 没有这个文件）。只有 resolver 说"有"时才调 `reader`。
+// `resolver` = "这个路径解析成什么挂载路径"（真机上是 `ContentGetMountedFilePath`；
+// 返回 false = 没有这个文件）。只有 resolver 说"有"时才调 `reader`。
 [[nodiscard]] inline MountedReadResult ResolveThenRead(const char* path,
                                                        bool (*resolver)(void*, const char*, char*,
                                                                         std::size_t),
@@ -66,11 +66,11 @@ enum class MountedReadResult : std::uint32_t {
     return MountedReadResult::Read;
 }
 
-//: 把清单里的目录名收集成条目来源。名字写进 `nameArena`（`ModPageEntrySource::displayName`
-//: 必须指向**稳定内存**，见 `mod_page_entries.hpp` 的同一条口径）。
-//:
-//: `enabledFlags` / `outdatedFlags` 由调用方给（它们是"我们清单里的启用状态"，
-//: 与 `metadata.xml` 无关）。返回造出来的条数；任何参数不合法 ⇒ 返回 0。
+// 把清单里的目录名收集成条目来源。名字写进 `nameArena`（`ModPageEntrySource::displayName`
+// 必须指向稳定内存，见 `mod_page_entries.hpp` 的同一条口径）。
+//
+// `enabledFlags` / `outdatedFlags` 由调用方给（它们是"我们清单里的启用状态"，
+// 与 `metadata.xml` 无关）。返回造出来的条数；任何参数不合法 ⇒ 返回 0。
 [[nodiscard]] inline std::uint32_t CollectModPageSources(
     ModPageEntrySource* out, std::uint32_t capacity, const char* const* directories,
     std::uint32_t directoryCount, const bool* enabledFlags, const bool* outdatedFlags,
@@ -85,7 +85,7 @@ enum class MountedReadResult : std::uint32_t {
     }
     std::size_t arenaCursor = 0;
     std::uint32_t written = 0;
-    // ★★ 2026-09-23 修（批次 085）：前缀**不带 `rom:/`**。
+    // 2026-09-23 修：前缀不带 `rom:/`。
     //
     // 真机现象（用户报）：模组页上显示的名字**不是** `metadata.xml` 里的 `<name>`。
     // 根因：这里原来拼的是 `rom:/isaac_mods/mods/<目录>/metadata.xml`，而**引擎的挂载解析

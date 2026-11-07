@@ -1,32 +1,9 @@
 #!/usr/bin/env python3
-"""并行跑门禁：**每个测试模块一个进程**，默认按 CPU 并行。
+"""按模块并行运行 unittest 测试。
 
-## 为什么要它
-
-`runtime/tests/` 下有 150+ 个模块，它们彼此独立：每个模块自己用 `tempfile` 建工作目录、
-自己编译自己的夹具、互不共享状态。但 `python3 -m unittest discover` 是**单线程**跑完的
-⇒ 整轮墙钟时间几乎等于"所有模块耗时之和"。按模块并行之后，时间大致变成
-"最慢那个模块 + 排队"，而每个模块里仍然是原来那些用例、原来的断言、原来的顺序。
-
-## 为什么单独跑那几条 docker 用例
-
-有几条用例要在 `devkitpro/devkita64` 容器里跑 `make`。它们**不慢**，但并发起来会互相抢
-容器与磁盘，还容易把失败说成"资源不够"。所以它们放到并行批次之后的**串行**阶段。
-
-## 用法
-
-    python3 tools/run_tests.py            # 并行（默认 min(8, CPU 核数)）
-    python3 tools/run_tests.py -j 4       # 指定并发数
-    python3 tools/run_tests.py -j 1       # 退回串行（等价于逐个模块 discover）
-    python3 tools/run_tests.py --list     # 只列出会跑的模块与分组
-
-退出码：全绿 0；有任何失败/错误 1；发现阶段就出错 2。
-
-★ 2026-09-24（批次 109）：**"有门禁模块导不进来"从"静默少跑一个"改成"响亮失败（退出码 2）"**。
-`unittest` 的发现器对导入失败是**吞掉**的（换成一个 `_FailedTest`、归到 `unittest.loader` 名下）
-⇒ 那个模块从列表里消失，`--only 它的名字` 打印 "Ran 0 tests, OK"、整套门禁照旧绿色。
-已实测（写一个 `def f(:` 的坏文件）：**一条永远绿的假证据**。判据见
-`runtime/tests/test_test_runner_discovery.py`。
+每个模块在独立进程中运行，保留独立的临时工作目录和输出。
+需要容器、Ghidra 或其他独占资源的模块单独调度，避免争用共享状态。
+可按模块筛选；失败项及其输出汇总到最终报告。
 """
 
 from __future__ import annotations

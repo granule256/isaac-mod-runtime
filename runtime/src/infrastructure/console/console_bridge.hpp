@@ -52,7 +52,7 @@
 
 namespace isaac::runtime::console {
 
-//: 一次执行的结论码（进状态面 `[4]`，真机上据此判断走到哪一步 ⇒ 不必靠猜）。
+// 一次执行的结论码（进状态面 `[4]`，真机上据此判断走到哪一步 ⇒ 不必靠猜）。
 enum class ExecStatus : std::uint32_t {
     kOk = 0,             // 引擎真的跑完了这条命令
     kEmptyCommand = 1,   // 空命令（不调引擎）
@@ -64,21 +64,21 @@ enum class ExecStatus : std::uint32_t {
     kDisabledBySwitch = 7,  // 总开关关着 ⇒ **一律拒绝**（这是 PC 的 `EnableDebugConsole=0` 语义）
 };
 
-//: 命令串的**内联**上限：老布局里短串数据在 `+1`，最后一个字节要留给 `\0` ⇒ 22。
-//: （游戏自己也这么判：`Console::VirtualKeyboardFinished` 里 `cmp x0,#0x17` ⇒ ≥23 就走堆串。）
+// 命令串的内联上限：老布局里短串数据在 `+1`，最后一个字节要留给 `\0` ⇒ 22。
+// （游戏自己也这么判：`Console::VirtualKeyboardFinished` 里 `cmp x0,#0x17` ⇒ ≥23 就走堆串。）
 inline constexpr std::size_t kCommandInlineCapacity = 22;
-//: 老的有界复制助手所用缓冲（布局自检仍用）；不是 ExecuteCommand 的长度上限。
+// 老的有界复制助手所用缓冲（布局自检仍用）；不是 ExecuteCommand 的长度上限。
 inline constexpr std::size_t kCommandBufferCapacity = 128;
-//: 老有界复制助手最多多少字节（= 缓冲容量 − 结尾 `\0`），公共执行入口不使用它。
+// 老有界复制助手最多多少字节（= 缓冲容量 − 结尾 `\0`），公共执行入口不使用它。
 inline constexpr std::size_t kCommandLengthLimit = kCommandBufferCapacity - 1;
-//: 输出累计字节上限；独立命令之间复用引擎缓冲，嵌套执行仍受上限保护。
+// 输出累计字节上限；独立命令之间复用引擎缓冲，嵌套执行仍受上限保护。
 inline constexpr std::size_t kOutputByteLimit = 64 * 1024;
-//: 对象缓冲尾部的哨兵宽度：`Console` 写出界要能被发现，而不是踩到相邻静态变量。
+// 对象缓冲尾部的哨兵宽度：`Console` 写出界要能被发现，而不是踩到相邻静态变量。
 inline constexpr std::size_t kObjectFenceBytes = 16;
-//: 哨兵填充值。
+// 哨兵填充值。
 inline constexpr unsigned char kObjectFenceValue = 0xA5;
 
-//: 状态面（读数工具按裸名 `g_ConsoleState` 取；**字段只能往后追加**）。
+// 状态面（读数工具按裸名 `g_ConsoleState` 取；字段只能往后追加）。
 struct BridgeState {
     std::uint32_t armed;            // [0]  1 = 这一整块编进来了
     std::uint32_t entriesResolved;  // [1]  入口解析结果位图：bit0 构造 / bit1 Init / bit2 RunCommand
@@ -92,7 +92,7 @@ struct BridgeState {
     std::uint32_t keyboardRequests; // [8]  请求弹系统软键盘的次数
     std::uint32_t keyboardResults;  // [9]  软键盘回调交回文本的次数
     std::uint32_t lastAction;       // [10] 最近观察到"按住"的动作号（0xFFFFFFFF = 还没学到）
-                                    //      ★ 真机上用它把"哪个键 = 哪个动作号"定下来
+                                    //      真机上用它把"哪个键 = 哪个动作号"定下来
     std::uint32_t frames;           // [11] 每帧点跑过多少帧（证明这块代码真在跑）
     std::uint32_t outputIsLong;     // [12] 1 = 输出串已经换成引擎的堆缓冲（只读、永不释放）
     std::uint32_t fenceBroken;      // [13] 1 = 抓到过一次对象缓冲越界写（**必须恒 0**）
@@ -101,17 +101,17 @@ struct BridgeState {
     std::uint32_t overlayFrames;    // [16] 输出还要在屏幕上留多少帧（0 = 没在显示）
     std::uint32_t triggerHeld;      // [17] 1 = 组合键当前按住（呼出用的长按判据）
     std::uint32_t actionsSeen;      // [18] 本会话里"被按住过"的动作号**累计位图**（bit N = 动作 N）
-                                    //      ★ 诊断用：一次读数就能拿到整张"按键 ↔ 动作号"映射
+                                    //      诊断用：一次读数就能拿到整张"按键 ↔ 动作号"映射
                                     //      （[10] 只留最后一个，连打时会被顶掉）
-    // ---- 批次 124：总开关（对应 PC 的 `EnableDebugConsole`，开关本体在模组页那一行）----
+    // ---- 总开关（对应 PC 的 `EnableDebugConsole`，开关本体在模组页那一行）----
     std::uint32_t switchEnabled;    // [19] 1 = 控制台可用（默认；文件里 `enabled=0` 或用户在
-                                    //      模组页上拨到关 ⇒ 0）。★ 0 时连 `Isaac.ExecuteCommand` 也拒
+                                    //      模组页上拨到关 ⇒ 0）。0 时连 `Isaac.ExecuteCommand` 也拒
     std::uint32_t switchRefusals;   // [20] 因为开关关着而**被拒**的命令次数（含模组调 API 的那些）
     std::uint32_t switchFileFailures;  // [21] 开关状态文件读/写失败次数（端口没接上也算）
-                                       //      ★ 读失败**不改开关值**（回默认"开"），只计数
+                                       //      读失败不改开关值（回默认"开"），只计数
 };
 
-// ★★ 符号形状踩过两次，两条都记下：
+// 符号形状踩过两次，两条都记下：
 //   ① `extern "C" inline BridgeState g_ConsoleState = {};` ⇒ gcc 报
 //      `'g_ConsoleState' initialized and declared 'extern'`（本构建 `-Werror` ⇒ 构建失败；
 //      `mod_menu_native.cpp` 的 `g_ModMenuState` 也记过同一条）。
@@ -121,7 +121,7 @@ struct BridgeState {
 //   额外东西）。代价是符号名成了**改编名** `_ZN5isaac7runtime7console14g_ConsoleStateE` ——
 //   读数工具的 `SYM_ELF_NAMES` 就按这个名字取（`g_CallbackDispatchCounts` 那几个也是改编名，先例在）。
 inline BridgeState g_ConsoleState{};
-//: 起个短名字给本文件的实现用（读数工具仍按裸名取，名字不变）。
+// 起个短名字给本文件的实现用（读数工具仍按裸名取，名字不变）。
 inline BridgeState& State() noexcept {
     return g_ConsoleState;
 }
@@ -129,17 +129,17 @@ inline BridgeState& State() noexcept {
 // --- 引擎入口类型（放一处；第一项是显式 `this`）------------------------------------
 using ConsoleCtorFn = void (*)(void*);
 using ConsoleInitFn = void (*)(void*);
-//: `RunCommand(std::string const&, std::string*, Entity_Player*)` —— 三个参数我们都按裸指针传
-//: （命令串与输出串是**手工拼的老布局缓冲**，见本文件头部第 2 条纪律）。
+// `RunCommand(std::string const&, std::string*, Entity_Player*)` —— 三个参数我们都按裸指针传
+// （命令串与输出串是手工拼的老布局缓冲，见本文件头部第 2 条纪律）。
 using ConsoleRunCommandFn = void (*)(void*, const void*, void*, void*);
 using VirtualKeyboardParamsCtorFn = void (*)(void*);
-//: `OpenVirtualKeyboard(VirtualKeyboardParams const&, unsigned int)`，`this` = `&KAGE::System::g_Manager`。
-//: ★ `this` 写成 `std::uintptr_t` 而不是 `void*`：调用点拿到的就是整数地址，
-//:   写成 `void*` 会在调用点逼出一个 `reinterpret_cast`（而**冻结台账按每个文件的
-//:   `reinterpret_cast` 计数判、只许减不许增**，见 `tools/raw_engine_access_baseline.json`）。
-//:   ABI 上完全一样（整数与指针都走 `x0`）。
+// `OpenVirtualKeyboard(VirtualKeyboardParams const&, unsigned int)`，`this` = `&KAGE::System::g_Manager`。
+// `this` 写成 `std::uintptr_t` 而不是 `void*`：调用点拿到的就是整数地址，
+// 写成 `void*` 会在调用点逼出一个 `reinterpret_cast`（而冻结台账按每个文件的
+// `reinterpret_cast` 计数判、只许减不许增，见 `tools/raw_engine_access_baseline.json`）。
+// ABI 上完全一样（整数与指针都走 `x0`）。
 using OpenVirtualKeyboardFn = void (*)(std::uintptr_t, const void*, std::uint32_t);
-//: 软键盘回调签名：`void(wchar_t const*, void*)`（本平台 `wchar_t` = 4 字节）。
+// 软键盘回调签名：`void(wchar_t const*, void*)`（本平台 `wchar_t` = 4 字节）。
 using VirtualKeyboardFinishedFn = void (*)(const std::uint32_t*, void*);
 
 struct EngineEntries {
@@ -150,16 +150,16 @@ struct EngineEntries {
     OpenVirtualKeyboardFn openKeyboard{nullptr};
 };
 
-//: 系统软键盘参数块。**布局来自 `Console::ShowKeyboard` 的反汇编**（引擎自己那份配方），
-//: 由 `static_assert` 钉在 0x30 字节（改错就对不上，编译期就红）。
+// 系统软键盘参数块。布局来自 `Console::ShowKeyboard` 的反汇编（引擎自己那份配方），
+// 由 `static_assert` 钉在 0x30 字节（改错就对不上，编译期就红）。
 struct VirtualKeyboardParams {
     std::uint32_t flags;        // +0x00 构造时清零
     std::uint32_t padding;      // +0x04 对齐填充（构造只写 4 字节的 0，这里显式留着）
     std::uint32_t* text;        // +0x08 宽字符缓冲（**4 字节/字符**，见 `console_text.hpp` 的查证）
     std::uint32_t limit;        // +0x10 上限（引擎自己传 64）
     std::uint32_t reserved;     // +0x14
-    //: 文本变化回调（+0x18）与完成回调（+0x20）：**直接写成函数指针类型**，
-    //: 这样赋我们的回调时不需要任何转换（写 `void*` 会在调用点逼出一个 `reinterpret_cast`）。
+    // 文本变化回调（+0x18）与完成回调（+0x20）：直接写成函数指针类型，
+    // 这样赋我们的回调时不需要任何转换（写 `void*` 会在调用点逼出一个 `reinterpret_cast`）。
     VirtualKeyboardFinishedFn textChanged;  // +0x18（不用，留空）
     VirtualKeyboardFinishedFn finished;     // +0x20
     void* userData;             // +0x28 回传给完成回调
@@ -186,20 +186,20 @@ inline NativeVirtualKeyboardParams& NativeKeyboardParamsStorage() noexcept {
 //     （`ldp x10,x8,[s,#0x8]` → `csel x2,x9,x10,eq` 取长度、`csinc x1,x8,s,ne` 取数据指针）。
 // 出处：`Console::Print @ 0x3BFB4` 的前 16 条指令（读入参那个 `std::string const&`）。
 //
-// ★ 与宿主/新版 libc++ 的差别（2026-09-25 实测）：新版把短串数据放在 **+0**、标志放到末字节
+// 与宿主/新版 libc++ 的差别（2026-09-25 实测）：新版把短串数据放在 +0、标志放到末字节
 //   ⇒ **两边布局不同**。所以这里手工拼字节，绝不把本模块的 `std::string` 交出去。
 inline constexpr std::size_t kEngineStringBytes = 24;
 
-//: 把一条命令写进"24 字节串头 + 数据缓冲"（返回 false = 超过总上限，不写）。
-//:
-//: 短命令（≤ 22）走**内联短串**：整条命令都在那 24 字节里，`+1` 起是数据。
-//: 长命令走**长布局**，数据放调用方的静态缓冲（我们自己的内存），并把
-//: `+0x00 = 容量|1`、`+0x08 = 长度`、`+0x10 = 数据指针`。
-//: ★ 长布局这几条字段的出处是**游戏自己构造长串的代码**（`Console::VirtualKeyboardFinished`
-//:   @ 0x3C65C）：`orr x8, x22, #0x1` → 写 `+0x00`（容量并上长串标志），随后
-//:   `stp x20, x0, [sp,#0x10]` → 写 `+0x08` 长度、`+0x10` 数据指针。
-//: ★ 安全性：引擎把命令当 `const&` 读（`split` 也是 `const&`）⇒ 它**不会**释放我们这块缓冲；
-//:   我们也不用自己那份 libc++ 去析构它（那边布局都不一样，见本文件头部第 2 条纪律）。
+// 把一条命令写进"24 字节串头 + 数据缓冲"（返回 false = 超过总上限，不写）。
+//
+// 短命令（≤ 22）走内联短串：整条命令都在那 24 字节里，`+1` 起是数据。
+// 长命令走长布局，数据放调用方的静态缓冲（我们自己的内存），并把
+// `+0x00 = 容量|1`、`+0x08 = 长度`、`+0x10 = 数据指针`。
+// 长布局这几条字段的出处是游戏自己构造长串的代码（`Console::VirtualKeyboardFinished`
+// @ 0x3C65C）：`orr x8, x22, #0x1` → 写 `+0x00`（容量并上长串标志），随后
+// `stp x20, x0, [sp,#0x10]` → 写 `+0x08` 长度、`+0x10` 数据指针。
+// 安全性：引擎把命令当 `const&` 读（`split` 也是 `const&`）⇒ 它不会释放我们这块缓冲；
+// 我们也不用自己那份 libc++ 去析构它（那边布局都不一样，见本文件头部第 2 条纪律）。
 [[nodiscard]] inline bool BuildCommandString(const char* command, std::size_t length,
                                              unsigned char* header, char* buffer,
                                              std::size_t bufferCapacity) noexcept {
@@ -226,10 +226,10 @@ inline constexpr std::size_t kEngineStringBytes = 24;
     return true;
 }
 
-//: 同步执行专用：调用方保证 command 的 length 字节和结尾 NUL 在 RunCommand 返回前有效。
-//: 长串只借指针，不复制、不分配、不析构；短串仍内联。不得存进 Core 或交给异步消费者。
-//: 固定 NRO：RunCommand 0x3D76C/0x3D77C 立即交给 split，0x35D1C 再交给
-//: basic_stringbuf::str(const&)；0x39864 的复制赋值生成引擎自己的串，输入没有被保留。
+// 同步执行专用：调用方保证 command 的 length 字节和结尾 NUL 在 RunCommand 返回前有效。
+// 长串只借指针，不复制、不分配、不析构；短串仍内联。不得存进 Core 或交给异步消费者。
+// 固定 NRO：RunCommand 0x3D76C/0x3D77C 立即交给 split，0x35D1C 再交给
+// basic_stringbuf::str(const&)；0x39864 的复制赋值生成引擎自己的串，输入没有被保留。
 [[nodiscard]] inline bool BuildBorrowedCommandString(const char* command, std::size_t length,
                                                      unsigned char* header) noexcept {
     if (header == nullptr || command == nullptr || length == SIZE_MAX) {
@@ -252,12 +252,12 @@ inline constexpr std::size_t kEngineStringBytes = 24;
 }
 
 
-//: 输出串是不是已经换成引擎的堆缓冲（首字节低 1 位 = 1）。
+// 输出串是不是已经换成引擎的堆缓冲（首字节低 1 位 = 1）。
 [[nodiscard]] inline bool EngineStringIsLong(const unsigned char* string) noexcept {
     return string != nullptr && (string[0] & 0x01U) != 0U;
 }
 
-//: 输出串长度（按上面那套布局读）。
+// 输出串长度（按上面那套布局读）。
 [[nodiscard]] inline std::size_t EngineStringSize(const unsigned char* string) noexcept {
     if (string == nullptr) {
         return 0;
@@ -270,7 +270,7 @@ inline constexpr std::size_t kEngineStringBytes = 24;
     return static_cast<std::size_t>(size);
 }
 
-//: 输出串数据指针（短串在缓冲内；长串是引擎堆上的地址 —— 用之前**必须**先判可读）。
+// 输出串数据指针（短串在缓冲内；长串是引擎堆上的地址 —— 用之前必须先判可读）。
 [[nodiscard]] inline const char* EngineStringData(const unsigned char* string) noexcept {
     if (string == nullptr) {
         return nullptr;
@@ -285,9 +285,9 @@ inline constexpr std::size_t kEngineStringBytes = 24;
     return static_cast<const char*>(engine_memory::AsObject(data));
 }
 
-//: 布局自检：验证我们这套"读法"与本模块编译出来的 `sizeof` 观感一致。
-//: 它**不是**在验证对方的 libc++（那验不了），而是把"缓冲够不够、判据读得对不对"钉住；
-//: 真值还得靠真机（读数里 `outputBytes` 若明显不对，就是布局对不上）。
+// 布局自检：验证我们这套"读法"与本模块编译出来的 `sizeof` 观感一致。
+// 它不是在验证对方的 libc++（那验不了），而是把"缓冲够不够、判据读得对不对"钉住；
+// 真值还得靠真机（读数里 `outputBytes` 若明显不对，就是布局对不上）。
 [[nodiscard]] inline bool StringLayoutSelfCheck() noexcept {
     unsigned char shortProbe[kEngineStringBytes]{};
     char shortBuffer[8]{};
@@ -323,10 +323,10 @@ struct Core {
     std::uint32_t keyboardText[kVirtualKeyboardTextCapacity]{};    // 软键盘的宽字符缓冲
     VirtualKeyboardParams keyboardParams{};
     ConsoleLog log{};
-    //: 最近一次执行的**新增输出**（给 `Isaac.ExecuteCommand` 当返回值；超长截断）。
+    // 最近一次执行的新增输出（给 `Isaac.ExecuteCommand` 当返回值；超长截断）。
     char lastOutput[512]{};
     std::uint32_t lastOutputLength{0};
-    //: 软键盘回调交回的命令（UTF-8），等**下一帧**再执行（回调里不调引擎）。
+    // 软键盘回调交回的命令（UTF-8），等下一帧再执行（回调里不调引擎）。
     char pendingCommand[kConsoleLogLineCapacity * 2]{};
     std::uint32_t pendingLength{0};
     bool pendingReady{false};
@@ -334,11 +334,11 @@ struct Core {
     bool commandReady{false};
     bool outputReady{false};
     bool outputIsLong{false};
-    //: 组合键**连续按住**了多少帧（松开清零）。呼出判据 = 这个计数到 `kConsoleTriggerHoldFrames`，
-    //: 不是"按住的那一帧" —— A/B 是局内射击面键，连打时会在同一帧里同时按下（真机实测误触）。
+    // 组合键连续按住了多少帧（松开清零）。呼出判据 = 这个计数到 `kConsoleTriggerHoldFrames`，
+    // 不是"按住的那一帧" —— A/B 是局内射击面键，连打时会在同一帧里同时按下（真机实测误触）。
     std::uint32_t comboHeldFrames{0};
     bool comboFired{false};  // 这一轮长按已经弹过键盘（一直按着不重复弹；松开才复位）
-    // ---- 批次 124：总开关（值 + 两个"待办"；真正的 I/O 在每帧点里做，见 `ConsoleSwitchTick`）----
+    // ---- 总开关（值 + 两个"待办"；真正的 I/O 在每帧点里做，见 `ConsoleSwitchTick`）----
     bool switchEnabled{isaac::runtime::kConsoleSwitchDefaultEnabled};  // 缺文件 ⇒ 默认开
     bool switchReadPending{true};   // 开局第一帧读一次文件（那时已在游戏线程上）
     bool switchWritePending{false}; // 用户在模组页拨过开关 ⇒ 写一次
@@ -355,7 +355,7 @@ struct Core {
 }
 
 // ============================================================================
-// 总开关（批次 124）—— 对应 PC 的 `EnableDebugConsole`
+// 总开关—— 对应 PC 的 `EnableDebugConsole`
 // ============================================================================
 //
 // 三个入口分成两半，**故意不在一起**：
@@ -366,7 +366,7 @@ struct Core {
 // 但那一帧正在驱动引擎的菜单状态机）；按本项目一贯纪律"要动手就在每帧点做"，把文件 I/O
 // 挪到每帧点开头最稳，且与污染标记那条路同一个位置口径。
 
-//: 现在控制台可不可用。**每帧读它**（纯内存，不做 I/O）。
+// 现在控制台可不可用。每帧读它（纯内存，不做 I/O）。
 [[nodiscard]] inline bool ConsoleSwitchEnabled() noexcept {
     return Storage().switchEnabled;
 }
@@ -396,9 +396,9 @@ inline const char* ConsoleControlRowName() noexcept {
     return text;
 }
 
-//: 拨动开关（模组页那一行调）。**当场生效**（页面上的显示立刻变），只挂一个"待写"；
-//: 真正落盘由 `ConsoleSwitchTick()` 在每帧点里做。写失败不回滚内存值（见 `.hpp` 的 fail-open 那段），
-//: 但会记一次失败 ⇒ 读数里 `[21]` 会涨，不会静默。
+// 拨动开关（模组页那一行调）。当场生效（页面上的显示立刻变），只挂一个"待写"；
+// 真正落盘由 `ConsoleSwitchTick()` 在每帧点里做。写失败不回滚内存值（见 `.hpp` 的 fail-open 那段），
+// 但会记一次失败 ⇒ 读数里 `[21]` 会涨，不会静默。
 inline void RequestConsoleSwitchWrite(bool enabled) noexcept {
     Core& core = Storage();
     core.switchEnabled = enabled;
@@ -408,8 +408,8 @@ inline void RequestConsoleSwitchWrite(bool enabled) noexcept {
     State().switchEnabled = enabled ? 1U : 0U;
 }
 
-//: 每帧一次：把"开局读一次"与"拨动后写一次"做掉，并把 `[19]` 发布出去。
-//: **只在游戏线程上调**（端口的实现自己也会拒绝别的线程）；没有待办时不碰文件系统。
+// 每帧一次：把"开局读一次"与"拨动后写一次"做掉，并把 `[19]` 发布出去。
+// 只在游戏线程上调（端口的实现自己也会拒绝别的线程）；没有待办时不碰文件系统。
 inline void ConsoleSwitchTick() noexcept {
     Core& core = Storage();
     isaac::runtime::ISaveFilePort* storage = isaac::runtime::SessionSaveFilePort();
@@ -498,7 +498,7 @@ inline void ConsoleSwitchTick() noexcept {
            out->runCommand != nullptr;
 }
 
-//: "读 `base + offset` 处的那个指针"（读不到返回 0）。走引擎内存访问层，功能代码里不写指针算术。
+// "读 `base + offset` 处的那个指针"（读不到返回 0）。走引擎内存访问层，功能代码里不写指针算术。
 [[nodiscard]] inline std::uintptr_t LoadPointerField(std::uintptr_t base,
                                                     std::uintptr_t offset) noexcept {
     std::uintptr_t value = 0;
@@ -509,18 +509,18 @@ inline void ConsoleSwitchTick() noexcept {
     return value;
 }
 
-//: `KAGE::System::g_Manager` 的**对象地址**（它的 GOT 槽里就是对象地址本身，不必再解一次）。
+// `KAGE::System::g_Manager` 的对象地址（它的 GOT 槽里就是对象地址本身，不必再解一次）。
 [[nodiscard]] inline std::uintptr_t KageSystemManager(std::uintptr_t base) noexcept {
     return LoadPointerField(base, kKageSystemManagerSlotOffset);
 }
 
-//: `Game*`：`g_Game` 是一个**指针变量**，所以槽 → 变量地址 → 再解一次才是 `Game*`。
+// `Game*`：`g_Game` 是一个指针变量，所以槽 → 变量地址 → 再解一次才是 `Game*`。
 [[nodiscard]] inline std::uintptr_t ResolveGame(std::uintptr_t base) noexcept {
     const std::uintptr_t variable = LoadPointerField(base, kGameOwnerGlobalSlotOffset);
     return variable != 0 ? LoadPointerField(variable, 0) : 0;
 }
 
-//: 玩家列表非空**且 `players[0]` 非 0**。两者缺一，引擎自己那条取玩家的路径就会读到空指针。
+// 玩家列表非空且 `players[0]` 非 0。两者缺一，引擎自己那条取玩家的路径就会读到空指针。
 [[nodiscard]] inline bool HasUsableFirstPlayer(std::uintptr_t game) noexcept {
     if (game == 0) {
         return false;
@@ -533,7 +533,7 @@ inline void ConsoleSwitchTick() noexcept {
     return LoadPointerField(begin, 0) != 0;
 }
 
-//: 对象的尾部哨兵还在不在（构造/Init/执行之后各查一次）。
+// 对象的尾部哨兵还在不在（构造/Init/执行之后各查一次）。
 [[nodiscard]] inline bool ObjectFenceIntact(const Core& core) noexcept {
     for (std::size_t index = kConsoleObjectSize - kObjectFenceBytes; index < kConsoleObjectSize;
          ++index) {
@@ -544,7 +544,7 @@ inline void ConsoleSwitchTick() noexcept {
     return true;
 }
 
-//: 就绪 = 入口齐 + 对象已构造 + 哨兵完好。不做任何引擎调用。
+// 就绪 = 入口齐 + 对象已构造 + 哨兵完好。不做任何引擎调用。
 [[nodiscard]] inline bool EnsureConsoleObject(const EngineEntries& entries) noexcept {
     Core& core = Storage();
     if (core.objectReady) {
@@ -582,12 +582,12 @@ struct ExecutionOutcome {
     std::size_t totalOutput{0};  // 引擎侧累计输出长度
 };
 
-//: 执行一条 UTF-8 命令。**不抛、不崩**：任何前置条件不成立都只回一个结论码。
-//:
-//: ★ 玩家参数恒传 **nullptr**，但**先自己确认玩家列表非空**：引擎在第三参数为 null 时会
-//:   读 `Game + 0x25C50` 的 `vector<Entity_Player*>` 第一个元素（`ldp x8,x9,[x19]` → `cbnz w9`
-//:   → `ldr x26,[x8]`）**且不判空** ⇒ 列表为空时那是读空指针。我们宁可"这一帧不执行"，
-//:   也不把这种输入交给引擎（结论码 `kNoPlayer`）。
+// 执行一条 UTF-8 命令。不抛、不崩：任何前置条件不成立都只回一个结论码。
+//
+// 玩家参数恒传 nullptr，但先自己确认玩家列表非空：引擎在第三参数为 null 时会
+// 读 `Game + 0x25C50` 的 `vector<Entity_Player*>` 第一个元素（`ldp x8,x9,[x19]` → `cbnz w9`
+// → `ldr x26,[x8]`）且不判空 ⇒ 列表为空时那是读空指针。我们宁可"这一帧不执行"，
+// 也不把这种输入交给引擎（结论码 `kNoPlayer`）。
 [[nodiscard]] inline ExecutionOutcome ExecuteCommand(const EngineEntries& entries,
                                                     std::uintptr_t base, const char* command,
                                                     std::size_t length) noexcept {
@@ -677,7 +677,7 @@ struct ExecutionOutcome {
 
     const std::size_t before = EngineStringSize(core.outputString);
     if (IsRewindCommand(command, length)) {
-        // 446：Switch的原生RunCommand没有rewind分支，按PC原版调用链补接。
+        // Switch的原生RunCommand没有rewind分支，按PC原版调用链补接。
         const std::uintptr_t managerVariable = LoadPointerField(base, kGameManagerGlobalSlotOffset);
         const std::uintptr_t manager = managerVariable != 0 ? LoadPointerField(managerVariable, 0) : 0;
         if (!ExecuteRewind(ResolveRewindEntries(base), ResolveGame(base), manager)) {
@@ -728,7 +728,7 @@ struct ExecutionOutcome {
     return outcome;
 }
 
-//: 最近一次执行的**新增输出**（给 `Isaac.ExecuteCommand` 当返回值；空返回 false）。
+// 最近一次执行的新增输出（给 `Isaac.ExecuteCommand` 当返回值；空返回 false）。
 [[nodiscard]] inline bool TakeLastOutput(const char** text, std::uint32_t* length) noexcept {
     const Core& core = Storage();
     if (core.lastOutputLength == 0 || text == nullptr || length == nullptr) {
@@ -747,9 +747,9 @@ struct ExecutionOutcome {
 // 系统软键盘
 // ============================================================================
 
-//: 软键盘回调：`void(wchar_t const*, void*)`（`wchar_t` = 4 字节，见 `console_text.hpp`）。
-//: ★ 这里**只搬数据、不调引擎**：命令留给下一帧的会话点执行 —— 回调是引擎在它自己的
-//:   applet 处理里进来的，那个位置上跑一整条命令没有依据。
+// 软键盘回调：`void(wchar_t const*, void*)`（`wchar_t` = 4 字节，见 `console_text.hpp`）。
+// 这里只搬数据、不调引擎：命令留给下一帧的会话点执行 —— 回调是引擎在它自己的
+// applet 处理里进来的，那个位置上跑一整条命令没有依据。
 inline void KeyboardFinishedCallback(const std::uint32_t* text, void* /*userData*/) noexcept {
     Core& core = Storage();
     core.pendingLength = 0;
@@ -770,7 +770,7 @@ inline void KeyboardFinishedCallback(const std::uint32_t* text, void* /*userData
     panel.keyboardFinished = true;
 }
 
-//: 请求弹出系统软键盘。`this` 用引擎自己的 `KAGE::System::g_Manager` ⇒ 不必自己开 applet 会话。
+// 请求弹出系统软键盘。`this` 用引擎自己的 `KAGE::System::g_Manager` ⇒ 不必自己开 applet 会话。
 [[nodiscard]] inline bool RequestKeyboard(const EngineEntries& entries,
                                          std::uintptr_t kageManager,
                                          VirtualKeyboardFinishedFn changed = nullptr,
@@ -797,7 +797,7 @@ inline void KeyboardFinishedCallback(const std::uint32_t* text, void* /*userData
     return true;
 }
 
-//: 取走软键盘交回的命令（一次性）。返回 false = 没有待执行的命令。
+// 取走软键盘交回的命令（一次性）。返回 false = 没有待执行的命令。
 [[nodiscard]] inline bool TakePendingCommand(const char** command, std::uint32_t* length) noexcept {
     Core& core = Storage();
     if (!core.pendingReady || command == nullptr || length == nullptr) {

@@ -1,39 +1,9 @@
 #!/usr/bin/env python3
-"""设备 FTP 读写小工具（一次连接只做一件事）。
+"""设备 FTP 文件操作工具。
 
-为什么要单独写它：这台主机上的 FTP 服务**对连续快速连接敏感**（会返回 `451` 或直接 reset），
-而项目纪律明确要求「**一个连接只做一件事、随用随关、动作之间留 1~3 秒**」。
-把这条纪律写进工具里，比每次手写 `ftplib` 更不容易违反（也避免并发）。
-
-纪律（照 `AGENTS.md`「设备取证纪律」）：
-* **不要常驻**：要用时临时前台开，**用完关掉再进游戏**（常驻的 FTP 会与 `fs.mitm` 抢 SD，
-  导致游戏在装载阶段崩）。
-* **写卡必须在游戏未运行时做**（先用调试桩确认 `Application` 进程不在，或人工确认已退出）。
-* 撞上 `451`/reset 时**等几秒再单次重试**，不要猛重试。
-
-用法：
-    python3 tools/device_ftp.py ls  /atmosphere/contents/010021C000B6A000/exefs
-    python3 tools/device_ftp.py cat /atmosphere/config/system_settings.ini
-    python3 tools/device_ftp.py get /path/on/device  /path/local
-    python3 tools/device_ftp.py put /path/local  /path/on/device
-    python3 tools/device_ftp.py put-tree /path/local/dir  /path/on/device   # 整棵目录**顺序**上传 + 逐文件核验
-    python3 tools/device_ftp.py sha /path/on/device            # 读回并算 sha256（写后核验用）
-
-★ `put-tree` 的纪律（2026-09-23 批次 071 新增，理由是这台设备的服务端行为）：
-  这台设备上的 FTP 服务**对连续快速连接非常敏感**（会返回 `451` 或直接 reset）。所以整棵目录
-  上传时**不许并发、不许猛重试**：
-    * **你给的那个远端根目录本身**先建出来（`ensure_remote_directory`：先试一次整条路径，
-      服务端说"父目录不存在"（`553`）才从最浅一级往下逐级建）——
-      2026-09-23 批次 075 的教训：老实现只建**树里出现**的那几级，远端根不存在时必 `553`；
-    * 树里每一级目录再 `mkdir` **逐级**创建（父目录不存在就先建父目录）；
-    * 文件**一个接一个**传，每个文件传完**立刻读回 sha256 核对**，对不上就**当场停下**并报告；
-    * 文件之间**睡 1~3 秒**（每个动作本身也是一次新连接，`with_retry` 还会在动作后再等 1.5 秒）；
-    * 写卡前先做一次"游戏在不在跑"的检查（与 `put` 同一套逻辑；**判断不了会如实说明**，
-      不把它当成"安全"）。
-    * **任一步失败都是非零退出**（`with_retry` 抛 `SystemExit`、读回不一致返回 1）——
-      但**别把命令接 `| tail`**：管道会把退出码换成 `tail` 的，看起来像"成功了"。
-
-选项：`--host`（显式参数或本地配置）、`--port`（默认 5000）、`--user/--password`（账号密码见 tools/device_access.py 的说明）
+按操作建立和关闭连接，并在操作间等待，降低设备服务返回 451 或重置连接的概率。
+写入前检查游戏状态；遇到临时传输错误执行有限重试。连接参数由设备配置解析，
+命令入口提供文件与目录的查询、上传、下载、移动和删除操作。
 """
 
 from __future__ import annotations
@@ -296,18 +266,18 @@ def cmd_put_tree(args) -> int:
         return 1
     remote_root = args.path.rstrip('/') or '/'
 
-    # ★★★ 2026-10-06：**默认走"单连接连续传"**（见 `put_tree_single_connection` 的注释与实测表）。
+    # 2026-10-06：默认走"单连接连续传"（见 `put_tree_single_connection` 的注释与实测表）。
     #   老路径（每个动作新建连接 + 之间睡 2 秒）原样保留在 `--legacy-slow` 里。
     if not getattr(args, 'legacy_slow', False):
         return put_tree_single_connection(args, root, remote_root)
 
-    # ⓪ **远端根本身**要先存在（2026-09-23 批次 075：老实现只建树里那几级，远端根不存在就必 553）。
+    # ⓪ 远端根本身要先存在（2026-09-23 老实现只建树里那几级，远端根不存在就必 553）。
     ensure_remote_directory(args, remote_root)
 
     # ① 目录：把**每个文件的每一级祖先目录**都建出来（顺序 = 浅的在前，父一定先于子）。
-    #    ★ 老实现只收 `path.parent`（= 文件所在的**最后一级**），中间层一个都不建 ⇒
+    #    老实现只收 `path.parent`（= 文件所在的最后一级），中间层一个都不建 ⇒
     #    只要树的深度 ≥ 2、而中间层在卡上不存在，`mkdir` 就报 `553`。
-    #    2026-09-23 批次 075 给五个新语言根铺文件时撞上的就是这个（当时只能手工逐级 `mkdir`）。
+    #    2026-09-23 给五个新语言根铺文件时撞上的就是这个（当时只能手工逐级 `mkdir`）。
     directories = set()
     for path in root.rglob('*'):
         if not path.is_file():
@@ -393,7 +363,7 @@ def put_tree_single_connection(args, root: Path, remote_root: str) -> int:
     """
     files = sorted(path for path in root.rglob('*') if path.is_file())
     print(f'== 单连接连续上传 {len(files)} 个文件（每个传完在**同一条连接**上读回 sha256 核对）==')
-    # ★ 必须走模块级的 `connect(args)`（不要自己 `ftplib.FTP()`）—— 门禁 `test_device_ftp_put_tree`
+    # 必须走模块级的 `connect(args)`（不要自己 `ftplib.FTP()`）—— 门禁 `test_device_ftp_put_tree`
     #   靠 mock 这个函数把假服务器注入进来。2026-10-06 换成单连接路径时第一版忘了这点，
     #   门禁当场真的去连设备、报 `ConnectionRefused` ⇒ 6 个用例红（判据没丢，是注入点丢了）。
     ftp = connect(args)
@@ -410,7 +380,7 @@ def put_tree_single_connection(args, root: Path, remote_root: str) -> int:
                 ftp.mkd(current)
             except ftplib.error_perm as exc:
                 # 550 = 已存在（也可能是权限问题 —— 那种情况后面的 STOR 会自己暴露）。
-                # ★ 其余（`553` = 父目录不存在、权限不足…）⇒ **非零退出**，与老路径逐条同义
+                # 其余（`553` = 父目录不存在、权限不足…）⇒ 非零退出，与老路径逐条同义
                 #   （门禁 `test_a_level_that_cannot_be_created_aborts_without_uploading` 钉的
                 #   就是"`553` ⇒ `SystemExit`、且一个文件都不许传"）。
                 if not str(exc).startswith('550'):
@@ -536,7 +506,7 @@ def main() -> int:
     p.add_argument('path', help='设备上的目标目录（**它本身**与各级子目录都会逐级创建）')
     p.add_argument('--force-write', action='store_true',
                    help='跳过"游戏是否已退出"的自动检查（自己确认过再用）')
-    # ★ 2026-10-06：默认改成**单连接连续传**（42 个文件实测 3.8 秒，老路径 3 分 26 秒还没传完）。
+    # 2026-10-06：默认改成单连接连续传（42 个文件实测 3.8 秒，老路径 3 分 26 秒还没传完）。
     p.add_argument('--legacy-slow', action='store_true',
                    help='走 2026-09-23 的老路径（每动作新建连接 + 之间睡 2 秒）；只有在'
                         '单连接路径出问题时才用它对照')

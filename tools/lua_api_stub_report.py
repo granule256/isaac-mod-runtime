@@ -1,42 +1,8 @@
 #!/usr/bin/env python3
-"""接口台账的"安全桩"检查器：**哪些 API 有目录行，但语义是假的**。
+"""检查 API 目录行是否绑定到占位、常量兜底或实际处理器。
 
-## 为什么要有它（2026-09-18）
-
-`analysis/lua-api-inventory` 把 API 分类成 `implemented` 的口径是**只判"命中
-`api_catalog.cpp`"**（见 `tools/build_lua_api_inventory.py` 的 `classify()`）——
-也就是说，**"有目录行"被当成了"已实现"**。
-
-后果已经真实发生过一次：`EntityPlayer:GetNumKeys` / `GetNumBombs` / `GetSoulCharge` /
-`GetBloodCharge` 四个都是 `PushZero` 的**恒返回 0 假桩**，却都被记成 `implemented`
-⇒ 谁读那份台账都会以为"钥匙/炸弹已经做完了"。而假读数**不报错、不崩**，模组拿它们做算术
-会得到错误结论（与"套装恒 `0/3`"同一类静默失效）。
-
-这与 2026-09-18 下午修掉的"回调覆盖率多算一条"是**同一族问题**：**用间接特征代替真值源**。
-回调那一面后来把真值源钉成了 `HasDispatchSite()`；接口这一面就由本工具提供。
-
-## 判据（2026-09-25 起为**两段**；刻意保守：只把"有把握"的判成桩）
-
-对每个在绑定表里出现的处理器，**剥掉注释**后看函数体：
-
-1. **像不像桩**：含 `PushZero(` / `WarnStubOnce(` / `Stub::`（"我什么都不读、直接编一个值"的标记），
-   **或**它的正文调用了某个"自己就是桩"的具名助手（**一层委托**，见 `stub_helper_names()`）；
-2. **能不能翻案**：正文同时含任何"真的碰了引擎/游戏状态"的标记（`REAL_MARKERS`）时 ⇒ 判 `real`
-   （"读不到才降级"是对的，不是桩）；
-3. 找不到函数体（例如走 `field_api.hpp` 数据行、或处理器定义在别处）⇒ 判 `unknown`，
-   **不猜**。`unknown` 是欠账，门禁盯着它只许降不许升。
-
-★ **两段判据都是 2026-09-25 补的，各自对应一次实测漏报/误报**（细节写在两个词表的注释里）：
-`Stub::` + 一层委托修的是"`Isaac:WorldToScreen` / `WorldToRenderPosition` 明明是桩却判成真实现"
-（它们把桩逻辑共享在 `WorldToIdentity` 里）；`engine_memory::` / `engine_call::` 修的是
-"L1/L2 重构后引擎访问换了写法，词表没跟上 ⇒ 一堆真实现被当成桩"。**改这两个词表等于改判据，
-台账条数与门禁数字要一起动。**
-
-## 用法
-
-    python3 tools/lua_api_stub_report.py            # 报告
-    python3 tools/lua_api_stub_report.py --write    # 重新生成 tools/lua_api_stub_ledger.json
-    python3 tools/lua_api_stub_report.py --strict   # 有任何漂移/无理由的条目就非零退出（门禁用）
+解析绑定表和处理器函数体，并结合桩台账生成报告。目录登记只说明接口存在，
+不能单独证明其语义或回调时序正确；无法静态判断的实现保留为待核查。
 """
 
 from __future__ import annotations
@@ -55,12 +21,12 @@ LEDGER = TOOL_DIR / "lua_api_stub_ledger.json"
 
 #: "我什么都不读、直接编一个值"的标记。
 #:
-#: ★ 2026-09-25 加了 `"Stub::"`：`isaac_api.cpp` 里有一份**显式的桩枚举**（`enum class Stub`，注释
+#: 2026-09-25 加了 `"Stub::"`：`isaac_api.cpp` 里有一份显式的桩枚举（`enum class Stub`，注释
 #: 自称"这里的枚举就是还在桩里的那些，与台账双向一致"）。**那句话当时是错的** —— 枚举里
 #: `WorldToScreen` / `WorldToRenderPosition` 两条走共享助手 `WorldToIdentity`，判据只看处理器
 #: 自己的正文，于是这两条被判成 `real`、台账里也没有它们。加这个标记就是把那条注释变成事实。
 #:
-#: ★★ 2026-09-28（审查第 3 遍，批次 174）加了两类**直接压常量**的写法：
+#: 2026-09-28（审查第 3 遍，）加了两类直接压常量的写法：
 #: `lua_pushboolean(state, 0/1)`、`lua_pushinteger(state, 0)`。
 #: 起因：审查 Lua 接口面时把"我们实现的东西"与引擎符号表对账，发现 7 条"引擎里**有同名成员函数**、
 #: 我们却恒返回假值"的桩 —— 其中 `EntityPlayer:HasPlayerForm` / `CanPickRedHearts` /
@@ -70,7 +36,7 @@ LEDGER = TOOL_DIR / "lua_api_stub_ledger.json"
 #: 为什么之前没人发现：这 13 条老桩恰好都用了 `PushZero(`/`WarnStubOnce(`，于是"恒假布尔"这一整类
 #: 在判据里是盲区。判据词表改了 ⇒ `STUB_BUDGET`（门禁）要一起动。
 #:
-#: ★ 为什么不收 `lua_pushnil(state)`：**"返回 nil" 常常是正确的语义**（例如
+#: 为什么不收 `lua_pushnil(state)`："返回 nil" 常常是正确的语义（例如
 #: `EntityPlayer:GetOtherTwin` 在单人局就该给 nil、`GetMainTwin` 同族），收进来会把真实现判成桩
 #: （实测会多认 6 条：`GetOtherTwin` / `GetMainTwin` / `GetCardRNG` 一族 / `GetName` / `ItemConfig:Get*`）。
 #: 这个取舍是**刻意保守**：宁可漏（留在 `unknown` 里等人看），不可误（把真实现挂上"桩"的名）。
@@ -82,7 +48,7 @@ STUB_MARKERS = (
 #: "真的碰了引擎/游戏状态"的标记。出现任何一个就不再算桩 —— 哪怕它同时有降级分支
 #: （"读不到才降级"是**正确**写法，不能和"恒返回 0"混为一谈；2026-09-18 我自己就混过一次）。
 #:
-#: ★ 2026-09-25 补了 `engine_memory::` / `engine_call::`：L1/L2 两层重构（批次 101~114）之后，
+#: 2026-09-25 补了 `engine_memory::` / `engine_call::`：L1/L2 两层重构（~114）之后，
 #: **引擎访问全部经这两个命名空间**，而词表还停在重构前的写法上。不补的后果是"降级型处理器"
 #: （既有 `PushZero` 分支、又经层读引擎）会被判成桩 → 假阳性。实测补之前有 75 条"看起来不碰引擎"
 #: 的处理器，其中大半是这种误报（`Isaac:FindInRadius`、`Room:GetGridIndex` 等）。
@@ -114,7 +80,7 @@ REAL_MARKERS = (
     "PushEntityPickupField(",
     "PushItemField(",
     "PushRoomDescriptor(",
-    # ★ 2026-09-28（批次 174）：**碰运行时自己的状态**也算"真实现"。
+    # 2026-09-28：碰运行时自己的状态也算"真实现"。
     # 起因：把恒布尔/整数写进 `STUB_MARKERS` 之后，`RuntimeMods:Save` 被判成桩 —— 而它是真实现
     # （`g_toggles->Save()` 存到存档分区，返回值由那个结果决定），只是**开头有一句降级分支**
     # `if (g_toggles == nullptr) { lua_pushboolean(state, 0); return 1; }`。
@@ -122,15 +88,15 @@ REAL_MARKERS = (
     # `RuntimeMods` 一族碰的是我们自己的持久化层（不是引擎），原来的词表只认"碰引擎"的那些写法。
     "g_toggles",
     "Status::",
-    # ★ 2026-09-29（批次 207）：**读运行时自己编译进去的静态表**也算"真实现"。
+    # 2026-09-29：读运行时自己编译进去的静态表也算"真实现"。
     # 起因：`Isaac:GetEntityTypeByName` / `GetEntityVariantByName` 的返回值来自
     # `program/entity_name_table.hpp`（由 `tools/generate_entity_name_table.py` 从
     # `tools/entity_name_source.txt` 生成的本体 `entities2.xml` 名字快照）——
     # 它确实是"查表得到的数据"，不是"什么都不读、直接编一个值"，
     # 但旧词表只认"碰引擎"和"碰我们的持久化层"，于是这两条被判成桩（误报）。
-    # ★ 与上一批 `g_toggles` 同一性质（第三类真值来源：**编译进去的静态快照**），
+    # 与上一批 `g_toggles` 同一性质（第三类真值来源：编译进去的静态快照），
     #   只是这次的数据源是本模块内的查表，不是引擎内存。
-    #   ★ 写**具名助手**而不是表访问函数：这两个处理器自己不碰表，而是调
+    #   写具名助手而不是表访问函数：这两个处理器自己不碰表，而是调
     #   `FindEntityNameEntry()`（"在生成的名字表里二分"）—— `REAL_MARKERS` 只看处理器自己的正文
     #   （与 `stub_helper_names()` 的"一层委托"方向相反，那边的委托只用在判**桩**上）。
     #   所以这里两个都收：助手名管"现在这么写"，表访问名管"将来有人把它内联进处理器"。
@@ -138,7 +104,7 @@ REAL_MARKERS = (
     #   把 `lua_pushinteger(state, 0)` 换个写法只是让检查瞎掉，来源问题一点没解决。
     "FindEntityNameEntry(",
     "EntityNameEntries(",
-    # ★ 2026-10-02（批次 268）：**走通用跳板调引擎**也是一种"返回值有来源"，旧词表看不见。
+    # 2026-10-02：走通用跳板调引擎也是一种"返回值有来源"，旧词表看不见。
     # 起因：`Isaac:CountEntities` 被判成桩 —— 它真读真调（`ResolveRoom()` 解房间 →
     # `EntityListFingerprintMatches()` 校验容器 → 解析 `EntityList::CountSpawned @ 0x7A1CC`
     # 的入口 → `EngineCallTrampoline(...)` 调进去），但两条降级分支写的是
@@ -147,19 +113,19 @@ REAL_MARKERS = (
     #     写出来是 `EngineOffsetAddress<IsEngineMemoryReadable>(...)` ⇒ 差一个字符，永远命不中；
     #   * 跳板调用本身（`EngineCallTrampoline(`）也不在词表里。
     # ⇒ 这不是"新增了一类真值来源"，而是**同一个来源多了一种写法**（与 `ReadEngine(` 并列）。
-    # ★ 按本文件结尾那条纪律，**不许**靠"把 `lua_pushinteger(state, 0)` 换个写法"躲开。
+    # 按本文件结尾那条纪律，不许靠"把 `lua_pushinteger(state, 0)` 换个写法"躲开。
     "EngineOffsetAddress<",
     "EngineCallTrampoline(",
-    # ★ 2026-10-03（批次 311）：把**共享助手名**也收进来 —— `Room:GetAliveBossesCount` /
+    # 2026-10-03：把共享助手名也收进来 —— `Room:GetAliveBossesCount` /
     # `Room:GetAliveEnemiesCount` 两条（PC 上的孪生 API）现在共用 `PushRoomAliveCount(...)`，
     # 于是处理器自己的正文里**一个引擎标记都不剩**，而那个助手因为带降级分支
     # `lua_pushinteger(state, 0)` 会被 `stub_helper_names()` 派生进去 ⇒ 两条真实现被误判成桩。
     # ⇒ 与 `PushEntityField(` / `FindEntityNameEntry(` 同一处理：**助手名进本表**
     #   （助手名管"现在这么写"，偏移常量名管"将来有人把它内联进处理器"）。
-    # ★ 为什么**不**把助手写成不含桩标记的形状：本文件结尾那条纪律说得很清楚 ——
+    # 为什么不把助手写成不含桩标记的形状：本文件结尾那条纪律说得很清楚 ——
     #   判据要抓的是"返回值有没有来源"，换个写法只是让检查瞎掉，来源问题一点没解决。
     "PushRoomAliveCount(",
-    # ★ 2026-10-06（批次 381）：**读"输入边沿表"**也是一种"返回值有来源"。
+    # 2026-10-06：读"输入边沿表"也是一种"返回值有来源"。
     # 起因：`Input.IsButtonTriggered` / `IsActionTriggered` 改成"**每帧帧上采样 + 判定纯读**"
     # 之后（口径见 `runtime/source/input_edge.hpp` 第五节），处理器正文里**不再直接碰引擎**
     # （原来那两句现查引擎的调用没了）⇒ 两条真实现被误判成桩。

@@ -1,11 +1,11 @@
-// 批次 404（2026-10-07）：`Isaac.Get*ByName` 名字表一族里"收藏品 / 饰品 / 卡牌"三条的
+// `Isaac.Get*ByName` 名字表一族里"收藏品 / 饰品 / 卡牌"三条的
 // 运行时追加层 —— 实现。语义、id 规则、逐族证据、顺序约束、幂等与坏文件的处置**全部**写在
 // 同名 `.hpp` 的文件头，这里只写实现细节。
 //
-// ★ 为什么不用 `std::map` / 动态分配：本模块 `-nostartfiles`，函数里带动态初始化的 `static`
+// 为什么不用 `std::map` / 动态分配：本模块 `-nostartfiles`，函数里带动态初始化的 `static`
 //   会在 `__cxa_guard_*` 上自旋（黑屏有声不崩，见门禁 `test_no_static_guard_init.py`）。
 //   这里一切状态都是**文件作用域的 POD**（零/常量初始化 ⇒ 无静态守卫），不拥有堆。
-// ★ 为什么不用 `<string>`：追加层只在启动喂入时写几十条，线性扫足够；存储用"名字池 + 定长条目"
+// 为什么不用 `<string>`：追加层只在启动喂入时写几十条，线性扫足够；存储用"名字池 + 定长条目"
 //   （与 `isaac_name_tables` / `mod_player_names` 同一形状），于是它**不拥有堆**，
 //   也就不可能因为分配失败半途丢一条名字（那会让后面的 id 整体错位）。
 
@@ -16,15 +16,15 @@
 namespace isaac::runtime {
 namespace {
 
-//: 容量。都取到"远超任何真实模组"的量（取小了的后果是**静默**的，宁可多留）。
+// 容量。都取到"远超任何真实模组"的量（取小了的后果是静默的，宁可多留）。
 constexpr std::uint32_t kMaxNameBytes = 16384;
-constexpr std::uint32_t kMaxEntries = 1024;         //: 全部族共享的条目表
-constexpr std::uint32_t kMaxEntriesPerFile = 512;   //: 一份 xml 最多解析这么多条
-constexpr std::uint32_t kMaxModKeys = 96;           //: = 引擎模组上限 32 的三倍
+constexpr std::uint32_t kMaxEntries = 1024;         // 全部族共享的条目表
+constexpr std::uint32_t kMaxEntriesPerFile = 512;   // 一份 xml 最多解析这么多条
+constexpr std::uint32_t kMaxModKeys = 96;           // = 引擎模组上限 32 的三倍
 constexpr std::size_t kMaxModKeyLength = 128;
 
 struct Entry {
-    std::uint32_t nameOffset;  //: 在名字池里的字节下标
+    std::uint32_t nameOffset;  // 在名字池里的字节下标
     std::int32_t id;
     ModContentNameFamily family;
 };
@@ -38,31 +38,31 @@ char g_ModKeys[kMaxModKeys][kMaxModKeyLength] = {};
 std::uint8_t g_ModKeyFiles[kMaxModKeys] = {};
 std::uint32_t g_ModKeyCount = 0;
 
-//: 每族下一个 id。基准 = 本体该类条数（逐族取证见 `.hpp` 表头）。
-//: ★ 每条**识别到的**条目（无论有没有名字、无论有没有存下）都 +1 —— 与引擎"往向量里
-//:   追加一格"同语义；漏推进会让后面的条目整体错位（静默错）。
+// 每族下一个 id。基准 = 本体该类条数（逐族取证见 `.hpp` 表头）。
+// 每条识别到的条目（无论有没有名字、无论有没有存下）都 +1 —— 与引擎"往向量里
+// 追加一格"同语义；漏推进会让后面的条目整体错位（静默错）。
 std::int32_t g_NextId[static_cast<std::size_t>(ModContentNameFamily::Count)] = {
     kModContentNameIdBase[0], kModContentNameIdBase[1], kModContentNameIdBase[2],
 };
 ModContentNameStats g_Stats = {};
 
-//: 一条识别规则：标签名 → 归哪一族。
+// 一条识别规则：标签名 → 归哪一族。
 struct TagRule {
     const char* tag;
     std::uint32_t tagLength;
     ModContentNameFamily family;
 };
 
-//: `items.xml` 的识别规则：`<passive>/<active>/<familiar>` 归收藏品、`<trinket>` 归饰品。
-//: 其余标签（`<null>` 等）**不识别、不占 id**（引擎把它们放进**另一条**向量）。
+// `items.xml` 的识别规则：`<passive>/<active>/<familiar>` 归收藏品、`<trinket>` 归饰品。
+// 其余标签（`<null>` 等）不识别、不占 id（引擎把它们放进另一条向量）。
 constexpr TagRule kItemsRules[] = {
     {"passive", 7, ModContentNameFamily::Collectible},
     {"active", 6, ModContentNameFamily::Collectible},
     {"familiar", 8, ModContentNameFamily::Collectible},
     {"trinket", 7, ModContentNameFamily::Trinket},
 };
-//: `pocketitems.xml` 的识别规则：`<card>` 与 `<rune>` **同一条处理路**（都进卡牌向量）；
-//: `<pilleffect>` 走另一条路（药丸向量）⇒ 不识别、不占卡牌 id。
+// `pocketitems.xml` 的识别规则：`<card>` 与 `<rune>` 同一条处理路（都进卡牌向量）；
+// `<pilleffect>` 走另一条路（药丸向量）⇒ 不识别、不占卡牌 id。
 constexpr TagRule kPocketRules[] = {
     {"card", 4, ModContentNameFamily::Card},
     {"rune", 4, ModContentNameFamily::Card},
@@ -94,7 +94,7 @@ bool IsTagNameChar(char c) noexcept {
     return c != ' ' && c != '\t' && c != '\r' && c != '\n' && c != '/' && c != '>' && c != '=';
 }
 
-//: 从 `<`（下标 `start`）起找该标签的 `>`（跳过引号内的 `>`）。找到返回 true 并给 `*tagEnd`。
+// 从 `<`（下标 `start`）起找该标签的 `>`（跳过引号内的 `>`）。找到返回 true 并给 `*tagEnd`。
 bool FindTagEnd(const char* xml, std::size_t start, std::size_t length,
                 std::size_t* tagEnd) noexcept {
     char quote = '\0';
@@ -118,7 +118,7 @@ bool FindTagEnd(const char* xml, std::size_t start, std::size_t length,
     return false;
 }
 
-//: 从标签内容里取一个属性的值（去引号）。`nameStart` = 标签名首字符（`<` 的后一格）。
+// 从标签内容里取一个属性的值（去引号）。`nameStart` = 标签名首字符（`<` 的后一格）。
 bool ExtractAttribute(const char* xml, std::size_t nameStart, std::size_t tagEnd,
                       const char* attribute, std::size_t attributeLength, const char** value,
                       std::size_t* valueLength) noexcept {
@@ -174,7 +174,7 @@ bool ExtractAttribute(const char* xml, std::size_t nameStart, std::size_t tagEnd
     return false;
 }
 
-//: 把一个属性值解析成整数（只认 `[+-]?[0-9]+`）。失败返回 false。
+// 把一个属性值解析成整数（只认 `[+-]?[0-9]+`）。失败返回 false。
 bool ParseIntAttribute(const char* text, std::size_t length, std::int32_t* out) noexcept {
     if (length == 0) {
         return false;
@@ -204,8 +204,8 @@ bool ParseIntAttribute(const char* text, std::size_t length, std::int32_t* out) 
     return true;
 }
 
-//: 扫下一个标签：`*nameStart/*nameLength` = 标签名（`<` 之后那一段），`*tagEnd` = 它的 `>`。
-//: 返回 false = 没有更多标签；`*truncated` = true 表示遇到一个没有闭合 `>` 的标签（坏文件）。
+// 扫下一个标签：`*nameStart/*nameLength` = 标签名（`<` 之后那一段），`*tagEnd` = 它的 `>`。
+// 返回 false = 没有更多标签；`*truncated` = true 表示遇到一个没有闭合 `>` 的标签（坏文件）。
 bool NextTag(const char* xml, std::size_t length, std::size_t* cursor, std::size_t* nameStart,
              std::size_t* nameLength, std::size_t* tagEnd, bool* truncated) noexcept {
     while (*cursor < length) {
@@ -268,9 +268,9 @@ bool TagMatches(const char* xml, std::size_t nameStart, std::size_t nameLength,
            std::memcmp(xml + nameStart, rule.tag, rule.tagLength) == 0;
 }
 
-//: 共用解析：找 `file` 的根标签，然后按 `rules` 把每条识别到的标签写进 `out`（**含无名条目**，
-//: `name == nullptr` 表示无名）。卡牌那条"显式负 id 跳过"由 `skipNegativeId` 打开。
-//: 返回识别到的总数（**不受 capacity 限制**；超出 capacity 记在 `*overflow` 里，由调用方处置）。
+// 共用解析：找 `file` 的根标签，然后按 `rules` 把每条识别到的标签写进 `out`（含无名条目，
+// `name == nullptr` 表示无名）。卡牌那条"显式负 id 跳过"由 `skipNegativeId` 打开。
+// 返回识别到的总数（不受 capacity 限制；超出 capacity 记在 `*overflow` 里，由调用方处置）。
 std::uint32_t ParseTaggedFile(const char* xml, std::size_t length, ModContentFileKind file,
                               ModContentName* out, std::uint32_t capacity, bool skipNegativeId,
                               bool* malformed, std::uint32_t* skipped, std::uint32_t* overflow) noexcept {
@@ -387,7 +387,7 @@ std::uint32_t ParseTaggedFile(const char* xml, std::size_t length, ModContentFil
             ++stored;
         }
     }
-    // ★ `NextTag` 在"最后一个标签没闭合 `>`"时会**返回 false**（于是上面的 `while` 直接退出，
+    // `NextTag` 在"最后一个标签没闭合 `>`"时会返回 false（于是上面的 `while` 直接退出，
     //   循环体里那次 `truncated` 检查根本没机会跑）。必须在这里补一次，否则截断文件会被当成
     //   "零条目的好文件"静默混进来（不抛错、也不计入 malformed）。
     if (truncated) {
@@ -406,7 +406,7 @@ std::uint32_t ParseTaggedFile(const char* xml, std::size_t length, ModContentFil
     return stored;
 }
 
-//: 把一条名字存进池与条目表；存不下返回 false（并计一次溢出）。
+// 把一条名字存进池与条目表；存不下返回 false（并计一次溢出）。
 bool StoreName(ModContentNameFamily family, const char* name, std::size_t length,
                std::int32_t id) noexcept {
     if (g_EntryCount >= kMaxEntries || g_NameUsed + length + 1 > kMaxNameBytes) {
@@ -431,7 +431,7 @@ std::uint32_t Ingest(ModContentFileKind file, const char* modKey, const char* xm
         ++g_Stats.malformedFiles;
         return 0;
     }
-    // ★ 幂等：同一个 `(modKey, 文件别)` 只接受第一次调用（键表满也不能破例 —— 那时宁可不加）。
+    // 幂等：同一个 `(modKey, 文件别)` 只接受第一次调用（键表满也不能破例 —— 那时宁可不加）。
     const auto fileIndex = static_cast<std::uint8_t>(file);
     for (std::uint32_t i = 0; i < g_ModKeyCount; ++i) {
         if (g_ModKeyFiles[i] == fileIndex && std::strcmp(g_ModKeys[i], modKey) == 0) {
@@ -467,7 +467,7 @@ std::uint32_t Ingest(ModContentFileKind file, const char* modKey, const char* xm
         return 0;  // 坏文件 ⇒ 跳过该模组（不追加、不打乱别的条目的位置）
     }
     if (overflow > 0) {
-        // ★ 一份 xml 里识别到 > `kMaxEntriesPerFile` 条：分类信息已经装不下 ⇒ **整份跳过**
+        // 一份 xml 里识别到 > `kMaxEntriesPerFile` 条：分类信息已经装不下 ⇒ 整份跳过
         //   （宁可漏加也不"半途消费一部分 id" —— 后者会让后面的条目整体错位、静默错）。
         g_Stats.capacityOverflow += overflow;
         ++g_Stats.malformedFiles;
@@ -478,7 +478,7 @@ std::uint32_t Ingest(ModContentFileKind file, const char* modKey, const char* xm
     for (std::uint32_t index = 0; index < count; ++index) {
         const auto familyIndex = static_cast<std::size_t>(names[index].family);
         const std::int32_t id = g_NextId[familyIndex];
-        ++g_NextId[familyIndex];  // ★ 无论存没存，都占一个 id（与引擎"往向量里追加一格"一致）
+        ++g_NextId[familyIndex];  // 无论存没存，都占一个 id（与引擎"往向量里追加一格"一致）
         ++g_Stats.consumedIds;
         if (names[index].name == nullptr) {
             ++g_Stats.unnamedEntries;  // 占 id 但不进表

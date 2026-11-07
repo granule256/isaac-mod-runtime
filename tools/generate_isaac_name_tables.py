@@ -1,62 +1,9 @@
 #!/usr/bin/env python3
-"""生成"名字 → 编号"查表（`runtime/source/program/isaac_name_tables.*`）。
+"""生成游戏对象名称到编号的 C++ 查找表。
 
-## 为什么需要它（2026-09-30 批次 240）
-
-语料模组适配第二波 C 批里的**名字表一族**：
-`Isaac.GetItemIdByName` / `GetCardIdByName` / `GetPillEffectByName` /
-`GetPlayerTypeByName` / `GetChallengeIdByName`。这五条在 PC 上都是"查本体 XML 建的内建表"
-（PC 契约 `tools/pc_contract_docs/Isaac.md:148/274/…`），Switch 二进制里**没有对应函数**
-（库存工具把它们的 `reason_code` 判成 `lua_glue_type`），所以只能在运行时这边自己建表。
-
-## 为什么不能"遍历引擎的 ItemConfig 比名字"
-
-看起来更省事（`ItemConfig_Item +0x08` 就是 `Name`，`Isaac:GetCostumeIdByPath` 已经是
-"遍历 + 比字符串"的套路），但**这条路走不通**，理由是实测的：
-
-* Switch 的 romfs 叠加层里 `rp_patch/resources/items.xml` 覆盖了 `resources/items.xml`，
-  而前者 **960 条名字里 911 条是本地化键**（形如 `#THE_SAD_ONION_NAME`）⇒ 运行时
-  `ItemConfig_Item.Name` 读到的是**键**，拿 `"Brimstone"` 去比永远不中。
-
-⇒ 必须自己建表，且名字要**解析成本地化文本**。
-
-## 两个来源、怎么拼
-
-1. **编号与键**：`rp_patch/resources/{items,pocketitems,players,challenges}.xml`
-   （叠加层里那一份是权威的编号来源）。
-2. **英文文本**：`rp_patch/resources/stringtable.sta`
-   —— ★ 它其实是**纯 XML**（开头就是 `<?xml version="1.0" encoding="UTF-8"?>`），
-   `<languages>` 里 `index=1` 是 English，每个 `<key name="...">` 下第 2 个 `<string>` 就是英文。
-3. **补英文名**：`resources/*.xml`（base 层）里有的条目**是英文原文**（例如
-   `items.xml` 的 `name="The Sad Onion"`）⇒ 同一 id 优先用 base 的英文名，
-   base 没有的再用 rp 的键去 stringtable 解析。
-
-## 数据从哪来 / 为什么源文件在仓库里
-
-与本项目的 `entity_name_source.txt`、`pc_enum_docs/` 同一条规矩：游戏 dump **不在仓库里**
-（`.gitignore` 挡掉）⇒ **提取出来的名字表要进仓库**（`tools/isaac_name_source/<kind>.txt`，
-逐行 `名字<TAB>编号`、按名字升序），生成器只做"文本 → C++"。于是：
-
-* 生成物在**任何干净检出里都可复核**（`--check` 不依赖游戏 dump）；
-* 重新提取（`--import-xml`）只在有 dump 的机器上做，属于维护动作，不进门禁。
-
-## 已知偏离（写在明处）
-
-* **只看得到本体 XML 里的名字**。模组可以在自己的 `content/items.xml` 里加道具，
-  PC 上 `Isaac.GetItemIdByName("模组道具名")` 查得到、我们查不到（返回 `-1`）。
-  语料里就是这样：`IsaacOnTwitchReloaded` 传的 `"Kappa"`/`"Nightbot"`/`"Twitch Raid"`
-  是它自己加的道具 ⇒ 我们返回 `-1`，与"没装那个模组的 PC"一致。
-  （这与 `GetEntityTypeByName` 的同名偏离是**同一条**，见 `generate_entity_name_table.py` 的文档头。）
-* `GetCardIdByName` 的 PC 契约明写它匹配的是 `pocketitems.xml` 里的 **`hud` 属性**
-  （`Isaac.md:150`「based on the "hud"-attribute」，并警告"函数名有误导性"）。
-  实测本体的 `pocketitems.xml` **一条 `hud=` 都没有**（0 处）⇒ 本表改用 `name` 属性，
-  **这是一条有意偏离**，写在 `api_deviation.cpp` 里。
-
-## 用法
-
-    python3 tools/generate_isaac_name_tables.py --import-xml <游戏 dump 的 Program #0/1 目录>
-    python3 tools/generate_isaac_name_tables.py --write
-    python3 tools/generate_isaac_name_tables.py --check
+覆盖收藏品、饰品、卡牌、药丸、角色和挑战。导入游戏 XML 与 stringtable.sta
+后生成文本源，再由文本源生成可编译的数据表；游戏原件不随源码分发。
+运行时新增的模组名称由独立追加表处理，静态表仅覆盖本体数据。
 """
 
 from __future__ import annotations
@@ -73,7 +20,7 @@ HEADER = ROOT / "runtime" / "source" / "program" / "isaac_name_tables.hpp"
 IMPL = ROOT / "runtime" / "source" / "program" / "isaac_name_tables.cpp"
 
 #: 每张表的定义：`kind` → （源文件名, 放它的 XML 元素集合, PC 契约页:行号, 找不到时的返回）
-#: ★ 「找不到返回什么」必须按契约写：`GetItemIdByName` 是 `-1`、`GetCardIdByName` 是 `-1`。
+#: 「找不到返回什么」必须按契约写：`GetItemIdByName` 是 `-1`、`GetCardIdByName` 是 `-1`。
 TABLES: dict[str, dict] = {
     "collectible": {
         "file": "collectibles.txt",
@@ -105,13 +52,13 @@ TABLES: dict[str, dict] = {
         "doc": "tools/pc_contract_docs/Isaac.md:176",
         "api": "Isaac.GetChallengeIdByName",
     },
-    # ★ 批次 404（2026-10-07）：`Isaac.GetTrinketIdByName` —— **只能加在末尾**
+    # `Isaac.GetTrinketIdByName` —— 只能加在末尾
     #   （`IsaacNameKind` 的值就是 `kIsaacNameTables` 的下标，加在中间会整体错位）。
     #   契约 `tools/pc_contract_docs/Isaac.md:457`：「Returns the TrinketType of a trinket based on
     #   its name. (File: **items.xml**) Returns `-1` if no trinket with that name could be found」
-    #   —— ★ 饰品和收藏品**同在一个 `content/items.xml`**（`<trinket>` 标签），
+    #   —— 饰品和收藏品同在一个 `content/items.xml`（`<trinket>` 标签），
     #   本游戏没有 `trinkets.xml`（已核实：全仓找不到该文件；引擎的 `ItemConfig::Load`
-    #   同时解析 `<passive>/<active>/<familiar>` 与 `<trinket>`，见批次 404 存档的反汇编）。
+    #   同时解析 `<passive>/<active>/<familiar>` 与 `<trinket>`，见存档的反汇编）。
     "trinket": {
         "file": "trinkets.txt",
         "elements": ("trinket",),
@@ -127,7 +74,7 @@ XML_FILES = {
     "pill_effect": "pocketitems.xml",
     "player_type": "players.xml",
     "challenge": "challenges.xml",
-    # ★ 批次 404：饰品**没有**独立的 `trinkets.xml` —— 与收藏品同在 `items.xml`（`<trinket>`）。
+    # 饰品没有独立的 `trinkets.xml` —— 与收藏品同在 `items.xml`（`<trinket>`）。
     "trinket": "items.xml",
 }
 
@@ -263,7 +210,7 @@ def import_xml(game_dir: pathlib.Path) -> None:
         for identifier, name in base_entries.items():
             if not name.startswith("#"):
                 merged[identifier] = name
-        # 名字唯一化。★ 角色表**例外**：`players.xml` 里 id 21..40 是堕落角色、
+        # 名字唯一化。角色表例外：`players.xml` 里 id 21..40 是堕落角色、
         # 名字与本体（0..20）**逐字重复** ⇒ 那 21 条同时保留「本体编号」与「堕落编号」两列
         # （`Isaac.GetPlayerTypeByName(name, Tainted)` 的第二个参数就靠它）。
         # 其余表同名只取第一次出现（按 id 升序），与实体名表同一口径。
@@ -394,7 +341,7 @@ def render_impl() -> str:
     for kind in kinds:
         rows = read_source(kind)          # 名字是**已转义**的源文本
         camel = "".join(part.capitalize() for part in kind.split("_"))
-        # ★ 字面量直接用源文本（已转义）；**长度必须用解码后的名字**（见 `unescape_name` 的注释）。
+        # 字面量直接用源文本（已转义）；长度必须用解码后的名字（见 `unescape_name` 的注释）。
         pieces = [name + "\\0" for name, _, _ in rows]
         content_bytes = sum(len(unescape_name(name).encode("utf-8")) + 1 for name, _, _ in rows)
         blobs.append(f"//: `{TABLES[kind]['api']}` 的名字块（{len(rows)} 条，按名字升序）。")

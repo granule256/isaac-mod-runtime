@@ -11,10 +11,10 @@ extern "C" {
 
 namespace {
 
-//: 中央计时包装本体（批次 093）：取一次 tick → 调用被包的函数 → 记一笔 → 原样返回结果。
-//:
-//: `lua_call` 会把错误**原样向上抛**（`longjmp`）—— 这一层刻意不做捕获，也不做清理：
-//: 一旦捕获，模组看到的错误位置与调用栈就变了，那是"为了测量改了行为"。
+// 中央计时包装本体：取一次 tick → 调用被包的函数 → 记一笔 → 原样返回结果。
+//
+// `lua_call` 会把错误原样向上抛（`longjmp`）—— 这一层刻意不做捕获，也不做清理：
+// 一旦捕获，模组看到的错误位置与调用栈就变了，那是"为了测量改了行为"。
 #if PERF_API_WRAPPER
 int TimedHandlerWrapper(lua_State* state) {
     const std::uint32_t identifier =
@@ -79,8 +79,8 @@ std::size_t AttachOwnerMethods(lua_State* state, const char* owner,
             }
         }
         if (handler != nullptr) {
-            // 批次 093：挂载点统一包一层计时（覆盖全部家族，不必逐个处理器插桩）。
-            // 批次 095：**包装本身每次调用要多一次 `lua_call`**（约 0.1~0.2 µs × 每帧 646 次），
+            // 挂载点统一包一层计时（覆盖全部家族，不必逐个处理器插桩）。
+            // 包装本身每次调用要多一次 `lua_call`（约 0.1~0.2 µs × 每帧 646 次），
             // 所以生产构建默认**不包**（`PERF_API_WRAPPER` 默认 0）；要逐接口读数时
             // 用 `PERF_API_WRAPPER=1` 构建一份诊断包。
             PushHandler(state, handler, 0, descriptor->id);
@@ -105,7 +105,7 @@ std::size_t AttachOwnerMethods(lua_State* state, const char* owner,
         if (attachedByRow) {
             continue;
         }
-        // 引擎方法类（批次 051）：同一套机制，共享处理器换成 `EngineMethodHandler`。
+        // 引擎方法类：同一套机制，共享处理器换成 `EngineMethodHandler`。
         for (std::size_t row = 0; row < engineRowCount; ++row) {
             if (engineRows[row].id != descriptor->id) {
                 continue;

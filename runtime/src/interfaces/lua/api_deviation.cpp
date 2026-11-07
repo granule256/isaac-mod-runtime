@@ -3,66 +3,9 @@
 namespace isaac::runtime {
 namespace {
 
-// 每条都对应实现处的一段注释（"占位/未定位/语义偏差/恒假/常量实现"），这里只做汇总与索引。
-// 顺序按 catalog id，方便与 `api_catalog.cpp` 对照
-// （★ 例外：批次 128 那 27 条**恒值接口**作为一个整段追加在表末 —— 它们是同一件事的成批登记，
-//   单独成段比拆散进各家族更好复核；段落开头有完整说明）。
-//
-// ★★ 每条还**必须**写一行 `PC 契约：tools/pc_contract_docs/<页>:<行号> 「<原文片段>」`
-//    （批次 111 起，门禁强制；那个目录是 PC 文档被引用页的逐字节副本、在仓库里）：
-//    门禁 `test_api_deviation.py` 会回头核对那一页、那一行、以及片段是否真的在那一行里。
-//    文档里确实没有这一条时写 `PC 契约：文档里没有 …`。
-//    起因：107 那次**凭推断**断言了 PC 的语义（`Input.IsActionTriggered`），导致 107→109→110
-//    三批在同一个 API 上返工。规矩与例子见 `docs/加一个Lua-API-的做法.md` 的"第 0 步"。
-//
-// =====================================================================================
-// 偏离的**性质**（2026-09-21，批次 017：把"平台固有"与"我们的欠账"分开登记）
-// =====================================================================================
-//
-// 为什么要有这一栏：台账原来只有 `kind`（Partial / Placeholder / NotInEngine —— 记的是"偏离长什么样"），
-// 读者分不清一条偏离是**这台机器上永远消不掉**的，还是**我们还没做到**的。两者混在一起会出两种错判：
-// 把欠账当平台限制（于是没人去修），或把平台限制当欠账（于是反复去做做不到的事）。
-//
-// 口径（写死、可逐条复核；判定时只看下面这几条，**不看** `kind`）：
-//
-//   * **platform（平台固有）** —— 同时满足：
-//       ① PC 上确实有对应物（PC 文档里查得到它做什么）；
-//       ② Switch 平台侧**没有可用底座**，或 PC 的语义**无法映射**过来
-//          （PC 依赖的输入源/系统能力在这台机器上不存在，例如鼠标这种指向设备、调试控制台）；
-//       ③ 已经**取证过"没有"**（是"查过、确认没有"，不是"我们还没查"）；
-//       ④ 结论：继续做工作也消不掉，只能永久登记（正确处置 = 登记 + 不再重复投入）。
-//       实例：`Input.GetMousePosition` / `Input.IsMouseBtnPressed`（Switch 没有鼠标这一输入源）、
-//       `Isaac.ExecuteCommand`（Switch 没有控制台、也没有等价的命令通道）。
-//
-//   * **debt（我们的欠账）** —— 底座**存在或可定位**（引擎里有对应的字段/函数/数据结构，
-//     或台账正文里已经写出了可执行的定位办法），只是我们**还没定位 / 还没实现 / 实现得偏保守**。
-//     结论：**能还**；还清之后应当把这条从台账里删掉（098 那次消掉四条 `Room` 网格偏离就是这个形态）。
-//     实例：`Options.HUDOffset`（偏移未定位）、`GridEntity:GetRNG` 之外的绝大多数占位条目。
-//
-//   * **design（主动保留的口径差异）** —— 两侧都做得到，但我们**有意**选了与 PC 不同的口径，
-//     而且台账正文里明确写了"为什么不照着做"（复刻 PC 等于复刻它的未定义行为；或照着做会把引擎
-//     内部指针交给模组、开出写已释放内存的口子）。结论：**不打算改**；要动它必须先改设计意图
-//     （属于用户裁决，不属于工程欠账）。
-//     实例：`Room:GetGridPath` 的越界口径（PC 越界直读相邻内存 = 没有语义的字节）、
-//     `GridEntity:GetRNG` 返回快照而不是引擎 RNG 的引用。
-//
-// ★ 判定时**不看** `kind`：`kind` 记"偏离长什么样"，`nature` 记"这条能不能还"，两者可以不一致。
-//   已知的一处不一致：`Sprite:GetTexel`（0x0D010012）的 `kind` 还写着 `NotInEngine`，
-//   但实现 2026-09-12 起已经改成**直接调引擎的 `ANM2::GetTexel`**（`runtime_constants.hpp` 的
-//   `kSpriteGetTexelOffset = 0xC074`）⇒ 性质是 `debt`（只剩"取不到入口/动画未建立"时的兜底）。
-//   这次**只登记性质、不改 `kind` 与语义结论**，那处描述已过期一事写在
-//   `dist/change-archive-20260921/017-deviation-nature-split/README.md` 里，等人复核。
-//
-// ★ 本批次**新增了 3 条 `platform` 条目**（`Input.GetMousePosition` 0x09010007、
-//   `Input.IsMouseBtnPressed` 0x09010008、`Isaac.ExecuteCommand` 0x0E01002D）：它们的降级事实
-//   此前只写在 `api_catalog.cpp` 的目录注释与实现注释里（原话就是"平台降级/平台限制"），
-//   符合本表"只收代码注释里已经明确承认的偏离"的收表口径，却一直没被收进来 —— 于是"平台固有"
-//   这一类在这张表里是空的，分栏也就没有意义。原因与后果照抄实现处注释，未新增任何语义判断。
-//
-// ★ 硬判据（门禁 `runtime/tests/contract/test_api_deviation.py` 钉住）：
-//   每条必须写 `性质：<platform|debt|design>（<中文名>）——理由：<一行理由>`，
-//   取值只能是上面三个、不许缺、不许出现第四个；三个取值**各自的条数**被钉住（只能降不能升，
-//   照 `EXPECTED_*` 那套记账方式）。
+// 已知 API 偏离的索引，记录分类、影响及 PC 契约依据。
+// platform 表示平台能力无法映射，debt 表示实现缺口，design 表示有意保留的语义差异。
+// 台账条目与对应处理器和契约文本交叉检查，避免将占位实现当作完整语义。
 constexpr ApiDeviation kApiDeviations[] = {
     // ---- `Options`（值型条目）------------------------------------------------
     // 2026-10-09更正：HUDOffset真实字段及PC setter已恢复，旧偏离全文归档
@@ -71,7 +14,7 @@ constexpr ApiDeviation kApiDeviations[] = {
 
     // ---- `Game` / `Seeds`（字段直读）------------------------------------------------
     //
-    // ★ 批次 195（2026-09-29）：这一族**四条偏离全部还清、条目删除** ——
+    // 这一族四条偏离全部还清、条目删除 ——
     //   `Game:GetSeeds`（`0x02010008`）、`Game:GetVictoryLap`（`0x02010009`）、
     //   `Seeds:IsCustomRun`（`0x0F010001`）、`Seeds:GetStartSeed`（`0x0F010002`）。
     //   它们原来登记的都是"字段偏移尚未定位 ⇒ 返回自洽/固定值"（性质 `debt`，是**能还**的欠账）。
@@ -80,7 +23,7 @@ constexpr ApiDeviation kApiDeviations[] = {
     //     * `Game:GetVictoryLap()` = `Game + 0x26FD50`（写它的就是 `Game::NextVictoryLap`，另有五个读者）；
     //     * `Seeds` 对象**内嵌**在 `Game + 0x25D40`；`GetStartSeed()` = `+0x25D44`（`Seeds+0x4`）、
     //       `IsCustomRun()` = `Game+0x25D40` 那一个字节（三处写 / 三处读互相印证）。
-    //   ⇒ 四条现在读的都是引擎真值，条目从台账移除（这就是"还清"的形态，与批次 177 同例）。
+    //   ⇒ 四条现在读的都是引擎真值，条目从台账移除（这就是"还清"的形态，与同例）。
     //   ⚠️ `Seeds:IsCustomRun()` 的**挑战局那一半仍是推断**（PC 文档写"挑战局或带种子的局"，
     //   而镜像里写那一字节的只有控制台 `seed`/角色选择输入/`StartDebug` 三处）⇒ 本轮**只读那个
     //   字节**，等真机三点读数（普通局 / 输入种子局 / 挑战局）钉死或推翻。那一半属"未取证"，
@@ -146,15 +89,15 @@ constexpr ApiDeviation kApiDeviations[] = {
      "性质：debt（我们的欠账）——理由：引擎侧确实没有这个语义（已取证），"
      "而「拿引擎的按住状态求相邻帧差分」是**我们自选的口径**，它与 PC 的差别只剩上面两条、且都可量。"
      "复测（每次动输入都要做）：① 菜单里摇杆推一下 = **一格**；② 快速连按**还能翻**。"
-     // ★★ 批次 230（2026-09-30）：**动作号本身也要翻译** —— PC 的 `ButtonAction` 与 Switch 引擎的
+     // 动作号本身也要翻译 —— PC 的 `ButtonAction` 与 Switch 引擎的
      //   **内部**动作表不是同一张。PC 里 `ACTION_MENULEFT = 20`，而 Switch 引擎里 **20 = "菜单下"**
      //   ⇒ 原来把模组给的号**原样**递给引擎时，推摇杆"下"会让引擎把 `ACTION_MENULEFT(20)` 也答成
      //   "按住" ⇒ 中文版 MCM 的导航链（下 → 上 → 右 → **左**，后判覆盖前判）把"下"改写成"左"
      //   （用户 2026-09-30 实测："摇杆向下推不能正常向下选择"）。
      //   逐行证据与口径在 `interfaces/lua/input_action_map.hpp`（设备层按号直接取 @0x4F76A8、
      //   管理器层不翻译 @0x4F9920、引擎自己的菜单用 17..20 @0x40D770、默认按键表 `s_ButtonMap`、
-     //   16 = `JOINMULTIPLAYER`（`SpawnCoPlayer` @0x43E700）、批次 222 的真机摇杆读数）。
-     //   ★ Switch 引擎只有 24 个内部动作 ⇒ `FULLSCREEN(16)/MUTE(17)/RESTART(18)/MENURT(27)/
+     //   16 = `JOINMULTIPLAYER`（`SpawnCoPlayer` @0x43E700）、的真机摇杆读数）。
+     //   Switch 引擎只有 24 个内部动作 ⇒ `FULLSCREEN(16)/MUTE(17)/RESTART(18)/MENURT(27)/
      //     EMOTES(30)/CONSOLE(32)` 这些 PC 才有的动作**由我们恒答 false / 0**（连引擎都不问）。
      //     这不是"把没按与没有混为一谈"：读数里的 `g_InputActionMapAbsent` 会把这种回答计数。
      //   本条覆盖**三条**入口（本条的 `IsActionTriggered`、以及 `Input.IsActionPressed` /
@@ -231,11 +174,11 @@ constexpr ApiDeviation kApiDeviations[] = {
      "且**不再出现** `kKageInputDeviceKeysCurrentOffset`；行为级：用假按键查询驱动**真实** `SampleInputFrame`，"
      "code 13 从「没按住」变「按住」的那一帧 `Triggered` 为真、下一帧为假）。"},
 
-    // 批次 017（2026-09-21）：以下两条**平台降级**此前只写在 `api_catalog.cpp` 的目录注释与
+    // 以下两条平台降级此前只写在 `api_catalog.cpp` 的目录注释与
     // `input_api.cpp` 的实现注释里（原话就是"平台限制"），一直没被收进本表 —— 于是"平台固有"
     // 这一类在台账里是空的，分栏也就没有意义。本次照抄实现处的结论与后果，未新增语义判断。
     //
-    // ★★ 批次 195（2026-09-29）：`0x09010007`（`Input.GetMousePosition`）**偏离已还清、条目删除**。
+    // `0x09010007`（`Input.GetMousePosition`）偏离已还清、条目删除。
     //   它原来登记的是"`gameCoords` 参数被忽略，两种取值返回同一个值"（`debt`）。现在两种取值
     //   **都按 PC 语义**实现（PC 处理函数反汇编 + `Room[0x1938]` 反推）：
     //     * `gameCoords = false` ⇒ **窗口像素**（PC 的 "render coordinates" 就是窗口像素；
@@ -244,7 +187,7 @@ constexpr ApiDeviation kApiDeviations[] = {
     //       （新增的 `0x0E01005F`）。
     //   ⇒ 模组那条经典组合 `Isaac.WorldToScreen(Input.GetMousePosition(true))` 现在**两侧都是真变换、
     //   互为逆运算**（旧实现是"两个恒等凑出来恰好对"，已随两条真实现一起消失）。
-    //   ⚠️ 批次 193 的 `×0.375` 硬编码**是错的**：0.375 = 480/1280 是"画布"系数，而**掌机的渲染平面
+    //   ⚠️ 的 `×0.375` 硬编码是错的：0.375 = 480/1280 是"画布"系数，而掌机的渲染平面
     //   是 426×240**（系数 426/1280 = 0.3328，且 `s_OrthographicProjection*` / WIDTH / HEIGHT /
     //   POINTSCALE 都是**运行期全局**，`ResizeWindow` 会改）⇒ 一律不硬编码，运行期从引擎全局读。
     //   判据：`runtime/tests/test_touch_pointer.py`（含
@@ -280,7 +223,7 @@ constexpr ApiDeviation kApiDeviations[] = {
      "性质：debt（我们的欠账）——理由：台账自己给出了可执行的定位办法（真机读 `Game + 0x2155x` 那一片、在两种状态下各读一次）⇒ 底座可定位，属能还的欠账。"
      "判据：runtime/tests/test_level_start_room.py（钉跟踪语义的每一条分支与「读不到就不编造」；"
      "未钉真机上「引擎真值 == 我们记的值」这一半）。"},
-    // ★ 批次 195（2026-09-29）：`0x03010003`（`Level:GetCurses`）偏离**已还清、条目删除** ——
+    // `0x03010003`（`Level:GetCurses`）偏离已还清、条目删除 ——
     //   它原来登记的是"只返回 `Level + 0x0C` 的原始位，②③两步未定位"（`debt`）。现在三步都做了：
     //   `raw | Game::GetSpecialSeedPermanentCurses() & ~Game::GetSpecialSeedBannedCurses()`
     //   （引擎 `Level::GetCurses @ 0x3D57CC` 全体指令；两个访问器的偏移与 16 字节入口守卫
@@ -293,13 +236,13 @@ constexpr ApiDeviation kApiDeviations[] = {
 
     // ---- `Room` 网格/寻路 ------------------------------------------------------
     //
-    // ★ 2026-09-20（批次 098）：`GetGridWidth`(0x04010002)/`GetGridHeight`(0x04010003)/
+    // 2026-09-20：`GetGridWidth`(0x04010002)/`GetGridHeight`(0x04010003)/
     //   `GetGridSize`(0x04010004)/`GetGridIndex`(0x04010005) 四条偏离**已解除** ——
     //   网格尺寸字段（`Room + 0x14`/`+0x18`）、通行代价数组（`Room + 0xE98`）与格坐标换算
     //   （`GetGridIndex(Vector2) @ 0x459e3c`）都定位到了，现在读的是真值。
     //   **为什么必须改**：旧占位让 `GetGridPath` 恒返 1000（> EID 的 900 阈值）⇒ 地上每一颗
     //   药丸、每一张卡片都被判"够不到"、只画问号（用户可见缺陷）。证据与宿主判据见
-    //   `runtime/src/interfaces/lua/remaining_api.cpp` 的批次 098 注释与
+    //   `runtime/src/interfaces/lua/remaining_api.cpp` 的注释与
     //   `runtime/tests/test_lua_room_grid.py`、`tools/room_grid_reachability_probe.py`。
     //   记录保留在此，是为了"曾经登记过的偏离"有迹可循 —— 条目本身已从表里移除。
     {0x04010006,
@@ -336,7 +279,7 @@ constexpr ApiDeviation kApiDeviations[] = {
     // dist/bossbar-restore-20261015/source-before/runtime/src/interfaces/lua/api_deviation.cpp。
     // Preload2解析DefaultAnimation，Load2复制至ANM2+0x18；现读真实字段，非表首近似。
 
-    // ---- `Seeds`（批次 214：中文版 MCM 开菜单那条路上要的三条）----------------------
+    // ---- `Seeds`（中文版 MCM 开菜单那条路上要的三条）----------------------
     // `Seeds:HasSeedEffect`（`0x0F010004`）是**真实现**（走引擎那棵 `std::set<eSeedEffect>` 的树查找），
     // 不在这里；下面两条是**按设计不生效的空实现**。
     {0x0F010005,
@@ -390,8 +333,8 @@ constexpr ApiDeviation kApiDeviations[] = {
      "判据：runtime/tests/test_lua_isaac_table.py（**睡 30 毫秒之后它至少涨 20** ——"
      "秒口径会得到 0，那条断言就是为此写的；另加单调不减）。"},
 
-    // 批次 017（2026-09-21）：`Isaac.ExecuteCommand` 原记为**平台降级**（"Switch 没有控制台"）。
-    // ★ 批次 121（2026-09-25）改口径：那条前提**不成立** —— 控制台类与全部命令实现一直在镜像里
+    // `Isaac.ExecuteCommand` 原记为平台降级（"Switch 没有控制台"）。
+    // 改口径：那条前提不成立 —— 控制台类与全部命令实现一直在镜像里
     //   （`Console::RunCommand` 一个函数 0x6070 字节；引擎只是从不实例化它：构造/Init/Update/Render
     //   的入边全是 0）。运行时现在自己建一个实例喂命令，**并返回控制台输出的字符串**。
     //   剩下的偏离只剩两条我们自己的限制 ⇒ 性质从 `NotInEngine` 改成 `Partial`（只实现了 PC 语义的一部分）。
@@ -419,7 +362,7 @@ constexpr ApiDeviation kApiDeviations[] = {
 
     // 2026-10-10：GetData两条历史占位欠账已按PC Remove/D2寿命还清。
     // 原逐字记录：dist/entity-lifecycle-static-20261010/api_deviation.cpp.before。
-    // ★ 批次 195（2026-09-29）：`0x0E01001D`（`ItemConfig:HasTags`）与 `0x0E01001E`
+    // `0x0E01001D`（`ItemConfig:HasTags`）与 `0x0E01001E`
     //   （`ItemConfig_Item:HasTags`）两条偏离**已还清、条目删除** —— 它们原来登记的是
     //   "tags 字段偏移未定位 ⇒ 恒 false"（`debt`，属"能还"），现在偏移确证在
     //   `ItemConfig::Item + 0xC0`（**u64、33 位**，写点唯一 + 三个读者 + 8 字节清零），
@@ -428,7 +371,7 @@ constexpr ApiDeviation kApiDeviations[] = {
     //   `runtime_constants.hpp` 的 `kItemConfigItemTagsOffset`（那里逐条写了证据）。
     //   判据：`runtime/tests/test_lua_item_config.py`（夹具在 `+0x58` 放诱饵、在 `+0xC0` 写 8 字节，
     //   并各钉一条"命中"与"不命中"）。
-    // ★ 批次 201（2026-09-29）：`0x0E010029`（`EntityPickup:IsShopItem`）的偏离**已还清、条目删除**。
+    // `0x0E010029`（`EntityPickup:IsShopItem`）的偏离已还清、条目删除。
     //   它原来登记的是「'商店商品'的判据没有证据（只有 `ShopItemId` 这个候选字段）⇒ 恒 false」，
     //   性质 `debt`（属"能还"）。现在判据确证 = **`Price != 0`**（`Entity_Pickup + 0x564`）：
     //   ① `Entity_Pickup::SetPrice(int)` @ `0x26B1C8` 的**首条指令**就是 `str w1, [x0, #0x564]`；
@@ -436,18 +379,18 @@ constexpr ApiDeviation kApiDeviations[] = {
     //      isaacscript `PickupPrice` 的 `DEVIL_SACRIFICE_SPIKES`）；
     //   ③ `MakeShopItem` @ `0x270FC4` 先读 `+0x564`（`Price == 0` 才算"还没定价"）、再写 `+0x56C`；
     //   ④ isaacscript `PickupPrice` 文档：非卖品 `Price` 恒为 0。
-    //   ★ 当初卡住是**盯错了字段** —— `ShopItemId` 的默认值就是 0，判不了"是不是商店商品"。
+    //   当初卡住是盯错了字段 —— `ShopItemId` 的默认值就是 0，判不了"是不是商店商品"。
     //   判据：`runtime/tests/test_lua_entity_query.py`（同一房间一个 `Price == 15` 的 pickup 必须答
     //   true、一个 `Price == 0` 的必须答 false ⇒ 同时挡掉"恒 false""恒 true""误用 `ShopItemId`"）。
-    // ★ 批次 177（2026-09-28）：`0x0E010030`（`GetPill`）与 `0x0E010031`（`GetCard`）两条偏离
+    // `0x0E010030`（`GetPill`）与 `0x0E010031`（`GetCard`）两条偏离
     //   **已还清、条目删除** —— 引擎里有同名成员函数（`Entity_Player::GetPill(int) const`
     //   @ `0x2E8D80` / `GetCard(int) const` @ `0x2E8D58`），现改走引擎方法数据行，值来自引擎自己。
     //   证据与口径见 `runtime_constants.hpp` 里那两条常量、与 `isaac_api.cpp` 的
     //   `kEntityPlayerEngineRows`；"旧假桩已删"由 `runtime/tests/test_id_argument_policy.py` 钉。
     // 2026-10-09：GetName 已改为引擎配置表真值；旧偏离逐字保存于本轮记录。
-    // 批次 13（2026-09-16）新增。
+    // 新增。
     // 2026-10-09：0x0E010054已恢复原生RNG引用，旧快照记录全文归档rng-references/api_deviation.cpp.before。
-    // 批次 316（2026-10-03）新增：与上面那条 `GridEntity:GetRNG` **同一条取舍**（快照 vs 活引用）。
+    // 新增：与上面那条 `GridEntity:GetRNG` 同一条取舍（快照 vs 活引用）。
     // 2026-10-09：0x0E0100DB已恢复原生RNG引用，旧快照记录全文归档rng-references/api_deviation.cpp.before。
 
 
@@ -470,7 +413,7 @@ constexpr ApiDeviation kApiDeviations[] = {
      "判据：runtime/tests/test_lua_item_config.py（钉三类 `IsAvailable` 形状、flags 口径与降级行为；未钉各分支内部的楼层/贪心模式特例）。"},
 
     // =====================================================================================
-    // 批次 128（2026-09-25）：**恒值接口**（"安全桩"）成批登记
+    // 恒值接口（"安全桩"）成批登记
     // =====================================================================================
     //
     // 起因（用户裁定「做前先确定实现流水线没问题」）：接口面有一批处理器**什么都不读、直接编一个值**
@@ -486,7 +429,7 @@ constexpr ApiDeviation kApiDeviations[] = {
     // 性质一律 `debt`：这一批的共同点是**底座在引擎里（或可从存档/资源里取到），只是还没定位**，
     // 与 `platform` 那两条（鼠标）有本质区别 —— 那些是平台上真的没有。
     //
-    // ★ 2026-09-25（批次 130）**已修**：本段登记时一并查见两处**比 PC 严**（抛错 ⇒ 派发器静默摘掉
+    // 2026-09-25已修：本段登记时一并查见两处比 PC 严（抛错 ⇒ 派发器静默摘掉
     //   整条回调）—— `EntityPlayer:GetPoopSpell` 曾要求**无参**（PC 的签名带 `int Position`）、
     //   `EntityPlayer:HasTrinket` 曾要求**正好一个参数**（PC 的 `IgnoreModifiers` 可省；语料里的
     //   `analysis/mod-corpus/TBOI_Better-Voiding/main.lua:508`/`762` 就传了两个）。
@@ -495,7 +438,7 @@ constexpr ApiDeviation kApiDeviations[] = {
     //   改成"钉到参数起始处"+ 新增这条更强断言）。
     //   ⇒ 下面 `0x0E01003F` / `0x0E010049` 两条的正文只留"**值**仍是恒值"这一半偏离。
 
-    // ---- `Input` 的三条按钮查询（批次 195：**手柄那半已是真值**，键盘那半是平台固有）---------
+    // ---- `Input` 的三条按钮查询（手柄那半已是真值，键盘那半是平台固有）---------
     //
     // 原来的登记是"这一类按钮查询没有可调用的引擎入口 —— 输入管理器实例还没定位"（`debt`）。
     // **那条前提已被 2026-09-29 的取证推翻**：`KAGE::Input::ManagerBase::IsButtonPressed/
@@ -508,13 +451,13 @@ constexpr ApiDeviation kApiDeviations[] = {
     // （`KAGE::Input` 的类全列只有 DeviceGamepad / DeviceTouchscreen / DeviceNX / ManagerBase /
     // Manager，`Manager::Initialize` 只 new 两个设备；唯一与键盘有关的是软键盘文本入口，
     // 它给的是文本不是按键状态）⇒ `Keyboard.KEY_*`（GLFW 键码，≥32）**没有真值来源**。
-    // ★ 我们**不把键盘码原样透传**：引擎按 `button & 31` 取位，`KEY_SPACE(32)` 会撞上方向左、
+    // 我们不把键盘码原样透传：引擎按 `button & 31` 取位，`KEY_SPACE(32)` 会撞上方向左、
     //   `KEY_R(82)` 撞到位 18（没人写）—— 透传等于**按一次空格就误报"左方向键按下了"**
     //   （模组自己都知道这个坑：InputHelper 写的是 `IsButtonTriggered(key) and not
     //   IsButtonTriggered(key % 32)`，`analysis/mod-corpus/isaac-mod-config-menu/scripts/inputhelper.lua:114`）。
     //   所以键盘码一律答 false / 0.0 —— 与 PC 上"那个键没被按"同形，绝不误报。
     //
-    // ★ 参数形状（**必须与手柄那半同一批做**）：PC 的绑定层**接受第三个参数**（文档没写），
+    // 参数形状（必须与手柄那半同一批做）：PC 的绑定层接受第三个参数（文档没写），
     //   而设备旁的 EID 确实传三个（`features/eid_bagofcrafting_search.lua:129` 的
     //   `Input.IsButtonTriggered(Keyboard.KEY_ESCAPE, 0, true)`、`:145` 等 7 处）⇒
     //   旧实现"恰好两个参数"会把这几条变成 `luaL_error`、派发器摘掉整条回调。现在收 2 或 3 个。
@@ -563,18 +506,18 @@ constexpr ApiDeviation kApiDeviations[] = {
      "手柄那半已接上。"
      "判据：runtime/tests/test_lua_neutral_keyboard_input.py（键盘码必答 0、参数形状）。"},
 
-    // ---- `Isaac` 的两条坐标变换：**批次 195（2026-09-29）已还清、条目删除** -------------
+    // ---- `Isaac` 的两条坐标变换：已还清、条目删除 -------------
     // `0x0E01000C`（`WorldToScreen`）与 `0x0E01000D`（`WorldToRenderPosition`）原来登记的是
     // "恒等变换 + 相机参数未取证"（`debt`）。现在两条都**真调引擎** `GetRenderPosition(pos, true)`
     // （PLT 桩 `0x670FA0` + 16 字节入口守卫），差别只有"要不要再加 `Room[0x1938] + Game[0x24F9B0]`"
     // —— 与 PC 的两条处理函数逐项一致（PC 处理函数反汇编 + `Room::WorldToScreenPosition @ 0x489354`，
     // 逐条见 `analysis/api-restore-transforms/spec.json`）。
-    // ★ 同一批还**新增**了 PC 上本来就有的 `Isaac.ScreenToWorld`（catalog `0x0E01005F`）。
+    // 同一批还新增了 PC 上本来就有的 `Isaac.ScreenToWorld`（catalog `0x0E01005F`）。
     // 判据：`runtime/tests/test_lua_isaac_table.py`（参数校验 + 调用形状）、
     // `runtime/tests/test_touch_pointer.py`（`GetMousePosition(true)` 现在返回**世界坐标**，
     // 与 `WorldToScreen` 的配对关系随之改变）。
     // 2026-10-09：getter已返回真实PGD对象并支持Unlocked，旧记录全文归档PGD存档.before。
-    // ★★ 批次 404（2026-10-07）：`Isaac.GetTrinketIdByName`（0x0E01000F）的偏离**已还清，按台账
+    // `Isaac.GetTrinketIdByName`（0x0E01000F）的偏离已还清，按台账
     //   设计**删除**（见 `api_deviation.hpp` 文件头与本文档头的口径：'debt …还清之后应当把这条
     //   从台账里删掉'；098 那次消掉四条 `Room` 网格偏离就是同一形态）。
     //   原条目正文（"我们**恒返回 0**：那张名字→id 表在 PC 上是内建的，Switch 侧的对应数据未取证 …
@@ -588,18 +531,18 @@ constexpr ApiDeviation kApiDeviations[] = {
     // ---- `EntityPlayer` 的恒值成员（这一族最大，20 条）-----------------------------
     // 2026-10-09：0x0E01001F真实配对/主身/副玩家规则已恢复；旧全文归档player-twins/api_deviation.cpp.before。
     // 2026-10-09：0x0E010032真实配对/主身/副玩家规则已恢复；旧全文归档player-twins/api_deviation.cpp.before。
-    // ★ 批次 195（2026-09-29）：四条 `Get*RNG` 从"**恒 nil** 的占位"改成**真读数** ——
+    // 四条 `Get*RNG` 从"恒 nil 的占位"改成真读数 ——
     //   数据就在实体里：四张 `std::vector<RNG>`（元素 16 字节）分别在
     //   `Entity_Player + 0x1BB0/0x1BC8/0x1BE0/0x1BF8`，索引就是枚举 id 本身；四条各有
     //   "消费者指令 + 该消费者引用的越界字符串"两重证据（规格 `analysis/api-restore-rng/spec.json`，
     //   逐条抄进 `runtime_constants.hpp`）。残留的偏离只有**快照口径**（下面四条同形），
     //   性质因此从 `debt`（"取法还没定位 ⇒ 能还"）改档为 `design`（主动保留的口径差异）。
-    //   ★ 判据从"钉恒 nil"换成"钉快照语义 + 换 id 必须读到另一格"（见 `判据：` 那行）。
+    //   判据从"钉恒 nil"换成"钉快照语义 + 换 id 必须读到另一格"（见 `判据：` 那行）。
     // 2026-10-09：0x0E010033已恢复原生RNG引用，旧快照记录全文归档rng-references/api_deviation.cpp.before。
     // 2026-10-09：0x0E010034已恢复原生RNG引用，旧快照记录全文归档rng-references/api_deviation.cpp.before。
     // 2026-10-09：0x0E010035已恢复原生RNG引用，旧快照记录全文归档rng-references/api_deviation.cpp.before。
     // 2026-10-09：0x0E010036已恢复原生RNG引用，旧快照记录全文归档rng-references/api_deviation.cpp.before。
-    // ★ 批次 195（2026-09-29）：`0x0E01003A`（`GetHearts`）/ `0x0E01003E`（`GetPoopMana`）/
+    // `0x0E01003A`（`GetHearts`）/ `0x0E01003E`（`GetPoopMana`）/
     //   `0x0E01003F`（`GetPoopSpell`）三条偏离**已还清、条目删除**（销账，不是漏登记）——
     //   它们原来登记的都是"引擎里的字段还没定位 ⇒ 能还"（`debt`），现在字段都确证了：
     //     * `GetHearts`    → `Entity_Player + 0x16BC`（u32，**半心为单位**）；
@@ -608,22 +551,22 @@ constexpr ApiDeviation kApiDeviations[] = {
     //   逐条指令证据见 `runtime_constants.hpp` 里那三条常量与规格
     //   `analysis/api-restore-entityplayer-a/spec.json`；判据换成
     //   `runtime/tests/test_lua_entity_player.py` 的端到端读数（夹具写字面值、断言读得对）。
-    // ★ 批次 177（2026-09-28）：`0x0E010040`（`GetZodiacEffect`）偏离**已还清、条目删除** ——
+    // `0x0E010040`（`GetZodiacEffect`）偏离已还清、条目删除 ——
     //   引擎有 `Entity_Player::GetZodiacEffect() const` @ `0x29A938`，现走引擎方法数据行
     //   （`EngineCallShape::Int0`）。
-    // ★ 批次 195（2026-09-29）：`0x0E010041`（`GetModelingClayEffect`）偏离**已还清、条目删除** ——
+    // `0x0E010041`（`GetModelingClayEffect`）偏离已还清、条目删除 ——
     //   它原来是"恒 0、字段未取证 ⇒ 能还"（`debt`），现在确证在 `Entity_Player + 0x2730`
     //   （存档字段 `GameStatePlayer+0x608` 与它是同一个值的存取两端，旁边唯一的字符串就是
     //   "[warn] Invalid modeling clay effect %d"）。证据见 `runtime_constants.hpp` 的
     //   `kEntityPlayerModelingClayEffectOffset` 与规格 `analysis/api-restore-entityplayer-a/spec.json`。
-    // ★ 原 `{0x0E010042, ApiDeviationKind::Placeholder, …}`（`GetGlyphOfBalanceDrop` 恒 0）
-    //   已在**批次 184（2026-09-28）删除** —— 它不再是"恒返回假值"：现在走
+    // 原 `{0x0E010042, ApiDeviationKind::Placeholder, …}`（`GetGlyphOfBalanceDrop` 恒 0）
+    //   已在删除 —— 它不再是"恒返回假值"：现在走
     //   `kEntityPlayerEngineRows` 的 `Ref2U32Pair` 数据行，真调引擎 `0x2FE574`、
     //   返回一张两元表（`{[1]=variant, [2]=subtype}`，口径见 `runtime_constants.hpp` 那条）。
     //   为什么留这行注释而不是直接抹掉：这条当年的偏离理由是"**能还**（派生值在引擎里，
     //   只是还没查）"，现在**还上了**。下一个人再看到 `0x0042` 要能知道"它已经不在台账里、
     //   是销账而不是漏登记"。
-    // ★ 批次 195（2026-09-29）：`0x0E010045`（`GetPlayerFormCounter`）偏离**已还清、条目删除** ——
+    // `0x0E010045`（`GetPlayerFormCounter`）偏离已还清、条目删除 ——
     //   它原来是"恒 0、字段未取证 ⇒ 能还"（`debt`），现在确证在 `Entity_Player + 0x1C54`
     //   的 **15 个 int32**（= `NUM_PLAYER_FORMS`；长度由 `RestoreGameState` 的 15 组连续复制证明，
     //   语义由 `HasPlayerForm` 的 `counter > 2` 定死）。越界我们主动夹 [0,14]。
@@ -631,15 +574,15 @@ constexpr ApiDeviation kApiDeviations[] = {
     // 2026-10-09：0x0E010046恢复REPENTOGON实际可选筛选/全ID计数接口。
     // 旧占位及“空表比较安全”原文逐字归档docs/GetSmeltedTrinkets证据-20261009/。
 
-    // ★ 批次 388（2026-10-07）：`0x0E010047`（`EntityPlayer:GetEffects`）偏离**已还清、条目删除** ——
+    // `0x0E010047`（`EntityPlayer:GetEffects`）偏离已还清、条目删除 ——
     //   它原来是"**恒返回空表**（没有任何方法）⇒ 模组 `player:GetEffects():HasCollectibleEffect(id)`
     //   抛 `attempt to call a nil value` ⇒ 整条回调被派发器静默摘掉"（性质 debt / **能还**）。
     //   现在 `GetEffects()` 返回带 17 个方法的 `TemporaryEffects` 对象 —— 容器偏移（`Entity_Player + 0x18D8`）
     //   与 12 个引擎方法地址全在 `runtime_constants.hpp` 的 TemporaryEffects 段，实现见 `isaac_api.cpp`。
-    //   ★ 剩下的 **5 条方法级占位单独登记**在本表末尾（`0x0E010106`..`0x0E01010A`）。
+    //   剩下的 5 条方法级占位单独登记在本表末尾（`0x0E010106`..`0x0E01010A`）。
     //   为什么留这段注释而不是直接抹掉：下一个人再看到 `0x0E010047` 要能知道"它已经不在台账里、
     //   是**销账**而不是漏登记"（照 `0x0E010045` / `0x0E010046` 两条销账注释的先例）。
-    // ★ 批次 195（2026-09-29）：`0x0E010049`（`EntityPlayer:HasTrinket`）与
+    // `0x0E010049`（`EntityPlayer:HasTrinket`）与
     //   `0x0E01004A`（`EntityPlayer:HasGoldenBomb`）两条偏离**已还清、条目删除**。
     //   * `HasGoldenBomb`：从"恒 false 的假桩"改成**字段数据行** —— 读
     //     `Entity_Player + 0x16D9` 那一个字节；**取值锚点**是引擎自己的一对同名函数
@@ -651,21 +594,21 @@ constexpr ApiDeviation kApiDeviations[] = {
     //     PC 文档的两种口径（`IgnoreModifiers=false` 走 `GetTrinketMultiplier`、`true` 扫槽）
     //     并在比较前 `and #0x7fff` ⇒ 旧实现"金色饰品答 false"与"读不到被道具赋予的饰品效果"
     //     两处偏差同时消失。
-    //   ⚠️ 与批次 177 同一句口径提醒：这两条**新实现还没上真机验收** —— 只是"桩不再是假值"，
+    //   ⚠️ 与同一句口径提醒：这两条新实现还没上真机验收 —— 只是"桩不再是假值"，
     //   不是"值已验真"（真机判据见 `analysis/api-restore-entityplayer-b/spec.json` 的 host/device 两栏）。
     //   `HasTrinket`/`HasGoldenBomb` 的"我们比 PC 严"那一半（参数个数）由
     //   `runtime/tests/test_id_argument_policy.py` 继续钉住。
 
-    // ★ 批次 177（2026-09-28）：`0x0E01004B`（`HasPlayerForm`）偏离**已还清、条目删除** ——
+    // `0x0E01004B`（`HasPlayerForm`）偏离已还清、条目删除 ——
     //   引擎有 `Entity_Player::HasPlayerForm(ePlayerForm) const` @ `0x298510`，现走引擎方法数据行
     //   （`EngineCallShape::Bool1`；一个整数参数、不做范围校验）。
-    // ★ 批次 177（2026-09-28）：`0x0E01004C`（`CanPickRedHearts`）偏离**已还清、条目删除** ——
+    // `0x0E01004C`（`CanPickRedHearts`）偏离已还清、条目删除 ——
     //   引擎有 `Entity_Player::CanPickRedHearts()` @ `0x2FB6A4`（**非 const 成员**，ABI 上无差别），
     //   现走引擎方法数据行（`EngineCallShape::Bool0`）。真实调用点 = EID
     //   `features/eid_itemprediction.lua:366`（恒 false 时"满红心"那一支预测永远不成立）。
     // 2026-10-09：0x0E01004D真实配对/主身/副玩家规则已恢复；旧全文归档player-twins/api_deviation.cpp.before。
 
-    // ---- `Isaac`（批次 139 新增一条：服装路径反查的**搜索范围**）--------------
+    // ---- `Isaac`（新增一条：服装路径反查的搜索范围）--------------
     // `Isaac:GetCostumeIdByPath(path)`（0x0E01005D）本身是**真实现**（遍历 null 道具向量、
     // 比条目 `+0x88` 的 anm2 路径、返回 `+0x04`）；登记的是"只搜 null 向量"这一处**范围**偏离，
     // 定案与互证指令见 `runtime_constants.hpp` 的 `kItemConfigItemNullCostumePathOffset`
@@ -691,7 +634,7 @@ constexpr ApiDeviation kApiDeviations[] = {
      "把『只搜 null 向量』钉住）；runtime/tests/test_layout_table_item_config_item.py"
      "（那个字段的偏移证据可复现 + 与手写常量/台账对账）。"},
 
-    // ---- `EntityPlayer` 的「null 服装」两条（批次 141，2026-09-26）------------------------
+    // ---- `EntityPlayer` 的「null 服装」两条------------------------
     // 它们本身是**真实现**（引擎方法数据行）；登记的是我们**主动加的一道参数校验**：编号无效时
     // **不往引擎里调**。由来是真机崩溃：The Specialist for Good Items 在跳舞时把
     // `Isaac.GetCostumeIdByPath(...)` 的结果直接喂进来，查不到时那个值是 `-1` ⇒ 引擎
@@ -736,7 +679,7 @@ constexpr ApiDeviation kApiDeviations[] = {
      "判据：runtime/tests/test_lua_entity_player.py（消费者视角：无效编号不报错、不崩，"
      "挡下计数加一；有效编号照常调进引擎）。"},
 
-    // 批次 140（2026-09-26）：`Game:GetPlayer(index)`（0x0201000C）—— **与 `Isaac.GetPlayer`
+    // `Game:GetPlayer(index)`（0x0201000C）—— 与 `Isaac.GetPlayer`
     // 的越界口径不一致**这一处（真机证据：The Specialist for Good Items 的 `main.lua:447`）。
     {0x0201000C,
      ApiDeviationKind::Partial,
@@ -762,7 +705,7 @@ constexpr ApiDeviation kApiDeviations[] = {
      "必须给出**同一个**玩家、`(-1)` 同；无玩家场景里 `game:GetPlayer(0)` 必须 nil；参数不是整数 ⇒ nil "
      "且不抛 Lua 错误）。"},
 
-    // ---- 批次 207（2026-09-29）：MCM 前置 API 带出来的两条 -------------------------
+    // ---- MCM 前置 API 带出来的两条 -------------------------
     {0x0E010065,
      ApiDeviationKind::Partial,
      "PC 契约：tools/pc_contract_docs/Isaac.md:218 「#### [EntityType](enums/EntityType.md) "
@@ -784,7 +727,7 @@ constexpr ApiDeviation kApiDeviations[] = {
      "判据：runtime/tests/test_lua_isaac_table.py（钉\"快照表里查得到的那几条\"与\"查不到时 0 / -1\"；"
      "未钉\"模组自加实体在 PC 上查得到\"）。"},
 
-    // ---- 批次 240（2026-09-30）：名字表一族里唯一一条**有意偏离** -------------------------
+    // ---- 名字表一族里唯一一条有意偏离 -------------------------
     // `GetCardIdByName` 的 PC 语义匹配的是 `pocketitems.xml` 里的 **`hud` 属性**，
     // 而实测本体那份 XML **一条 `hud=` 都没有**（0 处）⇒ 我们改用 `name` 属性。
     {0x0E01007A,
@@ -829,7 +772,7 @@ constexpr ApiDeviation kApiDeviations[] = {
      "判据：runtime/tests/contract/test_api_catalog.py（钉\"`HUD` 家族的两条绑定行落在 `game_api.cpp`、"
      "id 与目录一致\"）；未钉\"那一格的引擎初值\"——那要靠真机读数，属未取证，不是主动取舍。"},
 
-    // ---- `Room` 的渲染两条（批次 269）----------------------------------------
+    // ---- `Room` 的渲染两条----------------------------------------
     {0x04010024,
      ApiDeviationKind::Placeholder,
      "PC 契约：tools/pc_contract_docs/Room.md:468 「#### [RenderMode](enums/RenderMode.md) GetRenderMode ( ) {: .copyable aria-label='Functions' }」"
@@ -867,7 +810,7 @@ constexpr ApiDeviation kApiDeviations[] = {
      "性质：debt（我们的欠账）——理由：字段存在于引擎里，只是没定位；取证到就能换成真读。"
      "判据：runtime/tests/test_lua_room_render_placeholders.py（钉\"返回 Vector(0,0) 且不报错\"与\"参数闸门\"）。"},
 
-    // ---- 批次 271：`EntityPlayer:UseActiveItem` 的两种重载 ----
+    // ---- `EntityPlayer:UseActiveItem` 的两种重载 ----
     {0x0E010094,
      ApiDeviationKind::Partial,
      "PC 契约：tools/pc_contract_docs/EntityPlayer.md:1853 "
@@ -896,7 +839,7 @@ constexpr ApiDeviation kApiDeviations[] = {
      "『基础形最多 4 个参数』、『扩展形第 8 格之外不收』；未钉『引擎那一步真的执行了什么』——"
      "那要靠真机读数，见作业单第九节 V21）。"},
 
-    // ---- `RoomConfigSpawn:PickEntry`（批次 347，2026-10-04）--------------------------------
+    // ---- `RoomConfigSpawn:PickEntry`--------------------------------
     {0x04010038,
      ApiDeviationKind::Partial,
      "PC 契约：tools/pc_contract_docs/RoomConfig_Spawn.md:28 「#### const [RoomConfig Entry](RoomConfig_Entry.md) PickEntry ( float r ) {: .copyable aria-label='Functions' }」"

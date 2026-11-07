@@ -1,98 +1,12 @@
 #!/usr/bin/env python3
-"""引擎调用 ABI 体检：把 `runtime_constants.hpp` 的偏移常量与游戏镜像里的真实符号对上。
+"""核对引擎偏移、调用签名和入口中继的 ABI。
 
-## 为什么需要它
+从游戏镜像符号表读取原生签名，与源码中的函数指针声明及中继返回值比较。
+支持直接转换、绑定记录、取址助手和通用调用模板；无法识别的调用列为 unknown，
+不计入已验证范围。签名缺参、浮点类型不匹配及中继返回值不匹配需要核查。
 
-2026-09-17 的两处真 bug 是同一类：**我们按自己的假设去解释引擎的 ABI**。
-
-* `EntityPlayer:HasCollectible` —— PC 与原生符号都是 `(eCollectibleType, bool)`，我们只接受一个参数，
-  EID 传第二个参数时**每次都报错**；
-* 引擎返回的块"是不是分配起点" —— 我们假设是，直接 `delete[]`，踩坏游戏堆（见续三十七）。
-
-这类问题**完全可以静态查清**：游戏镜像 `Repentance.nro` 的动态符号表里，每个函数都带着
-**完整的参数表**（Itanium ABI 的 mangled name 里就写着）。把"偏移常量 → 真实符号 → 参数个数/类型"
-列出来，再和我们调用点的实参个数比一比，就能在真机之前发现这类错。
-
-## 2026-09-17 升级：从"数实参"改成"比我们声明的函数指针类型"
-
-第一版只会认 `reinterpret_cast<Fn>(base + kXOffset)(a, b)` 这一种形态，实际只找到 **3/92** 个调用点 ——
-也就是说那句"参数个数不符 0"**是"没比过"，不是"都没问题"**。
-
-现在改成比**声明**：本项目调用引擎只有两种写法，两种都能静态读出"我们以为它长什么样"：
-
-* `reinterpret_cast<XxxFn>(method)(…)` + `using XxxFn = 返回类型 (*)(参数…)`（`isaac_api.cpp` 一族）；
-* `Guarded<decltype(calls.field)>(…)` + `返回类型 (*field)(参数…)`（存档文件适配器一族）。
-
-拿这份"我们的声明"与镜像里的真实签名逐条比，判三类：
-
-| 判据 | 含义 | 处置 |
-| --- | --- | --- |
-| `our < engine`（少给参数） | 引擎要读的参数我们没准备 ⇒ 那些寄存器是**调用方的残留值** | 必须逐条人工分诊，写进 `tools/engine_abi_triage.json`（写明为什么安全） |
-| 浮点/整数不匹配 | 引擎要 `float`/`double`（走 v 寄存器）而我们声明的是整数（走 x 寄存器）⇒ 实参根本传不到 | **一律判红**（2026-09-17 的 `Present` 转发桩就是这个形状） |
-| `our > engine + 1` | 我们多给参数（多出来的引擎不读） | 无害，只提示 |
-| `relay-mismatch`（**入口中继回调**，见下） | 引擎调我们：参数个数不符，**或引擎有返回值而我们声明了 `void`** | **一律判红**（2026-09-21 的真机事故就是这个形状） |
-
-`HasCollectible` 那类错的形状正是"少给一个 `bool`" ⇒ 会被第一类抓住。
-
-### 入口中继回调（引擎调我们）—— 2026-09-21 新增
-
-前面几种形态都是"**我们主动调引擎**"（有调用点，所以能读出我们声明的类型）。而入口中继是反过来：
-把本模块里一个手写 `extern "C"` 回调**当目标函数来跑**（`entry_relay.hpp`：槽里 `br` 尾调用回调，
-回调的 `ret` 直接回到游戏的调用方）⇒ 实参 `x0..x7` 原样进、**返回值也由回调负责**。
-这类回调在旧报告里全是"我们 — 没找到调用点（本轮没比过）"，**返回值这一项从来没有门禁比过**。
-
-事故：`EntryRelayUseActiveItemCallback` 声明成 `void`，而 `Entity_Player::UseActiveItem`
-（本体 `0x30653C`，长 `0x143B4`）唯一的收尾点是 `mov x0, x22`（`0x31A8C0`）⇒ 游戏调用方拿到的
-`x0` 是回调里最后一次调用的残留值 ⇒ 用后记账（扣充能 / 移除单次道具 / 服装动画）走错分支。
-真机症状：**所有主动道具用后不掉充能、部分道具被移除**。同形状还有
-`Entity_Pickup::handle_collision`（`0x2728C8` 的 `mov w0, #1`）与 `Room::spawn_entity`
-（`0x453EA0` 的 `mov w0, w21`）——三个一起修。
-
-判据（纯静态）：`our == engine` 或 `our == engine + 1` 算参数一致（靶点可能是成员函数也可能不是）；
-返回值则从函数**自己的**收尾点往回扫，先撞上"写 `x0/w0`"⇒ 有返回值，先撞上 `bl/blr` ⇒ void。
-
-### 当前覆盖率与**已知读不出来的形态**（2026-09-17 实测，诚实记账）
-
-91 个函数类偏移里，这份工具现在能读出"我们声明的参数表"的有 **71 个（78%）**，
-其余 26 个读不出来（`--json` 里 `verdict=unknown` 的就是它们）。走到今天这条路经：
-
-| 批次 | 做法 | 覆盖率 |
-| --- | --- | ---: |
-| 第一版 | 只认 `reinterpret_cast<Fn>(base + kXOffset)(…)` | 3/92 |
-| 批次 1 | 改成比"我们声明的函数指针类型"（形态 A/B） | 16/91 |
-| 同批 | Font/Sprite 两族的绑定记录字段改成声明类型（形态 C） | 41/91 |
-| 023 | 单方法绑定那条链（形态 D：常量 → 校验助手 → 局部变量 → 发布函数 → 全局槽 → 取址助手） | 49/91 |
-| 024 | "地址交给另一个函数"那一跳（`declared_type_via_callee`） | 51/91 |
-| 025 | `GameFileReader` 一族的记录字段改成声明类型（形态 C′） | 59/91 |
-| 027 | 形态 E（取址助手的结果经调用点交给"按签名调"的那一层）+ 源码侧拆开 `ItemConfig` 的 `kind` 分派 | **71/91** |
-| 026 | **修掉形态 A 里"转型操作数切片少了闭括号"的 bug**（"局部变量"那条支路此前从未生效）、 局部变量的初始化表达式允许是"含常量的算式"、新增**形态 F**（常量当实参交给助手） | **65/91** |
-| 114 | **把"变量 → 转型类型"这个查询合成一份**（`cast_type_names_for_variable`）：此前"形态 D 最后一跳"与"形态 F"各写一份，批次 110 只给前者补了引擎交互层的模板实参拼法（`AsFunction<…>` 一族）⇒ 批次 114 把 `remaining_api.cpp` 的 13 处函数指针转换换成 `AsFunction` 之后，**形态 F 那两条（诅咒访问器）断链**，`test_constant_as_argument_helper_chain_is_actually_checked` 与 `test_unknown_entries_are_triaged_in_backlog` 一起判红 | **93/128（72%）** |
-
-⚠️ **2026-09-17 的更正**：交接文档 026 当时把"4 条读不出来"记成
-"转型那一步不是 `reinterpret_cast<XFn>(method)`"，那是**归因错了** ——
-真正的原因是切片少了一个闭括号，写法一直是对的。教训：**工具读不出来时，
-先怀疑工具自己的正则，再怀疑源码的写法。**
-
-剩下 20 条按"我们到底会不会真的跳进去调"分两类，**逐条**记在 `tools/engine_abi_backlog.json`
-（门禁 `test_unknown_entries_are_triaged_in_backlog` 会核对"未覆盖的每一条都在台账里、且台账里没有
-已经覆盖的条目"——覆盖率一提而台账没更新就判红）：
-
-| 类别 | 条数 | 含义 | 处置 |
-| --- | ---: | --- | --- |
-| **A 类** | 0 | 真有消费者、应当能核对的欠账 —— **2026-09-17 第二批已清零**：最后三条（`ItemConfig::Item/Card/PillEffect::IsAvailable`）原本按**运行时 `kind`** 在两条签名间选，已改成"每个常量只对应一个签名"（源码侧拆开，见 `isaac_api.cpp` 的 `CallItemIsAvailable` 上方注释） | — |
-| **B 类** | 9 | 只当**挂点/中继目标**（我们替换它的入口或发布自己的中继桩，不为它声明调用签名） | 没有"调用签名"可错，**不必补** |
-| **C 类** | 11 | 全仓库没有消费者（`kFilesysFile*` 一族＝退役的"插件持久化"旧线遗留） | 同上，**不必补** |
-
-⇒ **"参数个数不符 0" 必须连覆盖率一起读**：只有 `ok / under / float-mismatch` 那部分是真比过的。
-报告把这三个数打出来，就是为了防止把"没比过"读成"都没问题"。
-
-## 用法
-
-    python3 tools/engine_offset_abi_report.py                 # 全量报告（人读）
-    python3 tools/engine_offset_abi_report.py --json out.json # 落盘给门禁/台账用
-    python3 tools/engine_offset_abi_report.py --mismatch-only # 只看"我们传的参数个数和引擎不符"的
-
-退出码：0 = 没有发现参数个数不符；1 = 发现了（可当门禁用）。
+使用 --json 输出报告，--mismatch-only 仅显示不匹配项。
+退出码 0 表示未发现参数数量不匹配，1 表示发现不匹配。
 """
 
 from __future__ import annotations
@@ -110,7 +24,7 @@ SRC_DIRS = [ROOT / "runtime" / "src", ROOT / "runtime" / "source"]
 #: 这里**只查表**，不再自己解析 mangled name —— 手写解析器踩过坑（`ItemConfig` 里的 `I` 被当成模板起始）。
 TABLE = ROOT / "tools" / "engine_symbol_signatures.json"
 
-#: 本体镜像。★ 2026-09-21 修：这个常量原先**只被 `load_symbols()` 引用、却从未定义** ——
+#: 本体镜像。2026-09-21 修：这个常量原先只被 `load_symbols()` 引用、却从未定义 ——
 #: 那条路一旦被走到就是 `NameError`（本轮加"中继回调返回值"检查时才踩到）。路径写法与
 #: `tools/gen_engine_symbol_signatures.py` 保持一致。
 NRO = (
@@ -149,13 +63,13 @@ def load_symbols() -> dict[int, str]:
 
 CAST_RE = re.compile(r"reinterpret_cast<\s*([^<>]*(?:<[^<>]*>[^<>]*)*)\s*>")
 
-#: ★ **"类型写在模板实参上"的那些引擎交互层原语**（2026-09-24 批次 110 补）。
+#: "类型写在模板实参上"的那些引擎交互层原语（2026-09-24 补）。
 #:
-#:   * `CallUnaryMethod<XxxFn>(method, object)` —— 引擎内存访问层（批次 101 起的规范写法）；
-#:   * `AsFunction<XxxFn>(address)` / `ResolveFunction<XxxFn>(…)` —— 引擎调用层（批次 108）。
+#:   * `CallUnaryMethod<XxxFn>(method, object)` —— 引擎内存访问层（起的规范写法）；
+#:   * `AsFunction<XxxFn>(address)` / `ResolveFunction<XxxFn>(…)` —— 引擎调用层。
 #:
 #: 它们与 `reinterpret_cast<XxxFn>(地址)`（`CAST_RE`）是**同一件事**：都在声明"这个地址我们按
-#: 哪个签名调"。工具**不认的后果是"读数变成没比过"** —— 批次 110 把三个 API TU 的转换换成
+#: 哪个签名调"。工具不认的后果是"读数变成没比过" —— 把三个 API TU 的转换换成
 #: `AsFunction` 之后，`test_single_binding_chain_is_actually_checked` 当场红了 4 条
 #: （门禁是对的、工具没跟上源码形态；这是同一类事故的**第三次**，见
 #: `docs/问题与解决记录.md` 的续七十八 / 续八十一）。
@@ -228,7 +142,7 @@ def _cast_like_matches(text: str) -> list[re.Match]:
     return matches
 
 
-#: **形态 D（2026-09-19 批次 051）**：引擎方法类的"数据行"。
+#: 形态 D（2026-09-19 ）：引擎方法类的"数据行"。
 #: 一条 API 长这样（见 `interfaces/lua/engine_method_api.hpp`）：
 #:     {0x0E010057, kEntityPlayerSetShootingCooldownOffset, kEntityPlayerSetShootingCooldownEntryWord,
 #:      FieldReceipt::EntityPlayer, EngineCallShape::Void1, 1, 0xFF},
@@ -243,43 +157,43 @@ ENGINE_CALL_SHAPE_PARAMS = {
     "Void1": ["std::int32_t"],
     "Void2": ["std::int32_t", "std::int32_t"],
     "Int0": [],
-    # 批次 055：签名描述符表里的形状名就是 key，参数表按描述符里的 `EngineArgKind` 写。
+    # 签名描述符表里的形状名就是 key，参数表按描述符里的 `EngineArgKind` 写。
     # 忘了登记不会让构建失败，但**ABI 体检会看不见这条**（覆盖率虚高）—— 所以加形状时一起登记。
     "VoidFloat1": ["double"],
     "VoidIntIntIntHandleInt": ["std::int32_t", "std::int32_t", "std::int32_t", "std::uintptr_t",
                                "std::int32_t"],
-    # 批次 063：`bool(this)`（无参、返回布尔）——`Entity:IsFlying()`。
+    # `bool(this)`（无参、返回布尔）——`Entity:IsFlying()`。
     "Bool0": [],
-    # 批次 141（2026-09-26）：ABI 与 `Void1` 相同（`void(this, i32)`），区别只在**共享处理器会先把
+    # ABI 与 `Void1` 相同（`void(this, i32)`），区别只在共享处理器会先把
     # 无效的 null 服装编号挡下再不放行**（`EntityPlayer:AddNullCostume` / `TryRemoveNullCostume`）。
-    # ★ 这一条当时漏登记 ⇒ 那两个偏移常量成了"工具读不出声明"，被
+    # 这一条当时漏登记 ⇒ 那两个偏移常量成了"工具读不出声明"，被
     #   `test_engine_offset_signatures` 的台账门禁判红 —— 正是本文件上面那句注释预警的情况。
     "VoidNullId1": ["std::int32_t"],
-    # 批次 177（2026-09-28）：`i32(this, i32)` —— `EntityPlayer:GetPill(int)` / `GetCard(int)`。
+    # `i32(this, i32)` —— `EntityPlayer:GetPill(int)` / `GetCard(int)`。
     "Int1": ["std::int32_t"],
-    # 批次 177（2026-09-28）：`bool(this, i32)` —— `EntityPlayer:HasPlayerForm(ePlayerForm)`。
-    # ★ 上面两条又是**同一个坑**（与 141 的 `VoidNullId1` 一模一样）：新形状不登记 ⇒
+    # `bool(this, i32)` —— `EntityPlayer:HasPlayerForm(ePlayerForm)`。
+    # 上面两条又是同一个坑（与 141 的 `VoidNullId1` 一模一样）：新形状不登记 ⇒
     #   工具读不出那三个常量（`GetPill`/`GetCard`/`HasPlayerForm`）的声明 ⇒
     #   `test_engine_offset_signatures` 的欠账台账门禁判红。加形状时**同时**改这里。
     "Bool1": ["std::int32_t"],
-    # 批次 207（2026-09-29）：`bool(this, bool 可选)` —— `Entity:IsActiveEnemy(bool includeDead)`。
+    # `bool(this, bool 可选)` —— `Entity:IsActiveEnemy(bool includeDead)`。
     # 引擎侧签名是 `IsaacRepentance::Entity::IsActiveEnemy(bool) const`
     # （`_ZNK15IsaacRepentance6Entity13IsActiveEnemyEb`，偏移 `0x5F028`，取自
     # `tools/engine_symbol_signatures.json`）⇒ 引擎 1 个参数、我们声明 1 个参数 + 隐式 `this` == 2，
     # 正好命中 `our == engine + 1` 的"一致"判据。
-    # ★ **第四次提醒**（141 的 `VoidNullId1`、177 的 `Int1`/`Bool1`、184 的 `Ref2U32Pair`）：
+    # 第四次提醒（141 的 `VoidNullId1`、177 的 `Int1`/`Bool1`、184 的 `Ref2U32Pair`）：
     #   新形状不登记**不会让构建失败**，但 ABI 体检会读不出走这条形状的常量声明 ⇒
     #   `test_engine_offset_signatures` 判红。
     "BoolOpt1": ["bool"],
-    # 批次 184（2026-09-28）：`void(this, u32& 入出参, u32& 入出参)` ——
+    # `void(this, u32& 入出参, u32& 入出参)` ——
     # `EntityPlayer:GetGlyphOfBalanceDrop(variant, subtype)`（引擎 `0x2FE574`）。
-    # ★★ **第三次提醒**（141 的 `VoidNullId1`、177 的 `Int1`/`Bool1` 都漏在这里）：
+    # 第三次提醒（141 的 `VoidNullId1`、177 的 `Int1`/`Bool1` 都漏在这里）：
     #   新形状不登记**不会让构建失败**，但 ABI 体检会读不出走这条形状的那些常量的声明 ⇒
     #   `test_engine_offset_signatures` 的欠账台账门禁判红。
     #   这一次是**提前**登记的（写形状的同一批就写进来），不是等门禁红了再补。
     "Ref2U32Pair": ["std::uint32_t&", "std::uint32_t&"],
-    # 批次 239（2026-09-30）：语料模组适配第二波 A 批的 9 种新形状。
-    # ★ 本批是**写形状的同一批就把这 9 行登记齐**（不重复 141 / 177 那两次"等门禁红了再补"）。
+    # 语料模组适配第二波 A 批的 9 种新形状。
+    # 本批是写形状的同一批就把这 9 行登记齐（不重复 141 / 177 那两次"等门禁红了再补"）。
     # 参数表按 `isaac_api.cpp` 的 `kEngineCallShapes` 描述符逐格写（`Bool` ⇒ `bool`）。
     "VoidIntIntBool": ["std::int32_t", "std::int32_t", "bool"],
     "BoolIntIntInt": ["std::int32_t", "std::int32_t", "std::int32_t"],
@@ -290,21 +204,21 @@ ENGINE_CALL_SHAPE_PARAMS = {
     "BoolIntOpt1": ["std::int32_t"],
     "VoidIntBoolOpt2": ["std::int32_t", "bool"],
     "VoidFloatFloatOpt1": ["double", "double"],
-    # 批次 252（2026-10-01）：3 种新形状（`MusicManager:Crossfade` / `Room:SpawnGridEntity` /
-    # `EntityPlayer:RemoveCollectible`）。★ 第 **五** 次提醒（141 的 `VoidNullId1`、177 的
+    # 3 种新形状（`MusicManager:Crossfade` / `Room:SpawnGridEntity` /
+    # `EntityPlayer:RemoveCollectible`）。第 五 次提醒（141 的 `VoidNullId1`、177 的
     # `Int1`/`Bool1`、184 的 `Ref2U32Pair`、207 的 `BoolOpt1`）：新形状**不登记不会让构建失败**，
     # 但 ABI 体检会读不出走这条形状的那几个偏移常量的声明 ⇒ `test_engine_offset_signatures` 判红。
     "VoidIntFloatOpt1": ["std::int32_t", "double"],
     "VoidIntIntIntIntInt": ["std::int32_t", "std::int32_t", "std::int32_t", "std::int32_t",
                             "std::int32_t"],
     "VoidIntBoolIntBoolOpt3": ["std::int32_t", "bool", "std::int32_t", "bool"],
-    # 批次 253（2026-10-01）：两条带 `Vector2 const&` 参数的形状。
-    # ★ 引擎收的是**引用** ⇒ ABI 上是 `std::uintptr_t`（指针，走 `x` 寄存器），
+    # 两条带 `Vector2 const&` 参数的形状。
+    # 引擎收的是引用 ⇒ ABI 上是 `std::uintptr_t`（指针，走 `x` 寄存器），
     #   不是按值的 HFA —— 所以**不需要**任何跳板改动（`Vector2Ref` 在共享处理器里
     #   把 Lua 的 Vector 拷进我们栈上的槽、再把槽地址当参数）。
     "BoolVector2RefFloat": ["std::uintptr_t", "double"],
     "VoidVector2RefFloatHandle": ["std::uintptr_t", "double", "std::uintptr_t"],
-    # 批次 254（2026-10-01）：ItemPool 接收者 + 2 种新形状。★ 第 **六** 次提醒（141 的
+    # ItemPool 接收者 + 2 种新形状。第 六 次提醒（141 的
     # `VoidNullId1`、177 的 `Int1`/`Bool1`、184 的 `Ref2U32Pair`、207 的 `BoolOpt1`、252 的
     # 那 3 条）：新形状**不登记不会让构建失败**，但 ABI 体检会读不出走这条形状的偏移常量的
     # 声明 ⇒ `test_engine_offset_signatures` 的欠账台账门禁判红。写形状的同一批就登记齐。
@@ -314,8 +228,8 @@ ENGINE_CALL_SHAPE_PARAMS = {
     # `BoolIntBoolBoolOpt2`：`bool(this, i32, bool, bool)` —— `ItemPool:RemoveCollectible`
     # （两个 `bool` 各自走一个 `x` 寄存器；返回 `bool` 取 `x0`）。
     "BoolIntBoolBoolOpt2": ["std::int32_t", "bool", "bool"],
-    # 批次 285（2026-10-02）：两种新形状（`EntityNPC:Morph` / `EntityPickup:Morph`）。
-    # ★ 第 **七** 次提醒（141 的 `VoidNullId1`、177 的 `Int1`/`Bool1`、184 的 `Ref2U32Pair`、
+    # 两种新形状（`EntityNPC:Morph` / `EntityPickup:Morph`）。
+    # 第 七 次提醒（141 的 `VoidNullId1`、177 的 `Int1`/`Bool1`、184 的 `Ref2U32Pair`、
     #   207 的 `BoolOpt1`、252 的 3 条、254 的 2 条）：新形状**不登记不会让构建失败**，但 ABI
     #   体检查不出走这条形状的偏移常量的声明 ⇒ `test_engine_offset_signatures` 的欠账台账门禁判红。
     #   写形状的同一批就登记齐。
@@ -327,36 +241,36 @@ ENGINE_CALL_SHAPE_PARAMS = {
     #     三个 `bool` 各走一个 `x` 寄存器）。
     "VoidIntIntIntBoolBoolBoolOpt3": ["std::int32_t", "std::int32_t", "std::int32_t", "bool", "bool",
                                       "bool"],
-    # 批次 335（2026-10-03）：一种新形状 —— `void(this, i32, bool)`、尾部 1 个可省
+    # 一种新形状 —— `void(this, i32, bool)`、尾部 1 个可省
     # （`EntityPlayer:ChangePlayerType` / `EntityPlayer:DischargeActiveItem`）。
-    # ★ 第 **八** 次提醒（141 的 `VoidNullId1`、177 的 `Int1`/`Bool1`、184 的 `Ref2U32Pair`、
+    # 第 八 次提醒（141 的 `VoidNullId1`、177 的 `Int1`/`Bool1`、184 的 `Ref2U32Pair`、
     #   207 的 `BoolOpt1`、252 的 3 条、254 的 2 条、285 的 2 条）：新形状**不登记不会让构建失败**，
     #   但 ABI 体检读不出走这条形状的偏移常量的声明 ⇒ `test_engine_offset_signatures` 的
     #   欠账台账门禁判红（本批第一版就真的红了，只有两条）。
-    #   ★★ 另一种"补法"是把那两条常量塞进 `tools/engine_abi_backlog.json` 的 A 类（303~326
+    #   另一种"补法"是把那两条常量塞进 `tools/engine_abi_backlog.json` 的 A 类（303~326
     #   那几批走的就是那条路）——**但那条路是欠账**：登记形状才是**把工具教会**，
     #   一次性销掉"以后每加一条走这条形状的行都要再记账"这件事。以后加形状请优先走这一条。
     "VoidIntBool": ["std::int32_t", "bool"],
     "VoidSeed1": ["std::uint32_t"],
     "VoidIntBoolOpt1": ["std::int32_t", "bool"],
-    # 批次 341（2026-10-04）：一种新形状 —— `void(this, Vector2 const&)`，无实参缺省。
+    # 一种新形状 —— `void(this, Vector2 const&)`，无实参缺省。
     # （`EntityFamiliar:FollowPosition(Vector Pos)`，引擎 `follow_position(Vector2 const&) @ 0xAFCC0`。）
-    # ★ 第 **九** 次提醒（141 的 `VoidNullId1`、177 的 `Int1`/`Bool1`、184 的 `Ref2U32Pair`、
+    # 第 九 次提醒（141 的 `VoidNullId1`、177 的 `Int1`/`Bool1`、184 的 `Ref2U32Pair`、
     #   207 的 `BoolOpt1`、252 的 3 条、254 的 2 条、285 的 2 条、335 的 1 条）：
     #   新形状**不登记不会让构建失败**，但 ABI 体检读不出走这条形状的偏移常量的声明
     #   ⇒ `test_engine_offset_signatures` 的欠账台账门禁判红。写形状的同一批就登记齐。
-    # ★ 引用 ⇒ ABI 上是 `std::uintptr_t`（走 `x1`），与批次 253 那两条同一口径。
+    # 引用 ⇒ ABI 上是 `std::uintptr_t`（走 `x1`），与那两条同一口径。
     "VoidVector2Ref": ["std::uintptr_t"],
-    # 批次 344（2026-10-04）：一种新形状 —— `bool(this, Vector2 const&, bool)`，两格都必填。
+    # 一种新形状 —— `bool(this, Vector2 const&, bool)`，两格都必填。
     # （`PathFinder:HasPathToPos(Vector Pos, boolean IgnorePoop)`，引擎
     #  `NPCAI_Pathfinder::HasPathToPos(Vector2 const&, bool) const @ 0x42F6CC`。
-    #  ★ 与同族的 3 参重载 `@ 0x42FAFC` 区分开：契约逐参对应的是 **2 参**那条。）
-    # ★ 第 **十** 次提醒（141 的 `VoidNullId1`、177 的 `Int1`/`Bool1`、184 的 `Ref2U32Pair`、
+    #  与同族的 3 参重载 `@ 0x42FAFC` 区分开：契约逐参对应的是 2 参那条。）
+    # 第 十 次提醒（141 的 `VoidNullId1`、177 的 `Int1`/`Bool1`、184 的 `Ref2U32Pair`、
     #   207 的 `BoolOpt1`、252 的 3 条、254 的 2 条、285 的 2 条、335 的 1 条、341 的 1 条）：
     #   新形状**不登记不会让构建失败**，但 ABI 体检读不出走这条形状的偏移常量的声明
     #   ⇒ `test_engine_offset_signatures` 的欠账台账门禁判红。写形状的同一批就登记齐
     #   （本批第一版就真的红了，正是这条）。
-    # ★ `Vector2 const&` ⇒ ABI 上是 `std::uintptr_t`（走 `x1`）；第 2 格 `bool` 走 `w2` ⇒ `bool`。
+    # `Vector2 const&` ⇒ ABI 上是 `std::uintptr_t`（走 `x1`）；第 2 格 `bool` 走 `w2` ⇒ `bool`。
     "BoolVector2RefBool": ["std::uintptr_t", "bool"],
 }
 GUARDED_DECLTYPE_RE = re.compile(r"Guarded<\s*decltype\(\s*([A-Za-z_]\w*)\.([A-Za-z_]\w*)\s*\)\s*>")
@@ -755,7 +669,7 @@ def declared_type_via_callee(local_name: str,
                     # 形参本身转型，或"形参派生出的地址变量"再转型（形态 F 那一跳同源）。
                     for variable in sorted(derived_address_locals(body, parameter_name)):
                         # 两种写法都认 —— **这个查询的唯一实现**在 `cast_type_names_for_variable`
-                        # （批次 114 起：此前这里与形态 F 各写一份，批次 110 只补了这里 ⇒ 漂移）。
+                        # （起：此前这里与形态 F 各写一份，只补了这里 ⇒ 漂移）。
                         for type_name in cast_type_names_for_variable(body, variable):
                             type_text = (resolve_alias(type_name, file_facts(other)[0])
                                          or resolve_alias_anywhere(type_name) or type_name)
@@ -1068,7 +982,7 @@ def declared_signature(constant: str) -> tuple[str, list[str], str] | None:
             if virtual_params is not None:
                 return relative, virtual_params, "EngineCallTrampoline/guarded virtual register inputs"
             # 形态 A：`reinterpret_cast<XxxFn>(…)`，XxxFn 可能是别名或内联的函数指针类型；
-            # ★ 引擎交互层的写法同样算（类型写在**模板实参**上，见 `LAYERED_TYPE_PRIMITIVES`）：
+            # 引擎交互层的写法同样算（类型写在模板实参上，见 `LAYERED_TYPE_PRIMITIVES`）：
             #   `AsFunction<XxxFn>(操作数)` / `ResolveFunction<XxxFn>(…)` / `CallUnaryMethod<XxxFn>(操作数, …)`。
             #   两种拼法都在"`>` 之后紧跟 `(` 取操作数"这一点上同形 ⇒ 同一段逻辑直接复用。
             for match in _cast_like_matches(text):
@@ -1311,7 +1225,7 @@ def classify(entry: dict, our_params: list[str] | None) -> dict:
                          if has_float(" ".join(engine_params))
                          else "引擎参数里没有浮点而我们声明了浮点")
     elif our_count < engine_count + 1:
-        # ★ 2026-09-19 修正：**我们的声明里带着隐式的 `this`，引擎签名（从 mangled name 解出来的）
+        # 2026-09-19 修正：我们的声明里带着隐式的 `this`，引擎签名（从 mangled name 解出来的）
         # 不带**。所以正确的判据是 `our == engine + 1`；旧写法允许 `our == engine` 也算"一致"
         # ⇒ 正好把"**少给一个参数**"这一整类错放过去了 —— 而 `Entity:TakeDamage` 就是这一类，
         # 真机上它直接**把游戏打崩**（`Data Abort`，引擎把我们当成标志位的那个 0 当引用指针解，
@@ -1344,7 +1258,7 @@ def classify(entry: dict, our_params: list[str] | None) -> dict:
 # "引擎调我们"（回调是手写 `extern "C"` 定义、地址被塞进中继槽），所以旧报告对这批靶点只能报
 # "我们 — 没找到调用点（本轮没比过）"。
 #
-# ★ 真机事故（2026-09-21）：`EntryRelayUseActiveItemCallback` 声明成 `void`，而
+# 真机事故（2026-09-21）：`EntryRelayUseActiveItemCallback` 声明成 `void`，而
 # `Entity_Player::UseActiveItem` **有返回值**（本体 `0x31A8C0` 的 `mov x0, x22`）⇒ 游戏调用方
 # 拿到的 `x0` 是回调里最后一次调用的残留值 ⇒ 用后记账（扣充能 / 移除单次道具）走错分支，
 # 用户看到"所有主动道具用后不掉充能、部分道具被移除"。同一个形状还有 `Entity_Pickup::
@@ -1381,7 +1295,7 @@ RELAY_CALLBACK_TARGETS: tuple[tuple[str, str], ...] = (
     ("EntryRelayGameExitCallback", "kGameExitOffset"),
     ("EntryRelayPickupCollisionCallback", "kEntityPickupHandleCollisionOffset"),
     ("EntryRelayRoomEntitySpawnCallback", "kRoomSpawnEntityOffset"),
-    # 批次 077（2026-09-23，模组页搬生产）：三个入口中继。**必须一起登记** ——
+    # （2026-09-23，模组页搬生产）：三个入口中继。必须一起登记 ——
     # 中继是"以目标函数的身份返回"的，参数/返回值错一个就是真机事故
     # （2026-09-21 那次 `UseActiveItem` 声明成 void 就是这一类）。三个目标都是 `void`
     # （`Menu_Game::Render()` / `Menu_Title::Render()` / `MenuManager::SetState(eState)`）
@@ -1389,13 +1303,13 @@ RELAY_CALLBACK_TARGETS: tuple[tuple[str, str], ...] = (
     ("EntryRelayMenuGameRenderCallback", "kMenuGameRenderOffset"),
     ("EntryRelayMenuTitleRenderCallback", "kMenuTitleRenderOffset"),
     ("EntryRelayMenuManagerSetStateCallback", "kMenuManagerSetStateOffset"),
-    # 批次 098（禁成就，2026-09-24）的入口中继：闸门从 `TryUnlock` 挪到 `SetReadOnly`。
+    # （禁成就，2026-09-24）的入口中继：闸门从 `TryUnlock` 挪到 `SetReadOnly`。
     # 引擎 `PersistentGameData::SetReadOnly(bool)` **返回 void**，我们也声明 void
     # ⇒ 它**不算**"有返回值的中继靶点"，那个计数因此从 5 回到 4
     # （096 把它算成 5，是因为当时的旧靶点 `TryUnlock` 返回 bool）。
     ("EntryRelayPersistentGameDataSetReadOnlyCallback", "kPersistentGameDataSetReadOnlyOffset"),
 )
-#: 中继回调的**定义**在哪些文件里（`hook_manager.cpp` 是历史那一批；批次 077 的三个在
+#: 中继回调的定义在哪些文件里（`hook_manager.cpp` 是历史那一批；的三个在
 #: `mod_menu_native.cpp` —— 与它们的状态机同处，便于对照注释）。**两个都要扫**：
 #: 只扫一个的话，"另一处的回调声明错了"就会静默不判（门禁看起来在跑、其实少比了几条）。
 RELAY_SOURCES: tuple[pathlib.Path, ...] = (

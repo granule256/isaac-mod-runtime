@@ -6,18 +6,18 @@
 
 #include "module_finder.hpp"
 #include "hook_manager.hpp"
-// 批次 370：提前挂载那一段的状态面，以及"读一个 GOT 槽"要用的引擎内存访问层
+// 提前挂载那一段的状态面，以及"读一个 GOT 槽"要用的引擎内存访问层
 // （`engine_memory::ReadAt` —— 不新增裸 `reinterpret_cast`，见门禁
 // `test_no_new_raw_engine_access`）。
 #include "early_mod_mount_state.hpp"
 #include "infrastructure/memory/engine_field_access.hpp"
-// 批次 370：挂完之后"读一次引擎那张挂载点表"的入口（读法与 8 字节元素口径都在那个 TU 里，
+// 挂完之后"读一次引擎那张挂载点表"的入口（读法与 8 字节元素口径都在那个 TU 里，
 // 2026-10-05 用反汇编 + 设备实测定案 —— 不在这里再抄一份）。
 #include "anm2_load_override_hook.hpp"
-// 批次 371（2026-10-05）：① 在早期那一段装 `Game::Init` 的零占洞入口中继；② 回调里把"回退入口"
+// ① 在早期那一段装 `Game::Init` 的零占洞入口中继；② 回调里把"回退入口"
 // 当函数调（走引擎调用层，不新增裸 `reinterpret_cast` —— 与既有的 `engine_memory::ReadAt` 同一条理由）。
 #include "relay/entry_relay.hpp"
-// 批次 385（2026-10-06）：把"资源类"两条入口中继**提前装**的能力（`TryInstallEntryRelayEarly`）。
+// 把"资源类"两条入口中继提前装的能力（`TryInstallEntryRelayEarly`）。
 // 它必须与"装 `Game::Init` 入口中继"同处一个窗口（worker 的前置步骤）—— 理由见本文件
 // `RunEarlyModMountPrelude` 里的第 ④ 段（真机读数：不提前装 ⇒ 引擎最初那次读读不到模组那份）。
 #include "infrastructure/relay/entry_relay_hook_adapter.hpp"
@@ -362,7 +362,7 @@ void SetRuntimeState(const RuntimeContext& context) {
 bool PrepareEarlyResourcesAfterLoad() noexcept;
 #endif
 
-// 批次 371（2026-10-05）：`Game::Init` 入口中继的回调。定义在本 TU 末尾的**全局作用域**
+// `Game::Init` 入口中继的回调。定义在本 TU 末尾的全局作用域
 // （`extern "C"` ⇒ 外部链接，也就不会因为"只在下面那段里被取过地址"而报 `-Wunused-function`）。
 // 提前准备要把这个回调交给入口中继，故先声明。
 extern "C" void EntryRelayGameInitCallback(void* self);
@@ -938,26 +938,26 @@ void ModuleWorker(void*) {
 }
 
 // ---------------------------------------------------------------------------
-// 批次 371（2026-10-05）：`Game::Init` 入口中继要用的两个**跨线程**小格子
+// `Game::Init` 入口中继要用的两个跨线程小格子
 // ---------------------------------------------------------------------------
 // 为什么在这里（不跟状态面放一起）：它们必须在 `RunEarlyModMountPrelude` **之前**可见，
 // 而那个函数的定义就排在下面；放到本 TU 末尾的匿名命名空间里会看不到。
 //
-// ★ 线程归属（写在这里，免得后来者以为可以随便用）：`g_GameInitFallbackEntry` 由**我们自己的
+// 线程归属（写在这里，免得后来者以为可以随便用）：`g_GameInitFallbackEntry` 由我们自己的
 //   worker 线程**在装中继成功时写、由**游戏线程**的回调读 ⇒ 原子量；`g_GameInitMountGate` 只被
 //   游戏线程的回调撞（exchange），原子是为了"只做一次"这条性质本身，而不是因为有两个写者。
 namespace {
-//: 回退入口（`TryInstallEntryRelay` 公布的那个"跑原函数"的地址）。
-//: 用 u64 而不是"bool 的原子特化"与类型无关 —— 项目有一条门禁
-//:   ★ 批次 385（2026-10-06）：这句注释原来**逐字写着那个类型名**，而门禁
-//:   `test_manager_update_hook_audit.py::test_runtime_source_contains_no_bool_atomics`
-//:   是"全文搜字符串"（**注释也算**）⇒ 它把这句注释本身判成了违规。
-//:   这里改成描述性说法，**语义一字未变**。
-//: （`test_runtime_source_contains_no_bool_atomics`）禁止 runtime 源码里出现 bool 原子量。
+// 回退入口（`TryInstallEntryRelay` 公布的那个"跑原函数"的地址）。
+// 用 u64 而不是"bool 的原子特化"与类型无关 —— 项目有一条门禁
+// 这句注释原来逐字写着那个类型名，而门禁
+// `test_manager_update_hook_audit.py::test_runtime_source_contains_no_bool_atomics`
+// 是"全文搜字符串"（注释也算）⇒ 它把这句注释本身判成了违规。
+// 这里改成描述性说法，语义一字未变。
+// （`test_runtime_source_contains_no_bool_atomics`）禁止 runtime 源码里出现 bool 原子量。
 std::atomic<std::uintptr_t> g_GameInitFallbackEntry{0};
-//: "那一步已经有人做过了吗"的闸门（0 = 没做过、1 = 做过了）。
-//: 实验 A 用不到它（那一版回调里什么都不做）；**实验 B 用它保证"读清单只读一次"**。
-//: 371 那一版用它保证"挂载只挂一次"。
+// "那一步已经有人做过了吗"的闸门（0 = 没做过、1 = 做过了）。
+// 实验 A 用不到它（那一版回调里什么都不做）；实验 B 用它保证"读清单只读一次"。
+// 371 那一版用它保证"挂载只挂一次"。
 constexpr std::uint32_t kGameInitMountGateOpen = 1;
 std::atomic<std::uint32_t> g_GameInitMountGate{0};
 }  // namespace
@@ -975,7 +975,7 @@ bool PrepareEarlyResourcesAfterLoad() noexcept {
     state.gameModuleFoundTicks = isaac::runtime::RuntimePerfTick();
 
     // ② 纯内存核靶点：对齐 + 落在模块的 `.text` 里 + 那一页**现在是可执行的**。
-    //    ★ 最后一条不是可选的：`TryInstallEntryRelay` 第一步就 `memcpy` 读目标入口那 16 字节
+    //    最后一条不是可选的：`TryInstallEntryRelay` 第一步就 `memcpy` 读目标入口那 16 字节
     //      做守卫比对；地址若还没映射/不可执行，**读它本身就是崩溃**（不是"守卫不符"那种可控失败）。
     const std::uintptr_t target = module->base + kGameInitEntryFileOffset;
     if (kGameInitEntryFileOffset % 4 != 0 ||
@@ -999,7 +999,7 @@ bool PrepareEarlyResourcesAfterLoad() noexcept {
             static_cast<std::atomic<std::uintptr_t>*>(opaque)->store(original,std::memory_order_release);
             return true;
         }, &g_GameInitFallbackEntry, &fallbackEntry);
-    // ★ 回退入口**先于入口改写**公布（`TryInstallEntryRelay` 内部纪律："回调可达 ⇒ 原函数入口
+    // 回退入口先于入口改写公布（`TryInstallEntryRelay` 内部纪律："回调可达 ⇒ 原函数入口
     //   一定有效"）⇒ 这里无论装成没成都先把它收下；回调那边只在真正被调到时才会用到它。
     // 实际回调消费的g_GameInitFallbackEntry由publisher在入口改写前发布。
     state.relayInstallFailure = installed ? 0u : isaac::runtime::relay::LastFailure();
@@ -1007,7 +1007,7 @@ bool PrepareEarlyResourcesAfterLoad() noexcept {
         state.relayInstalledTicks = isaac::runtime::RuntimePerfTick();
     }
 
-    // ④ ★★★ 批次 385（2026-10-06）：**把"资源类"那两条入口中继也在这里装上**。
+    // ④ 把"资源类"那两条入口中继也在这里装上。
     //
     // ## 为什么必须在这一刻（真机读数定案，见
     //    `docs/分析-红字根因-模组覆盖是事后修正而PC是启动期前置-20261006.md` §9）
@@ -1029,11 +1029,11 @@ bool PrepareEarlyResourcesAfterLoad() noexcept {
     //
     // ## 与后面那套生产安装的关系
     //
-    //   ★ 它必须**跳过**这两条 —— 由 `hook_manager.cpp` 的 `ShouldSkipHook` 里
+    //   它必须跳过这两条 —— 由 `hook_manager.cpp` 的 `ShouldSkipHook` 里
     //     `EntryRelayInstalledEarly(id)` 让开。**同一入口装两次必然 `EntryMismatch`**
     //     （入口中继靠改写入口 16 字节工作，见那段注释）。
     {
-        // ★★★ 批次 385：**先把回调接进绑定表** —— 这一步不能省（2026-10-06 15:49 的真机读数换来的）。
+        // 先把回调接进绑定表 —— 这一步不能省（2026-10-06 15:49 的真机读数换来的）。
         //
         //   `EvaluateEntryRelayBinding` 会检查 `binding.callback != nullptr`，而
         //   `RegisterEntryRelayCallbacks()` 原本是在**生产安装流程**里才调的（= worker 那 5 秒等待
@@ -1044,9 +1044,9 @@ bool PrepareEarlyResourcesAfterLoad() noexcept {
         const isaac::runtime::HookTarget hookTarget{
             module->base, module->textSize, module->size, module->buildId};
         std::uintptr_t earlyEntry = 0;
-        // ★★★ 批次 387（2026-10-06 夜）：**二分第一步 —— 只早装一条**。
+        // （2026-10-06 夜）：二分第一步 —— 只早装一条。
         //
-        // 为什么（批次 386 的教训）：386 把**两条一起**早装 ⇒ 启动即崩在 `PauseScreen::Init`
+        // 为什么（的教训）：386 把两条一起早装 ⇒ 启动即崩在 `PauseScreen::Init`
         // （取图拿到空指针 ⇒ `strb wzr,[x0,#0x7c]` ⇒ Data Abort at 0x7c；见
         // `docs/崩溃分析-20261006-1555-PauseScreenInit空指针-早装资源中继.md`）。
         // 而 385（同样的代码，只是"早装静默失败"= 根本没生效）**不崩** ⇒ **"早装真的生效"就是崩因**，
@@ -1060,7 +1060,7 @@ bool PrepareEarlyResourcesAfterLoad() noexcept {
         //       我们的候选存在性判断用的是"按挂载点前缀拼路径"（`GetMountedFilePath`）、
         //       **不检查文件是否真的存在**，而 PC 用的是**真的去开文件**（`FileSystem::Open @0x963120`）。
         //       （同文档 §7.2；这一环本身也是"与 PC 不一致"的一处偏离。）
-        //   ★ 读数里 `earlyResourceRelaysAttempted/Installed` 应显示 **1 / 1**（只试一条、只成一条）。
+        //   读数里 `earlyResourceRelaysAttempted/Installed` 应显示 1 / 1（只试一条、只成一条）。
         for (const isaac::runtime::HookId id : {isaac::runtime::HookId::ContentGetMountedFilePath}) {
             ++state.earlyResourceRelaysAttempted;
             if (isaac::runtime::TryInstallEntryRelayEarly(id, hookTarget, &earlyEntry)) {
@@ -1079,12 +1079,12 @@ bool PrepareEarlyResourcesAfterLoad() noexcept {
 // "让模组那一层早于引擎第一次读共享路径"这一段的状态面**本体**
 // ============================================================================
 //
-// ★ **外部链接、定义在匿名命名空间之外**（读数工具 `tools/read_device_state_via_gdb.py`
+// 外部链接、定义在匿名命名空间之外（读数工具 `tools/read_device_state_via_gdb.py`
 //   按符号名直读；放进上面的匿名命名空间会让符号名变成 `_ZN12_GLOBAL__N_1L…`，
 //   而且门禁 `runtime/tests/test_early_mod_mount.py` 就钉着这一条）。
-// ★ 字段顺序即内存顺序，**改动必须同步 `tools/read_device_state_via_gdb.py`**
+// 字段顺序即内存顺序，改动必须同步 `tools/read_device_state_via_gdb.py`
 //   （契约与每一格的语义写在 `early_mod_mount_state.hpp`，两边必须一起改）。
-// ★ 写入只发生在本 TU ⇒ 不跨 TU 走数据 GOT（批次 081/084 的纪律：跨 TU 的热路径记账一律
+// 写入只发生在本 TU ⇒ 不跨 TU 走数据 GOT（的纪律：跨 TU 的热路径记账一律
 //   走函数调用，见 `runtime_perf.hpp`）。370 起写入方是 `RunEarlyModMountPrelude`（worker 线程）；
 //   371 起多了游戏线程的回调 `EntryRelayGameInitCallback` —— 它写的是**另外几格**
 //   （回调计数 / 挂载计数），与 worker 那几格是不同内存位置，见头文件的"跨线程可见性"一节。
@@ -1093,7 +1093,7 @@ EarlyModMountState g_EarlyMountState{};
 }  // namespace isaac::runtime::earlymount
 
 // ============================================================================
-// 批次 371（2026-10-05）：`Game::Init` 入口中继的**回调**（游戏线程）
+// `Game::Init` 入口中继的回调（游戏线程）
 // ============================================================================
 //
 // 形状 = 目标函数的 ABI：`Game::Init()` 是无参成员函数 ⇒ **x0 = this**。入口桩是**尾调用**
@@ -1103,17 +1103,17 @@ EarlyModMountState g_EarlyMountState{};
 // 窗口 ⇒ 3/3 崩）。此刻引擎已经跑起来、重定位早已完成；而且本回调**按构造**排在
 // `Game::Init + 0x340` 那次 `Minimap::Init → ANM2::Load("gfx/ui/minimap1.anm2")` **之前**
 // ⇒ 模组那一层在引擎第一次读之前就存在 —— 这正是 PC 的形态，于是**不需要任何"事后作废"**
-// （那条路已被批次 368 的真机崩溃证伪）。
+// （那条路已被的真机崩溃证伪）。
 //
-// ★★★ **更正（批次 383，2026-10-06）**：上面这几行写于批次 371，当时回调里做的是"**读清单 + 挂载**"。
-//   批次 372 的拆因实验把回调里的事拆成两半试，**实验 B（只读清单、一个字节都不碰引擎）干净**
-//   ⇒ 那之后生产回调**就一直留着实验 B 的形态**。批次 378 换机制时，把"发布可重定向的模组根"
+// 更正：上面这几行写于，当时回调里做的是"读清单 + 挂载"。
+//   的拆因实验把回调里的事拆成两半试，实验 B（只读清单、一个字节都不碰引擎）干净
+//   ⇒ 那之后生产回调就一直留着实验 B 的形态。换机制时，把"发布可重定向的模组根"
 //   加进了 `MountModsBeforeHeavyWork`（纯内存），**但回调仍然调"只读清单"那个入口**
-//   ⇒ ★ **"发布"这一步被漏在了后面**，上面那句"模组那一层在引擎第一次读之前就存在"**不再成立**。
+//   ⇒ "发布"这一步被漏在了后面，上面那句"模组那一层在引擎第一次读之前就存在"不再成立。
 //   后果（真机读数 `dist/gdb-read-20261006-1423-redtext.txt`）：引擎先按本体层把
 //   `gfx/ui/minimap1.anm2` 读进它的动画缓存（按键存条目）⇒ 之后 `Sprite:Load` 命中缓存、连路径都不问
 //   （757 次中继里只有 134 次问到解析器）⇒ minimapi 的 `IsBadLoad()` 读到 13 帧 ⇒ 画红字。
-//   **批次 383 把回调改回"读清单 + 发布"**（`MountModsBeforeHeavyWork`）⇒ 这句注释重新成立。
+//   把回调改回"读清单 + 发布"（`MountModsBeforeHeavyWork`）⇒ 这句注释重新成立。
 //   逐条证据：`docs/分析-红字根因-模组覆盖是事后修正而PC是启动期前置-20261006.md`。
 //
 // 已知窗口（如实写，不粉饰）：本回调写 `g_DefaultManifestBindings` / 清单批次缓冲这一组全局，
@@ -1133,7 +1133,7 @@ extern "C" void EntryRelayGameInitCallback(void* self) {
     }
 
     // ============================================================================
-    // ★★ 实验 B（2026-10-05）：**只读清单、一个字节都不碰引擎**
+    // 实验 B（2026-10-05）：只读清单、一个字节都不碰引擎
     // ============================================================================
     //
     // **为什么要拆**：371（回调里"读清单 + 挂挂载点"）上卡后的真机表现是
@@ -1163,13 +1163,13 @@ extern "C" void EntryRelayGameInitCallback(void* self) {
     if (g_GameInitMountGate.exchange(kGameInitMountGateOpen, std::memory_order_acq_rel) == 0) {
         const TargetModuleScanResult scan = ScanTargetModule();
         if (scan.status == TargetModuleScanStatus::Found && scan.module.has_value()) {
-            // ★★★ 批次 383（2026-10-06）：**从"只读清单"改成"读清单 + 发布重定向名单"**。
+            // 从"只读清单"改成"读清单 + 发布重定向名单"。
             //
             // 为什么（根因，逐条证据见
             // `docs/分析-红字根因-模组覆盖是事后修正而PC是启动期前置-20261006.md`）：
-            // 引擎的动画缓存**按键存条目** ⇒ "谁先读到哪一份，那份就被钉住"。批次 380 上卡后的真机读数：
+            // 引擎的动画缓存按键存条目 ⇒ "谁先读到哪一份，那份就被钉住"。上卡后的真机读数：
             // `ANM2::Load` 中继被调 757 次、只有 134 次真的问到路径解析，而"作废旧条目"恒 0
-            //（唯一的事后手段在批次 368 崩过、369 起被禁用）⇒ **发布晚一步就等于永远改不回来**。
+            //（唯一的事后手段在崩过、369 起被禁用）⇒ 发布晚一步就等于永远改不回来。
             // 而这一刀**按构造**排在 `Game::Init+0x340` 的 `Minimap::Init` 之前（见上面那段注释）
             // ⇒ 在这里发布 = 引擎第一次读之前模组那层就在 = **PC 的形态**。
             //
@@ -1187,7 +1187,7 @@ extern "C" void EntryRelayGameInitCallback(void* self) {
     }
 
     // 跑原函数（入口中继契约：回调自己决定几时调回退入口）。
-    // ★ 没有回退入口就**什么都不做** —— 绝不假装跑过原函数（与 ANM2 那条中继同一口径）。
+    // 没有回退入口就什么都不做 —— 绝不假装跑过原函数（与 ANM2 那条中继同一口径）。
     //   实际上装成功的中继不会出现这种情况：`TryInstallEntryRelay` 保证"回调可达 ⇒ 回退入口有效"。
     const auto original = isaac::runtime::engine_call::AsFunction<void (*)(void*)>(
         g_GameInitFallbackEntry.load(std::memory_order_acquire));
@@ -1245,10 +1245,10 @@ extern "C" void exl_main(void*, void*) {
     IsaacModRuntime_EnsureThreadTls();
     IsaacModRuntime_PublishRuntimeSelf(reinterpret_cast<std::uintptr_t>(&exl_main));
 #endif
-    // 批次 099（2026-09-24）：装「未捕获 C++ 异常」的留证兜底（见 `fatal_forensics.hpp` 的文件头）。
+    // 装「未捕获 C++ 异常」的留证兜底（见 `fatal_forensics.hpp` 的文件头）。
     // 为什么放在入口这么早：装完之后**任何时刻**的未捕获异常都会留下一份崩溃报告；
     // 在那之前只会得到"画面卡死、音乐还在、连报告都没有"那种现场（2026-09-24 的真机现象）。
-    // ★ 它不改游戏逻辑，只在真死之前先 `svcBreak` 把寄存器交出去。
+    // 它不改游戏逻辑，只在真死之前先 `svcBreak` 把寄存器交出去。
     isaac::runtime::forensics::InstallAbortForensics();
 #if defined(EXL_LAYERED_RUNTIME) && !defined(EXL_DIAGNOSTIC_STAGE)
     isaac::runtime::InitializeOsClock();

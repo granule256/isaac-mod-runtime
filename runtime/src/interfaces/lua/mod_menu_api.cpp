@@ -178,9 +178,9 @@ int RegisterModMenuApi(lua_State* state) noexcept {
 }
 
 namespace {
-//: 模组发现**是否已经出过结果**（`ModMenuPublishDiscovered` 调过一次就是 true）。
-//: ★ 用于「禁成就」的 **fail-closed** 判定：还没出结果时不能当成「没有模组」，
-//:   否则游戏刚起来那几秒（加载阶段）的解锁会漏过去。
+// 模组发现是否已经出过结果（`ModMenuPublishDiscovered` 调过一次就是 true）。
+// 用于「禁成就」的 fail-closed 判定：还没出结果时不能当成「没有模组」，
+// 否则游戏刚起来那几秒（加载阶段）的解锁会漏过去。
 bool g_discoveryDone = false;
 std::uint32_t g_discoveryGeneration = 0;
 }  // namespace
@@ -255,7 +255,7 @@ std::size_t ModMenuActiveCount() noexcept {
     // "实际加载"的判据 = `ModMenuMarkActive` 标出来的那批（只有真的加载了的模组才会被标）。
     // 为什么不用 `ModMenuDiscoveredEnabled`：那是**开关状态**，关掉之后要重启游戏才生效，
     // 用它会在"关了开关但还没重启"的那一局里判成"不开模组"。
-    // ★ 2026-09-24 批次 107：它**不再是**「禁成就」的判据（那条改成 PC 口径的
+    // 2026-09-24 它不再是「禁成就」的判据（那条改成 PC 口径的
     //   `ModMenuEnabledCount`），现在只作为读数/诊断用。
     (void)ModMenuDiscoveredForReading();
     return g_activeCount;

@@ -120,7 +120,7 @@ bool TryInstallEntryRelayWithPublisher(std::uintptr_t target, const void* expect
         return false;
     }
 
-    // ★★ 2026-10-04（真机崩溃 15:23 的根因之一）：**先把"原函数入口"公布出去，再改函数入口。**
+    // 2026-10-04（真机崩溃 15:23 的根因之一）：先把"原函数入口"公布出去，再改函数入口。
     //
     // 原顺序是"改入口 → 读回校验 → 才公布"，于是存在一个窗口：**入口已经跳我们的回调了，
     // 而 `outOriginalEntry` 还停在 0**。处在这个窗口里时，只要引擎调一次那个函数，回调就会
@@ -146,7 +146,7 @@ bool TryInstallEntryRelayWithPublisher(std::uintptr_t target, const void* expect
     // 读回校验：用**只读**地址读（也就是游戏真正执行的那份映射）。
     if (std::memcmp(reinterpret_cast<const void*>(roSlot), expectedSlot, kSlotBytes) != 0 ||
         std::memcmp(reinterpret_cast<const void*>(target), expectedEntry, kEntryPatchBytes) != 0) {
-        // ★★ 2026-10-04：**失败必须把入口还原。** 上面那次 `memcpy` 已经让入口跳我们的回调了；
+        // 2026-10-04：失败必须把入口还原。 上面那次 `memcpy` 已经让入口跳我们的回调了；
         //   这里若直接返回，就是"函数说自己没装成，实际却装上了" —— 调用方不会去接原函数，
         //   而引擎照调回调 ⇒ 又回到 `blr 0` 那条路。
         //   把现场 16 字节写回去再报失败，让"没装成"**真的是没装成**。

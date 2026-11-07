@@ -15,7 +15,7 @@ struct DispatchReport {
     std::uint32_t invoked{0};
     std::uint32_t failed{0};
     std::uint32_t skippedAffinity{0};
-    //: 因为过滤器对不上而没被调用（`DispatchFiltered` 才有非零值）。
+    // 因为过滤器对不上而没被调用（`DispatchFiltered` 才有非零值）。
     std::uint32_t skippedFilter{0};
 };
 
@@ -41,8 +41,8 @@ struct CallbackDispatchOutcome {
     bool anyTruthy{false};
     bool hasInteger{false};
     std::int64_t integer{0};
-    //: ★ 2026-10-07（批次 390）：**第一条**返回数字的登记的值（口径同 `integer` —— 第一条胜出）。
-    //: 为 `MC_INPUT_ACTION` 的 `GET_ACTION_VALUE` 加（覆盖值是 0.0~1.0 的 float）。
+    // 2026-10-07：第一条返回数字的登记的值（口径同 `integer` —— 第一条胜出）。
+    // 为 `MC_INPUT_ACTION` 的 `GET_ACTION_VALUE` 加（覆盖值是 0.0~1.0 的 float）。
     bool hasNumber{false};
     double number{0.0};
 
@@ -62,11 +62,11 @@ struct CallbackDispatchOutcome {
 // 下标就是 PC `ModCallbacks` 的数值（0..`kCallbackMaximumId`），与给 Lua 的枚举表一一对应，
 // 所以真机读数可以直接说"第 N 种回调被派发过 M 次"，不需要再翻译。
 
-//: 计数表的长度。PC 表到 73，所以下标 0..73 都合法。
+// 计数表的长度。PC 表到 73，所以下标 0..73 都合法。
 inline constexpr std::size_t kCallbackDispatchCounterCount =
     static_cast<std::size_t>(kCallbackMaximumId) + 1;
 
-//: 还没派发过任何回调时，"最后一次派发的回调 id"的取值。
+// 还没派发过任何回调时，"最后一次派发的回调 id"的取值。
 inline constexpr std::uint32_t kNoCallbackDispatched = 0xFFFFFFFFU;
 
 // 这张表、以及下面这两个标量**故意**定义在 `isaac::runtime` 命名空间下（不是匿名
@@ -74,9 +74,9 @@ inline constexpr std::uint32_t kNoCallbackDispatched = 0xFFFFFFFFU;
 // 匿名命名空间的名字带 `_ZN..12_GLOBAL__N_1L..` 前缀，换个编译器就可能漂。
 extern std::atomic<std::uint32_t> g_CallbackDispatchCounts[kCallbackDispatchCounterCount];
 extern std::atomic<std::uint32_t> g_LastDispatchedCallbackId;
-//: 会话代数：每次新的 Lua 会话开始时 +1。读数工具用它区分"这是本次加载的计数"
-//: 与"上一条命留下的残值"—— 模块在两次开局之间并不重启，没有这个数就分不清两者。
-//: 做成全局（而不是只放在函数里）是因为设备侧要**按地址读**它。
+// 会话代数：每次新的 Lua 会话开始时 +1。读数工具用它区分"这是本次加载的计数"
+// 与"上一条命留下的残值"—— 模块在两次开局之间并不重启，没有这个数就分不清两者。
+// 做成全局（而不是只放在函数里）是因为设备侧要按地址读它。
 extern std::atomic<std::uint32_t> g_CallbackDispatchGeneration;
 
 [[nodiscard]] std::uint32_t CallbackDispatchGeneration() noexcept;
@@ -115,15 +115,15 @@ public:
     [[nodiscard]] static std::uint64_t Count() noexcept;
 };
 
-//: 这一轮要不要**按登记时声明的过滤器**筛（与"调用点说不出过滤值"是两件事，见 `DispatchFiltered`）。
+// 这一轮要不要按登记时声明的过滤器筛（与"调用点说不出过滤值"是两件事，见 `DispatchFiltered`）。
 enum class FilterMode : std::uint8_t {
-    //: 不筛（`Dispatch` / `DispatchOwner`）：带过滤器的登记照常调用 —— 与改动前完全一致。
+    // 不筛（`Dispatch` / `DispatchOwner`）：带过滤器的登记照常调用 —— 与改动前完全一致。
     Ignore,
-    //: 按过滤器筛（`DispatchFiltered` / `DispatchModifying`）。
+    // 按过滤器筛（`DispatchFiltered` / `DispatchModifying`）。
     Apply,
 };
 
-//: 派发顺序缓冲的容量 = 登记表容量：**永远不会不够**（下标能用 `uint8_t` 表示，下面 `static_assert` 钉住）。
+// 派发顺序缓冲的容量 = 登记表容量：永远不会不够（下标能用 `uint8_t` 表示，下面 `static_assert` 钉住）。
 inline constexpr std::size_t kCallbackDispatchOrderCapacity = CallbackRegistry::kCapacity;
 static_assert(CallbackRegistry::kCapacity <= 256,
               "派发顺序缓冲用 uint8_t 存下标；容量一旦超过 256 就要改缓冲的元素类型");
@@ -158,17 +158,17 @@ public:
                                                             std::int64_t filter) noexcept;
 
 private:
-    //: 收集"这一轮要调用的登记下标"，按 **优先级升序** 排好；同优先级保持登记顺序（稳定排序）。
-    //: 返回条数；调用方按 `order[0..count)` 依次取 `AtIndex()` 调用。
-    //:
-    //: ★ 为什么写在头里内联（而不是 `.cpp` 里的自由函数）：① 它要用私有的 `AffinityMatches`；
-    //: ② 门禁 `test_callback_dispatch_counters` 按"**类名限定的函数定义**"数派发入口 ——
-    //: 再多一个 `CallbackDispatcher::` 的 `.cpp` 定义会让那条门禁判红（那种红要同步改门禁，
-    //: 不是把入口数搞乱）。内联在这里既不进那份名单，也不改变那四个入口的语义。
-    //:
-    //: ★ 排序为什么是"升序 + 稳定"：PC 的 `CallbackPriority` 是
-    //: `IMPORTANT=-200 / EARLY=-100 / DEFAULT=0 / LATE=100`，**数值越小越早执行**；
-    //: 同优先级之间 PC 保持登记顺序（这本来也是我们的旧行为，改动只在"有优先级声明时"生效）。
+    // 收集"这一轮要调用的登记下标"，按 优先级升序 排好；同优先级保持登记顺序（稳定排序）。
+    // 返回条数；调用方按 `order[0..count)` 依次取 `AtIndex()` 调用。
+    //
+    // 为什么写在头里内联（而不是 `.cpp` 里的自由函数）：① 它要用私有的 `AffinityMatches`；
+    // ② 门禁 `test_callback_dispatch_counters` 按"类名限定的函数定义"数派发入口 ——
+    // 再多一个 `CallbackDispatcher::` 的 `.cpp` 定义会让那条门禁判红（那种红要同步改门禁，
+    // 不是把入口数搞乱）。内联在这里既不进那份名单，也不改变那四个入口的语义。
+    //
+    // 排序为什么是"升序 + 稳定"：PC 的 `CallbackPriority` 是
+    // `IMPORTANT=-200 / EARLY=-100 / DEFAULT=0 / LATE=100`，数值越小越早执行；
+    // 同优先级之间 PC 保持登记顺序（这本来也是我们的旧行为，改动只在"有优先级声明时"生效）。
     [[nodiscard]] static std::size_t CollectCallOrder(
         const CallbackRegistry& registry, CallbackId id, bool hasOwner, ModHandle owner,
         ThreadAffinity current, FilterMode filterMode, std::int64_t filter,

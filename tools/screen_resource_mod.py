@@ -65,7 +65,7 @@ CARD_MODS_DIR = "atmosphere/contents/010021C000B6A000/romfs/isaac_mods/mods"
 #: 本体资源在我们仓库里的落点（用于"路径对不上"这项检查）。
 #: 目录名带空格与 `#`，所以用 glob 找，不写死。
 #:
-#: ★ **必须是两份合起来**：`resources/` 是本体（只到 552 号道具），
+#: 必须是两份合起来：`resources/` 是本体（只到 552 号道具），
 #: `rp_patch/resources/` 是忏悔补丁（9046 个文件，道具到 716 号）。
 #: 只比对前者会把**所有忏悔才有**的文件（后期道具、堕化角色、新房间）误报成"路径对不上"。
 GAME_RESOURCE_GLOBS = (

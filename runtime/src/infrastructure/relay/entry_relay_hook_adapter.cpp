@@ -4,8 +4,8 @@
 #include "room_spawn_internal_hook.hpp"
 #include "infrastructure/call/engine_call_access.hpp"
 
-#include "anm2_load_override_hook.hpp"  // 批次 365：Anm2Load 的安装结果留痕
-#include "image_pcx_bridge_hook.hpp"   // 批次 359：只为了让 RebuildMountPoints 的安装结果留痕
+#include "anm2_load_override_hook.hpp"  // Anm2Load 的安装结果留痕
+#include "image_pcx_bridge_hook.hpp"   // 只为了让 RebuildMountPoints 的安装结果留痕
 #include "relay/entry_relay.hpp"       // 侵入核心（source/relay/entry_relay.hpp）
 #include "runtime_constants.hpp"       // M0 台账
 #include "relay/smart_pointer_shim.hpp"  // v2：sret 返回值垫片（source/relay）
@@ -48,7 +48,7 @@ extern "C" void EntryRelayRebuildMountPointsCallback();
 extern "C" void EntryRelayPersistentGameDataSetReadOnlyCallback(void* self,
                                                                std::uint32_t readOnly);
 
-// --- 回调面补齐（批次 102）：四个事件靶点 ---------------------------------------
+// --- 回调面补齐：四个事件靶点 ---------------------------------------
 //
 // 形状各自不同，按目标函数的 ABI 逐字写（依据见 `runtime_constants.hpp` 那一段注释）：
 //   * `UseActiveItem`：`(this /*x0*/, 道具 /*w1*/, UseFlags /*w2*/, ActiveSlot /*w3*/,
@@ -76,15 +76,15 @@ extern "C" float EntryRelayManagerGetActionValueCallback(void* manager, std::uin
                                                          std::uint32_t controller,
                                                          void* entity);
 
-// 批次 103：`(掉落物 /*x0*/, 碰它的实体 /*x1*/, low /*w2*/)`。返回值决定要不要跑原函数
+// `(掉落物 /*x0*/, 碰它的实体 /*x1*/, low /*w2*/)`。返回值决定要不要跑原函数
 // （PC 三态，见 `runtime_constants.hpp` 里那个靶点的注释）。
 extern "C" std::uint64_t EntryRelayPickupCollisionCallback(void* pickup, void* collider,
                                                   std::uint32_t low);
 
-// 批次 396（2026-10-07）：`MC_ENTITY_TAKE_DMG` 的四条入口中继。四条形状完全相同
+// `MC_ENTITY_TAKE_DMG` 的四条入口中继。四条形状完全相同
 // （目标 ABI 逐字对）：`(实体 /*x0*/, Amount /*s0*/, DamageFlags /*x1*/,
 // Source /*x2 = &EntityRef*/, CountdownFrames /*w3*/)`。
-// ★ 返回值**必须原样搬运**：本体在 w0 里返回"这次伤害有没有落实"，`Entity_NPC::TakeDamage`
+// 返回值必须原样搬运：本体在 w0 里返回"这次伤害有没有落实"，`Entity_NPC::TakeDamage`
 //   拿到它继续用（`0x122260 mov w20,w0`）⇒ 声明成 void 会把引擎的后续判断弄坏。
 //   "模组返回 false"时不跑原函数、返回 0（= 这次伤害没落实）。
 extern "C" std::uint64_t EntryRelayEntityTakeDamageCallback(void* entity, float amount,
@@ -104,7 +104,7 @@ extern "C" std::uint64_t EntryRelayEntitySlotTakeDamageCallback(void* entity, fl
                                                                 const void* sourceRef,
                                                                 std::int32_t countdownFrames);
 
-// 批次 396（2026-10-07）：`MC_EVALUATE_CACHE` —— `Entity_Player::EvaluateItems()`，
+// `MC_EVALUATE_CACHE` —— `Entity_Player::EvaluateItems()`，
 // 形状 = 无参成员函数（x0 = this = 玩家指针），返回 void。CacheFlag 掩码由回调自己读。
 extern "C" void EntryRelayEvaluateItemsCallback(void* player);
 extern "C" std::uint64_t EntryRelayFamiliarCollisionCallback(void* entity, void* collider, std::uint32_t low);
@@ -120,9 +120,9 @@ extern "C" std::int32_t EntryRelayItemPoolGetPillCallback(void* pool, std::uint3
 extern "C" std::int32_t EntryRelayItemPoolGetPillEffectCallback(void* pool, std::uint32_t color, void* player);
 extern "C" std::uint64_t EntryRelayGameDevolveEnemyCallback(void* game, void* entity);
 
-// 批次 397（2026-10-07）：补全回调（第 2 批）的三条入口中继。三条都返回 void。
+// 补全回调（第 2 批）的三条入口中继。三条都返回 void。
 //   * `Entity::Kill()` —— 无参成员（x0 = this = 实体）。
-//   * `Entity_NPC::trigger_death_remove()` —— ★ 符号名是 `…20trigger_death_removeEv`（无参），
+//   * `Entity_NPC::trigger_death_remove()` —— 符号名是 `…20trigger_death_removeEv`（无参），
 //     但函数体开头就读 `x1`（`0x11A3FC str x1,[sp,#0x18]` / `0x11A400 cbnz x1`）⇒ 我们按
 //     **两个实参**声明，把它**原样转发**给原函数（我们从不解释它 ⇒ 转发即透明，无论它是什么）。
 //   * `Game::End(eEnding)` —— x0 = this（Game*）、w1 = eEnding。
@@ -133,15 +133,15 @@ extern "C" void EntryRelayRoomConstructorCallback(void*);
 extern "C" void EntryRelayNpcDeathRemoveCallback(void* npc, void* forwarded);
 extern "C" void EntryRelayGameEndCallback(void* game, std::int32_t ending);
 extern "C" void EntryRelayGameStartStageTransitionCallback(void*, bool, int, void*);
-//   * `Entity_Player::FireTear(...)` —— 形状**逐字照批次 337 已经定死的 ABI**
-//     （`runtime_constants.hpp` 的「批次 337」段，那边是给 Lua API 手写转发用的同一套取证）：
+//   * `Entity_Player::FireTear(...)` —— 形状逐字照已经定死的 ABI
+//     （`runtime_constants.hpp` 的「」段，那边是给 Lua API 手写转发用的同一套取证）：
 //     `(this, Vector2 const& /*x1*/, Vector2 /*按值 HFA s0:s1*/, u32 flags /*w2*/,
 //       Entity* Source /*x3*/, float DamageMultiplier /*s2*/)`，返回 `Entity_Tear*`（x0）。
 extern "C" void* EntryRelayFireTearCallback(void* player, const void* position,
                                             RelayVector2Hfa velocity, std::uint32_t flags,
                                             void* source, float damageMultiplier);
 
-// 批次 104：`Room::spawn_entity(unsigned GridIndex, RoomConfig::Entry const&, unsigned Seed,
+// `Room::spawn_entity(unsigned GridIndex, RoomConfig::Entry const&, unsigned Seed,
 // Entity**, bool)`。前三个实参都要转发给 `MC_PRE_ROOM_ENTITY_SPAWN`（Type/Variant/SubType 从
 // 第二个实参的**前 12 字节**读，见 `runtime_constants.hpp` 里那段证据）。
 extern "C" std::uint64_t EntryRelayRoomEntitySpawnCallback(void* room, std::uint32_t gridIndex,
@@ -175,7 +175,7 @@ extern "C" isaac::runtime::relay::SmartPointerShim EntryRelayImageManagerLoadFil
 // 挂载点、但同名 `.png` 在"时返回一条合成的 `.pcx` 路径，让引擎自己那条链继续走。
 extern "C" char* EntryRelayContentGetMountedFilePathCallback(void* self, const char* path);
 
-// 模组页搬生产（2026-09-23，批次 076）：三个入口中继。定义在 `source/mod_menu_native.cpp`
+// 模组页搬生产（2026-09-23，）：三个入口中继。定义在 `source/mod_menu_native.cpp`
 // （与那一套状态机同处，便于对照注释）。形状按目标函数的 ABI 逐字写：
 //   * `Menu_Game::Render()`   —— 无参成员（x0 = this）；
 //   * `Menu_Title::Render()`  —— 同上；
@@ -184,12 +184,12 @@ extern "C" void EntryRelayMenuGameRenderCallback(void* self);
 extern "C" void EntryRelayMenuTitleRenderCallback(void* self);
 extern "C" void EntryRelayMenuManagerSetStateCallback(void* self, std::int32_t state);
 
-// 批次 147（2026-09-26）：`ModManager::LoadConfigs()` —— 无参成员（x0 = this = `ModManager*`），
+// `ModManager::LoadConfigs()` —— 无参成员（x0 = this = `ModManager*`），
 // 返回 void。钩子体在 `source/hook_manager.cpp`：入口处按我们的模组开关改一遍
 // 每条 `ModEntry + 0x139`（纯内存写），再调回退入口跑原函数。形状就是目标函数的 ABI。
 extern "C" void EntryRelayModManagerLoadConfigsCallback(void* self);
 
-// 批次 363（2026-10-04）：`ANM2::Load(std::string const&, bool)` —— 形状按目标函数 ABI 逐字写
+// `ANM2::Load(std::string const&, bool)` —— 形状按目标函数 ABI 逐字写
 // （x0 = ANM2*、x1 = libc++ 的 24 字节串对象、w2 = loadGraphics）。钩子体在
 // `source/anm2_load_override_hook.cpp`：先问解析器这条路径归谁，答模组层且缓存里还有本体旧条目时
 // 用引擎自己的原语作废它，再调回退入口跑原函数。
@@ -233,7 +233,7 @@ EntryRelayBinding BindingOf(HookId id) noexcept {
         case HookId::UseCard:
             return {"Entity_Player::UseCard", kEntityPlayerUseCardOffset,
                     kEntityPlayerUseCardExpectedBytes.data(), callback, &g_fallbackEntries[index]};
-        // 批次 390（2026-10-07）：`MC_INPUT_ACTION` 的三处**引擎查询入口**。
+        // `MC_INPUT_ACTION` 的三处引擎查询入口。
         // 高层保留Entity*；精确重定位其16字节完整短函数，不能拦底层unsigned*出口。
         case HookId::ManagerIsActionPressed:
             return {"IsaacRepentance::Manager::IsActionPressed", kManagerIsActionPressedOffset,
@@ -248,7 +248,7 @@ EntryRelayBinding BindingOf(HookId id) noexcept {
             return {"IsaacRepentance::Manager::GetActionValue", kManagerGetActionValueOffset,
                     kManagerGetActionValueExpectedBytes.data(), callback,
                     &g_fallbackEntries[index]};
-        // 批次 396（2026-10-07）：`MC_ENTITY_TAKE_DMG` 的四条（靶点与守卫见 runtime_constants.hpp
+        // `MC_ENTITY_TAKE_DMG` 的四条（靶点与守卫见 runtime_constants.hpp
         // 那一大段取证）——基类吃通用实体，三个不回跳基类的子类各挂一条。
         case HookId::EntityTakeDamage:
             return {"Entity::TakeDamage", kEntityTakeDamageOffset,
@@ -265,12 +265,12 @@ EntryRelayBinding BindingOf(HookId id) noexcept {
             return {"Entity_Slot::TakeDamage", kEntitySlotTakeDamageOffset,
                     kEntitySlotTakeDamageExpectedBytes.data(), callback,
                     &g_fallbackEntries[index]};
-        // 批次 396（2026-10-07）：`MC_EVALUATE_CACHE` 的唯一总闸。
+        // `MC_EVALUATE_CACHE` 的唯一总闸。
         case HookId::EvaluateItems:
             return {"Entity_Player::EvaluateItems", kEntityPlayerEvaluateItemsOffset,
                     kEntityPlayerEvaluateItemsExpectedBytes.data(), callback,
                     &g_fallbackEntries[index]};
-        // 批次 397（2026-10-07）：补全回调（第 2 批）的三条（靶点与语义依据见 runtime_constants.hpp）。
+        // 补全回调（第 2 批）的三条（靶点与语义依据见 runtime_constants.hpp）。
         case HookId::EntityKill:
             return {"Entity::Kill", kEntityKillOffset, kEntityKillExpectedBytes.data(), callback,
                     &g_fallbackEntries[index]};
@@ -353,7 +353,7 @@ EntryRelayBinding BindingOf(HookId id) noexcept {
         case HookId::MenuManagerSetState:
             return {"MenuManager::SetState", kMenuManagerSetStateOffset,
                     kMenuManagerSetStateExpectedBytes.data(), callback, &g_fallbackEntries[index]};
-        // 批次 147（2026-09-26）：模组 content 加载闸门。靶点是 `ModManager::LoadConfigs` 的
+        // 模组 content 加载闸门。靶点是 `ModManager::LoadConfigs` 的
         // **入口**（16 字节守卫见 `runtime_constants.hpp` 那一段取证）；挂在入口是为了
         // "列表已建好、还没读任何一条 +0x139"这个窗口。
         case HookId::ModManagerLoadConfigs:
@@ -361,7 +361,7 @@ EntryRelayBinding BindingOf(HookId id) noexcept {
                     kModManagerLoadConfigsExpectedBytes.data(), callback,
                     &g_fallbackEntries[index]};
         case HookId::Anm2Load:
-            // ★ 靶点是 `kSpriteLoadOffset`（`0xC970`）—— 那个函数的 mangled 名就是
+            // 靶点是 `kSpriteLoadOffset`（`0xC970`）—— 那个函数的 mangled 名就是
             // `ANM2::Load`，与 Lua 侧的 `Sprite:Load` 同一个地址（本批不另立常量）。
             return {"ANM2::Load", kSpriteLoadOffset, kSpriteLoadExpectedBytes.data(), callback,
                     &g_fallbackEntries[index]};
@@ -436,12 +436,12 @@ void RegisterEntryRelayCallbacks() noexcept {
         engine_memory::AsObject(engine_call::AddressOfFunction(&EntryRelayRebuildMountPointsCallback));
     g_hookCallbacks[static_cast<std::size_t>(HookId::PersistentGameDataSetReadOnly)] =
         engine_memory::AsObject(engine_call::AddressOfFunction(&EntryRelayPersistentGameDataSetReadOnlyCallback));
-    // 批次 102 的四个：回调体都在 hook_manager.cpp（与各自的派发函数同处，便于对照注释）。
+    // 的四个：回调体都在 hook_manager.cpp（与各自的派发函数同处，便于对照注释）。
     g_hookCallbacks[static_cast<std::size_t>(HookId::UseActiveItem)] =
         engine_memory::AsObject(engine_call::AddressOfFunction(&EntryRelayUseActiveItemCallback));
     g_hookCallbacks[static_cast<std::size_t>(HookId::UseCard)] =
         engine_memory::AsObject(engine_call::AddressOfFunction(&EntryRelayUseCardCallback));
-    // 批次 390（2026-10-07）：`MC_INPUT_ACTION` 的三处查询入口（回调体在 `hook_manager.cpp`）。
+    // `MC_INPUT_ACTION` 的三处查询入口（回调体在 `hook_manager.cpp`）。
     g_hookCallbacks[static_cast<std::size_t>(HookId::ManagerIsActionPressed)] =
         engine_memory::AsObject(engine_call::AddressOfFunction(&EntryRelayManagerIsActionPressedCallback));
     g_hookCallbacks[static_cast<std::size_t>(HookId::ManagerIsActionTriggered)] =
@@ -472,13 +472,13 @@ void RegisterEntryRelayCallbacks() noexcept {
         engine_memory::AsObject(engine_call::AddressOfFunction(&EntryRelayMenuTitleRenderCallback));
     g_hookCallbacks[static_cast<std::size_t>(HookId::MenuManagerSetState)] =
         engine_memory::AsObject(engine_call::AddressOfFunction(&EntryRelayMenuManagerSetStateCallback));
-    // 批次 147（2026-09-26）：模组 content 加载闸门（回调体在 hook_manager.cpp）。
+    // 模组 content 加载闸门（回调体在 hook_manager.cpp）。
     g_hookCallbacks[static_cast<std::size_t>(HookId::ModManagerLoadConfigs)] =
         engine_memory::AsObject(engine_call::AddressOfFunction(&EntryRelayModManagerLoadConfigsCallback));
-    // 批次 363（2026-10-04）：`ANM2::Load` 入口中继（回调体在 `source/anm2_load_override_hook.cpp`）。
+    // `ANM2::Load` 入口中继（回调体在 `source/anm2_load_override_hook.cpp`）。
     g_hookCallbacks[static_cast<std::size_t>(HookId::Anm2Load)] =
         engine_memory::AsObject(engine_call::AddressOfFunction(&EntryRelayAnm2LoadCallback));
-    // 批次 396（2026-10-07）：`MC_ENTITY_TAKE_DMG` 的四条 + `MC_EVALUATE_CACHE`（回调体都在
+    // `MC_ENTITY_TAKE_DMG` 的四条 + `MC_EVALUATE_CACHE`（回调体都在
     // `source/hook_manager.cpp`，四条受伤共用同一个派发函数 `DispatchEntityTakeDamage`）。
     g_hookCallbacks[static_cast<std::size_t>(HookId::EntityTakeDamage)] =
         engine_memory::AsObject(engine_call::AddressOfFunction(&EntryRelayEntityTakeDamageCallback));
@@ -490,7 +490,7 @@ void RegisterEntryRelayCallbacks() noexcept {
         engine_memory::AsObject(engine_call::AddressOfFunction(&EntryRelayEntitySlotTakeDamageCallback));
     g_hookCallbacks[static_cast<std::size_t>(HookId::EvaluateItems)] =
         engine_memory::AsObject(engine_call::AddressOfFunction(&EntryRelayEvaluateItemsCallback));
-    // 批次 397（2026-10-07）：补全回调（第 2 批）的三条（回调体都在 `source/hook_manager.cpp`）。
+    // 补全回调（第 2 批）的三条（回调体都在 `source/hook_manager.cpp`）。
     g_hookCallbacks[static_cast<std::size_t>(HookId::EntityKill)] =
         engine_memory::AsObject(engine_call::AddressOfFunction(&EntryRelayEntityKillCallback));
     g_hookCallbacks[static_cast<std::size_t>(HookId::GameStartStageTransition)] =
@@ -553,9 +553,9 @@ Status EntryRelayHookAdapter::Install(HookId id, const HookTarget& target) noexc
     // 顶部清零：下面两条早退（InvalidArgument / InvalidState）不是 entry_relay 失败，
     // 不清零会返回上一次成功安装留下的陈旧失败码；Task 4 的路由要转发它、Task 5 要读它。
     lastFailure_ = 0;
-    // ★★ 批次 359：`RebuildMountPoints` 需要额外留痕 —— 它是"引擎重建挂载点表之后
+    // `RebuildMountPoints` 需要额外留痕 —— 它是"引擎重建挂载点表之后
     //   把模组挂载点补回来"的唯一一环，而 357/358 记的是**另一条死代码路径**上的结果。
-    // ★★ 批次 365（2026-10-05）：`Anm2Load` 同样必须留痕。批次 363 只**定义并声明**了
+    // `Anm2Load` 同样必须留痕。只定义并声明了
     //   `NoteAnm2LoadRelayInstalled`、却**一个调用点都没有** ⇒ 读数里"中继装上没有"那一格
     //   恒写"未试"，**即使入口早已是补丁**（2026-10-05 01:24 的真机读数当场对出来的自相矛盾）。
     //   一个会撒谎的判据比没有判据更坏：它会把"装上了"读成"没装"。
@@ -633,7 +633,7 @@ bool EntryRelayHookAdapter::IsInstalled(HookId id) const noexcept {
 std::uint32_t EntryRelayHookAdapter::LastFailureCode() const noexcept { return lastFailure_; }
 
 // ============================================================================
-// 批次 385（2026-10-06）：**早装**个别入口中继 —— 设计与理由见头文件那段注释
+// 早装个别入口中继 —— 设计与理由见头文件那段注释
 // ============================================================================
 //
 // 与 `EntryRelayHookAdapter::Install` 的关系：**故意的两条平行路径**，靠
@@ -641,8 +641,8 @@ std::uint32_t EntryRelayHookAdapter::LastFailureCode() const noexcept { return l
 // 不共用一个实例的原因写在头文件里（实例状态不共享 ⇒ 会再装一次 ⇒ `EntryMismatch`）。
 namespace {
 
-//: "已经被**早装**过"的挂点位图。只有本 TU 写；`hook_manager.cpp` 通过外部链接的
-//: `EntryRelayInstalledEarly()` 查。
+// "已经被早装过"的挂点位图。只有本 TU 写；`hook_manager.cpp` 通过外部链接的
+// `EntryRelayInstalledEarly()` 查。
 bool g_earlyInstalledEntries[kHookIdCount]{};
 
 }  // namespace
@@ -668,13 +668,13 @@ bool TryInstallEntryRelayEarly(HookId id, const HookTarget& target,
             engine_memory::AddressOf(binding.callback), PublishEntryOriginal, &publication, &originalEntry)) {
         return false;   // 与 `Install` 同一口径：失败原样返回，由调用方决定怎么办
     }
-    // ★ 顺序与 `TryInstallEntryRelay` 的内部纪律一致：**先把回退入口公布出去，再置"已装"**
+    // 顺序与 `TryInstallEntryRelay` 的内部纪律一致：先把回退入口公布出去，再置"已装"
     //   （口径 = "回调可达 ⇒ 原函数入口一定有效"）。
     *outEntry = originalEntry;
     g_earlyInstalledEntries[index] = true;
-    // ★ 记账**照旧走原来那套**（`EntryRelayHookAdapter::Install` 里也是这么记的）——
+    // 记账照旧走原来那套（`EntryRelayHookAdapter::Install` 里也是这么记的）——
     //   否则读数里 `g_Anm2LoadOverrideState.relayState` 会显示"未试"，
-    //   而入口其实早就被补丁了：**一个会撒谎的判据比没有判据更坏**（批次 365 的教训）。
+    //   而入口其实早就被补丁了：一个会撒谎的判据比没有判据更坏（的教训）。
     if (id == HookId::Anm2Load) {
         isaac::runtime::bridge::NoteAnm2LoadRelayInstalled(true, 0U);
     }

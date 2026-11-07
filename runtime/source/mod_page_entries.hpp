@@ -31,31 +31,31 @@
 
 namespace isaac::runtime {
 
-//: 每个条目的步长。用到的最高偏移是 `0x13a`（旧版位）⇒ 0x140 足够且对齐好看。
+// 每个条目的步长。用到的最高偏移是 `0x13a`（旧版位）⇒ 0x140 足够且对齐好看。
 inline constexpr std::size_t kModPageEntryStride = 0x140;
-//: `std::string` 在条目里的偏移。
+// `std::string` 在条目里的偏移。
 inline constexpr std::size_t kModPageEntryStringOffset = 0x18;
-//: 长串形态的数据指针：字符串 +0x10。
+// 长串形态的数据指针：字符串 +0x10。
 inline constexpr std::size_t kModPageEntryStringDataOffset = kModPageEntryStringOffset + 0x10;
-//: 启用位 / "旧版"位。
+// 启用位 / "旧版"位。
 inline constexpr std::size_t kModPageEntryEnabledOffset = 0x138;
 inline constexpr std::size_t kModPageEntryOldOffset = 0x13a;
 
-//: 调用方给的条目来源（名字必须是 NUL 结尾的 C 串；`enabled` / `outdated` 就是页面上那两个分支）。
+// 调用方给的条目来源（名字必须是 NUL 结尾的 C 串；`enabled` / `outdated` 就是页面上那两个分支）。
 struct ModPageEntrySource {
     const char* displayName;
     bool enabled;
     bool outdated;
 };
 
-//: 把一个条目的名字写成"libc++ 长串形态"（`Render` 读的那三处：标记位、长度、数据指针）。
-//:
-//: **为什么单独抽出来**（批次 126）：条目表只在进页面时造一次，而"控制台开关"那一行的名字
-//: **跟着开关状态走**（`Console: ON` / `Console: OFF`）⇒ 需要一个"事后换名字"的动作。
-//: 那个动作与"造条目"必须写**同一套字节**，否则两处任一处歪掉都会变成"页面上名字乱码"，
-//: 而真机上很难看出是哪一处 ⇒ 合成一个函数，只有这一个地方碰那几个偏移。
-//:
-//: `name` 必须是**静态存储**的 C 串：`Render` 直接把那个指针当 `%s` 用，指到临时缓冲上下一帧就悬垂。
+// 把一个条目的名字写成"libc++ 长串形态"（`Render` 读的那三处：标记位、长度、数据指针）。
+//
+// 为什么单独抽出来：条目表只在进页面时造一次，而"控制台开关"那一行的名字
+// 跟着开关状态走（`Console: ON` / `Console: OFF`）⇒ 需要一个"事后换名字"的动作。
+// 那个动作与"造条目"必须写同一套字节，否则两处任一处歪掉都会变成"页面上名字乱码"，
+// 而真机上很难看出是哪一处 ⇒ 合成一个函数，只有这一个地方碰那几个偏移。
+//
+// `name` 必须是静态存储的 C 串：`Render` 直接把那个指针当 `%s` 用，指到临时缓冲上下一帧就悬垂。
 inline void SetModPageEntryName(std::uint8_t* entry, const char* name) noexcept {
     if (entry == nullptr || name == nullptr || name[0] == '\0') {
         return;  // 空名字会让页面上多一行空白；调用方给的常量不可能是空的，这里只兜"误传"
@@ -69,11 +69,11 @@ inline void SetModPageEntryName(std::uint8_t* entry, const char* name) noexcept 
     std::memcpy(entry + kModPageEntryStringDataOffset, &data, sizeof(data));
 }
 
-//: 造好 `count` 个条目、写指针数组，并把 `begin/end/cap` 三个字写进 `vector`（= `g_Manager+0x36800`）。
-//:
-//: 返回实际写好的条目数；**空间不够时返回 0**（调用方据此放弃，绝不写半截 —— 半截的后果是
-//: 页面读到野指针）。`nameArena` 用来放名字副本：条目的数据指针必须指向**稳定**的内存
-//: （`std::string` 的语义是"它拥有那块内存"，让指针指向调用方的临时缓冲会在下一帧变成悬垂）。
+// 造好 `count` 个条目、写指针数组，并把 `begin/end/cap` 三个字写进 `vector`（= `g_Manager+0x36800`）。
+//
+// 返回实际写好的条目数；空间不够时返回 0（调用方据此放弃，绝不写半截 —— 半截的后果是
+// 页面读到野指针）。`nameArena` 用来放名字副本：条目的数据指针必须指向稳定的内存
+// （`std::string` 的语义是"它拥有那块内存"，让指针指向调用方的临时缓冲会在下一帧变成悬垂）。
 [[nodiscard]] inline std::uint32_t BuildModPageEntries(
     std::uint8_t* entries, std::uintptr_t* pointers, std::uintptr_t* vector,
     std::uint32_t count, const ModPageEntrySource* sources, char* nameArena,

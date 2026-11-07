@@ -104,7 +104,7 @@ RP_PATCH = "rp_patch"
 #: 我们这一行美术在页面资源里的落点（与探针里的候选逻辑路径一一对应）。
 ASSET_SUBDIR = Path("gfx/ui/main menu/isaac-switch")
 
-#: ★ 2026-09-23（批次 072）：**不再生成 `.anm2`**。
+#: 2026-09-23：不再生成 `.anm2`。
 #:
 #: 071 生成过 `mod_row_<语言>.anm2`（照抄引擎自己那份 `gamemenu.anm2` 的形状），运行期用
 #: `ANM2::Load` + `ANM2::Render` 画 —— **真机上崩了**：`Data Abort @ 0x0`，栈为
@@ -306,7 +306,7 @@ def main() -> int:
                 # `write_pair` 用语言码命名 ⇒ 英文根下是 `mod_row_<该语言>.{anm2,pcx}`，
                 # 这正是"引擎根其实是英文目录"那条候选路径要找的文件名。
         if args.menu_row_layer:
-            # ★ 2026-09-23（A 路线）：把 PC 那一层 `Item6` 补回**引擎自己那份菜单动画**，
+            # 2026-09-23（A 路线）：把 PC 那一层 `Item6` 补回引擎自己那份菜单动画，
             #   让那一行由引擎的整页渲染画出来 —— 生命周期与其余五行完全同源。
             #   写的是 `rp_patch/<语言根>/gfx/ui/main menu/gamemenu.anm2`（覆盖游戏原版那份）。
             #

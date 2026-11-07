@@ -26,7 +26,7 @@ std::uint64_t g_PostUpdateDispatchCount = 0;
 std::uint64_t g_NativeFrameCount = 0;
 bool g_NativeInputSampled = false;
 
-//: 帧边界钩子（批次 381）：默认没有；输入层在会话初始化时装上。
+// 帧边界钩子：默认没有；输入层在会话初始化时装上。
 FrameBoundaryHook g_FrameBoundaryHook = nullptr;
 
 } // namespace
@@ -198,7 +198,7 @@ CallbackDispatchOutcome CallbackDispatcher::DispatchModifying(CallbackId id, Thr
             outcome.hasInteger = true;
             outcome.integer = returned.integer;
         }
-        // ★ 2026-10-07（批次 390）：数字通道同 `integer` 的口径 —— **第一条胜出**
+        // 2026-10-07：数字通道同 `integer` 的口径 —— 第一条胜出
         // （`MC_INPUT_ACTION` 的 `GET_ACTION_VALUE` 覆盖值用）。
         if (returned.hasNumber && !outcome.hasNumber) {
             outcome.hasNumber = true;

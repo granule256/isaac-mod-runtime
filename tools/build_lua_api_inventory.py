@@ -774,7 +774,7 @@ def build_symbol_index(records: list[dict]) -> tuple[dict, dict, dict, dict]:
     by_class_method: dict[tuple[str, str], list[dict]] = collections.defaultdict(list)
     by_method: dict[str, list[dict]] = collections.defaultdict(list)
     by_free: dict[str, list[dict]] = collections.defaultdict(list)
-    #: ★ 批次 329（2026-10-03）：**按"归一化方法名"的索引** —— 引擎里两种命名**并存**
+    #: 按"归一化方法名"的索引 —— 引擎里两种命名并存
     #: （`Entity_NPC::GetShootingInput` 与 `Entity_Player::get_shooting_input`），
     #: 而上面那个 `by_class_method` 用的是**原始**方法名当键 ⇒ 文档里的 `GetShootingInput`
     #: 永远查不到 `get_shooting_input`。这个索引只作**兜底**，用法见 `classify()` 里那一段。
@@ -1072,7 +1072,7 @@ def classify(api: dict, by_class_method, by_class_method_norm, by_method, by_fre
                     hits.append((record, "base_class"))
 
     if not hits:
-        # ★★ 批次 329（2026-10-03）：**归一化方法名兜底**。
+        # 归一化方法名兜底。
         #
         # 引擎里两套命名**并存**：既有 CamelCase（`Entity_NPC::GetShootingInput(float)`），
         # 也有 snake_case（`Entity_Player::get_shooting_input()`）。而上面那些查找**全都用
@@ -1087,7 +1087,7 @@ def classify(api: dict, by_class_method, by_class_method_norm, by_method, by_fre
         # `normalized_method` ⇒ 置信度落 `medium`（见下面的 `confidence`），
         # 不把"只是大小写/下划线不同"混进"精确同名"；③ 候选**只认同一批候选类**（含基类链），
         # 不会跨类乱认（`EntityPlayer` 的候选里没有 `Entity_NPC`）。
-        # ★ 注意**别名不会因此被误认**：`fire_projectile` 与引擎的 `fire_projectiles`
+        # 注意别名不会因此被误认：`fire_projectile` 与引擎的 `fire_projectiles`
         #   归一化后仍不同（差一个 s）⇒ 这条兜底**不会**把它拉进来。
         normalized = normalize_name(name)
         for candidate, _match_kind in owner_switch_candidates(owner):

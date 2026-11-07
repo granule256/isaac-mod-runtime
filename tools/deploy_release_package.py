@@ -1,19 +1,10 @@
 #!/usr/bin/env python3
-"""把发布包部署到设备 SD 卡上：**先整树下载做备份与哈希比对，只补真正不同的文件**。
+"""备份并部署发布包到设备 SD 卡。
 
-为什么这么做（而不是"整包覆盖"）：
-* **备份要逐字节**：整树下载下来就是一份可以原样还原的备份，顺带就能算出每个文件的 sha256；
-* **只写差异**：卡上多数文件本来就与发布包一致，比对后只上传不同/缺失的那些，
-  FTP 连接次数从"包内全部文件"降到"真正不同的文件"，对这台敏感的服务友好得多；
-* **可审计**：比对结果、备份清单、上传清单都落盘，谁都能复核。
-
-纪律（照 AGENTS.md「设备取证纪律」）：一次连接只做一件事、动作之间留 1.5 秒、
-撞 `451` 等几秒单次重试；**游戏必须没在跑**（先确认 FTP 开着且游戏未启动）。
-
-用法：
-    python3 tools/deploy_release_package.py --package dist/isaac-eid-release-20260915 \\
-        --backup dist/old-card-backup-20260915 --dry-run     # 只下载+比对，不写卡
-    python3 tools/deploy_release_package.py --package ... --backup ... --apply
+先下载目标目录并计算摘要，再上传不同或缺失的文件，保留备份和变更清单。
+FTP 操作之间等待，临时错误只有限重试。部署前须关闭游戏并启动设备 FTP 服务。
+使用 --package 和 --backup 指定输入与备份目录；--dry-run 只备份及比较，
+--apply 执行写入。
 """
 
 from __future__ import annotations

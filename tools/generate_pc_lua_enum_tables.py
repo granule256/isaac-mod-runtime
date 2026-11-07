@@ -13,7 +13,7 @@ from pathlib import Path
 # Generation order is also the order the runtime registers the globals in;
 # ModCallbacks stays last because game mods read it after the value tables.
 #
-# ★★ 2026-10-07（批次 398）：**从 20 张补到 62 张**。
+# 2026-10-07：从 20 张补到 62 张。
 # 起因是真机实测挖出来的缺口（卡上装了 `Trinity` / `minimapi` 之后报错）：
 #   * `ActiveSlot` 缺 ⇒ `ActiveSlot.SLOT_PRIMARY` 是 nil global ⇒ 模组抛错 ⇒ **整条回调登记被摘**；
 #   * `Music` 缺 ⇒ `MusicModCallback` 在**加载期**就炸，一个回调都不注册。
@@ -42,7 +42,7 @@ TABLES = (
     "EffectVariant",
     "EntityPartition",
     "Card",
-    # ---- 2026-10-07 批次 398 补齐的 42 张（enums.lua 有、我们原来没登记）----
+    # ---- 2026-10-07 补齐的 42 张（enums.lua 有、我们原来没登记）----
     "ActionTriggers",
     "ActiveSlot",
     "BabySubType",

@@ -12,12 +12,12 @@
 //
 // 负责：把"`base + offset` 处的这个字段读出来 / 写进去"这件事做对 —— 回绕检查、对齐检查、
 // 按 `T` 取值或落值，全部收在这一个文件里。功能代码**只写"读/写哪个字段"，不再写指针算术**。
-// 从这里起还提供**唯一一份**"这段地址可读吗"（`EngineMemoryReadable`，批次 102 起）、
+// 从这里起还提供唯一一份"这段地址可读吗"（`EngineMemoryReadable`，起）、
 // **唯一一份**"这段地址可写吗"（`EngineMemoryWritable`）与写原语（`WriteField` / `WriteAt`，
-// 批次 103 起）—— 在此之前四个 Lua API 族各有一份逐字相同的读判定、两个可写 TU 各有一份
+// 起）—— 在此之前四个 Lua API 族各有一份逐字相同的读判定、两个可写 TU 各有一份
 // 逐字相同的写判定与 `memcpy` 写。
 //
-// ★ **可读 ≠ 可写**：两份判定**刻意分开、并排放**（`Perm_R` 与 `Perm_W`、读缓存与写缓存）。
+// 可读 ≠ 可写：两份判定刻意分开、并排放（`Perm_R` 与 `Perm_W`、读缓存与写缓存）。
 //   写路径拿读判定放行，会让 `Sprite.Scale = 2` 去写只读页（真机 = `Data Abort`）。
 //
 // **判定仍可由使用方注入更严的**：`game_observer.cpp` 用的是"可读**且不可执行**"那一份
@@ -78,7 +78,7 @@ using ReadableCheck = bool (*)(std::uintptr_t address, std::size_t length);
 }
 
 // ============================================================================
-// 「这段地址可读吗」—— **唯一一份实现**（批次 102 起）
+// 「这段地址可读吗」—— 唯一一份实现
 // ============================================================================
 //
 // 语义**逐条照搬**此前四个 Lua API 族各写一份的那份（去掉注释后四份逐字相同，781 字符）：
@@ -89,7 +89,7 @@ using ReadableCheck = bool (*)(std::uintptr_t address, std::size_t length);
 //   ③ 否则问一次内核：返回码失败 / 空映射 / 地址不在该映射内 / 不带 `Perm_R` ⇒ 不可读；
 //   ④ 成功则把**整段**连续且权限一致的映射登记进缓存，之后的检查都命中缓存。
 //
-// ★ 这里**不看** `Perm_X`：可执行的代码段也算"可读"。要"可读且不可执行"的调用方自己注入
+// 这里不看 `Perm_X`：可执行的代码段也算"可读"。要"可读且不可执行"的调用方自己注入
 //   （`game_observer.cpp` 就是这么做的），不要改这一份 —— 改了会动到四个 API 族的既有语义。
 [[nodiscard]] inline bool EngineMemoryReadable(std::uintptr_t address, std::size_t length) noexcept {
     if (!RangeUsable(address, length)) {
@@ -124,7 +124,7 @@ using ReadableCheck = bool (*)(std::uintptr_t address, std::size_t length);
 }
 
 // ============================================================================
-// 「这段地址**可写**吗」—— **唯一一份实现**（批次 103 起）
+// 「这段地址可写吗」—— 唯一一份实现
 // ============================================================================
 //
 // **刻意紧挨着上面那份读判定放**，因为这两件事最容易被搞混：
@@ -172,9 +172,9 @@ using ReadableCheck = bool (*)(std::uintptr_t address, std::size_t length);
 // 为什么单列它：把那些调用点搬进层时，"偏移算术发生在别处（例如 `receiver + row->offset`
 // 已经算好）"是最常见的形状；有这个名字就不用让调用点写 `ReadField(addr, 0, …)` 那个
 // 看着像笔误的 `0`，也不必额外加一条原实现里没有的对齐判据。
-// ★ 出参写 `T* const&`（不是 `T*`）是与定义处**同一条纪律**：挡住"传裸 C 数组"时静默退化成
+// 出参写 `T* const&`（不是 `T*`）是与定义处同一条纪律：挡住"传裸 C 数组"时静默退化成
 //   元素指针（真机事故见下面 `ReadField` 那一段）。两处必须一致 —— 只改一处会变成"两个不同的
-//   重载并存" ⇒ 所有指针实参的调用都会判成 ambiguous（批次 106 第一次构建就是这么红的）。
+//   重载并存" ⇒ 所有指针实参的调用都会判成 ambiguous（第一次构建就是这么红的）。
 template <typename T>
 [[nodiscard]] inline bool ReadAt(std::uintptr_t address, T* const& value,
                                  ReadableCheck readable) noexcept;
@@ -270,7 +270,7 @@ template <typename T>
     return true;
 }
 
-// ★★ **读一整段时不许传裸 C 数组**（2026-09-24 批次 106，真机事故换来的，别删）：
+// 读一整段时不许传裸 C 数组（2026-09-24 ，真机事故换来的，别删）：
 //
 // 为什么出参写成上面那个 `T* const&`（**不是** `T*`）：
 //   * 引用形参**不做"数组 → 指针"退化** ⇒ C 数组实参在**推导阶段就匹配不上** `T*`
@@ -285,12 +285,12 @@ template <typename T>
 //     ReadField(manager, kCanvasOffset, &offset, &check, 0);  // ✓ 整段 8 字节（T = float[2]）
 //
 // 坏的那一行**不报错、不崩、判定也只覆盖 4 字节**，第二个 float 原样留在初值 0 上。
-// 批次 105 上卡后就是这样翻的车：模组页那两个"画布偏移"float 只读到了 X ⇒ 页面位置的自证
+// 上卡后就是这样翻的车：模组页那两个"画布偏移"float 只读到了 X ⇒ 页面位置的自证
 // 修正拿 0 当 Y 去算 ⇒ **整页纵向偏出视野**；更糟的是**读数也跟着骗人**（同一个坏读让
 // "实际画点"看起来仍是 (173, 72)），现场只留下 X 对、Y 成了 0 这一个指纹。
 //
 // ⇒ **要读一整段就写 `&数组`**；要读一个标量就写 `&标量`。谁想再犯都犯不了（编译期挡住）。
-// ★ 写侧不需要这一手：`WriteField` 的参数是 `const T&`，C 数组按引用绑定、长度本来就是对。
+// 写侧不需要这一手：`WriteField` 的参数是 `const T&`，C 数组按引用绑定、长度本来就是对。
 template <typename T, std::size_t N>
 [[nodiscard]] inline bool ReadField(std::uintptr_t, std::uintptr_t, T (&)[N], ReadableCheck,
                                     std::uintptr_t = 0) = delete;
@@ -322,7 +322,7 @@ template <typename T>
     if (offset > UINTPTR_MAX - address) {
         return false;
     }
-    // ★ 2026-09-26（批次 139 的**设备构建**抓出来的）：这一句曾让设备构建编译不过 ——
+    // 2026-09-26（的设备构建抓出来的）：这一句曾让设备构建编译不过 ——
     //   devkitA64 的 `-Werror=array-bounds` 在 `isaac_api.o` 上报
     //   `array subscript 0 is outside array bounds of 'const void [0]'`，指的就是这一行。
     //   **它不是真缺陷**（`address == 0` 在上面已经先返回假 ⇒ 这里永远不会真去读地址 0），
@@ -330,7 +330,7 @@ template <typename T>
     //   （诊断里的 `const void [0]`），于是把 `memcpy` 访问的第 0 个字节算成"下标 0 越界"；
     //   报错处那句 `note: source object is likely at address zero` 说明它拿的是"**很可能**为 0"
     //   这种猜测，而不是证明。触发与否取决于"当次哪一段被内联" ⇒ 在别的编译单元改代码
-    //   也可能把它翻出来（这次就是：批次 139 改了 `isaac_api.cpp`，红的是一个**既有**的调用链
+    //   也可能把它翻出来（这次就是：改了 `isaac_api.cpp`，红的是一个既有的调用链
     //   `IsPickupEntity → ClassifyCallbackEntity → CaptureEntity → ReadEngineUnchecked`）。
     //   **修法只改形状、不改任何判据**：先用一句空 asm 把地址记进寄存器、让编译器**不知道**它的值
     //   （寄存器级、零运行时代价），它就没有"很可能为 0"可猜了。
@@ -382,7 +382,7 @@ template <typename Signature>
 }
 
 // ============================================================================
-// 写侧（批次 103）：**唯一一份**"往引擎对象写字段"的实现
+// 写侧：唯一一份"往引擎对象写字段"的实现
 // ============================================================================
 //
 // 对称读侧的 `ReadField` / `ReadAt`；判定用上面那份 `EngineMemoryWritable`，由调用方以
@@ -406,7 +406,7 @@ using WritableCheck = bool (*)(std::uintptr_t address, std::size_t length);
 // 写一个字段：`base + offset` 处按 `T` 落值。失败（不可写 / 未对齐 / 偏移回绕 / 判定为空）
 // 返回 false，此时**一个字节都不落** —— 与读侧"失败时不写出参"逐条对称。
 //
-// ★ 复用 `FieldAddress`：**回绕与对齐两条判据与读侧是同一个函数**，只是注进去的判定换成"可写"。
+// 复用 `FieldAddress`：回绕与对齐两条判据与读侧是同一个函数，只是注进去的判定换成"可写"。
 //   `requiredAlignment` 的语义同 `ReadField`：默认按 `T` 的对齐要求，**传 0 表示不查对齐**。
 template <typename T>
 [[nodiscard]] inline bool WriteField(std::uintptr_t base, std::uintptr_t offset, const T& value,
@@ -419,7 +419,7 @@ template <typename T>
     if (address == 0) {
         return false;
     }
-    // ★ 复用 `AsObject`（层里"整数地址 → 不透明指针"的唯一一处转换）而不是在这里再写一次
+    // 复用 `AsObject`（层里"整数地址 → 不透明指针"的唯一一处转换）而不是在这里再写一次
     //   `reinterpret_cast`：冻结台账 `tools/raw_engine_access_baseline.json` 按"每个文件的
     //   `reinterpret_cast` 计数"判、**只许减不许增** ⇒ 本层自己不能再多一处。
     std::memcpy(AsObject(address), &value, sizeof(T));

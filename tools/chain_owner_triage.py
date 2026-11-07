@@ -1,72 +1,9 @@
 #!/usr/bin/env python3
-"""**链式/变量接收者到底是谁** —— 把"同名方法多 owner、认不出类型"那一档（报告里的 ①b）分诊掉。
+"""推断 Lua 链式调用和变量接收者的 API 所属类型。
 
-## 为什么需要它（2026-09-27 批次 162）
-
-`tools/mod_api_gap_report.py` **刻意不猜 owner**：模组里写的是 `player:GetPlayerType()`，
-`player` 是局部变量，光看这一行看不出类型 ⇒ 它只能报"方法名 + PC 侧所有同名方法的 owner"，
-于是 `Update` 那种名字会挂在"候选 Room/Game/Entity/Level/HUD/GridEntity 都缺"里，
-看的人以为它是缺口 —— 而 EID 那一处的接收者很可能是我们**已经实现**的 `Sprite`。
-
-本模块用**可复核的推理**把这一档收窄 —— 不是猜，是"顺着一行行赋值往下推"。
-**类型来源共五种**（前四种是代码里的赋值，第五种是模组自己写的注解）：
-
-1. **变量的类型**只从三种来源定：① 全局表（`Isaac`）；② 构造式全局调用（`Game()` / `Vector(…)` /
-   `RegisterMod(…)` …，返回值类型就是函数名）；③ 赋值右边是"已知类型的根 + 一串方法调用"
-   （`Isaac.GetPlayer(0)`、`Game():GetRoom()` 这类）。赋值有**两种形状**都收：
-   `local x = <…>` 与 `表.字段 = <…>`（取最后一个字段名，`EID.CursorSprite = Sprite()` 就是它）。
-2. **每一步的类型**：`当前类型 : 方法名` ⇒ 去 PC 契约页找**同名方法的签名行**，
-   签名里的返回类型就是下一步的接收者类型
-   （`#### [EntityPlayer](EntityPlayer.md) GetPlayer ( int Index )` ⇒ `EntityPlayer`）。
-3. **第五种来源（批次 186）**：模组自己写的 **LuaLS 类型注解**（`---@param entity Entity`）。
-   ★★ 它必须**按"调用点落在哪个函数体内"取**，且**按 `(接收者, 方法名)` 索引** ——
-   注解是函数作用域的，同名变量在不同函数里可以是不同的东西（详见 `resolve_annotation_types()`）。
-   ★ 联合类型（`Entity | GridEntity`）**不采用**：取第一个词会让真实缺口静默消失，取并集会把
-   "可能"报成"就是"，两条路都是替模组做主，而选择直接决定结论。
-4. **推不动就停** —— 一律留在"待人工"里，**绝不写死**
-   （这条口径与 `mod_api_gap_report.py` 的链式那一路一致）。
-
-⇒ 每一档都带**结论 + 证据**（文件:行号 + 那条链的原文），人可以复核；拿不到结论的明确计数。
-
-## 剩下那档"待人工"是按**卡点**分的（批次 186 实测 10 条 ⇒ 批次 202 起剩 **6 条**）
-
-不是"没做"，是**来源还没建模** —— 当初这 10 条一条都没有"猜"的余地，卡点分别是
-（下面表格的"条数"记的是**批次 186 当时**的构成，加起来是 10；**今天还剩 6 条**，清单见表格之后）：
-
-| 卡点 | 条数 | 例子 | 为什么现在定不出来 |
-| --- | --- | --- | --- |
-| **模组自己的函数返回的东西**（含多返回值） | 2 | `local _, entityPlayer = EID:PlayersHaveCharacter(id, false)`；`local hasBag, bagPlayer = EID:PlayersHaveCollectible(710)` | 右边是**模组自己**的函数 ⇒ 不在 PC 契约页、没有返回类型可查 |
-| **循环变量** | 2 | `for _, crane in ipairs(Isaac.FindByType(6, 16, -1, true, false)) do`；同形的还有 `pickup`（`eid_bagofcrafting.lua:445`） | 元素类型要建模"`Isaac.FindByType` 返回的是实体数组" |
-| **回调 / 匿名函数的实参，且作者没写注解** | 1 | `player`（描述表里的 `modifierFunction = function(descObj, player, inOverview)`） | 注解这条来源无从可查（没写就是没有）；`pickup` 在 `main.lua:214` 那处调用同属这一类 |
-| **赋值的右边是 `and`/`or` 表达式** | 1 | `local spriteObj = (type(…) == "function" and …()) or … or EID.InlineIconSprite` | 多个候选来源，本模块不做"或"的合并 |
-| **方法的返回类型不在契约页（是个数组）** | 1 | `local rooms = game:GetLevel():GetRooms()` | 链是通的，但 `Level:GetRooms()` 的返回值不在契约页 ⇒ 元素类型无从查 |
-| **链走到契约页里没有的方法** | 1 | `local lastRoomEntities = lastRoomDesc:GetEntitiesSaveState()` | `RoomDescriptor:GetEntitiesSaveState()` **不在契约页** ⇒ 链断 |
-| **模组表的字段作根** | 1 | `local item = EID.itemConfig:GetCollectible(id)` | `EID.itemConfig` 确实是 `ItemConfig`，但本模块只解析**一级**字段名，不做"表字段的字段" |
-| ~~**调用点在注释里**~~ ⇒ **已消掉** | ~~1~~ | ~~`EntityPlayer:GetName`（`eid_api.lua:1004` 那句是 `---This is for modded characters…`）~~ | ★ **批次 202（2026-09-29）已还清**：扫描器现在会剥 Lua 注释（`gap.lua_source()`），那句文档注释不再算调用点。**它本来就不是"待人工"，是上游（用法提取）的 bug** —— 留在表里当"别拿注释当调用点"的样本。 |
-
-（同一条可能牵涉**多个**卡点 —— `pickup:GetSprite` 两处调用一处是循环变量、一处是回调形参；
-表里按它更典型的那一处归类，所以"条数"之和正好是 10。）
-
-★ **第五种来源（模组自己写的 LuaLS 类型注解）已在批次 186 落地**（`resolve_annotation_types()`）：
-它吃掉了原来那 3 条"函数参数"里的 2 条（`sprite:Render` / `spriteObj:Render`），
-并顺带定案了 `entity:GetSprite`（原来卡在"按变量名汇总"上，`GridEntity:GetSprite` 被误当成缺口来源）。
-上面那条"回调/匿名函数实参"**不是"没建模"，是作者压根没写注解**，改不动。
-
-★ **批次 202 之后还剩的 6 条**（逐条实测，别再当"没做"）：
-**作者没写注解的形参** —— `bagPlayer:GetSprite`、`player:GetSprite`、`spriteObj:Update`；
-**契约把类型写成容器名**（`RoomDescriptor List`，两张表都查不到）—— `rooms:Get`、`lastRoomEntities:Get`；
-**模组表的二级字段没建模**（`EID.itemConfig:GetCollectible`）—— `item:IsAvailable`。
-
-★★ **上一条那两种来源读的是 `---` 开头的注解，而注解本身就是注释** ⇒ 它们**必须走
-`gap.lua_source_raw()`（读原文）**，不许跟着"调用点扫描"一起剥注释。一起剥会当场把三条
-"不是缺口"打回"待人工"（批次 202 实测：`not_a_gap` 18 → 15、`manual` 7 → 9），**属结论变坏**。
-判据在 `gap.lua_source_raw()` 的 docstring 与 `dist/change-archive-20260929/202-lua-comment-strip/`。
-
-## 用法
-
-    python3 tools/chain_owner_triage.py                  # 人读：逐条给结论与证据
-    python3 tools/chain_owner_triage.py --json           # 机器消费
-    python3 tools/chain_owner_triage.py --mod <目录>     # 换一个模组（默认 = 缺口报告那个默认模组）
+结合 PC 契约中的返回类型、局部变量赋值、类型标注及模组函数返回值，
+细化 mod_api_gap_report 的同名方法候选。不确定的接收者保留为未解析，
+避免将推断结果当成已验证的兼容性结论。
 """
 
 from __future__ import annotations
@@ -86,14 +23,14 @@ import mod_api_gap_report as gap  # noqa: E402  （候选 owner 与"运行时实
 CONTRACT_DIR = ROOT / "tools" / "pc_contract_docs"
 
 #: 契约页里的签名行：`#### [ReturnType](X.md) Name ( args )` / `#### ReturnType Name ( args )`。
-#: ★ 这里要的是**类型名**，签名行就是权威（AGENTS.md 那条"形状要读正文"讲的是**取值形状**，两者不冲突）。
+#: 这里要的是类型名，签名行就是权威（AGENTS.md 那条"形状要读正文"讲的是取值形状，两者不冲突）。
 SIGNATURE_RE = re.compile(
     r"^####\s+(?:\[([^\]]+)\]\([^)]*\)|([A-Za-z_]\w*))\s+([A-Za-z_]\w*)\s*\(")
 
 #: 根是**构造式全局函数**：返回值类型就是函数名本身。
-#: ★ `RegisterMod` 是同一形状（PC 契约：`RegisterMod ( string Name, int APIversion )` → `Mod`）——
+#: `RegisterMod` 是同一形状（PC 契约：`RegisterMod ( string Name, int APIversion )` → `Mod`）——
 #: 模组开头那句 `EID = RegisterMod("…", 1)` 就把 `EID` 定成了 `Mod`，于是 `EID:AddCallback`
-#: 就是 `Mod:AddCallback`（批次 179 补；不补的话它会被当成"同名多 owner"的假缺口挂在那）。
+#: 就是 `Mod:AddCallback`（补；不补的话它会被当成"同名多 owner"的假缺口挂在那）。
 GLOBAL_CALL_TYPES = {
     "Game": "Game", "Level": "Level", "Room": "Room", "Vector": "Vector", "Color": "Color",
     "RNG": "RNG", "ItemPool": "ItemPool", "Font": "Font", "Sprite": "Sprite",
@@ -105,9 +42,9 @@ GLOBAL_VALUE_TYPES = {"Isaac": "Isaac"}
 MEMBER_RE = re.compile(r"\s*([A-Za-z_][A-Za-z0-9_]*)")
 IDENT_CALL_RE = re.compile(r"\b([A-Za-z_][A-Za-z0-9_]*)\s*([:.])\s*([A-Za-z_][A-Za-z0-9_]*)")
 
-#: 赋值行的**两种**形状（2026-09-28 批次 179 补齐）。
+#: 赋值行的两种形状（2026-09-28 补齐）。
 #:
-#: ★ 表达式的窗口**必须止于本行**（`[^\n]`）。原来写的是 `.{0,300}` + `re.S`，那是**贪婪跨行**的：
+#: 表达式的窗口必须止于本行（`[^\n]`）。原来写的是 `.{0,300}` + `re.S`，那是贪婪跨行的：
 #: 同一条 `local` 会把后面一大段（含紧跟着的好几条 `local`）一并吞掉，而 `finditer` 是从**吞掉之后**
 #: 的位置继续扫的 ⇒ **后面那几条定义被静默漏掉**。实测：`local hudBBSprite = Sprite()` 正好夹在
 #: `local ArrowSprite = Sprite()` 的 300 字窗口里，一直没被定型。
@@ -118,7 +55,7 @@ LOCAL_RE = re.compile(r"\blocal\s+([A-Za-z_][A-Za-z0-9_]*)\s*=(?!=)\s*([^\n]{0,3
 #: 绑定口径 = 取**最后一个字段名**，与本模块"按名字绑定"的既有口径一致（本模块不做作用域分析）；
 #: 绑错的会在 `triage()` 那一步被"定出的类型必须在该行的候选 owner 里"筛掉。
 #:
-#: ★ 分隔符一律用 `[ \t]`（**不是 `\s`**）：`\s` 含换行，会把"上一行句末的 `.` + 下一行的 `X =`"
+#: 分隔符一律用 `[ \t]`（不是 `\s`）：`\s` 含换行，会把"上一行句末的 `.` + 下一行的 `X =`"
 #:   拼成一次假的字段赋值。2026-09-28 实测踩到过 —— `main.lua` 第 1 行以 `one.` 收尾、第 2 行是
 #:   `EID = RegisterMod(…)`，于是绑出了 `EID → Mod`（结论碰巧是对的，但那条匹配是错的，早晚咬人）。
 FIELD_RE = re.compile(
@@ -126,14 +63,14 @@ FIELD_RE = re.compile(
 
 #: `X = <表达式>` —— **裸全局赋值**（既没有 `local`、也没有 `表.` 前缀）。
 #: 模组开头那句 `EID = RegisterMod("…", 1)` 就是它：`EID` 从此是个 `Mod`。
-#: ★ 必须锚在**行首**（`re.M`）：不然 `EID.CursorSprite = Sprite()` 里的 `CursorSprite = Sprite()`
+#: 必须锚在行首（`re.M`）：不然 `EID.CursorSprite = Sprite()` 里的 `CursorSprite = Sprite()`
 #:   也会被这一条抓走 —— 虽然结论一样，但那说明两条正则在互相抢，早晚出错。
 GLOBAL_ASSIGN_RE = re.compile(
     r"^[ \t]*([A-Za-z_][A-Za-z0-9_]*)[ \t]*=(?!=)[ \t]*([^\n]{0,300})", re.M)
 
 
 # =====================================================================================
-# 第五种来源（2026-09-28 批次 186）：模组自己写的 **LuaLS 类型注解**
+# 第五种来源（2026-09-28 ）：模组自己写的 LuaLS 类型注解
 # =====================================================================================
 #
 # 为什么加：前四种来源（全局表 / 构造式全局调用 / 已知根 + 方法链 / 赋值形状）都推不出
@@ -141,7 +78,7 @@ GLOBAL_ASSIGN_RE = re.compile(
 # 模组作者自己写了注解（`---@param entity Entity`），那不是"猜"：它点名到文件:行号、
 # 是作者对契约的声明，与前面几种来源一样可复核。
 #
-# ★★ 口径（与前面几种**刻意不同**的一点，是这一批最重要的一条）：
+# 口径（与前面几种刻意不同的一点，是这一批最重要的一条）：
 #   注解是**函数作用域**的，必须**按"调用点落在哪个函数体内"**取，
 #   **不许**像前几种来源那样"按变量名全文件汇总"。
 #   实测（EID）：`entityPlayer` 这个名字在两个不同函数里出现 ——
@@ -161,7 +98,7 @@ LUA_FUNCTION_RE = re.compile(
 LUA_PARAM_ANNOTATION_RE = re.compile(
     r"^[ \t]*---[ \t]*@param[ \t]+([A-Za-z_][A-Za-z0-9_]*)(\?)?[ \t]+([^\n]+)$")
 
-#: `---@return 类型1, 类型2, …`（2026-09-29 批次 197 新增，**第六种来源**：模组自己函数的返回值）。
+#: `---@return 类型1, 类型2, …`（2026-09-29 新增，第六种来源：模组自己函数的返回值）。
 #: 与 `@param` 一样保留**整行原文**，切分与退化交给 `_return_types_of()`。
 LUA_RETURN_ANNOTATION_RE = re.compile(r"^[ \t]*---[ \t]*@return[ \t]+([^\n]+)$")
 
@@ -175,7 +112,7 @@ LOCAL_MULTI_RE = re.compile(
 #: 右边是"一次普通调用"：`<根>[:.]<方法>(`。用来把 `local a, b = EID:Foo(…)` 认成"模组自己的函数调用"。
 PLAIN_CALL_RE = re.compile(r"^[ \t]*([A-Za-z_][A-Za-z0-9_]*)\s*[:.]\s*([A-Za-z_][A-Za-z0-9_]*)\s*\(")
 
-#: **循环变量**（2026-09-29 批次 197）：`for <k>, <v> in ipairs(<表达式>) do`。
+#: 循环变量（2026-09-29 ）：`for <k>, <v> in ipairs(<表达式>) do`。
 #: 表达式那段用**括号配对**取（不用正则里的 `.*?` —— 表达式里还有一层 `FindByType(…)` 的括号）。
 #: 口径：`ipairs/pairs` 遍历的是数组 ⇒ **元素类型 = 那个表达式在契约页上的返回类型**
 #: （契约把数组写成 `X[]`，而签名正则取到的就是 `X`，正好是元素类型）。
@@ -186,7 +123,7 @@ LUA_FOR_IN_RE = re.compile(
 
 #: Lua 关键字 / 结构词（块扫描用）。
 _LUA_WORD_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
-#: ★ 会开一个块的词。**`for` / `while` 不在这里** —— 它们的块由后面那个 `do` 开
+#: 会开一个块的词。`for` / `while` 不在这里 —— 它们的块由后面那个 `do` 开
 #: （`for i = 1, n do … end` 里 `end` 与 `do` 配对，不是与 `for`）；
 #: 所以 `do` 必须**无条件**入栈，`for` / `while` 只是它的前导。
 _LUA_BLOCK_OPENERS = ("do", "if", "function", "repeat")
@@ -194,7 +131,7 @@ _LUA_BLOCK_OPENERS = ("do", "if", "function", "repeat")
 _LUA_BLOCK_CLOSERS = ("end", "until")
 
 #: Lua 保留字（判断"注解的类型词是不是垃圾"时用来挡 `nil` / `function` / `not` 这类）。
-#: ★ 只放**关键字**，不放类型名（`any` / `integer` / `string`）—— 类型名会随 PC 侧演化，
+#: 只放关键字，不放类型名（`any` / `integer` / `string`）—— 类型名会随 PC 侧演化，
 #: 在这里维护一张名单早晚过期；它们由 `triage()` 的"类型必须在候选 owner 里"自然筛掉。
 _LUA_RESERVED = frozenset((
     "and", "break", "do", "else", "elseif", "end", "false", "for", "function", "goto",
@@ -290,7 +227,7 @@ def lua_function_param_types(path: pathlib.Path) -> list[tuple[int, int, dict[st
 
     ★★ 配不平（`lua_function_spans` 的第二个返回值非 0）⇒ **返回空表**：这份文件一条注解都不用。
     """
-    # ★ 读**原文**，不剥注释：本函数要的是 `---@param` 注解，而注解本身就是注释
+    # 读原文，不剥注释：本函数要的是 `---@param` 注解，而注解本身就是注释
     #   （理由与实测回归见 `gap.lua_source_raw()` 的 docstring）。
     text = gap.lua_source_raw(path)
     lines = text.splitlines()
@@ -362,7 +299,7 @@ def annotation_types_of(raw: str) -> tuple[str, list[str]]:
     if head is None:
         return "", []
     word = head.group(0)
-    # ★ 首词必须是**标识符且不是 Lua 关键字** —— 把 `nil` / `function` / `not` 这类挡住。
+    # 首词必须是标识符且不是 Lua 关键字 —— 把 `nil` / `function` / `not` 这类挡住。
     #   形状不对的词（`any`、`integer`、`string`、`number`）不在关键字表里，由 `triage()`
     #   那一步"类型必须在候选 owner 里"自然筛掉，不在这里维护一张会过期的名单。
     if word in _LUA_RESERVED:
@@ -490,7 +427,7 @@ def mod_function_return_types(path: pathlib.Path) -> dict[str, list[str]]:
          `@return` 描述的是**被调用函数本身**，与"在哪一行调用"无关 ⇒ 不需要作用域约束。
       ② 文件块配不平就整份不用（与 `lua_function_param_types()` 同一道闸）。
     """
-    # ★ 读**原文**：要取的是 `---@return`，它写在注释里（同 `lua_function_param_types()`）。
+    # 读原文：要取的是 `---@return`，它写在注释里（同 `lua_function_param_types()`）。
     text = gap.lua_source_raw(path)
     lines = text.splitlines()
     _, unbalanced = lua_function_spans(text)
@@ -556,9 +493,9 @@ def resolve_variable_types(mod: pathlib.Path) -> dict[str, dict[str, list[str]]]
     for path in sorted(mod.rglob("*.lua")):
         text = gap.lua_source(path)
         locals_: dict[str, str] = {}
-        # ★ 第六种来源（批次 197）：模组自己函数的声明返回值 —— 按函数名建一份小表。
+        # 第六种来源：模组自己函数的声明返回值 —— 按函数名建一份小表。
         mod_returns = mod_function_return_types(path)
-        # ★ 三种赋值形状要**按文件里的先后顺序**处理（同一条链上后面的赋值可能用到前面的变量），
+        # 三种赋值形状要按文件里的先后顺序处理（同一条链上后面的赋值可能用到前面的变量），
         #   所以先收集再排序，而不是一种形状扫完再扫下一种。
         assignments: list[tuple[int, str, str]] = []
         for match in LOCAL_RE.finditer(text):
@@ -573,7 +510,7 @@ def resolve_variable_types(mod: pathlib.Path) -> dict[str, dict[str, list[str]]]
                 locals_[variable] = resolved
                 types[variable][resolved].append(f"{path.name}:{_line_of(text, position)}")
 
-        # ★ 多返回值：`local a, b = EID:PlayersHaveCollectible(710)`（批次 197 新增）。
+        # 多返回值：`local a, b = EID:PlayersHaveCollectible(710)`（新增）。
         #   右边是**模组自己**的函数 ⇒ 前四种来源都推不动；作者写了 `---@return` 才定得出来。
         #   按位置取（第 2 个变量拿第 2 个返回类型），类型仍是"必须在候选 owner 里"才被采用。
         for match in LOCAL_MULTI_RE.finditer(text):
@@ -590,9 +527,9 @@ def resolve_variable_types(mod: pathlib.Path) -> dict[str, dict[str, list[str]]]
                 locals_[name] = declared[index]
                 types[name][declared[index]].append(evidence)
 
-        # ★ 循环变量：`for _, crane in ipairs(Isaac.FindByType(…)) do`（批次 197 新增）。
+        # 循环变量：`for _, crane in ipairs(Isaac.FindByType(…)) do`（新增）。
         #   元素类型优先查**数组元素类型表**（契约里写成 `X[]` 的那些），查不到再退回普通定型。
-        #   ★ 契约里写成"容器名"的（`Level:GetRooms()` → `RoomDescriptor List`）两张表都没有它，
+        #   契约里写成"容器名"的（`Level:GetRooms()` → `RoomDescriptor List`）两张表都没有它，
         #     会自然留在待人工 —— 与其它来源同一条口径：**推不出就不写**。
         for match in LUA_FOR_IN_RE.finditer(text):
             variable = match.group(2)
@@ -655,8 +592,8 @@ def _type_of_expression(expression: str, locals_: dict[str, str],
     if root in GLOBAL_VALUE_TYPES or locals_.get(root) is not None:
         current = GLOBAL_VALUE_TYPES.get(root) or locals_[root]
     elif root in GLOBAL_CALL_TYPES:
-        # ★ 规则②：构造式全局调用。★ 它以前**只写在文档里**（`GLOBAL_CALL_TYPES` 是个从没被读过的
-        #   死常量），所以 `local s = Sprite()` 一直定不出类型 —— 批次 179 补上。
+        # 规则②：构造式全局调用。它以前只写在文档里（`GLOBAL_CALL_TYPES` 是个从没被读过的
+        #   死常量），所以 `local s = Sprite()` 一直定不出类型 —— 补上。
         cursor = gap._skip_blank(stripped, cursor)
         if not (cursor < len(stripped) and stripped[cursor] == "("):
             return ""       # 只写了函数名、没调用 ⇒ 不猜
@@ -724,7 +661,7 @@ def triage(mod: pathlib.Path | None = None) -> dict:
             decided[owner] = where
             evidence.extend(f"{receiver} = {owner} ← {place}" for place in where)
         if not decided:
-            # ★ 第五种来源（批次 186）：模组自己写的 `---@param` 注解。
+            # 第五种来源：模组自己写的 `---@param` 注解。
             #   ① 只有前四种来源**一条都没定出来**时才用它 —— 赋值推出来的类型是"这段代码实际
             #      发生了什么"，比作者写的声明更硬；两者冲突时以赋值为准。
             #   ② 采用口径与前面完全一致：**类型必须在该行的候选 owner 里**，否则不采用
@@ -732,7 +669,7 @@ def triage(mod: pathlib.Path | None = None) -> dict:
             #   ③ **联合类型不采用**（`Entity | GridEntity` ⇒ 一个都不用）。两种"替模组做主"的
             #      写法都要拦：取第一个词会让真实缺口静默消失；取并集会在模组自己都没说死类型时
             #      把"可能"报成"就是"。这条判据的选择直接决定结论 ⇒ 分诊器无权替它选，退回待人工。
-            #      ★ 实测（EID）：`entity:GetSprite` 若采用联合的 `GridEntity` 成员就会被报成
+            #      实测（EID）：`entity:GetSprite` 若采用联合的 `GridEntity` 成员就会被报成
             #      "真缺口"，可那些调用点其实都在 `EID:IsGridEntity(entity)` 的**排除分支之后** ——
             #      一条假缺口。它另有单类型注解（`main.lua:919` 的 `@param entity Entity`）⇒ 照常定案。
             #      证据里留一行说明"看见过联合、没采用"，免得日后有人以为漏了。

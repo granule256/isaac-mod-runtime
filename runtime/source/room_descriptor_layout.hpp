@@ -43,7 +43,7 @@ inline constexpr std::uintptr_t kRoomDescriptorDataTypeWidth = 4;
 inline constexpr std::uintptr_t kRoomDescriptorDataOffset = 0x10;
 inline constexpr std::uintptr_t kRoomDescriptorDataWidth = 8;
 
-// 房间定义里的**门位掩码**（PC 侧 `RoomConfig::Room.Doors`：`DoorSlotFlag` 的 `LEFT0 = 1 << DoorSlot.LEFT0` … `DOWN1 = 1 << DoorSlot.DOWN1`，见 `analysis/isaacdocs-snapshot/docs/RoomConfig_Room.md:29`）。★ 与同一张表里描述符 `+0x20` 的 `AllowedDoors`（**运行时**那一份，由 `Level::precalc_allowed_doors` 现算）**不是同一格**：这一格是 XML 定义里『哪些门位合法』，与门此刻在不在无关 ⇒ `Room:IsDoorSlotAllowed(Slot)` 读的就是它（PC 在 `Data+0x38`，Switch 在 `Data+0x40`，**不许平移**）（confirmed，相对 Data）
+// 房间定义里的门位掩码（PC 侧 `RoomConfig::Room.Doors`：`DoorSlotFlag` 的 `LEFT0 = 1 << DoorSlot.LEFT0` … `DOWN1 = 1 << DoorSlot.DOWN1`，见 `analysis/isaacdocs-snapshot/docs/RoomConfig_Room.md:29`）。与同一张表里描述符 `+0x20` 的 `AllowedDoors`（运行时那一份，由 `Level::precalc_allowed_doors` 现算）不是同一格：这一格是 XML 定义里『哪些门位合法』，与门此刻在不在无关 ⇒ `Room:IsDoorSlotAllowed(Slot)` 读的就是它（PC 在 `Data+0x38`，Switch 在 `Data+0x40`，不许平移）（confirmed，相对 Data）
 //   证据：0x003d6a14 —— x9 = [x20+0x10] = Data（0x3D6A08）；本条 `ldr x9,[x9,#0x40]` 之后 0x3D6A18 `tst x9,x8`、x8 = `1 << 门位`（0x3D6A0C `lsl x8,x12,x24`，x24 走 0..7）⇒ 引擎自己就是按门位逐位测这张掩码
 //   证据：0x003d8254 —— x9 = [x0+0x10] = Data（0x3D824C，x0 是 `Level::GetRoomByIdx` 的返回值）；0x3D8258 `lsr x8,x8,x19`（x19 = 门位）→ 0x3D825C `tbz w8,#0x0` ⇒ 函数名即语义：『这个方向有没有门』。x9 真是 Data 的旁证 = 同函数 0x3D8288 `ldr w11,[x9,#0x5c]` 读的是本表已确认的 `Data.Shape`
 //   证据：0x00464d44 —— 先 0x464D40 `ldr x9,[x8,#0x10]`（描述符 x8 → Data）再本条；0x464D48 `tst x9,x10`（x10 = `1 << 门位`，门位由 0x464D28 `mov w1,#0x8` 之后的 `RNG::Random(8)` 抽）通过之后，才在 0x464D60 去测描述符 `+0x20` 的**运行时**掩码 ⇒ 这一处把两格的先后关系写死了
@@ -53,8 +53,8 @@ inline constexpr std::uintptr_t kRoomDescriptorDataDoorsOffset = 0x40;
 inline constexpr std::uintptr_t kRoomDescriptorDataDoorsWidth = 8;
 
 // PC 的 `RoomDescriptor.DisplayFlags`：**小地图可见性位掩码**（位0 = Visible 可见、位1 = Room Shadow 房间阴影、位2 = Show Icon 显示图标；PC 文档 `RoomDescriptor.md:66`）。⚠️ 与相邻的 `Flags`(+0x50) 是**两个字段**：`Flags` 是玩法标志（位0 = Clear），这一格只管『画不画到小地图上』（confirmed）
-//   证据：0x003d923c —— ★ 取值锚点（函数名即语义：`Level::try_display_room` = 『尝试让房间显示』）：0x003d923c 读该格 → 0x003d9240 `mov w22, #0x5` → 0x003d9244 `orr w8, w8, w22` → 0x003d9248 写回 ⇒ 一次置起**位0与位2**，正是 PC 文档的 `Visible | Show Icon`
-//   证据：0x003d9318 —— ★ 第二个取值锚点：0x003d9318 读该格 → 0x003d931c `orr w8, w8, #0x3` ← 置起**位0与位1**（`Visible | Room Shadow`）→ 0x003d9320 写回同一格 ⇒ 位1 有独立含义，一个布尔字段容纳不下
+//   证据：0x003d923c —— 取值锚点（函数名即语义：`Level::try_display_room` = 『尝试让房间显示』）：0x003d923c 读该格 → 0x003d9240 `mov w22, #0x5` → 0x003d9244 `orr w8, w8, w22` → 0x003d9248 写回 ⇒ 一次置起位0与位2，正是 PC 文档的 `Visible | Show Icon`
+//   证据：0x003d9318 —— 第二个取值锚点：0x003d9318 读该格 → 0x003d931c `orr w8, w8, #0x3` ← 置起位0与位1（`Visible | Room Shadow`）→ 0x003d9320 写回同一格 ⇒ 位1 有独立含义，一个布尔字段容纳不下
 //   证据：0x003d95fc —— 第三处独立使用：0x003d95fc 读 → 0x003d9600 `mov w9, #0x5` → 0x003d9604 `orr` → 0x003d9608 写回 ⇒ 同一函数里 0x3 / 0x5 两种掩码都落在这 4 字节上
 //   证据：真机读数 dist/room-probe-C.json 的 slot9 +0x48 —— 真机：grid 72 这间房在地图上变得可见时该格 = 5（位0|位2）；同一行 `VisitedCount`=0、`Flags`=0x0 ⇒ 它与『清房/访问次数』互不影响，只跟可见性走
 //   证据：真机读数 dist/room-probe-A3.json 的 slot9 +0x48 —— 真机（更早的一次同一存档）：grid 72 那间房还没上地图 ⇒ 该格 = 0。与上一条构成 0→5 的转变
@@ -73,15 +73,15 @@ inline constexpr std::uintptr_t kRoomDescriptorVisitedCountWidth = 4;
 inline constexpr std::uintptr_t kRoomDescriptorClearOffset = 0x50;
 inline constexpr std::uintptr_t kRoomDescriptorClearWidth = 4;
 
-// PC 的 `RoomDescriptor.Flags`：**32 位位掩码**（不是布尔）。低六位分别是 `FLAG_CLEAR`=bit0、`PRESSURE_PLATES_TRIGGERED`=bit1、`SACRIFICE_DONE`=bit2、`CHALLENGE_DONE`=bit3、`SURPRISE_MINIBOSS`=bit4、`HAS_WATER`=bit5；更高位另有用途（bit10 显房、bit16 Rotgut 已清）。★ 与本表 `Clear` 行是**同一个偏移**：`Clear` 只是它的第 0 位（旧实现按『非零即真』读，会把 bit3/bit10/bit16 也算成清房，现在按 PC 契约只看 bit0）（confirmed）
+// PC 的 `RoomDescriptor.Flags`：32 位位掩码（不是布尔）。低六位分别是 `FLAG_CLEAR`=bit0、`PRESSURE_PLATES_TRIGGERED`=bit1、`SACRIFICE_DONE`=bit2、`CHALLENGE_DONE`=bit3、`SURPRISE_MINIBOSS`=bit4、`HAS_WATER`=bit5；更高位另有用途（bit10 显房、bit16 Rotgut 已清）。与本表 `Clear` 行是同一个偏移：`Clear` 只是它的第 0 位（旧实现按『非零即真』读，会把 bit3/bit10/bit16 也算成清房，现在按 PC 契约只看 bit0）（confirmed）
 //   证据：0x0036ffc0 —— 存档读取：`add x1, x23, #0x50` 把 desc+0x50 当**对象地址**交给读通道，紧随 0x36FFC4 `mov w2, #0x4` ⇒ 按 4 字节读（旧存档格式 <0x3f 时改走『六次 ldr/orr #1|2|4|8|0x10|0x20/str』把六个布尔合成低六位 ⇒ 低六位确实都是独立位）
 //   证据：0x0036889c —— 存档写回：`ldr w8, [x19, #0x50]` 同样按 4 字节读同一个字段（同函数 0x368884 也把 desc+0x50 交给写通道）
 //   证据：0x0046ac68 —— 第三处独立读取：`ldr w8, [x0, #0x50]`，其中 x0 是上一条 `bl` 返回的**当前房间描述符** —— 同函数 0x46AC54 `ldr x8, [x0, #0x10]`（本表 `Data` 行）+ 0x46AC5C `ldr w8, [x8, #0x8]`（`Data.Type`，本表 `Data.Type` 行）`cmp #0x5`（ROOM_BOSS）⇒ 只有 BOSS 房才置位，反证 x0 就是 RoomDescriptor
-//   证据：0x003e6c50 —— ★ 取值锚点：该函数用 `tbnz w9, #0x3` 单独测 **bit3**（`CHALLENGE_DONE`）—— 一个布尔字段容不下『第 3 位有独立含义』这件事 ⇒ 它是位掩码
-//   证据：0x0046ac70 —— ★ 第二个取值锚点：参数为真时 `orr w8, w8, #0x10000` 置 **bit16**，为假时 0x46AC78 `and w8, w8, #0xfffeffff` 清它，再 0x46AC7C `str w8, [x0, #0x50]` 写回 —— `1<<16` 更不可能是布尔
-//   证据：0x0047f044 —— ★ 批次 291（2026-10-02）补的**第三处独立读者**：`ldr x8, [x0, #0x8]`（本对象里的描述符指针）+ 本条 `ldrb w8, [x8, #0x50]` —— 同一函数在 0x47F030 先读 `[x0, #0x21b0]`（内嵌 `Backdrop` 的 `eBackdrop`）与 `0x20`（= `BACKDROP_WATER`）比较，两条合起来就是『这是水层房间、且这一位置着』才走水坑渲染
-//   证据：0x0047f048 —— ★ **第三个取值锚点（bit5 = `HAS_WATER`）**：本条 `tbz w8, #0x5` —— 位没置就直接跳到函数尾、**不渲染水坑**。函数名（`pre_render_pits` = 画坑之前）与这条判据一起把『这间房的坑里有没有水』钉在 bit5 上
-//   证据：0x0047f6c4 —— ★ 第四处独立读者（与 `pre_render_pits` **逐字同形**的写法）：`ldr x8, [x21, #0x8]`（描述符）+ 本条 `ldrb w8, [x8, #0x50]`，紧接着 0x47F6C8 `tbz w8, #0x5` 位没置就不渲染水面 ⇒ 两个不同函数、同一个位、同一个语义
+//   证据：0x003e6c50 —— 取值锚点：该函数用 `tbnz w9, #0x3` 单独测 bit3（`CHALLENGE_DONE`）—— 一个布尔字段容不下『第 3 位有独立含义』这件事 ⇒ 它是位掩码
+//   证据：0x0046ac70 —— 第二个取值锚点：参数为真时 `orr w8, w8, #0x10000` 置 bit16，为假时 0x46AC78 `and w8, w8, #0xfffeffff` 清它，再 0x46AC7C `str w8, [x0, #0x50]` 写回 —— `1<<16` 更不可能是布尔
+//   证据：0x0047f044 —— 补的第三处独立读者：`ldr x8, [x0, #0x8]`（本对象里的描述符指针）+ 本条 `ldrb w8, [x8, #0x50]` —— 同一函数在 0x47F030 先读 `[x0, #0x21b0]`（内嵌 `Backdrop` 的 `eBackdrop`）与 `0x20`（= `BACKDROP_WATER`）比较，两条合起来就是『这是水层房间、且这一位置着』才走水坑渲染
+//   证据：0x0047f048 —— 第三个取值锚点（bit5 = `HAS_WATER`）：本条 `tbz w8, #0x5` —— 位没置就直接跳到函数尾、不渲染水坑。函数名（`pre_render_pits` = 画坑之前）与这条判据一起把『这间房的坑里有没有水』钉在 bit5 上
+//   证据：0x0047f6c4 —— 第四处独立读者（与 `pre_render_pits` 逐字同形的写法）：`ldr x8, [x21, #0x8]`（描述符）+ 本条 `ldrb w8, [x8, #0x50]`，紧接着 0x47F6C8 `tbz w8, #0x5` 位没置就不渲染水面 ⇒ 两个不同函数、同一个位、同一个语义
 inline constexpr std::uintptr_t kRoomDescriptorFlagsOffset = 0x50;
 inline constexpr std::uintptr_t kRoomDescriptorFlagsWidth = 4;
 
@@ -89,27 +89,27 @@ inline constexpr std::uintptr_t kRoomDescriptorFlagsWidth = 4;
 //   证据：0x0048f6ec —— XML 房间表解析：`str w0, [x20, #0x5c]` 存的是紧邻上一条 0x48F6E8 `bl atoi` 的返回值（该组件自己的属性名就是 `shape`）；相邻的 `strb …, #0x5b`/`#0x5a` 是 height/width（**1 字节**）⇒ 这一格按 4 字节写，不可能是宽高
 //   证据：0x00491774 —— 二进制房间表加载器：`str w8, [x20, #0x5c]!`（后索引写，同样 4 字节）
 //   证据：0x0045f97c —— 进房间初始化：`ldr w8, [x8, #0x5c]`，其中 x8 由 0x45F974 `ldr x8, [x19, #0x8]` + 0x45F978 `ldr x8, [x8, #0x10]` 得到（描述符的 `Data`，本表 `Data` 行）⇒ 这一格确实在 `Data` 指向的对象里
-//   证据：0x0045f980 —— ★ 取值锚点：读到之后 `sub w8, w8, #0x9` + `cmp w8, #0x3` + `b.hi`（不命中就跳过一整段特判）⇒ 只有 **9..12** 四个取值走 L 形房间的特判，与 PC 的 `RoomShape`（9..12 正好是四个 L 形）逐值吻合 ⇒ 这一格是形状枚举
-//   证据：0x00484544 —— ★ 批次 290（2026-10-02）补的**具名读者**：整个函数（0x48453C..0x484557，28 字节）就是 `ldr x8,[x0,#0x8]` → `ldr x8,[x8,#0x10]` → `ldr w8,[x8,#0x5c]` 三跳 + `sub #0x9` + `cmp #0x4` + `cset w0,lo` + `ret` —— 函数名即语义（『这个房间是不是 L 形』），而 L 形正好是形状枚举的 9..12 ⇒ 这两跳+这一格就是 `Room:GetRoomShape()` 要读的东西（PC 侧的 `Room:GetRoomShape @ 0x444C30` 是 `[ecx+0x4]` → `[eax+0x10]` → `[eax+0x48]`，同一形状、同一跳数）
-//   证据：0x00484548 —— ★ 取值锚点（第二条独立锚点）：`sub w8, w8, #0x9` 之后 `cmp w8, #0x4` + `cset w0, lo` ⇒ 真值当且仅当形状 ∈ **9..12**，与 `RoomShape` 的 `ROOMSHAPE_LTL/LTR/LBL/LBR`（9/10/11/12）四个 L 形逐值相等
-//   证据：0x00484590 —— ★ 第三个具名读者（同一函数在 0x484584/0x48458C 走同一条两跳链）：`ldr w8, [x8, #0x5c]` 取到形状后拿去索引一张 `lsl #5`（32 字节一项）的静态表算 L 形房间的分区描述
-//   证据：0x00484594 —— ★ 同一锚点的另一半：`sub w9, w8, #0x9` + `cmp w9, #0x3` + `b.hi`（越界直接走非 L 形分支）⇒ 形状的**有效区间是 9..12**，与 `IsLShapedRoom` 那条逐值一致
+//   证据：0x0045f980 —— 取值锚点：读到之后 `sub w8, w8, #0x9` + `cmp w8, #0x3` + `b.hi`（不命中就跳过一整段特判）⇒ 只有 9..12 四个取值走 L 形房间的特判，与 PC 的 `RoomShape`（9..12 正好是四个 L 形）逐值吻合 ⇒ 这一格是形状枚举
+//   证据：0x00484544 —— 补的具名读者：整个函数（0x48453C..0x484557，28 字节）就是 `ldr x8,[x0,#0x8]` → `ldr x8,[x8,#0x10]` → `ldr w8,[x8,#0x5c]` 三跳 + `sub #0x9` + `cmp #0x4` + `cset w0,lo` + `ret` —— 函数名即语义（『这个房间是不是 L 形』），而 L 形正好是形状枚举的 9..12 ⇒ 这两跳+这一格就是 `Room:GetRoomShape()` 要读的东西（PC 侧的 `Room:GetRoomShape @ 0x444C30` 是 `[ecx+0x4]` → `[eax+0x10]` → `[eax+0x48]`，同一形状、同一跳数）
+//   证据：0x00484548 —— 取值锚点（第二条独立锚点）：`sub w8, w8, #0x9` 之后 `cmp w8, #0x4` + `cset w0, lo` ⇒ 真值当且仅当形状 ∈ 9..12，与 `RoomShape` 的 `ROOMSHAPE_LTL/LTR/LBL/LBR`（9/10/11/12）四个 L 形逐值相等
+//   证据：0x00484590 —— 第三个具名读者（同一函数在 0x484584/0x48458C 走同一条两跳链）：`ldr w8, [x8, #0x5c]` 取到形状后拿去索引一张 `lsl #5`（32 字节一项）的静态表算 L 形房间的分区描述
+//   证据：0x00484594 —— 同一锚点的另一半：`sub w9, w8, #0x9` + `cmp w9, #0x3` + `b.hi`（越界直接走非 L 形分支）⇒ 形状的有效区间是 9..12，与 `IsLShapedRoom` 那条逐值一致
 inline constexpr std::uintptr_t kRoomDescriptorDataShapeOffset = 0x5C;
 inline constexpr std::uintptr_t kRoomDescriptorDataShapeWidth = 4;
 
-// **这间房的「装饰种子」**：引擎用它驱动房间的**背景/装饰**生成（地板花纹、墙面细节一类）。PC 侧 `Room:GetDecorationSeed()` 读的就是这一格（PC 在 `descriptor+0x58`）。★★ 最硬的证据是 `Room::LoadBackdropGraphics`：同一段里先 `ldr x8,[x20,#0x8]` 把**描述符**取进 x8，紧接着 `ldr w1,[x8,#0x64]` 再 `bl Backdrop::SetSeed` —— 这一格就是喂给**背景对象**的种子。★ `Room::Init` 还用它建了两个 `RNG(seed, 用途)`（用途 6 与 35）；★ `GameState::write_Room` 把它**序列化**进存档（种子必须持久：读档后同一间房要长回原样）。★ PC 的绑定本体（`0x4977F0`）是 `mov eax,[ecx+4]`（描述符）→ **为空则直接返回 0** → `mov eax,[eax+0x58]` ⇒ 降级值 0 有据。（confirmed）
-//   证据：0x0045abf4 —— ★★ **决定性读者**：0x45ABEC `ldr x8,[x20,#0x8]`（描述符）→ `ldr w1,[x8,#0x64]` → 0x45AC04 `bl Backdrop::SetSeed` ⇒ 这一格是**背景（装饰）的种子**；基址在同一段里就定死了，不靠推测
+// 这间房的「装饰种子」：引擎用它驱动房间的背景/装饰生成（地板花纹、墙面细节一类）。PC 侧 `Room:GetDecorationSeed()` 读的就是这一格（PC 在 `descriptor+0x58`）。最硬的证据是 `Room::LoadBackdropGraphics`：同一段里先 `ldr x8,[x20,#0x8]` 把描述符取进 x8，紧接着 `ldr w1,[x8,#0x64]` 再 `bl Backdrop::SetSeed` —— 这一格就是喂给背景对象的种子。`Room::Init` 还用它建了两个 `RNG(seed, 用途)`（用途 6 与 35）；`GameState::write_Room` 把它序列化进存档（种子必须持久：读档后同一间房要长回原样）。PC 的绑定本体（`0x4977F0`）是 `mov eax,[ecx+4]`（描述符）→ 为空则直接返回 0 → `mov eax,[eax+0x58]` ⇒ 降级值 0 有据。（confirmed）
+//   证据：0x0045abf4 —— 决定性读者：0x45ABEC `ldr x8,[x20,#0x8]`（描述符）→ `ldr w1,[x8,#0x64]` → 0x45AC04 `bl Backdrop::SetSeed` ⇒ 这一格是背景（装饰）的种子；基址在同一段里就定死了，不靠推测
 //   证据：0x0045ccdc —— **第二处读者**：`Room::Init` 用它建 `RNG(seed, 35)`（同一函数里还读 `[x20,#0x50]`/`[x20,#0x51]` = 描述符的 `Flags` ⇒ x20 就是描述符，基址确定）
 //   证据：0x003689a0 —— **序列化读者**：`GameState::write_Room` 逐个 `ldr w8,[x19,#偏移]` 后交给 `GameStateIO` —— 这一格在**会存档**的字段表里（`0x0/0x4/0x8/0xC/0x48/0x4C/0x50/0x58/0x60/0x64/0x68/0x6C/0x70`）⇒ 它必须持久（种子要能在读档后重现同一间房）
-//   证据：0x0045cce0 —— ★ **取值锚点**：`mov w2, #0x23`（35）—— `RNG::RNG(seed, 用途)` 的第二个实参（这一格专用于这一族用途），把它与「随机一个用途无关的数」区分开
+//   证据：0x0045cce0 —— 取值锚点：`mov w2, #0x23`（35）—— `RNG::RNG(seed, 用途)` 的第二个实参（这一格专用于这一族用途），把它与「随机一个用途无关的数」区分开
 inline constexpr std::uintptr_t kRoomDescriptorDecorationSeedOffset = 0x64;
 inline constexpr std::uintptr_t kRoomDescriptorDecorationSeedWidth = 4;
 
-// **这间房的「出怪种子」**：引擎用它驱动房间的**内容生成/随机挑格子**（`Room::Init` 里用它建 RNG 后挑一个房间内随机下标，**抽签次数还按 `Game::IsHardMode()` 加一** —— 硬核模式影响出怪，这一条本身就是「出怪侧」的语义证据）。PC 侧 `Room:GetSpawnSeed()` 读的就是这一格（PC 在 `descriptor+0x5C`）。★ 它与相邻的 `DecorationSeed`（`+0x64`）构成**种子对**，顺序与 PC 一致（装饰在前、出怪在后）。★ `GameState::write_Room` 也把它**序列化**（必须持久）。★ PC 的绑定本体（`0x4276D0`）同样是「描述符为空 ⇒ 返回 0」⇒ 降级值 0 有据。（confirmed）
+// 这间房的「出怪种子」：引擎用它驱动房间的内容生成/随机挑格子（`Room::Init` 里用它建 RNG 后挑一个房间内随机下标，抽签次数还按 `Game::IsHardMode()` 加一 —— 硬核模式影响出怪，这一条本身就是「出怪侧」的语义证据）。PC 侧 `Room:GetSpawnSeed()` 读的就是这一格（PC 在 `descriptor+0x5C`）。它与相邻的 `DecorationSeed`（`+0x64`）构成种子对，顺序与 PC 一致（装饰在前、出怪在后）。`GameState::write_Room` 也把它序列化（必须持久）。PC 的绑定本体（`0x4276D0`）同样是「描述符为空 ⇒ 返回 0」⇒ 降级值 0 有据。（confirmed）
 //   证据：0x0045cfb0 —— **具名读者**：`Room::Init` 里 `ldr w1,[x8,#0x68]` + `mov w2,#0x11`（17）建 RNG，紧接着 0x45CFC4 `bl Game::IsHardMode()`、按结果决定抽 1 次还是 2 次，再 `RNG::Next` + `Room::GetRandomTileIndex` 挑一个房间内随机下标存进房间字段 ⇒ 出怪侧
 //   证据：0x0045d280 —— **同一函数的第二处**：同样的 `ldr w1,[x8,#0x68]`（用途 61）—— 两处都拿它当种子，说明这一格是「这一族随机数的源头」
 //   证据：0x003689d4 —— **序列化读者**：与 `DecorationSeed` 同一张「会存档的字段表」里（相邻的两条 `ldr`）
-//   证据：0x0045cfb4 —— ★ **取值锚点**：`mov w2, #0x11`（17）—— 这一格专用的 RNG 用途号
+//   证据：0x0045cfb4 —— 取值锚点：`mov w2, #0x11`（17）—— 这一格专用的 RNG 用途号
 inline constexpr std::uintptr_t kRoomDescriptorSpawnSeedOffset = 0x68;
 inline constexpr std::uintptr_t kRoomDescriptorSpawnSeedWidth = 4;
 

@@ -161,7 +161,7 @@ Status EngineDirectoryAdapter::ListSubdirectories(std::string_view relativePath,
     // 必须传**分配起点**（返回值 - 8），不能用返回值直接释放 —— 那会踩坏游戏线程本地堆
     // 的空闲链表，症状是几层调用之后在一次不相干的分配里 Data Abort（真机见续三十七）。
     //
-    // ★ `EXL_LEGACY_DIRECTORY_BLOCK_FREE=1` 是**只用于单变量对照**的开关（2026-09-17 加）：
+    // `EXL_LEGACY_DIRECTORY_BLOCK_FREE=1` 是只用于单变量对照的开关（2026-09-17 加）：
     //   打开就退回"拿返回值直接释放"的**旧（错）行为**，用来回答"问题 1 到底是这条修复治好的，
     //   还是 `Present` 汇编转发桩治好的"。**正式形状永远是 0**（默认），不要拿它做交付。
 #if defined(EXL_LEGACY_DIRECTORY_BLOCK_FREE) && EXL_LEGACY_DIRECTORY_BLOCK_FREE == 1

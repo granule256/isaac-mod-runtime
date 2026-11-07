@@ -66,7 +66,7 @@ void SetDebugConsoleEnabled(bool enabled) noexcept;
 void SetGameBindings(uintptr_t ownerSlot, uintptr_t isPausedThunk);
 void SetGameIsGreedModeBinding(uintptr_t method);
 void SetLevelIsAscentBinding(uintptr_t method);
-// 批次 8（2026-09-15）：`Level` 家族另外两个成员方法的入口地址。
+// `Level` 家族另外两个成员方法的入口地址。
 //   一次发布，两个都是"可选能力"——任一个为 0 时对应 handler 报"绑定不可用"，
 //   绝不返回编造的值（`Level:GetAbsoluteStage()` 编个 0 会让 Mod 以为"在第一层"）。
 void SetLevelGetAbsoluteStageBinding(uintptr_t method);
@@ -100,12 +100,12 @@ void SetGetRenderPositionHostFunction(RenderPositionHostFunction function) noexc
 void SetLevelIsNextStageAvailableBinding(uintptr_t method);
 void SetItemPoolGetCollectibleBinding(uintptr_t method);
 void SetMusicBindings(uintptr_t getCurrentMusicId, uintptr_t pause, uintptr_t resume);
-// 批次 137：`MusicManager:UpdateVolume()` 的**单方法绑定**（与 `SetLevelIsAscentBinding`
+// `MusicManager:UpdateVolume()` 的单方法绑定（与 `SetLevelIsAscentBinding`
 // 同一个形状：一次 release 存储、handler 一次 acquire 读 ⇒ 不会看到"半个已校验记录"）。
 // 为什么单独一条而不并进 `SetMusicBindings`：那条已经是三参数记录、且有既有调用方与用例，
 // 扩参会让"发布点漏发"这类历史教训重新出现；单方法发布点与其它可选能力同形。
 void SetMusicUpdateVolumeBinding(uintptr_t method);
-// 批次 138：`MusicManager:Play(ID, Volume)` 的单方法绑定（与 `SetMusicUpdateVolumeBinding` 同形）。
+// `MusicManager:Play(ID, Volume)` 的单方法绑定（与 `SetMusicUpdateVolumeBinding` 同形）。
 void SetMusicPlayBinding(uintptr_t method);
 
 // Publishes the controller-input bindings resolved during Hook installation. Any of the
@@ -113,15 +113,15 @@ void SetMusicPlayBinding(uintptr_t method);
 // fabricated reading.
 void SetInputBindings(uintptr_t isActionPressed, uintptr_t isActionTriggered,
                       uintptr_t getActionValue);
-//: 批次 195（2026-09-29）：**按键号**那三条查询的入口（`KAGE::Input::ManagerBase`）。
-//:
-//: 为什么**单独一条**而不并进 `SetInputBindings`：与 `SetRngRandomBindings` 同一条理由 ——
-//: 上面那条已经是三参数记录、且有既有调用方与多个 harness 在按旧形状安装宿主实现，
-//: 改签名会把它们一起卷进来。这三条按同一个"可选能力"口径发布：守卫不符只留 0，
-//: handler 报"绑定不可用"，**绝不编一个 false/0.0** 把偏移写串伪装成"没按下"。
+// 按键号那三条查询的入口（`KAGE::Input::ManagerBase`）。
+//
+// 为什么单独一条而不并进 `SetInputBindings`：与 `SetRngRandomBindings` 同一条理由 ——
+// 上面那条已经是三参数记录、且有既有调用方与多个 harness 在按旧形状安装宿主实现，
+// 改签名会把它们一起卷进来。这三条按同一个"可选能力"口径发布：守卫不符只留 0，
+// handler 报"绑定不可用"，绝不编一个 false/0.0 把偏移写串伪装成"没按下"。
 void SetInputButtonBindings(uintptr_t isButtonPressed, uintptr_t getButtonValue);
 void SetRngBindings(uintptr_t setSeed, uintptr_t next);
-// 批次 195（2026-09-29）：`RNG:RandomInt(Max)` / `RNG:RandomFloat()` 的两个入口。
+// `RNG:RandomInt(Max)` / `RNG:RandomFloat()` 的两个入口。
 //
 // 为什么**单独一条**而不并进 `SetRngBindings`：与 `SetMusicPlayBinding` 同一条理由 ——
 // 上面那条已经是两参数记录、且有既有调用方与两个 harness（`test_starterr_rng.py` /
@@ -183,19 +183,19 @@ struct LuaSpriteBindings {
     SpriteUpdateFn update{nullptr};
     SpriteIsPlayingFn isPlaying{nullptr};
     SpriteIsFinishedFn isFinished{nullptr};
-    //: 批次 214：`ANM2::Reset()`（中文版 MCM 的 anm2 探测要用）。
+    // `ANM2::Reset()`（中文版 MCM 的 anm2 探测要用）。
     SpriteResetFn reset{nullptr};
     SpriteRenderFn render{nullptr};
     SpriteRenderLayerFn renderLayer{nullptr};
     SpritePlayRandomFn playRandom{nullptr};
-    //: 批次 279：overlay 三条（语料里 `Sprite:PlayOverlay` 12 处、`SetLastFrame` 6 处、
-    //: `SetOverlayFrame` 1 处）。
+    // overlay 三条（语料里 `Sprite:PlayOverlay` 12 处、`SetLastFrame` 6 处、
+    // `SetOverlayFrame` 1 处）。
     SpritePlayOverlayFn playOverlay{nullptr};
     SpriteSetLastFrameFn setLastFrame{nullptr};
     SpriteSetOverlayFrameFn setOverlayFrame{nullptr};
-    //: 批次 280：`ANM2::Stop()`（把动画停下）。
+    // `ANM2::Stop()`（把动画停下）。
     SpriteStopFn stop{nullptr};
-    //: 批次 283：四条「按名字查询」（语料 6 处，全在 `BOIStageAPI15`）。
+    // 四条「按名字查询」（语料 6 处，全在 `BOIStageAPI15`）。
     SpriteIsOverlayPlayingFn isOverlayPlaying{nullptr};
     SpriteIsOverlayFinishedFn isOverlayFinished{nullptr};
     SpriteIsEventTriggeredFn isEventTriggered{nullptr};
@@ -213,19 +213,19 @@ void SetSpriteBindings(const LuaSpriteBindings& bindings);
 
 // --- 最近的 Lua 错误（环形历史）-------------------------------------------------------
 //
-// 批次 052 起有 8 格环形历史；批次 068 起每一格带上"**是哪个模组、哪条回调**报的"，
+// 起有 8 格环形历史；起每一格带上"是哪个模组、哪条回调报的"，
 // 并且**同一条重复错误只占一格**（真机上遇到过一条每帧刷屏的错把 8 格全占满、
 // 别人的错一条都进不来）。
 //
 // 这里只给宿主测试一个只读访问器：**调试桩不经过它** —— 工具是按符号直读那块内存的
 // （`g_LuaErrorHistory`），所以访问器与内存布局必须保持一致（`static_assert` 钉着 128 字节/条）。
 struct LuaErrorHistoryEntryView {
-    std::uint32_t owner;       //: 模组句柄；0 = 不知道（例如加载期）
-    std::uint32_t callbackId;  //: 回调 id；`kNoCallbackDispatched` = 不是回调路径
-    char text[120];            //: NUL 结尾的错误文本
+    std::uint32_t owner;       // 模组句柄；0 = 不知道（例如加载期）
+    std::uint32_t callbackId;  // 回调 id；`kNoCallbackDispatched` = 不是回调路径
+    char text[120];            // NUL 结尾的错误文本
 };
 
-//: 把环形历史拷进 `output`（最多 `capacity` 条），返回**实际写了多少条**。
+// 把环形历史拷进 `output`（最多 `capacity` 条），返回实际写了多少条。
 [[nodiscard]] std::size_t CopyLuaErrorHistory(LuaErrorHistoryEntryView* output,
                                              std::size_t capacity) noexcept;
 
@@ -234,12 +234,12 @@ void DispatchPostUpdate();
 // 那时候调用模组回调风险高）。真正的派发在下一帧的 `DispatchPostUpdate()` 里做。
 // `isSave`：真 = 读档进游戏，假 = 新开一局（来自中继的事件种类）。
 void NoteGameStarted(bool isSave) noexcept;
-// ★ 批次 417：`LuaStateMemoryBytes()` 的声明**不在这里** —— 消费方
+// `LuaStateMemoryBytes()` 的声明不在这里 —— 消费方
 //   `mod_menu_native.cpp` 包含的是 `lua_runtime_state.hpp`，声明放那边（放这儿会
 //   得到 `'LuaStateMemoryBytes' is not a member of 'LuaRuntime'`）。
 void DispatchPostRender(uintptr_t manager);
 
-// --- 批次 149（2026-09-26）：`MusicManager:` 一族"回调里拿不到 Manager"的兜底 -------------
+// --- `MusicManager:` 一族"回调里拿不到 Manager"的兜底 -------------
 //
 // 为什么需要：`MusicManager:` 的每个方法都要一个 Manager 才能定位引擎的 `Music` 对象，
 // 而那个 Manager 以前**只**来自"当前正在派发的那条回调"。可 `MC_POST_UPDATE` 的派发
@@ -262,9 +262,9 @@ void SetFrameManagerProvider(std::uintptr_t (*provider)()) noexcept;
 std::uint64_t DispatchPreGetCollectible(void* itemPool, std::uint32_t itemPoolType,
                                         std::uint32_t seed, std::uint32_t noDecrease,
                                         std::uint32_t lastCollectibleType);
-// --- 回调面补齐（2026-09-20 批次 102）：四个事件中继的派发入口 -------------------
+// --- 回调面补齐（2026-09-20 ）：四个事件中继的派发入口 -------------------
 //
-// ★ 为什么不照"开局中继只记账、下一帧再派发"那条先例推迟（那条先例见上面 `NoteGameStarted`
+// 为什么不照"开局中继只记账、下一帧再派发"那条先例推迟（那条先例见上面 `NoteGameStarted`
 // 的注释）：这四条**要么推不了、要么推了就不对**——
 //   * `MC_PRE_USE_ITEM` 的返回值决定"要不要取消这次使用"，必须在引擎动手**之前**派发；
 //   * `MC_PRE_GAME_EXIT` 之后没有"下一帧"（这一局正在结束），而 EID 唯一的存档点就在这里；
@@ -273,14 +273,14 @@ std::uint64_t DispatchPreGetCollectible(void* itemPool, std::uint32_t itemPoolTy
 // 风险用另外两条防线兜住：①每个函数都自己判"现在到底能不能派发"（`ShouldDispatchManagedCallbacks`）；
 // ②回调里报错由派发器隔离（记进错误环形历史，不向上抛、不摘掉登记）。
 void DispatchPreGameExit(bool shouldSave);
-//: 返回 true = **拦下**这次使用（PC 的 `MC_PRE_USE_ITEM` 约定：任一条返回 true 即取消）。
+// 返回 true = 拦下这次使用（PC 的 `MC_PRE_USE_ITEM` 约定：任一条返回 true 即取消）。
 [[nodiscard]] bool DispatchPreUseItem(std::uintptr_t player, std::int32_t collectibleType,
                                       std::int32_t useFlags, std::int32_t activeSlot,
                                       std::int32_t customVarData);
 isaac::runtime::UseItemCallbackResult DispatchUseItem(std::uintptr_t player, std::int32_t collectibleType, std::int32_t useFlags,
                      std::int32_t activeSlot, std::int32_t customVarData);
 
-// --- 批次 390（2026-10-07）：`MC_INPUT_ACTION` 的派发入口 --------------------------------------
+// --- `MC_INPUT_ACTION` 的派发入口 --------------------------------------
 //
 // 契约（`analysis/isaacdocs-snapshot/docs/enums/ModCallbacks.md:347-367`）：**引擎每次轮询某个
 // `ButtonAction` 时**触发一次（官方执行信息栏：**每秒约 1470 次**），实参 `(Entity, InputHook,
@@ -288,11 +288,11 @@ isaac::runtime::UseItemCallbackResult DispatchUseItem(std::uintptr_t player, std
 // ⇒ 这是一条**在输入热路径上、每秒上千次**的入口，调用方（三条查询中继）必须**先看 `overridden`**，
 //   只有它为真时才动返回值；平时的开销必须只剩"查一次登记数"。
 struct InputActionOutcome {
-    //: 有可用的覆盖值（第一条返回非 nil 的登记）。false = 照原样返回引擎的结果。
+    // 有可用的覆盖值（第一条返回非 nil 的登记）。false = 照原样返回引擎的结果。
     bool overridden{false};
-    //: `IS_ACTION_PRESSED(0)` / `IS_ACTION_TRIGGERED(1)` 的覆盖值。
+    // `IS_ACTION_PRESSED(0)` / `IS_ACTION_TRIGGERED(1)` 的覆盖值。
     bool boolean{false};
-    //: `GET_ACTION_VALUE(2)` 的覆盖值（已按 PC 契约夹到 0.0~1.0）。
+    // `GET_ACTION_VALUE(2)` 的覆盖值（已按 PC 契约夹到 0.0~1.0）。
     float value{0.0F};
 };
 
@@ -306,12 +306,12 @@ struct InputActionOutcome {
                                                             std::int32_t inputHook,
                                                             std::uintptr_t entity);
 
-// --- 批次 392（2026-10-07）：`Input` 类读取必须**绕开**上面那条覆盖 -----------------------------
+// --- `Input` 类读取必须绕开上面那条覆盖 -----------------------------
 //
-// ★★★ 真机回归 + 反汇编定案：Lua 的 `Input.IsActionPressed/IsActionTriggered/GetActionValue`
+// 真机回归 + 反汇编定案：Lua 的 `Input.IsActionPressed/IsActionTriggered/GetActionValue`
 // 绑的是 `0x3F9B6C/0x3F9B7C/0x3F9B8C`（符号 = `IsaacRepentance::Manager::IsAction*`），而这三条
 // **尾跳**（`b`，不是 `bl`）进 `KAGE::Input::ManagerBase::IsAction*`（`0x4F9920/0x4F9A64/0x4F9BCC`）
-// —— **正是批次 390 挂中继的那三条**（`tools/engine_symbol_signatures.json` 里该符号 offset = 0x4f9920）。
+// —— 正是挂中继的那三条（`tools/engine_symbol_signatures.json` 里该符号 offset = 0x4f9920）。
 // 同一个符号另有 35/21/20 个调用点，含 `Entity_Player::get_movement_input` / `control_shooting` /
 // 各菜单类自己的输入处理 ⇒ **我们这侧的读取与引擎自己的读取是同一次调用，在函数入口上区分不了**
 // （部分原生请求传nil，移动/射击等请求传真实Entity*；高层中继保留这项差异）。
@@ -325,12 +325,12 @@ struct InputActionOutcome {
 // 形状：我们这侧每次查输入都进一次这个作用域；三条中继看到标记就**直接调原函数、不派发**。
 // 用 RAII（构造置位 / 析构清除）而不是手工置位，是为了任何早退路径都不会把标记留成"卡住"
 // —— 一旦卡住，**引擎自己的**读取也会失去覆盖（菜单开着还能走，那是更糟的回归）。
-// ★ 计数式 ⇒ 嵌套安全：模组在自己的 `MC_INPUT_ACTION` 处理里再问 `Input.*` 时也走这里。
+// 计数式 ⇒ 嵌套安全：模组在自己的 `MC_INPUT_ACTION` 处理里再问 `Input.*` 时也走这里。
 
 
 void DispatchUseCard(std::uintptr_t player, std::int32_t card, std::int32_t useFlags);
 void DispatchUsePill(std::uintptr_t player, std::int32_t pillEffect, std::int32_t useFlags);
-// 批次 103：`MC_PRE_PICKUP_COLLISION`（38）。返回 true = **不要跑原函数**
+// `MC_PRE_PICKUP_COLLISION`（38）。返回 true = 不要跑原函数
 // （PC 的三态里 `true` 与 `false` 都不执行内部代码、只有 `nil` 才照常执行，所以这里合成一个
 // "非 nil 即拦"。`PickupVariant` 是 PC 给这条回调的可选实参类型 ⇒ `filter` 传掉落物的变体）。
 enum class CollisionOverride : std::int8_t { Continue = -1, Collide = 0, Ignore = 1 };
@@ -361,7 +361,7 @@ void DispatchPostManualEntityUpdate(std::uintptr_t entity);
 void DispatchPostNpcRender(std::uintptr_t npc, const void* renderOffset);
 [[nodiscard]] bool DispatchPrePickupCollision(std::uintptr_t pickup, std::uintptr_t collider,
                                              bool low, std::int32_t pickupVariant);
-// 批次 104：`MC_PRE_ROOM_ENTITY_SPAWN`（71）。实参 = PC 的
+// `MC_PRE_ROOM_ENTITY_SPAWN`（71）。实参 = PC 的
 // `(EntityType, Variant, SubType, GridIndex, Seed)`（PC 的 `Seed` 我们**有**：引擎用它构造
 // `RNG(seed, ...)`，见 `runtime_constants.hpp` 的靶点注释）。
 //
@@ -379,7 +379,7 @@ struct RoomEntitySpawnOverride {
 [[nodiscard]] RoomEntitySpawnOverride DispatchPreRoomEntitySpawnModifying(
     std::int32_t type, std::uint16_t variant, std::uint16_t subType,
     std::uint32_t gridIndex, std::uint32_t seed);
-// 批次 396（2026-10-07）：`MC_ENTITY_TAKE_DMG`(11)。返回 **true = 不要跑原函数**
+// `MC_ENTITY_TAKE_DMG`(11)。返回 true = 不要跑原函数
 // （PC 契约：只有**返回 `false`** 才取消这次伤害；`true`/`nil` 都照常受伤）。
 // `entityType` 是过滤器（PC 给这条回调的可选实参类型就是 `EntityType`）。
 // `sourceRef` 是引擎那个 `EntityRef const&` 的地址（0 = 没有来源）；`damageFlags`/`countdownFrames`
@@ -387,21 +387,21 @@ struct RoomEntitySpawnOverride {
 [[nodiscard]] bool DispatchEntityTakeDamage(std::uintptr_t entity, float amount,
                                             std::uint64_t damageFlags, std::uintptr_t sourceRef,
                                             std::int32_t countdownFrames, std::int32_t entityType);
-// 批次 396（2026-10-07）：`MC_EVALUATE_CACHE`(8)。过滤器 = 本次要重算的那个 CacheFlag 位；
+// `MC_EVALUATE_CACHE`(8)。过滤器 = 本次要重算的那个 CacheFlag 位；
 // 调用点把 `Entity_Player + 0x1958` 掩码逐位拆开、一位调一次（入口不带 CacheFlag 实参）。
 void DispatchEvaluateCache(std::uintptr_t player, std::int32_t cacheFlag);
-// 批次 397（2026-10-07）：补全回调（第 2 批）的三条 —— 实参一律照 PC 契约写。
+// 补全回调（第 2 批）的三条 —— 实参一律照 PC 契约写。
 //   * `MC_POST_ENTITY_KILL`(68)：`(Entity)`，过滤器 = `entityType`；
 //   * `MC_POST_NPC_DEATH`(29)：`(EntityNPC)`，过滤器 = `entityType`；
-//   * `MC_POST_GAME_END`(16)：`(bool IsGameOver)`，无过滤（★ 必须压布尔，见实现处的说明）。
+//   * `MC_POST_GAME_END`(16)：`(bool IsGameOver)`，无过滤（必须压布尔，见实现处的说明）。
 void DispatchPostEntityKill(std::uintptr_t entity, std::int32_t entityType);
 void DispatchPostNpcDeath(std::uintptr_t npc, std::int32_t entityType);
 void DispatchPostGameEnd(bool isGameOver);
 // `MC_POST_FIRE_TEAR`(61)：`(EntityTear)`，无过滤；实参 = `FireTear` 的返回值（泪弹指针）。
 void DispatchPostFireTear(std::uintptr_t tear);
-//: 调用点**先**读 `RoomConfig::Entry` 的前三个字段（`ReadRoomConfigEntryFields`）；
-//: 读不到就**不要调**上面那个派发函数 —— 不编造 Type/Variant/SubType（EID 拿它们去建索引，
-//: 给错的比给不到更糟；理由与 `runtime_constants.hpp` 里那段靶点证据同一节）。
+// 调用点先读 `RoomConfig::Entry` 的前三个字段（`ReadRoomConfigEntryFields`）；
+// 读不到就不要调上面那个派发函数 —— 不编造 Type/Variant/SubType（EID 拿它们去建索引，
+// 给错的比给不到更糟；理由与 `runtime_constants.hpp` 里那段靶点证据同一节）。
 // PC 文档：`MC_POST_GET_COLLECTIBLE` 在道具**已经选出来之后**触发，返回值可以替换它；
 // 而"`MC_PRE_GET_COLLECTIBLE` 返回过非 nil"时本条**跳过**（由调用方判，见中继回调）。
 std::uint64_t DispatchPostGetCollectible(void* itemPool, std::uint32_t itemPoolType,

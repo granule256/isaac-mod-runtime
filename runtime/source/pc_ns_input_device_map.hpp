@@ -2,7 +2,7 @@
 
 // ============================================================================
 // PC 的 `controllerId` → Switch（`KAGE::Input`）的**设备号**：独立的映射表
-// （批次 211，2026-09-30）
+//
 // ============================================================================
 //
 // ## 为什么需要这张表（同一个坑踩了三次）
@@ -33,9 +33,9 @@
 // | `2..4` | 第 2..4 台手柄 | 设备表里第 2..4 台手柄；**不够就是"没有这台"**（PC 上也是这个结果） |
 // | 其它（负、`> 4`、`0xFFFFFFFF`） | 不是 PC 的档 | **原样透传** ⇒ NS 原生用法照旧（`33` / `0xFFFFFFFF`） |
 //
-// ## 同槽别名去重（批次 407，2026-10-08）
+// ## 同槽别名去重
 //
-// ★ 引擎的设备表里可能**同一台物理手柄**出现两次（真机：设备号 `1` 与 `33`，相差 32 ⇒ `& 31` 同槽）。
+// 引擎的设备表里可能同一台物理手柄出现两次（真机：设备号 `1` 与 `33`，相差 32 ⇒ `& 31` 同槽）。
 // 于是模组 `for i = 0, 4` 会**两次**命中同一台手柄（`i=1` 与 `i=2` 都答 true）—— 中文版 MCM 的
 // 开菜单判定就会在同一帧里 `ToggleConfigMenu()` **两次（先开、再立刻关）**，屏幕上什么都没有。
 //
@@ -43,9 +43,9 @@
 //   再加一条）：`i` 映射到的设备号若与**更小的某个 `i`** 已经映射到的设备号**落进同一个槽**
 //   （`(a & 31) == (b & 31)`），则本 `i` 返回 `NoSuchDevice`（"这一档不存在" ⇒ 调用方得到 `false`，
 //   与 PC 上"第 k 台手柄没插"同形）。**查询层（`ResolveInputDevice*`）用这个包装函数**。
-//   ★ 底层纯函数 `MapPcControllerIdToNsInputDevice` 的口径**不变**（只做"`i` ⇒ 第 `i` 台手柄"）。
+//   底层纯函数 `MapPcControllerIdToNsInputDevice` 的口径不变（只做"`i` ⇒ 第 `i` 台手柄"）。
 //
-// ★ 判据是**同槽**，不是"同物理"：真的插了两台**不同**手柄时它们**不同槽**（如 `1` 与 `2`）⇒
+// 判据是同槽，不是"同物理"：真的插了两台不同手柄时它们不同槽（如 `1` 与 `2`）⇒
 // 仍然各自命中 —— **不会砍掉玩家 2**（PC 语义保留）。**也别**简化成"永远只允许 `i=1`"。
 //
 // "手柄设备"的判据（两条取或，都写在 `IsNsTouchscreenEntry` 里）：
@@ -72,36 +72,36 @@
 
 namespace isaac::runtime {
 
-//: 引擎里"任意设备"的哨兵值（`ManagerBase::IsButtonPressed` 的 `deviceId`）。
+// 引擎里"任意设备"的哨兵值（`ManagerBase::IsButtonPressed` 的 `deviceId`）。
 inline constexpr std::uint32_t kNsAnyInputDevice = 0xFFFFFFFFu;
 
-//: 设备表里第 0 项 = 触摸屏（最先 `AddDevice`）。
+// 设备表里第 0 项 = 触摸屏（最先 `AddDevice`）。
 inline constexpr std::size_t kNsTouchscreenEntryIndex = 0;
-//: 触摸屏的设备号（构造时从生成器拿到的就是 0）。
+// 触摸屏的设备号（构造时从生成器拿到的就是 0）。
 inline constexpr std::uint32_t kNsTouchscreenDeviceId = 0;
 
-//: PC 的"键盘"档。
+// PC 的"键盘"档。
 inline constexpr std::int64_t kPcKeyboardControllerId = 0;
-//: PC 的手柄档（含两端）：`1..4`。
+// PC 的手柄档（含两端）：`1..4`。
 inline constexpr std::int64_t kPcFirstGamepadControllerId = 1;
 inline constexpr std::int64_t kPcLastGamepadControllerId = 4;
 
-//: 引擎设备表最多几台（候选表 `{0..7,32}` 命中后 +1 ⇒ 上限 9：触摸屏 + 8 台手柄）。
-//: 超出的一律不读（读数与调用点都按这个上限分配快照）。
+// 引擎设备表最多几台（候选表 `{0..7,32}` 命中后 +1 ⇒ 上限 9：触摸屏 + 8 台手柄）。
+// 超出的一律不读（读数与调用点都按这个上限分配快照）。
 inline constexpr std::size_t kNsInputDeviceCapacity = 9;
 
-//: 引擎给设备"入槽"用的掩码（`设备号 & 31`）—— 与边沿表 `InputFrameEdges::kIndexMask` **同一口径**。
-//: ★ 批次 407：手柄号 `1` 与 `33` 相差 32 ⇒ `1 & 31 == 33 & 31 == 1` ⇒ **落进同一个槽**。
-//: 这台文件把它单独拎出来，用于下面的"**同槽别名去重**"（见 `MapPcControllerIdToNsInputDevice`）。
+// 引擎给设备"入槽"用的掩码（`设备号 & 31`）—— 与边沿表 `InputFrameEdges::kIndexMask` 同一口径。
+// 手柄号 `1` 与 `33` 相差 32 ⇒ `1 & 31 == 33 & 31 == 1` ⇒ 落进同一个槽。
+// 这台文件把它单独拎出来，用于下面的"同槽别名去重"（见 `MapPcControllerIdToNsInputDevice`）。
 inline constexpr std::uint32_t kNsInputDeviceSlotMask = 31u;
 
-//: 设备表这一帧读到了没有。
+// 设备表这一帧读到了没有。
 enum class NsDeviceTableState {
     Known,     // 读到了设备表（可以把 1..4 翻成设备号）
     Unknown,   // 读不到 ⇒ 按下面那条兜底口径走，并计数
 };
 
-//: 一次换算的结果。
+// 一次换算的结果。
 enum class NsDeviceSelection {
     Passthrough,    // 不是 PC 的 0..4 档 ⇒ 当 NS 原生设备号原样传
     Mapped,         // 翻成了设备表里某台手柄的设备号
@@ -113,19 +113,19 @@ struct NsDeviceTarget {
     std::uint32_t device_id;   // 只有 `Passthrough` / `Mapped` 有意义
 };
 
-//: 这一项是不是"触摸屏那台"（判据见文件头：表里第 0 项 **或** 设备号 0）。
+// 这一项是不是"触摸屏那台"（判据见文件头：表里第 0 项 或 设备号 0）。
 [[nodiscard]] inline bool IsNsTouchscreenEntry(std::size_t entry_index,
                                                std::uint32_t device_id) noexcept {
     return entry_index == kNsTouchscreenEntryIndex || device_id == kNsTouchscreenDeviceId;
 }
 
-//: 把 PC 的 `controllerId` 翻成 Switch 的设备号（口径见文件头那张表）。
-//:
-//: `device_ids` / `device_count` 是**设备表快照**（按表里的先后顺序）；表读不到时传
-//: `table_state = Unknown`（此时不需要 `device_ids`）。
-//:
-//: ★ 这个函数**只做纯换算**（`i` ⇒ 表里第 `i` 台手柄），**不做**同槽去重 —— 同槽去重在下面的
-//: `MapPcControllerIdToNsInputDeviceDeduped`（查询层用的那一个）。
+// 把 PC 的 `controllerId` 翻成 Switch 的设备号（口径见文件头那张表）。
+//
+// `device_ids` / `device_count` 是设备表快照（按表里的先后顺序）；表读不到时传
+// `table_state = Unknown`（此时不需要 `device_ids`）。
+//
+// 这个函数只做纯换算（`i` ⇒ 表里第 `i` 台手柄），不做同槽去重 —— 同槽去重在下面的
+// `MapPcControllerIdToNsInputDeviceDeduped`（查询层用的那一个）。
 [[nodiscard]] inline NsDeviceTarget MapPcControllerIdToNsInputDevice(
     std::int64_t pc_controller_id, const std::uint32_t* device_ids, std::size_t device_count,
     NsDeviceTableState table_state) noexcept {
@@ -166,19 +166,19 @@ struct NsDeviceTarget {
     return {NsDeviceSelection::NoSuchDevice, 0u};
 }
 
-//: ★ 批次 407：把 PC 的 `controllerId` 翻成 Switch 设备号，并做**同槽别名去重**。
-//:
-//: 与 `MapPcControllerIdToNsInputDevice` 的唯一差别：若本档映射到的设备号与**更小的某个 `i`**
-//: 映射到的设备号**落进同一个槽**（`设备号 & 31` 相同），返回 `NoSuchDevice`（"这一档不存在"）
-//: —— 唯一目的：让**同一台物理手柄**在同一次 `for i = 0, 4` 里**只命中一次**（中文版 MCM 的
-//: 开菜单判定在同一帧里只会 `ToggleConfigMenu()` 一次，不再"先开、再立刻关"）。
-//: ★ 判据是**同槽**，不是"同物理"：真的插了两台不同手柄（如 `1`、`2`）时它们不同槽 ⇒
-//: **仍然各自命中**（玩家 2 不受影响、PC 语义保留）。
-//:
-//: 为什么不直接把这条塞进 `MapPcControllerIdToNsInputDevice`：那个纯函数的口径是"`i` ⇒ 表里第
-//: `i` 台手柄"，被 `test_pc_ns_input_device_map.py` 逐条钉住（含 `{0,1,33}` ⇒ `i=2` 仍能翻到
-//: 第 2 台的那条）；"同槽去重"是**查询层**的一条**策略**，放在这层、由 `ResolveInputDevice*`
-//: 使用，语义分层更清楚。**动作侧走同一个 `ResolveInputDevice` ⇒ 一并受益（不单开一套）**。
+// 把 PC 的 `controllerId` 翻成 Switch 设备号，并做同槽别名去重。
+//
+// 与 `MapPcControllerIdToNsInputDevice` 的唯一差别：若本档映射到的设备号与更小的某个 `i`
+// 映射到的设备号落进同一个槽（`设备号 & 31` 相同），返回 `NoSuchDevice`（"这一档不存在"）
+// —— 唯一目的：让同一台物理手柄在同一次 `for i = 0, 4` 里只命中一次（中文版 MCM 的
+// 开菜单判定在同一帧里只会 `ToggleConfigMenu()` 一次，不再"先开、再立刻关"）。
+// 判据是同槽，不是"同物理"：真的插了两台不同手柄（如 `1`、`2`）时它们不同槽 ⇒
+// 仍然各自命中（玩家 2 不受影响、PC 语义保留）。
+//
+// 为什么不直接把这条塞进 `MapPcControllerIdToNsInputDevice`：那个纯函数的口径是"`i` ⇒ 表里第
+// `i` 台手柄"，被 `test_pc_ns_input_device_map.py` 逐条钉住（含 `{0,1,33}` ⇒ `i=2` 仍能翻到
+// 第 2 台的那条）；"同槽去重"是查询层的一条策略，放在这层、由 `ResolveInputDevice*`
+// 使用，语义分层更清楚。动作侧走同一个 `ResolveInputDevice` ⇒ 一并受益（不单开一套）。
 [[nodiscard]] inline NsDeviceTarget MapPcControllerIdToNsInputDeviceDeduped(
     std::int64_t pc_controller_id, const std::uint32_t* device_ids, std::size_t device_count,
     NsDeviceTableState table_state) noexcept {

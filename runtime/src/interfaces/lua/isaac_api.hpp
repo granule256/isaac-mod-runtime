@@ -17,8 +17,8 @@ namespace isaac::runtime {
 // 定位后才能接。所以先把**表面**补齐，让 `Isaac.X()` 被调用时不报 Lua 错误：
 //
 //   * 真实现（读引擎/读 Runtime 自己的状态）：`GetFrameCount` / `GetTime` / `DebugString` /
-//     `IsInGame` / `RunCallback`；批次 2 起 `GetPlayer`（引擎基址 → `Game*` →
-//     `players` 向量 → `Entity_Player`，带 vptr 校验）；批次 2b 起 `GetItemConfig`
+//     `IsInGame` / `RunCallback`；起 `GetPlayer`（引擎基址 → `Game*` →
+//     `players` 向量 → `Entity_Player`，带 vptr 校验）；b 起 `GetItemConfig`
 //     （`Manager + 0x36538` 的**内嵌** `ItemConfig`，只读视图）。三者拿不到都返回 nil；
 //   * 安全 stub（返回安全默认值，每个成员每会话只在自己的输出通道上告警一次）：
 //     其余成员，见 `isaac_api.cpp` 的 `Stub`。
@@ -32,11 +32,11 @@ namespace isaac::runtime {
 // 单独导出是为了让契约测试能像其它家族一样核对绑定表与 Catalog 的 id 一致。
 [[nodiscard]] std::size_t AttachIsaacMethods(lua_State* state) noexcept;
 
-// 批次 340（2026-10-04）：`Game:Spawn(Type, Variant, Position, Velocity, Spawner, SubType, Seed)`。
+// `Game:Spawn(Type, Variant, Position, Velocity, Spawner, SubType, Seed)`。
 // **为什么由 `isaac_api.hpp` 导出**：它和 `Isaac.Spawn` 共用同一份实现（都在 `isaac_api.cpp`），
 // 而 `Game` 族的手写绑定表住在 `game_api.cpp`（另一个 TU）⇒ 必须从这里导出那一行绑定要有名字。
 //
-// ★★ 这条**不能走数据行**：引擎 `Game::SpawnEx` 的第 8 个形参**走栈**
+// 这条不能走数据行：引擎 `Game::SpawnEx` 的第 8 个形参走栈
 // （`ldr w8,[x29,#0x60]`），而通用跳板只填 `x0..x7`/`d0..d7` ⇒ 栈上那格会是垃圾。
 // 手写时由编译器按编译期签名把第 9 个参数量放到栈上 ✓。
 [[nodiscard]] int GameSpawn(lua_State* state);
@@ -186,14 +186,14 @@ struct PlayerLookupProbe {
 // `EntityPlayer` 的 `__index` 会回落到 `Entity` 的方法表（PC 里就是继承）。
 [[nodiscard]] std::size_t AttachEntityMethods(lua_State* state) noexcept;
 [[nodiscard]] std::size_t AttachEntityPlayerMethods(lua_State* state) noexcept;
-//: 批次 281：`EntityTear` 视图（`Entity:ToTear()` 的返回值）的方法表。
+// `EntityTear` 视图（`Entity:ToTear()` 的返回值）的方法表。
 [[nodiscard]] std::size_t AttachEntityTearMethods(lua_State* state) noexcept;
-//: 批次 282：`EntityLaser` 视图（`Entity:ToLaser()` 的返回值）的方法表。
+// `EntityLaser` 视图（`Entity:ToLaser()` 的返回值）的方法表。
 [[nodiscard]] std::size_t AttachEntityLaserMethods(lua_State* state) noexcept;
-// `EntityPickup` 的方法表（批次 4）：目前只有 `IsShopItem`（安全 stub，见 `isaac_api.cpp`）。
+// `EntityPickup` 的方法表：目前只有 `IsShopItem`（安全 stub，见 `isaac_api.cpp`）。
 [[nodiscard]] std::size_t AttachEntityPickupMethods(lua_State* state) noexcept;
 
-// `ItemConfig` / `ItemConfig_Item` 的方法表（批次 2b，同一个 `LuaHandlerBinding` +
+// `ItemConfig` / `ItemConfig_Item` 的方法表（b，同一个 `LuaHandlerBinding` +
 // `AttachOwnerMethods` 模式，同样挂在各自元表的 `__methods` 上）。条目的字段
 // （`ID`/`Type`/`Name`/`Description`）走 `__index`，与 `EntityPlayer` 的 `Position` 同例，
 // 因此不占绑定行。
@@ -210,16 +210,16 @@ struct PlayerLookupProbe {
 [[nodiscard]] bool IsLiveEntityPointer(std::uintptr_t candidate) noexcept;
 
 // 网格实体存活判据（`vptr` 落在 `[base + kGridEntityVtableRangeBeginOffset, …End)` 的
-// `GridEntity` 家族区间内、且该地址可读）—— 批次 298（2026-10-03）。
+// `GridEntity` 家族区间内、且该地址可读）—— 。
 //
 // 与上面那条**同形、同一份理由**：`GridEntity:GetSprite()` 交出去的 `Sprite` 句柄指向
 // **引擎网格实体内部**的内存（`GridEntity + 0x48` 那个内嵌 `ANM2`），所以每次访问都要重新确认
-// "借出 sprite 的那个网格实体还在"。★ 两条判据**刻意分成两份**：`Entity` 与 `GridEntity` 的
+// "借出 sprite 的那个网格实体还在"。两条判据刻意分成两份：`Entity` 与 `GridEntity` 的
 // vtable 区间**有重叠**，合成一条会让"网格实体被当成实体"或反之——各自一份才好按类收紧。
 [[nodiscard]] bool IsLiveGridEntityPointer(std::uintptr_t candidate) noexcept;
 
 // 从栈上第 `index` 格取"网格实体句柄"里的引擎指针；不是那两张元表 ⇒ 返回 **nullptr**
-// （**不抛错** —— 手写路径用它做"参数类型不对就退回 nil"）。批次 304（2026-10-03）从
+// （不抛错 —— 手写路径用它做"参数类型不对就退回 nil"）。从
 // `remaining_api.cpp` 的 `GridEntityArgument` 提上来，为的是**只有一份判据**：
 // 现在的两个使用者是"手写处理器（`GridEntity:GetVariant` 一族）"与"数据行的接收者解析
 // （`FieldReceipt::GridEntity`）"，而它们住在**两个不同的 TU** 里。
@@ -241,7 +241,7 @@ struct PlayerLookupProbe {
 // 拿不到就返回 0，由调用方决定是"传 nullptr 给引擎"还是报错。
 [[nodiscard]] std::uintptr_t EntityPointerArgument(lua_State* state, int index) noexcept;
 
-// 批次 065：读一个实体的 `Type`/`Variant`（`Entity + 0x38` / `+0x3C`，两张布局都是
+// 读一个实体的 `Type`/`Variant`（`Entity + 0x38` / `+0x3C`，两张布局都是
 // `confirmed` 的）。`EntityRef` 的替身缓冲区要用这两个值填 `+0x08`/`+0x00` 两格，
 // 而"读引擎字段前先判可读"那套判据在 `isaac_api.cpp` 里才有一份，所以从这里导出。
 // 任一字段读不到 ⇒ 返回 false（调用方按"留空"处理，不猜）。
@@ -249,23 +249,23 @@ struct PlayerLookupProbe {
 [[nodiscard]] bool ReadEntityIdentity(std::uintptr_t entity, std::uint32_t* type,
                                       std::uint32_t* variant) noexcept;
 
-// 批次 104：读 `RoomConfig::Entry` 的前三个字段（`Type`/`Variant`/`SubType`），
+// 读 `RoomConfig::Entry` 的前三个字段（`Type`/`Variant`/`SubType`），
 // 给 `Room::spawn_entity` 的入口中继用（`MC_PRE_ROOM_ENTITY_SPAWN` 的三个实参）。
 // 偏移与**宽度**的依据（`Type` 是 i32、`Variant`/`SubType` 是 **i16**）写在
 // `runtime_constants.hpp` 里那三行常量上方（两条独立的三连读证据）。
 // 从 `isaac_api.cpp` 导出的理由与 `ReadEntityIdentity` 相同：**"读引擎字段前先判可读"那套判据
 // 只有那一份实现**，别处再写一份就会漂。任一字段读不到 ⇒ 返回 false（调用方按"不编造值"处理）。
-//: 引擎自己的帧计数（`Game + 0x24F99C`，`Game::Update` 每帧 +1；`Game:GetFrameCount` 读的
-//: 就是它，指令级证据见 `runtime_constants.hpp`）。
-//: 批次 109：`Input.IsActionTriggered` 的"按帧判上升沿"要用它当帧号 —— 读不到时返回 0，
-//: 调用方自己退化成用毫秒时钟当序号（**不能让读失败变成"边沿永远不刷新"**）。
+// 引擎自己的帧计数（`Game + 0x24F99C`，`Game::Update` 每帧 +1；`Game:GetFrameCount` 读的
+// 就是它，指令级证据见 `runtime_constants.hpp`）。
+// `Input.IsActionTriggered` 的"按帧判上升沿"要用它当帧号 —— 读不到时返回 0，
+// 调用方自己退化成用毫秒时钟当序号（不能让读失败变成"边沿永远不刷新"）。
 [[nodiscard]] std::uint32_t EngineFrameCountNow() noexcept;
 
 [[nodiscard]] bool ReadRoomConfigEntryFields(std::uintptr_t entry, std::int32_t* type,
                                             std::int32_t* variant,
                                             std::int32_t* subType) noexcept;
 
-// 批次 396（2026-10-07）：读 `Entity_Player` 的 CacheFlag 掩码（`Entity_Player + 0x1958`，
+// 读 `Entity_Player` 的 CacheFlag 掩码（`Entity_Player + 0x1958`，
 // 偏移与两条独立证据见 `runtime_constants.hpp` 的 `kEntityPlayerCacheFlagsOffset`）。
 // 给 `MC_EVALUATE_CACHE` 的入口中继用：`EvaluateItems` 的入口**不带** CacheFlag 实参，
 // 中继要自己快照这张掩码、逐位派发一次。从 `isaac_api.cpp` 导出的理由与

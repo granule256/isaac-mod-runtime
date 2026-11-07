@@ -9,7 +9,7 @@ extern "C" {
 
 namespace isaac::runtime {
 
-// ★ 2026-10-16原件更正（下面旧记录完整保留，不能再按旧偏移实施）：
+// 2026-10-16原件更正（下面旧记录完整保留，不能再按旧偏移实施）：
 // 当前NS Game::BombDamage355380..3553BC构造并把sp+20作为TakeDamage的EntityRef参数。
 // Type+0、Variant+4、SpawnerType+8、SpawnerVariant+C；Position+10、偏移Vector+18、
 // 标志+20、源指针+28。PC80403B..804057的字段登记独立确认四个整数格，
@@ -18,7 +18,7 @@ namespace isaac::runtime {
 // 构造前缀已静态验证，不等同于完整原生EntityRef引用树/销毁后地址复用已真机验收。
 //
 // ============================================================================
-// `EntityRef`：PC 的"实体引用"值类型（批次 065，2026-09-19）
+// `EntityRef`：PC 的"实体引用"值类型
 // ============================================================================
 //
 // **为什么要有它**：GoodTrip 的诅咒房过路费（`scripts/trip.lua:70`）是
@@ -28,7 +28,7 @@ namespace isaac::runtime {
 //
 // **为什么按"裸缓冲区"实现**：引擎把它**按引用**读（`Entity::TakeDamage(float, EntityRef const&, int)`），
 // 也就是说外壳下面是引擎自己的 `Entity::EntityRef` 结构体；我们只是**替 Lua 持有那块内存**。
-// 因此布局必须与引擎一致，而布局是从消费者反推出来的（批次 064 取证）：
+// 因此布局必须与引擎一致，而布局是从消费者反推出来的（取证）：
 //
 //   * `+0x00`（4 字节）= `Variant`：
 //     `Entity::AddFreeze(EntityRef const&, int)` @ `0x5E358` 把 `[x1,#0x0]` 与 1/3/8 比较；
@@ -53,11 +53,11 @@ namespace isaac::runtime {
 // 元表的 `__index`：暴露 `Type` / `Variant` / `Entity` 三个字段（都从缓冲区里读）。
 [[nodiscard]] int EntityRefIndex(lua_State* state);
 
-//: 取句柄里的缓冲区指针（`Entity:TakeDamage` 要把这个指针交给引擎）。
-//: 第 `index` 个实参不是 `EntityRef` 句柄 ⇒ 返回 `nullptr`（调用方决定降级方式）。
+// 取句柄里的缓冲区指针（`Entity:TakeDamage` 要把这个指针交给引擎）。
+// 第 `index` 个实参不是 `EntityRef` 句柄 ⇒ 返回 `nullptr`（调用方决定降级方式）。
 [[nodiscard]] void* EntityRefBufferAt(lua_State* state, int index) noexcept;
 
-// 批次 396（2026-10-07）：把**引擎传给我们**的 `Entity::EntityRef const&`（一个指针）变成
+// 把引擎传给我们的 `Entity::EntityRef const&`（一个指针）变成
 // Lua 侧的 `EntityRef` 句柄，用来当回调实参压栈（`MC_ENTITY_TAKE_DMG` 的第 4 个实参 `Source`）。
 //
 // 与 `CreateEntityRefHandle` 的差别：那个是从**实体指针**现造（只填 Entity/Type/Variant，
@@ -68,7 +68,7 @@ void PushEntityRefArgument(lua_State* state, std::uintptr_t engineRef) noexcept;
 
 } // namespace isaac::runtime
 
-// 第七批：拥有值的PC可写Position/IsFriendly/IsCharmed；const借用仍只读。
+// 拥有值的PC可写Position/IsFriendly/IsCharmed；const借用仍只读。
 namespace isaac::runtime { [[nodiscard]] int EntityRefNewIndex(lua_State*); }
 
 // 第七批原件追加：PC804057登记Position+10，getter856530返回Vector值副本、

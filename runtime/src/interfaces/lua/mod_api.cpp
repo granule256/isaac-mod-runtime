@@ -19,7 +19,7 @@ extern "C" {
 #include <lauxlib.h>
 
 // ============================================================================
-// 批次 429：`Mod:SaveData` 的**归属探针**（只读；每调用一次记一笔）
+// `Mod:SaveData` 的归属探针（只读；每调用一次记一笔）
 // ============================================================================
 // 为什么要有它：API 层归因量出 `Mod:SaveData` **每 5.06 秒一次、单次 10.2 ms 平均 / 44.3 ms 最长**
 // （12/12 次都 ≥5 ms）⇒ 一个**周期性必发**的顿。而"是谁在存"**不能靠周期猜**：
@@ -28,9 +28,9 @@ extern "C" {
 //
 // 记录什么：`ModHandle` 里本来就同时带着两样 —— `ownerPacked`（低 16 位 = 模组下标 ⇒ **谁**）
 // 与 `persistenceNamespace`（那一家自己的命名空间号）。⇒ 直接按**模组下标**做一张表，O(1) 落账。
-// ★ 不引入任何新 include、不读时钟：读数脚本采两次求差即可（与现有量具同一口径）。
+// 不引入任何新 include、不读时钟：读数脚本采两次求差即可（与现有量具同一口径）。
 //
-// ★★ 定义在文件作用域、**不在匿名命名空间里**（匿名命名空间 = 内部链接 ⇒ 符号表里查不到 ⇒
+// 定义在文件作用域、不在匿名命名空间里（匿名命名空间 = 内部链接 ⇒ 符号表里查不到 ⇒
 //     `mem.*` 读数工具永远看不到它，而代码看着完全正常）。本项目第 5 次重申这条（196/203/209/211/214 → 本批）。
 constexpr std::size_t kModSaveProbeOwnerSlots = 32;   // 与 `ownerPacked` 的低 16 位下标空间无关，够用即可
 
@@ -62,7 +62,7 @@ constexpr LuaHandlerBinding kModHandlers[] = {
     // 0x0002：`Mod:RemoveCallback`（2026-09-18）。Mod 域此前只有 AddCallback 一条，0x0002 空着
     // （取号前扫过整个域，见 `api_catalog.cpp` 那一行的注释）。
     {0x01010002, &ModRemoveCallback},
-    // 批次 045：`Mod:AddPriorityCallback`（GoodTrip 用；id 取域内下一个空号 0x0003）。
+    // `Mod:AddPriorityCallback`（GoodTrip 用；id 取域内下一个空号 0x0003）。
     {0x01010003, &ModAddPriorityCallback},
     {0x08010001, &ModSaveData},
     {0x08010002, &ModLoadData},
@@ -73,7 +73,7 @@ constexpr LuaHandlerBinding kModHandlers[] = {
 constexpr char kModOwner[] = "Mod";
 
 // ============================================================================
-// 批次 216（2026-09-30）：Mod 对象的**两种形态**都要认
+// Mod 对象的两种形态都要认
 // ============================================================================
 //
 // 背景：我们的 `RegisterMod` 以前返回 **userdata**，而 PC 返回 **table**
@@ -115,7 +115,7 @@ LuaRuntime::ModHandle* ModHandleFromObject(lua_State* state, int index) noexcept
         luaL_testudata(state, index, LuaRuntime::kModMetatable));
 }
 
-//: 取不到就**报错**（不是返回 nil 继续跑）——`self` 认不出来时，任何"归属"判断都是错的。
+// 取不到就报错（不是返回 nil 继续跑）——`self` 认不出来时，任何"归属"判断都是错的。
 LuaRuntime::ModHandle* RequireModObject(lua_State* state, int index, const char* apiName) {
     LuaRuntime::ModHandle* handle = ModHandleFromObject(state, index);
     if (handle == nullptr) {
@@ -157,7 +157,7 @@ const char* PersistenceErrorMessage(ModPersistence::Result result) {
 // （EID 就是这种），而“注册成功但收不到事件”只会让功能静默缺失。哪些种类挂了
 // 派发点、哪些只是登记，由 `IsaacModRuntime_GetHookDiagnostics` 报出去。
 //
-// ★ 这张名单**必须与代码里真实的派发调用逐项一致**（2026-09-15 更正）：
+// 这张名单必须与代码里真实的派发调用逐项一致（2026-09-15 更正）：
 //   * 走 `CallbackDispatcher` 的 —— `lua_runtime.cpp` 里的
 //     `Dispatch(kCallbackPostGameStarted / kCallbackPostUpdate / kCallbackPostRender, …)`，
 //     以及 2026-09-18 接上的每帧事件五条（`kCallbackPostNewRoom` / `kCallbackPostNewLevel` /
@@ -171,13 +171,13 @@ const char* PersistenceErrorMessage(ModPersistence::Result result) {
 // `runtime/tests/test_lua_callback_dispatch_sites.py` 现在按源码做一致性门禁：
 // 名单里多一项或漏一项都会红。
 bool HasDispatchSite(CallbackId id) {
-    return id == kCallbackGetShaderParams || id == kCallbackGetCard || id == kCallbackInputAction ||  // 批次 390（2026-10-07）：三条 ManagerBase 查询中继
+    return id == kCallbackGetShaderParams || id == kCallbackGetCard || id == kCallbackInputAction ||  // 三条 ManagerBase 查询中继
            id == kCallbackPostUpdate || id == kCallbackPostRender ||
            id == kCallbackPreGetCollectible || id == kCallbackPostGameStarted ||
            id == kCallbackPostNewRoom || id == kCallbackPostNewLevel ||
            id == kCallbackPostPickupInit || id == kCallbackPostPickupUpdate ||
            id == kCallbackPostPlayerInit ||
-           // --- 实体族（2026-09-18 批次 010）：更新/渲染/刚出现三种时机，按实体类型分派 ---
+           // --- 实体族（2026-09-18 ）：更新/渲染/刚出现三种时机，按实体类型分派 ---
            id == kCallbackNpcUpdate || id == kCallbackPostPeffectUpdate ||
            id == kCallbackFamiliarUpdate || id == kCallbackFamiliarInit ||
            id == kCallbackPostFamiliarRender || id == kCallbackPostNpcInit ||
@@ -192,25 +192,25 @@ bool HasDispatchSite(CallbackId id) {
            id == kCallbackPostEffectUpdate || id == kCallbackPostEffectRender ||
            id == kCallbackPostBombInit || id == kCallbackPostBombUpdate ||
            id == kCallbackPostBombRender ||
-           // --- 2026-09-20 批次 102：EID / GoodTrip 在等的那几个事件（入口中继）---
+           // --- 2026-09-20 EID / GoodTrip 在等的那几个事件（入口中继）---
            // 前四条走中继回调里的 `DispatchFiltered` / `DispatchModifying`，
            // `kCallbackPreGetCollectible` 旁边那条（`kCallbackPostGetCollectible`）走的是
            // **已有的**取道具中继、在原函数返回之后派发。
            id == kCallbackPreGameExit || id == kCallbackUseItem || id == kCallbackUseCard ||
            id == kCallbackUsePill || id == kCallbackPreUseItem ||
            id == kCallbackPostGetCollectible ||
-           // 批次 103（第 2 期）：掉落物碰撞（中继回调里 `DispatchModifying`，过滤值是掉落物变体）。
+           // （第 2 期）：掉落物碰撞（中继回调里 `DispatchModifying`，过滤值是掉落物变体）。
            id == kCallbackPrePickupCollision ||
-           // 批次 104（第 2 期）：房间生成实体（中继回调里 `Dispatch`，只通知）。
+           // （第 2 期）：房间生成实体（中继回调里 `Dispatch`，只通知）。
            id == kCallbackPreRoomEntitySpawn ||
-           // 2026-10-07 批次 396：补全回调（第 1 批）——
+           // 2026-10-07 补全回调（第 1 批）——
            //   `MC_ENTITY_TAKE_DMG` 走 `DispatchEntityTakeDamage`（中继里 `DispatchModifying`，
            //   过滤值 = 实体的 `EntityType`，"返回 false ⇒ 取消这次伤害"）；
            //   `MC_EVALUATE_CACHE` 走 `DispatchEvaluateCache`（中继里 `DispatchFiltered`，
            //   过滤值 = 本次要重算的那个 CacheFlag 位）。
            id == kCallbackEntityTakeDmg ||
            id == kCallbackEvaluateCache ||
-           // 2026-10-07 批次 397：补全回调（第 2 批）—— 三条 hookable 改走入口中继。
+           // 2026-10-07 补全回调（第 2 批）—— 三条 hookable 改走入口中继。
            //   `MC_POST_ENTITY_KILL` / `MC_POST_NPC_DEATH` 走 `DispatchFiltered`（过滤值 = EntityType）；
            //   `MC_POST_GAME_END` 走 `Dispatch`（无过滤），实参是 bool。
            id == kCallbackPostEntityKill ||
@@ -246,12 +246,12 @@ bool ResolveCallbackId(lua_Integer callback, CallbackId* id) {
     return true;
 }
 
-//: 登记一条回调的**共用实现**（`Mod:AddCallback` 与 `Mod:AddPriorityCallback` 都走它）。
-//:
-//: 进入时栈上必须是 `(self, id, fn[, filter])` —— 优先级由 `ModAddPriorityCallback` 先摘掉、
-//: 再作为实参传进来。这样拆的好处是**两条登记路径的其余行为一字不差**（校验、命名回调、
-//: 过滤参数、追加语义、普查计数都在这一份里），差别只有"优先级"这一处 ——
-//: 而"两处各写一遍"正是本项目栽过的坑（`SKIP_HOOK_*` 那次）。
+// 登记一条回调的共用实现（`Mod:AddCallback` 与 `Mod:AddPriorityCallback` 都走它）。
+//
+// 进入时栈上必须是 `(self, id, fn[, filter])` —— 优先级由 `ModAddPriorityCallback` 先摘掉、
+// 再作为实参传进来。这样拆的好处是两条登记路径的其余行为一字不差（校验、命名回调、
+// 过滤参数、追加语义、普查计数都在这一份里），差别只有"优先级"这一处 ——
+// 而"两处各写一遍"正是本项目栽过的坑（`SKIP_HOOK_*` 那次）。
 [[maybe_unused]] int RegisterCallbackFromStack(lua_State* state, CallbackPriorityValue priority) {
     // PC 版签名是 `Mod:AddCallback(kind, function[, entityId])`（`ModReference.md:17`：
     // `void AddCallback(ModCallbacks callbackId, function callbackFn, int entityId)`）。
@@ -262,7 +262,7 @@ bool ResolveCallbackId(lua_Integer callback, CallbackId* id) {
     // CollectibleType 过滤器的处理函数（Smelter / Void / Flip / D4 / Genesis / Lemegeton）；
     // 不筛的话 `EID.OnUseSmelter` 会在**每一次**主动道具使用时都跑一遍。
     //
-    // 2026-09-20（批次 101）之前这里是"接受但忽略"（那时这些种类还没有派发点，忽略的后果
+    // 2026-09-20之前这里是"接受但忽略"（那时这些种类还没有派发点，忽略的后果
     // 只是"以后接上时要记得补"）。现在过滤值真的存进登记表并与登记项平行（见
     // `CallbackRegistry::kNoCallbackFilter`），派发侧按它筛。
     const int argumentCount = lua_gettop(state);
@@ -278,9 +278,9 @@ bool ResolveCallbackId(lua_Integer callback, CallbackId* id) {
         // 顺序：先压回调函数、再压 Mod 对象 —— `RegisterNamedCallback` 的约定。
         lua_pushvalue(state, 3);
         lua_pushvalue(state, 1);
-        // 批次 268：第 4 个实参（PC 的 `entityId`）对字符串回调名就是**过滤值**，
+        // 第 4 个实参（PC 的 `entityId`）对字符串回调名就是过滤值，
         // 由 `Isaac.RunCallbackWithParam` 在派发时比对。传 0 = 这一条没给过滤值。
-        // ★ 这里**不做整数校验**（与下面数字路径不同）：过滤值的类型在 PC 侧不限定
+        // 这里不做整数校验（与下面数字路径不同）：过滤值的类型在 PC 侧不限定
         //   （`__matchParams` 用的是 Lua 的 `==`），而且旧行为是"完全忽略它"——
         //   在这里改成"非整数就报错"会让**已经在跑的模组**（字符串回调名 + 非整数第三参）
         //   从"静默忽略"变成"加载失败"，是比现状更坏的退化。
@@ -355,7 +355,7 @@ bool ResolveCallbackId(lua_Integer callback, CallbackId* id) {
 
 // PC 的 `Mod:RemoveCallback(callbackId, callbackFn)`（`ModReference.md:58`，返回 void）。
 //
-// ★ **必须按"函数身份"摘，不能按 id 摘**。同一 Mod 对同一 id 可以登记多个回调
+// 必须按"函数身份"摘，不能按 id 摘。同一 Mod 对同一 id 可以登记多个回调
 // （见 `ModAddCallback` 的注释：EID 一家就登记 5 个 `MC_POST_NEW_ROOM`、10 个 `MC_PRE_USE_ITEM`），
 // 而它注销时用的是 `EID:RemoveCallback(ModCallbacks.MC_POST_NEW_ROOM, EID.BoCOnNewRoom)`
 // （`features/eid_repentogon.lua:168`，另有 `MC_POST_RENDER` / `MC_PRE_USE_ITEM` 两处）——
@@ -372,7 +372,7 @@ int ModRemoveCallback(lua_State* state) {
 // PC：`Mod:AddPriorityCallback(callbackId, CallbackPriority, fn)` —— 与 `AddCallback` 同路，
 // 差别只是"同一 id 内的执行顺序"（GoodTrip 的 `main.lua:84` 起就用它）。
 //
-// ★ 2026-09-20（批次 105）：**优先级已经真的参与排序**了（此前是"只校验、暂不排序"，见
+// 2026-09-20：优先级已经真的参与排序了（此前是"只校验、暂不排序"，见
 // `docs/改动日志-20260920.md` 的 105 与 `mod_api.cpp` 的历史注释）。做法与过滤器同一套：
 // `CallbackRegistry` 里加一张**与登记项平行的优先级数组**（不往 `CallbackDescriptor` 加字段
 // —— 那会改"20 字节/项"的布局，读数工具与离线解码都得跟着改），派发时按它**升序稳定排序**：
@@ -434,7 +434,7 @@ int ModSaveData(lua_State* state) {
     LuaRuntime::ModHandle* mod = CheckModHandle(state, 2, "Mod:SaveData");
     std::size_t length = 0;
     const char* data = luaL_checklstring(state, 2, &length);
-    // 批次 429：按模组下标落一笔（谁在存）—— 见文件顶部那段注释。
+    // 按模组下标落一笔（谁在存）—— 见文件顶部那段注释。
     {
         const std::uint32_t probeOwner = static_cast<std::uint32_t>(mod->ownerPacked & 0xFFFFU);
         if (probeOwner < kModSaveProbeOwnerSlots) {
@@ -485,7 +485,7 @@ int ModLoadData(lua_State* state) {
     return 1;
 }
 
-// `Isaac.HasModData(modRef)`（批次 261）：**直接转调** `Mod:HasData` —— 契约上两者是同一件事
+// `Isaac.HasModData(modRef)`：直接转调 `Mod:HasData` —— 契约上两者是同一件事
 // （都在问这个模组有没有存过 saveX.dat），判定只能有一份（`ModPersistence::HasModData`，
 // 作业单第三节第 7 条）。栈形状也一样（Mod 对象在 1）⇒ 不需要任何适配。
 int IsaacHasModData(lua_State* state) {
@@ -596,7 +596,7 @@ bool RegisterNamedCallback(lua_State* state, const char* name, int filterIndex,
     lua_pushstring(state, "Mod");
     lua_pushvalue(state, modIndex);
     lua_rawset(state, entryIndex);                  // entry.Mod = mod
-    // 批次 268：可选的过滤值（`Mod:AddCallback(名字, fn, entityId)` 的第三个实参）。
+    // 可选的过滤值（`Mod:AddCallback(名字, fn, entityId)` 的第三个实参）。
     // 字段名用 PC 回调表那一栏的名字；`filterIndex == 0` 或那一格是 `nil` 时写进 `nil`
     // —— 在 Lua 里等价于"没有这一栏"，所以 `Isaac.GetCallbacks` 的返回形状对旧调用方不变。
     if (filterIndex > 0 && !lua_isnoneornil(state, filterIndex)) {
@@ -649,7 +649,7 @@ void PushNamedCallbacks(lua_State* state, const char* name) {
 
 namespace {
 
-// 批次 268：`Isaac.RunCallbackWithParam(callbackId, param, ...)` 的过滤判据。
+// `Isaac.RunCallbackWithParam(callbackId, param, ...)` 的过滤判据。
 //
 // `registeredIndex` / `requestedIndex` 是**同一次调用期间**栈上两个值的下标（0 = 那一侧没有值）。
 // 规则逐字来自 PC 的 Lua 胶水（REPENTOGON issue #336 引用了那一段）：

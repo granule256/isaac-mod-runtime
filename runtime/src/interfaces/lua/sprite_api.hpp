@@ -26,7 +26,7 @@ namespace isaac::runtime {
 // Lua constructor `Sprite()`; the Runtime allocates and owns the native object (16-byte aligned).
 int CreateSpriteHandle(lua_State* state);
 
-// `GridEntity:GetSprite()` / `GridEntityRock:GetSprite()` 的句柄（批次 298，2026-10-03）。
+// `GridEntity:GetSprite()` / `GridEntityRock:GetSprite()` 的句柄。
 // 调用方已经用 `IsLiveGridEntityPointer` 校验过，这里只建句柄 + 打**非拥有**标记
 // （`kSpriteSourceEngineGridEntity`：与 `Entity:GetSprite()` 那条**释放语义完全相同**，
 // 只是重新解析时换用网格实体的存活判据与 `kGridEntitySpriteOffset`）。
@@ -75,7 +75,7 @@ struct SpriteReplaceSpritesheetProbe {
 };
 [[nodiscard]] SpriteReplaceSpritesheetProbe SpriteReplaceSpritesheetProbeSnapshot() noexcept;
 
-// --- 批次 5：`Entity:GetSprite()` --------------------------------------------------
+// --- `Entity:GetSprite()` --------------------------------------------------
 //
 // 推入一个**引擎实体借出**的 `Sprite` 句柄（原生对象 = `entity + kEntitySpriteOffset`，见
 // `runtime_constants.hpp` 的 `kEntitySpriteOffset` 证据）。调用方（`isaac_api.cpp` 的
@@ -93,31 +93,31 @@ int PushEngineEntitySpriteHandle(lua_State* state, void* entity);
 // libc++ `std::string`（引擎自己的 `ANM2::IsPlaying(char const*)` 就是这么读的，见
 // `runtime_constants.hpp` 的 `kSpriteAnimationNameOffset`）。没有当前动画时返回空串。
 int SpriteGetAnimation(lua_State* state);
-// 批次 280（2026-10-02）：`Sprite:GetDefaultAnimation` / `Sprite:Stop`，以及两者共用的
+// `Sprite:GetDefaultAnimation` / `Sprite:Stop`，以及两者共用的
 // "读默认动画名"助手 —— 它们的**定义在 `sprite_api.cpp` 的匿名命名空间之外**（第 1139 行之后），
 // 所以声明必须在这里（命名空间作用域），与 `SpriteGetAnimation` 同一条处理。
 int SpriteGetDefaultAnimation(lua_State* state);
 int SpriteStop(lua_State* state);
 void PushSpriteDefaultAnimationName(lua_State* state, void* sprite);
-// 批次 283（2026-10-02）：`Sprite` 的四条「按名字查询」返回值 —— 引擎侧统一是
-// `bool ANM2::Xxx(std::string const&) const`。★ 它们**只能用 libc++ `std::string` 桥**
+// `Sprite` 的四条「按名字查询」返回值 —— 引擎侧统一是
+// `bool ANM2::Xxx(std::string const&) const`。它们只能用 libc++ `std::string` 桥
 // （`std::string const&` 进不去 `char const*` 的路），所以走既有的 `BuildNativeString`。
-// ★ 空名字是**合法输入**（引擎会给出 `false`），不抛错 —— 与 `ReplaceSpritesheet` 同一条口径。
+// 空名字是合法输入（引擎会给出 `false`），不抛错 —— 与 `ReplaceSpritesheet` 同一条口径。
 int SpriteIsOverlayPlaying(lua_State* state);
 int SpriteIsOverlayFinished(lua_State* state);
 int SpriteIsEventTriggered(lua_State* state);
 int SpriteWasEventTriggered(lua_State* state);
-// 批次 309（2026-10-03）：`Sprite:GetFilename()` —— 读 `Sprite + kSpriteFilenameOffset`
+// `Sprite:GetFilename()` —— 读 `Sprite + kSpriteFilenameOffset`
 // 那个 libc++ `std::string`（同族还有 `Sprite:GetAnimation`，同一个读法）。
 int SpriteGetFilename(lua_State* state);
-// 批次 214：中文版 MCM（工坊 2494192799）的 `scripts/filepathhelper.lua` 探测 anm2 路径要的三条。
-// ★ 它们 PC 文档里没有（REPENTOGON 一侧的 API）：`Reset` = `ANM2::Reset @0x4A4724`，
+// 中文版 MCM（工坊 2494192799）的 `scripts/filepathhelper.lua` 探测 anm2 路径要的三条。
+// 它们 PC 文档里没有（REPENTOGON 一侧的 API）：`Reset` = `ANM2::Reset @0x4A4724`，
 //   `GetLayerCount` = 读 `ANM2+0xB0`，`GetDefaultAnimationName` = 读动画表第一条的名字。
 int SpriteReset(lua_State* state);
 int SpriteGetLayerCount(lua_State* state);
 int SpriteGetDefaultAnimationName(lua_State* state);
 
-// --- 批次 3：`Sprite` 的可写属性与字段读取 --------------------------------------
+// --- `Sprite` 的可写属性与字段读取 --------------------------------------
 //
 // `__index` / `__newindex`。方法查找仍然走元表的 `__methods`（`AttachSpriteMethods` 挂上去的
 // 那一张），这两个函数只额外处理 PC 的三个可写属性：

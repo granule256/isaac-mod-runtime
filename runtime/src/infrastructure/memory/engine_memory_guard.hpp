@@ -51,7 +51,7 @@ namespace isaac::runtime {
 // 互换），把 libnx 头拉进同时包含 `<switch.h>` 的编译单元会直接编译失败。所以这里只做
 // "缓存 + 计数"，平台细节留在各自 TU 里（本模块只读 `addr`/`size`/`perm` 三个字段，两种
 // 布局下逐字相同）。
-// 批次 095：条目改成**原子**（8 字节 relaxed/acquire 读写），配合下面的版本号实现
+// 条目改成原子（8 字节 relaxed/acquire 读写），配合下面的版本号实现
 // "读侧无锁、写侧互斥"。原来读侧每次都要拿一次自旋锁（`exchange` + `store` 两次原子写），
 // 而每个字段读都要过 1~2 次可读性检查 ⇒ 每帧上千次原子写全花在"读一个只读区间表"上。
 struct EngineReadableRegion {
@@ -67,9 +67,9 @@ struct EngineReadableRegionCache {
     EngineReadableRegion entries[kEngineReadableRegionCapacity]{};
     std::atomic<std::size_t> count{0};
     std::size_t victim{0};
-    //: 版本号：**偶数 = 稳定，奇数 = 正在写**。写侧在改动前后各加一次；
-    //: 读侧先读版本、扫区间、再读版本 —— 两次不一致（或读到奇数）就当作**未命中**，
-    //: 回退到 `svcQueryMemory` 那条慢路径。**代价只是"这一次慢"，永远不会给出"可读"的错答案。**
+    // 版本号：偶数 = 稳定，奇数 = 正在写。写侧在改动前后各加一次；
+    // 读侧先读版本、扫区间、再读版本 —— 两次不一致（或读到奇数）就当作未命中，
+    // 回退到 `svcQueryMemory` 那条慢路径。代价只是"这一次慢"，永远不会给出"可读"的错答案。
     mutable std::atomic<std::uint32_t> version{0};
 
     // 自旋锁：只保护 `entries` / `count` / `victim` 这三个成员。
@@ -109,7 +109,7 @@ struct EngineReadableRegionCache {
 
     // `address + length` 必须已经被调用方做过回绕检查。
     //
-    // **读侧完全无锁**（批次 095）：版本号前后一致才认这份快照；否则返回 false ⇒ 上层走
+    // 读侧完全无锁：版本号前后一致才认这份快照；否则返回 false ⇒ 上层走
     // `svcQueryMemory` 慢路径（正确性不受影响）。写入 `begin`/`end` 用 release 发布，
     // 读用 acquire，配合版本号即可排除"读到半个区间"。
     bool Covers(std::uintptr_t address, std::size_t length) const noexcept {
@@ -210,7 +210,7 @@ inline void EngineGuardSetCacheEnabled(bool enabled) noexcept {
     EngineGuardWritableRegionCache().Clear();
 }
 
-// 批次 436：**派发代际** —— 每进一次派发窗口 +1。
+// 派发代际 —— 每进一次派发窗口 +1。
 // 给"窗口内复用"的缓存当失效判据：窗口内引擎在等我们返回，没有任何东西会换房/换表；
 // 出了窗口（epoch 变了）复用自动作废。读侧只有一次本模块原子读（几纳秒）。
 inline std::atomic<std::uint32_t>& EngineGuardDispatchEpoch() noexcept {
@@ -221,7 +221,7 @@ inline std::atomic<std::uint32_t>& EngineGuardDispatchEpoch() noexcept {
 inline void EngineGuardEnterDispatch() noexcept {
     EngineGuardRegionCache().Clear();
     EngineGuardWritableRegionCache().Clear();
-    EngineGuardDispatchEpoch().fetch_add(1, std::memory_order_acq_rel);   // 批次 436
+    EngineGuardDispatchEpoch().fetch_add(1, std::memory_order_acq_rel);   //
     EngineGuardDispatchActive().store(1U, std::memory_order_release);
 }
 
@@ -251,7 +251,7 @@ inline void EngineGuardLeaveDispatch() noexcept {
 // libnx（vendored 与 devkitpro 的 `MemoryInfo` 布局不同，把 libnx 头拉进已经包含
 // `<switch.h>` 的编译单元会直接编译失败）。`mrs` 不需要头文件。
 //
-// ★★ 寄存器选择是有真机证据的（批次 085）：**`cntvct_el0`（虚拟计数器）在 EL0 会被禁止读**，
+// 寄存器选择是有真机证据的：`cntvct_el0`（虚拟计数器）在 EL0 会被禁止读，
 // 那条 `mrs` 一执行就崩（参见 `runtime_perf.hpp` 里的报告与偏移）；可读的是 **`cntpct_el0`**——
 // Atmosphère 自己的 `TickManagerImpl` 与 libnx 的 `armGetSystemTick()` 用的都是它。
 // 非探针构建恒返回 0 —— 计时只在 A/B 探针里用。
@@ -268,7 +268,7 @@ inline std::uint64_t EngineGuardTick() noexcept {
 // Tegra X1 上 tick 频率 = 19.2 MHz（Atmosphère 自己也是硬编码这个值）。
 constexpr std::uint64_t kEngineGuardFallbackTicksPerSecond = 19200000ULL;
 
-// `Isaac.GetTime()` 用的**毫秒单调时钟**（批次 108）。
+// `Isaac.GetTime()` 用的毫秒单调时钟。
 //
 // 为什么需要它：PC 文档（`Isaac.md:448`）写明 `int GetTime()` 是
 // "**milliseconds** since the computer's operating system was started"。我们以前返回的是
@@ -276,7 +276,7 @@ constexpr std::uint64_t kEngineGuardFallbackTicksPerSecond = 19200000ULL;
 // （`Isaac.GetTime() - lastInputTime > 50` 本意是 **50 毫秒**防抖，秒口径下几乎永不成立）。
 //
 // 读取方式与探针那只 (`EngineGuardTick`) 完全一样，只是**生产构建也要读**：
-// `mrs cntpct_el0`（**物理**计数器；虚拟的 `cntvct_el0` 在 EL0 被禁止读 —— 批次 085 的真机
+// `mrs cntpct_el0`（物理计数器；虚拟的 `cntvct_el0` 在 EL0 被禁止读 —— 的真机
 // 崩溃就是它），频率用常量 19.2 MHz（**不读** `cntfrq_el0`，理由见上）。**不引 libnx**
 // （本头文件不能引：vendored 与 devkitpro 的 `MemoryInfo` 布局不同；`mrs` 不需要头文件）。
 // 宿主构建走 `std::chrono::steady_clock`，只为了让门禁在没有引擎的机器上也能跑。
@@ -293,7 +293,7 @@ inline std::int64_t EngineMillisecondsNow() noexcept {
 #endif
 }
 
-// 频率**不读寄存器**（批次 085 起，连探针构建也不读）：
+// 频率不读寄存器（连探针构建也不读）：
 // `cntfrq_el0` 是"定时器控制"那一组的寄存器，和计数器本身不是同一个开关；我们**没有**它可读的
 // 证据，而它的值也从来不需要问（恒 19.2 MHz）。081 曾把这条读放进启动路径并导致真机进不去，
 // 当时归因于"`cntfrq_el0` 会陷入、`cntvct_el0` 可读"——后半句已被 085 的真机崩溃推翻，
@@ -343,7 +343,7 @@ inline void EngineGuardSyscallEnd(std::uint64_t startTick) noexcept {
     }
 }
 #else
-// ★★ 批次 083：生产构建里这一层**什么都不做**（与 081 之前一致）。
+// 生产构建里这一层什么都不做（与 081 之前一致）。
 //
 // 081 曾经在这里加了"常驻性能面"的累加（计数 + 读 `cntvct_el0`），结果真机上**启动就崩**：
 // 崩溃报告 PC = 本函数里的那条 `ldxr/stxr`，`Address: 0` —— 代码是通过**数据 GOT 槽**
@@ -354,8 +354,8 @@ inline void EngineGuardSyscallEnd(std::uint64_t startTick) noexcept {
 //
 // ⇒ 纪律（写在这里，别再踩）：**跨 TU 的新全局不要放进每帧都走的热路径**；
 // 要跨 TU 记账就用"普通函数调用"（PLT，不碰数据 GOT），或者把计数器与使用者放进同一个 TU。
-// ★★ 批次 084：记账**走函数调用**（PLT），不引用跨 TU 的变量 —— 见 `runtime_perf.hpp` 的约定。
-// 批次 081 就是引用了跨 TU 的全局，编译器经数据 GOT 槽取地址，槽里是 0 ⇒ 启动即崩。
+// 记账走函数调用（PLT），不引用跨 TU 的变量 —— 见 `runtime_perf.hpp` 的约定。
+// 就是引用了跨 TU 的全局，编译器经数据 GOT 槽取地址，槽里是 0 ⇒ 启动即崩。
 inline std::uint64_t EngineGuardSyscallBegin() noexcept {
 #if defined(__SWITCH__)
     return RuntimePerfTick();
