@@ -15,6 +15,7 @@ void RunNativeEntityInit(const EntityInitNativeBindings* native, NativeEntityIni
         case NativeEntityInitKind::Base: ReinitializeEntityLifetime(address); break;
         case NativeEntityInitKind::Tear: LuaRuntime::DispatchNativeTearInit(address); break;
         case NativeEntityInitKind::Effect: LuaRuntime::DispatchNativeEffectInit(address); break;
+        case NativeEntityInitKind::Pickup: LuaRuntime::DispatchNativePickupInit(address); break;
     }
 }
 }

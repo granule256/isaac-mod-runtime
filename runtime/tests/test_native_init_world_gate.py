@@ -25,7 +25,7 @@ int main(int argc, char** argv) {
     if (isaac::runtime::ShouldDispatchManagedCallbacks()) return 91;
     const char* script = R"lua(
 local m = RegisterMod('native events before world ready', 1)
-tearInit, effectInit, tearFire = 0, 0, 0
+tearInit, effectInit, tearFire, pickupInit = 0, 0, 0, 0
 m:AddCallback(ModCallbacks.MC_POST_TEAR_INIT, function(_, tear)
     assert(tear.Type == 2 and tear.Variant == 0)
     tear:GetData().initialized = true
@@ -40,6 +40,10 @@ m:AddCallback(ModCallbacks.MC_POST_FIRE_TEAR, function(_, tear)
     assert(tear.Type == 2)
     tearFire = tearFire + 1
 end)
+m:AddCallback(ModCallbacks.MC_POST_PICKUP_INIT, function(_, pickup)
+    assert(pickup.Type==5 and pickup.Variant==100)
+    pickup:GetData().initialized=true;pickupInit=pickupInit+1
+end,100)
 )lua";
     if (LuaRuntime::InitializeFromBuffer(script, std::strlen(script), "@native-world-gate.lua") !=
         LuaRuntime::LuaInitResult::Success) return 1;
@@ -58,10 +62,15 @@ end)
         LuaRuntime::DispatchPostFireTear(0);
         LuaRuntime::DispatchPostFireTear(effect);
         LuaRuntime::DispatchPostFireTear(tear);
+    } else if (mode == "pickup") {
+        LuaRuntime::DispatchNativePickupInit(0);
+        LuaRuntime::DispatchNativePickupInit(tear);
+        LuaRuntime::DispatchNativePickupInit(AddressOf(g_Entities[kPickup]));
     } else return 92;
     if (!ExpectNumber("tearInit", mode == "tear" ? 1 : 0) ||
         !ExpectNumber("effectInit", mode == "effect" ? 1 : 0) ||
-        !ExpectNumber("tearFire", mode == "fire" ? 1 : 0)) return 2;
+        !ExpectNumber("tearFire", mode == "fire" ? 1 : 0) ||
+        !ExpectNumber("pickupInit", mode == "pickup" ? 1 : 0)) return 2;
     if (isaac::runtime::ShouldDispatchManagedCallbacks()) return 93;
     if (LuaRuntime::TakeCallbackError()) return 3;
     return 0;
@@ -110,3 +119,6 @@ class NativeInitWorldGateTests(unittest.TestCase):
 
     def test_fire_tear_when_frame_world_gate_is_false(self):
         self.run_mode('fire')
+
+    def test_pickup_init_when_frame_world_gate_is_false(self):
+        self.run_mode('pickup')

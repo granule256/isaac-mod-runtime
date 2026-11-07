@@ -25,11 +25,13 @@ int main(){
  copy(kNativeEntityInitPltOffset,kNativeEntityInitPltExpectedBytes);
  copy(kNativeTearInitOffset,kNativeTearInitExpectedBytes);
  copy(kNativeEffectInitOffset,kNativeEffectInitExpectedBytes);
+ copy(kNativePickupInitOffset,kNativePickupInitExpectedBytes);
  auto write=[&](auto off,auto pointer){memcpy(image.data()+off,&pointer,8);};
  write(kNativeEntityInitVtableSlotOffset,base+kNativeEntityInitOffset);
  write(kNativeEntityInitGotOffset,base+kPltResolverOffset);
  write(kNativeTearInitVtableSlotOffset,base+kNativeTearInitOffset);
  write(kNativeEffectInitVtableSlotOffset,base+kNativeEffectInitOffset);
+ write(kNativePickupInitVtableSlotOffset,base+kNativePickupInitOffset);
  auto reject=[&](HookId id,auto off,const auto& bytes){
   for(unsigned i=0;i<bytes.size();++i){image[off+i]^=1;const auto before=image;
    assert(!InstallEntityInitPointerHooks(id,t).ok());assert(image==before);image[off+i]^=1;}
@@ -38,10 +40,11 @@ int main(){
  reject(HookId::EntityInit,kNativeEntityInitPltOffset,kNativeEntityInitPltExpectedBytes);
  reject(HookId::EntityTearInit,kNativeTearInitOffset,kNativeTearInitExpectedBytes);
  reject(HookId::EntityEffectInit,kNativeEffectInitOffset,kNativeEffectInitExpectedBytes);
- const HookId ids[]={HookId::EntityInit,HookId::EntityTearInit,HookId::EntityEffectInit};
- const uintptr_t slots[]={kNativeEntityInitVtableSlotOffset,kNativeTearInitVtableSlotOffset,kNativeEffectInitVtableSlotOffset};
- const uintptr_t offsets[]={kNativeEntityInitOffset,kNativeTearInitOffset,kNativeEffectInitOffset};
- for(unsigned i=0;i<3;++i){
+ reject(HookId::EntityPickupInit,kNativePickupInitOffset,kNativePickupInitExpectedBytes);
+ const HookId ids[]={HookId::EntityInit,HookId::EntityTearInit,HookId::EntityEffectInit,HookId::EntityPickupInit};
+ const uintptr_t slots[]={kNativeEntityInitVtableSlotOffset,kNativeTearInitVtableSlotOffset,kNativeEffectInitVtableSlotOffset,kNativePickupInitVtableSlotOffset};
+ const uintptr_t offsets[]={kNativeEntityInitOffset,kNativeTearInitOffset,kNativeEffectInitOffset,kNativePickupInitOffset};
+ for(unsigned i=0;i<4;++i){
   auto wrong=t;wrong.buildId[0]^=1;assert(!InstallEntityInitPointerHooks(ids[i],wrong).ok());
   auto shortImage=t;shortImage.imageSize=slots[i];assert(!InstallEntityInitPointerHooks(ids[i],shortImage).ok());
   write(slots[i],uintptr_t{123});const auto foreign=image;

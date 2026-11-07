@@ -10,7 +10,7 @@
 
 namespace isaac::runtime {
 namespace {
-std::atomic<std::uintptr_t> s_ModuleBases[3]{};
+std::atomic<std::uintptr_t> s_ModuleBases[4]{};
 
 bool Window(const HookTarget& target, std::uintptr_t offset, std::size_t size) noexcept {
     const auto limit = target.imageSize != 0 ? target.imageSize : target.codeSize;
@@ -43,6 +43,7 @@ constexpr std::uintptr_t InitOffset(NativeEntityInitKind kind) noexcept {
         case NativeEntityInitKind::Base: return kNativeEntityInitOffset;
         case NativeEntityInitKind::Tear: return kNativeTearInitOffset;
         case NativeEntityInitKind::Effect: return kNativeEffectInitOffset;
+        case NativeEntityInitKind::Pickup: return kNativePickupInitOffset;
     }
     return 0;
 }
@@ -99,6 +100,10 @@ Status InstallEntityInitPointerHooks(HookId id, const HookTarget& target) noexce
             if (!Guard(target, kNativeEffectInitOffset, kNativeEffectInitExpectedBytes))
                 return Status{StatusCode::Rejected};
             return Install<NativeEntityInitKind::Effect>(target, std::array{kNativeEffectInitVtableSlotOffset});
+        case HookId::EntityPickupInit:
+            if (!Guard(target, kNativePickupInitOffset, kNativePickupInitExpectedBytes))
+                return Status{StatusCode::Rejected};
+            return Install<NativeEntityInitKind::Pickup>(target, std::array{kNativePickupInitVtableSlotOffset});
         default: return Status{StatusCode::InvalidArgument};
     }
 }

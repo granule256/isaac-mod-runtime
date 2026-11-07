@@ -5,7 +5,7 @@ namespace isaac::runtime {
 enum class HookId : std::uint8_t;
 struct HookTarget;
 class Status;
-enum class NativeEntityInitKind { Base, Tear, Effect };
+enum class NativeEntityInitKind { Base, Tear, Effect, Pickup };
 struct EntityInitNativeBindings {
     using Init = void (*)(void*, std::uint32_t, std::uint32_t, std::uint32_t, std::uint32_t);
     Init init{};
@@ -21,4 +21,5 @@ namespace LuaRuntime {
 // Actual derived Init completion, before SpawnEx calls Room::AddEntity.
 void DispatchNativeTearInit(std::uintptr_t tear) noexcept;
 void DispatchNativeEffectInit(std::uintptr_t effect) noexcept;
+void DispatchNativePickupInit(std::uintptr_t pickup) noexcept;
 }

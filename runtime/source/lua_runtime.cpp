@@ -4710,6 +4710,7 @@ struct FrameEventState {
 FrameEventState g_FrameEventState{};
 // 原生Init已经接管时，扫描只建立开局/玩家账本，不重复补发初始化。
 bool g_NativePlayerInitObserved{};
+bool g_NativePickupInitObserved{};
 
 //: 本层"起始房间"的记账（批次 106）。与 `g_FrameEventState` 同一条约定：只有游戏线程的派发路径
 //: 读写它，所以是普通全局、不是原子。读数工具不读它（它只有 API 层按需取值）。
@@ -4997,7 +4998,8 @@ void DispatchBombEntityEvents(EntityEventScan* scan, std::uintptr_t entity,
 
 void DispatchPickupEntityEvents(EntityEventScan* scan, std::uintptr_t entity,
                              std::int64_t filter) noexcept {
-    if (!scan->renderPhase && scan->registered.Has(isaac::runtime::kCallbackPostPickupInit) &&
+    if (!g_NativePickupInitObserved && !scan->renderPhase &&
+        scan->registered.Has(isaac::runtime::kCallbackPostPickupInit) &&
         NoteNewEntity(g_FrameEventState.seenPickups, kSeenPickupCapacity,
                       &g_FrameEventState.seenPickupCount, entity)) {
         LuaCallbackInvoker invoker = LuaCallbackInvoker::ForEntity(entity);
@@ -5361,6 +5363,22 @@ void DispatchNativeTearInit(std::uintptr_t tear) noexcept {
     isaac::runtime::CallbackDispatcher dispatcher{g_CallbackRegistry, invoker};
     static_cast<void>(dispatcher.DispatchFiltered(isaac::runtime::kCallbackPostTearInit,
                                               isaac::runtime::ThreadAffinity::Any, variant));
+}
+
+void DispatchNativePickupInit(std::uintptr_t pickup) noexcept {
+    if (!IsReady() || g_LuaState == nullptr || pickup == 0) return;
+    const ManagedEngineDispatchScope dispatchScope;
+    std::int64_t variant{};
+    if (isaac::runtime::ClassifyCallbackEntity(pickup, &variant) !=
+        isaac::runtime::CallbackEntityClass::Pickup) return;
+    g_NativePickupInitObserved = true;
+    if (!isaac::runtime::BuiltinCallbackEnabled(isaac::runtime::kCallbackPostPickupInit)) return;
+    // The room's subsequent InitFlipState must observe the real INIT callback
+    // before it draws the ghost item. Repeated native Init also emits once.
+    auto invoker = LuaCallbackInvoker::ForEntity(pickup);
+    isaac::runtime::CallbackDispatcher dispatcher{g_CallbackRegistry, invoker};
+    static_cast<void>(dispatcher.DispatchFiltered(isaac::runtime::kCallbackPostPickupInit,
+        isaac::runtime::ThreadAffinity::Any, variant));
 }
 
 void DispatchNativeEffectInit(std::uintptr_t effect) noexcept {
@@ -6789,6 +6807,7 @@ bool ShutdownForModReload() noexcept {
     g_GameStartedInCurrentVm = false;
     g_FrameEventState = {};
     g_NativePlayerInitObserved = false;
+    g_NativePickupInitObserved = false;
     ResetLevelStartRoomTracker();
     g_CurrentCallbackManager.store(0,std::memory_order_release);
     g_InManagedCallbackDispatch.store(false,std::memory_order_release);

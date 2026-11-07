@@ -124,6 +124,7 @@ Status ExlaunchHookAdapter::Install(HookId id, const HookTarget& target) noexcep
         case HookId::GameRerollLevelCollectibles:
         case HookId::EntityTearInit:
         case HookId::EntityEffectInit:
+        case HookId::EntityPickupInit:
         case HookId::ItemPoolTrinketFirstRandom:
         case HookId::ItemPoolTrinketSelected:
         case HookId::RoomClearAward:

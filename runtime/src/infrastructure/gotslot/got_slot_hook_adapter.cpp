@@ -40,7 +40,8 @@ Status GotSlotHookAdapter::Install(HookId id, const HookTarget& target) noexcept
     if (installed_[index]) {
         return Status{StatusCode::InvalidState};
     }
-    if (id == HookId::EntityInit || id == HookId::EntityTearInit || id == HookId::EntityEffectInit) {
+    if (id == HookId::EntityInit || id == HookId::EntityTearInit || id == HookId::EntityEffectInit ||
+        id == HookId::EntityPickupInit) {
         const auto result = InstallEntityInitPointerHooks(id, target);
         if (result.ok()) installed_[index] = true;
         return result;

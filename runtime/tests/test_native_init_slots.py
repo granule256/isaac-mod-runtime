@@ -59,14 +59,17 @@ void DispatchNativeTearInit(std::uintptr_t p) noexcept {
 void DispatchNativeEffectInit(std::uintptr_t p) noexcept {
  assert(p==reinterpret_cast<std::uintptr_t>(&entity)&&entity.fields&&!entity.added&&!entity.updated);events.push_back(4);
 }
+void DispatchNativePickupInit(std::uintptr_t p) noexcept {
+ assert(p==reinterpret_cast<std::uintptr_t>(&entity)&&entity.fields&&!entity.added&&!entity.updated);events.push_back(5);
+}
 }
 int main(){
  // The same wrapper is installed into virtual and PLT slots; each actual call emits once.
- for(auto kind:{NativeEntityInitKind::Tear,NativeEntityInitKind::Effect}){
+ for(auto kind:{NativeEntityInitKind::Tear,NativeEntityInitKind::Effect,NativeEntityInitKind::Pickup}){
   entity={};events.clear();
   RunNativeEntityInit(&bindings,kind,&entity,2,7,3,42);
-  assert((events==std::vector<int>{1,kind==NativeEntityInitKind::Tear?3:4}));
-  entity.added=true;events.push_back(5);entity.updated=true;events.push_back(6);
+  assert((events==std::vector<int>{1,kind==NativeEntityInitKind::Tear?3:kind==NativeEntityInitKind::Effect?4:5}));
+  entity.added=true;events.push_back(6);entity.updated=true;events.push_back(7);
   assert(events[1]<events[2]);
  }
  entity={};events.clear();RunNativeEntityInit(&bindings,NativeEntityInitKind::Base,&entity,2,7,3,42);

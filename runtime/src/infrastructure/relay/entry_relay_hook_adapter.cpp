@@ -379,6 +379,7 @@ EntryRelayBinding BindingOf(HookId id) noexcept {
         case HookId::EntityInit:
         case HookId::EntityTearInit:
         case HookId::EntityEffectInit:
+        case HookId::EntityPickupInit:
         case HookId::GameRerollLevelPickups:
         case HookId::GameRerollLevelCollectibles:
         case HookId::ItemPoolTrinketFirstRandom:

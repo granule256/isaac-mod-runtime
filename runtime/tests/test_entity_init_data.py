@@ -44,6 +44,7 @@ static void NativeInit(void* entity,std::uint32_t type,std::uint32_t variant,
 namespace LuaRuntime {
 void DispatchNativeTearInit(std::uintptr_t) noexcept {}
 void DispatchNativeEffectInit(std::uintptr_t) noexcept {}
+void DispatchNativePickupInit(std::uintptr_t) noexcept {}
 }
 static EntityInitNativeBindings native{NativeInit};
 int main(){
