@@ -1,5 +1,5 @@
 {
-  "version": "v1.1.1",
+  "version": "v1.1.2",
   "title": "模组兼容层",
   "subtitle": "ISAAC SWITCH  /  {version}",
   "sections": [
@@ -14,7 +14,7 @@
     {
       "kind": "free",
       "paragraphs": [
-        "完全免费，永不售卖，后续会开源。"
+        "完全免费，永不售卖。核心源码已开源。"
       ]
     },
     {
