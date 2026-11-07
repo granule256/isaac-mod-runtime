@@ -107,6 +107,10 @@ int main() {
     luaL_requiref(state, LUA_UTF8LIBNAME, luaopen_utf8, 1);
     lua_pop(state, 1);
     isaac::runtime::RegisterJsonModule(state);
+    lua_newuserdata(state, 1);
+    lua_setglobal(state, "testUserdata");
+    lua_pushlightuserdata(state, state);
+    lua_setglobal(state, "testLightUserdata");
 
     const char* script = R"LUA(__CONTRACT_SCRIPT__)LUA";
     if (luaL_loadbuffer(state, script, std::strlen(script), "@json-module-contract.lua") != LUA_OK) {
@@ -205,6 +209,21 @@ check(count(restored.nested.empty) == 0, 'round trip empty table')
 check(restored.quoted == 'a"b\\c\nd', 'round trip escapes')
 check(restored.unicode == '中', 'round trip utf-8')
 check(restored.flag == true, 'round trip flag')
+
+-- PC JSON4Lua filters unsupported object members; RNG is ordinary userdata.
+local saved = json.decode(json.encode({ RunData = { RNG = testUserdata, kept = 7 }, Version = '2.1' }))
+check(saved.RunData.RNG == nil and saved.RunData.kept == 7 and saved.Version == '2.1',
+  'AlwaysVoid run data omits RNG without losing other fields')
+local unsupported = { testUserdata, testLightUserdata, function() end, coroutine.create(function() end) }
+for _, value in ipairs(unsupported) do
+  check(json.encode({ omitted = value, kept = 7 }) == '{"kept":7}', 'unsupported object value omitted')
+  check(json.encode({ [value] = 'omitted', kept = 7 }) == '{"kept":7}', 'unsupported object key omitted')
+  check(json.encode({ value }) == '{}', 'unsupported-only array becomes empty object')
+  local array = json.decode(json.encode({ value, 7 }))
+  check(array['1'] == nil and array['2'] == 7 and array[2] == nil,
+    'unsupported array value changes array to filtered object')
+  check(not pcall(json.encode, value), 'unsupported root value still rejected')
+end
 
 -- 混合 table 不是序列，按对象编码，其整数键变成字符串（`['1']` 取回原第一个元素，`[1]` 为 nil）。
 -- 这与 PC 的规则一致：只有恰好是 1..n 的 table 才是数组。
@@ -459,6 +478,28 @@ class LuaJsonModuleHostTests(unittest.TestCase):
         """`lua_runtime.cpp` 调用入口点后，共用这套源码清单的 13 个宿主 harness 也需要该 TU。"""
         sources = [path.name for path in layered_lua_runtime_sources(SOURCE)]
         self.assertIn("json_api.cpp", sources)
+
+
+class LuaJsonPersistenceTests(unittest.TestCase):
+    def test_rng_run_data_saves_without_serializing_the_rng_object(self):
+        from .test_lua_mod_metatable import HARNESS as MOD_HARNESS
+        from .test_support import build_lua_harness
+        script = r'''
+        local save = RegisterMod('JSON RNG run data', 1)
+        local rng = RNG()
+        local data = { RunData = { RNG = rng, cleared = true }, Config = { chance = 100 }, Version = '2.1' }
+        save:SaveData(json.encode(data))
+        local restored = json.decode(save:LoadData())
+        assert(restored.RunData.RNG == nil and restored.RunData.cleared)
+        assert(restored.Config.chance == 100 and restored.Version == '2.1')
+        assert(type(data.RunData.RNG) == 'userdata' and rawequal(data.RunData.RNG, rng))
+        assert(not pcall(json.encode, rng))
+        '''
+        harness = MOD_HARNESS.replace("local a=RegisterMod", script + "local a=RegisterMod", 1)
+        with tempfile.TemporaryDirectory(prefix="isaac-json-rng-save-") as folder:
+            binary = build_lua_harness(source_root=SOURCE, workdir=Path(folder), harness_source=harness)
+            result = subprocess.run([str(binary)], text=True, capture_output=True)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
 
 @unittest.skipUnless(docker_image_available(), "需要 devkitpro/devkita64 镜像")

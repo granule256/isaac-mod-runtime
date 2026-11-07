@@ -244,6 +244,21 @@ void AppendMemberName(lua_State* state, int index, EncodeContext* context) {
     luaL_error(state, "json.encode: table keys must be strings or numbers");
 }
 
+// PC JSON4Lua's isEncodable filters unsupported members rather than replacing
+// their values with null. Root values still go through AppendEncodedValue.
+bool IsEncodable(lua_State* state, int index) {
+    switch (lua_type(state, index)) {
+    case LUA_TNIL:
+    case LUA_TBOOLEAN:
+    case LUA_TNUMBER:
+    case LUA_TSTRING:
+    case LUA_TTABLE:
+        return true;
+    default:
+        return false;
+    }
+}
+
 // A table is a JSON array exactly when its keys are `1..n` with nothing else, which `lua_rawlen`
 // alone cannot tell (`{[1]=1,[2]=2,[4]=4}` reports a border of 2 or 4 but is not a sequence).
 bool TableIsSequence(lua_State* state, int index, lua_Unsigned length) {
@@ -256,8 +271,9 @@ bool TableIsSequence(lua_State* state, int index, lua_Unsigned length) {
         ++keys;
         const bool isIntegerKey = lua_isinteger(state, -2) != 0;
         const lua_Integer key = isIntegerKey ? lua_tointeger(state, -2) : 0;
+        const bool encodableValue = IsEncodable(state, -1);
         lua_pop(state, 1);  // pop the value, keep the key for the next lua_next
-        if (!isIntegerKey || key < 1 || static_cast<lua_Unsigned>(key) > length) {
+        if (!isIntegerKey || key < 1 || static_cast<lua_Unsigned>(key) > length || !encodableValue) {
             lua_pop(state, 1);  // discard the pending key
             return false;
         }
@@ -297,6 +313,10 @@ void AppendEncodedTable(lua_State* state, int index, EncodeContext* context) {
         bool first = true;
         lua_pushnil(state);
         while (lua_next(state, index) != 0) {
+            if (!IsEncodable(state, -2) || !IsEncodable(state, -1)) {
+                lua_pop(state, 1);
+                continue;
+            }
             if (!first) {
                 AppendChar(context->sink, ',');
             }
@@ -342,8 +362,7 @@ void AppendEncodedValue(lua_State* state, int index, EncodeContext* context) {
         AppendEncodedTable(state, index, context);
         return;
     default:
-        // Functions, userdata, threads and light userdata: a Mod must not get a silently dropped
-        // value, and PC raises here as well.
+        // PC rejects unsupported root values; table members were filtered above.
         luaL_error(state, "json.encode: cannot encode a %s value", luaL_typename(state, index));
         return;
     }

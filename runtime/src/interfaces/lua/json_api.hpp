@@ -17,9 +17,10 @@ namespace isaac::runtime {
 //
 //   json.encode(value) -> string   nil/boolean/number/string/table, nested. A table whose keys are
 //                                  exactly `1..n` becomes a JSON array, every other table becomes
-//                                  an object (so `{}` encodes as `{}`, not `[]`). Functions,
-//                                  userdata, threads, non-finite numbers and tables that contain
-//                                  themselves raise a Lua error instead of crashing or looping.
+//                                  an object (so `{}` encodes as `{}`, not `[]`). Unsupported
+//                                  object keys/values are omitted; an unsupported array value
+//                                  makes the table an object. Unsupported root values, non-finite
+//                                  numbers and circular tables raise a Lua error.
 //   json.decode(text)  -> value    Standard JSON. `null` becomes Lua `nil`, which means a `null`
 //                                  object member is not stored at all; `[]` and `{}` both become
 //                                  tables. Malformed input raises a Lua error and never returns a
