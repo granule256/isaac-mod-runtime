@@ -5,8 +5,13 @@
 #include "lua_runtime_state.hpp"
 #include "program/callback_bootstrap.hpp"
 #include <array>
+#include <cstring>
 extern "C" {
 #include <lauxlib.h>
+#include "lobject.h"
+#include "lstate.h"
+#include "ltable.h"
+#include "lvm.h"
 }
 namespace isaac::runtime {
 std::uint32_t g_CallbackDiagnosticViewIncomplete{0};
@@ -86,6 +91,75 @@ int RefreshDiagnostics(lua_State* state) {
 int MatchOwner(lua_State* state) {
     lua_pushboolean(state,Owner(state,1)==static_cast<std::uint32_t>(luaL_checkinteger(state,2)));return 1;
 }
+// Native dispatch already has a non-yieldable protected C boundary. Keep the
+// live array/Param reads and Lua equality here; manual runners stay in Lua so
+// their indexing and equality metamethods retain their existing yield behavior.
+int NextMatchingCallbackGeneric(lua_State* state) {
+    lua_Integer index = luaL_checkinteger(state, 2);
+    lua_pushinteger(state, -1); // constant comparison operand at stack index 4
+    const bool wildcard = !lua_toboolean(state, 3) || lua_compare(state, 3, 4, LUA_OPEQ);
+    for (;;) {
+        index = static_cast<lua_Integer>(static_cast<lua_Unsigned>(index) + 1);
+        lua_geti(state, 1, index);
+        if (lua_isnil(state, -1)) return 0;
+        // Read even when param is a wildcard: entry indexing can have effects
+        // or fail, and PC performs it before evaluating the matcher.
+        lua_getfield(state, -1, "Param");
+        const bool matched = wildcard || !lua_toboolean(state, 6) ||
+            lua_compare(state, 6, 4, LUA_OPEQ) ||
+            lua_compare(state, 3, 6, LUA_OPEQ);
+        if (matched) {
+            lua_pop(state, 1);
+            lua_pushinteger(state, index);
+            lua_pushvalue(state, 5);
+            return 2;
+        }
+        lua_pop(state, 2);
+    }
+}
+int NextMatchingCallback(lua_State* state) {
+    // Only integer params and plain entries bypass the public indexing path.
+    // The key is rooted at registration, so this push adds no new GC point.
+    if (lua_gettop(state) != 3 || !lua_isinteger(state, 3) || !lua_istable(state, 1) ||
+        lua_type(state, lua_upvalueindex(1)) != LUA_TSTRING ||
+        std::strcmp(lua_tostring(state, lua_upvalueindex(1)), "Param") != 0)
+        return NextMatchingCallbackGeneric(state);
+    lua_Integer index = luaL_checkinteger(state, 2);
+    lua_pushvalue(state, lua_upvalueindex(1)); // stack 4 roots the Param TString
+    TValue param{}, minusOne{};
+    setivalue(&param, lua_tointeger(state, 3));
+    setivalue(&minusOne, -1);
+    for (;;) {
+        const lua_Integer previous = index;
+        index = static_cast<lua_Integer>(static_cast<lua_Unsigned>(index) + 1);
+        bool resolved = false, matched = false;
+        {
+            // Reacquire every slot after Lua could mutate/reallocate the tables.
+            // No TValue pointer survives this block or crosses a Lua API call.
+            const auto* entry = luaH_getint(hvalue(state->ci->func + 1), index);
+            if (ttistable(entry) && hvalue(entry)->metatable == nullptr) {
+                const auto* p = luaH_getstr(hvalue(entry), tsvalue(state->ci->func + 4));
+                if (!ttisnil(p)) {
+                    resolved = true;
+                    matched = ivalue(&param) == -1 || l_isfalse(p) ||
+                        luaV_rawequalobj(p, &minusOne) || luaV_rawequalobj(&param, p);
+                }
+            }
+        }
+        if (!resolved) {
+            // No indexing/getter has run for this entry yet. Resume the original
+            // C API path at it, including nil/proxy/error/equality behavior.
+            lua_settop(state, 3);
+            lua_pushinteger(state, previous);lua_replace(state, 2);
+            return NextMatchingCallbackGeneric(state);
+        }
+        if (!matched) continue;
+        // This raw non-nil entry cannot invoke __index; do not read Param twice.
+        lua_geti(state, 1, index);
+        lua_pushinteger(state, index);lua_pushvalue(state, 5);
+        return 2;
+    }
+}
 }
 bool BuiltinCallbackEnabled(std::uint32_t id) noexcept {
     return id<=kCallbackMaximumId
@@ -125,7 +199,8 @@ void RegisterCallbackBootstrap(lua_State* state,lua_CFunction invoke,lua_CFuncti
     lua_pushcfunction(state,SetBuiltInCallbackState);lua_setfield(state,-2,"SetBuiltInCallbackState");lua_pop(state,1);
     if(luaL_loadbuffer(state,kPcCallbackBootstrap,sizeof(kPcCallbackBootstrap)-1,"@pc/callbacks.lua")!=LUA_OK)lua_error(state);
     lua_pushcfunction(state,invoke);lua_pushcfunction(state,RefreshDiagnostics);lua_pushcfunction(state,MatchOwner);
-    lua_pushcfunction(state,nativeInvoke?nativeInvoke:invoke);lua_call(state,4,5);
+    lua_pushcfunction(state,nativeInvoke?nativeInvoke:invoke);
+    lua_pushliteral(state,"Param");lua_pushcclosure(state,NextMatchingCallback,1);lua_call(state,5,5);
     lua_pushvalue(state,-1);stored->runRef=luaL_ref(state,LUA_REGISTRYINDEX);
     lua_pushvalue(state,-4);stored->tableRef=luaL_ref(state,LUA_REGISTRYINDEX);
     lua_pushvalue(state,-3);stored->unloadRef=luaL_ref(state,LUA_REGISTRYINDEX);

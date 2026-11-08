@@ -1,5 +1,6 @@
 """完整固定PC bootstrap与真实项目派发的行为比较；不以摘录替代最终Lua规则。"""
 import hashlib
+import json
 import subprocess
 import tempfile
 import unittest
@@ -59,7 +60,7 @@ static std::string Read(const char* p){std::ifstream in(p,std::ios::binary);retu
 int main(int argc,char** argv){
  if(argc!=6)return 90;
  lua_State* s=luaL_newstate();
- luaL_requiref(s,"_G",luaopen_base,1);lua_pop(s,1);luaL_requiref(s,"table",luaopen_table,1);lua_pop(s,1);luaL_requiref(s,"string",luaopen_string,1);lua_pop(s,1);luaL_requiref(s,"math",luaopen_math,1);lua_pop(s,1);
+ luaL_requiref(s,"_G",luaopen_base,1);lua_pop(s,1);luaL_requiref(s,"table",luaopen_table,1);lua_pop(s,1);luaL_requiref(s,"string",luaopen_string,1);lua_pop(s,1);luaL_requiref(s,"math",luaopen_math,1);lua_pop(s,1);luaL_requiref(s,"coroutine",luaopen_coroutine,1);lua_pop(s,1);
  luaL_newmetatable(s,"pc.Bits");lua_pushcfunction(s,BitsIndex);lua_setfield(s,-2,"__index");lua_pushcfunction(s,BitsShift);lua_setfield(s,-2,"__shl");lua_pop(s,1);
  lua_newtable(s);lua_newtable(s);luaL_getmetatable(s,"pc.Bits");lua_setfield(s,-2,"__class");lua_pushcfunction(s,BitsCtor);lua_setfield(s,-2,"__call");lua_setmetatable(s,-2);lua_setglobal(s,"BitSet128");
  if(!Run(s,Read(argv[1]),"@native_stubs.lua"))return 91;
@@ -78,7 +79,74 @@ int main(int argc,char** argv){
 }
 '''
 RUNTIME_BRIDGE = r''' 
+#include <chrono>
+#include <algorithm>
 namespace LuaRuntime {
+static std::uint64_t g_FilterInstructions{};
+static unsigned g_NextMatcherCalls{};
+static void CountFilterInstructions(lua_State*,lua_Debug*){++g_FilterInstructions;}
+static int CountNextMatcher(lua_State* state){
+ ++g_NextMatcherCalls;const int count=lua_gettop(state);
+ lua_pushvalue(state,lua_upvalueindex(1));lua_insert(state,1);lua_call(state,count,2);return 2;
+}
+static int CapturedValueRunner(lua_State* state){
+ isaac::runtime::PushCallbackRunner(state);lua_pushvalue(state,1);lua_pushvalue(state,2);
+ lua_call(state,2,1);return 1;
+}
+extern "C" void ProbeValueBootstrapParity(int id,int mode){
+ const int top=lua_gettop(g_LuaState);
+ lua_pushcfunction(g_LuaState,CapturedValueRunner);lua_pushinteger(g_LuaState,id);lua_getglobal(g_LuaState,"_filter");
+ const bool failed=lua_pcall(g_LuaState,2,mode==0?0:1,0)!=LUA_OK;
+ int nonNil=0,truthy=0,table=0,hasInt=0;long long integer=0;
+ if(!failed&&mode!=0){nonNil=!lua_isnil(g_LuaState,-1);truthy=lua_toboolean(g_LuaState,-1);table=lua_istable(g_LuaState,-1);hasInt=lua_isinteger(g_LuaState,-1);integer=hasInt?static_cast<long long>(lua_tointeger(g_LuaState,-1)):0;}
+ lua_getglobal(g_LuaState,"_order");const char* order=lua_tostring(g_LuaState,-1);
+ std::printf("%s|%d|%d|%d|%d|%d|%lld\n",order?order:"",failed,nonNil,truthy,table,hasInt,integer);
+ lua_settop(g_LuaState,top);
+}
+extern "C" void ProbeFilterCost(){
+ const int top=lua_gettop(g_LuaState);
+ lua_getglobal(g_LuaState,"_filter");
+ const auto filter=lua_isnil(g_LuaState,-1)?isaac::runtime::CallbackRegistry::kNoCallbackFilter:static_cast<std::int64_t>(lua_tointeger(g_LuaState,-1));lua_pop(g_LuaState,1);
+ const auto once=[&](bool manual){
+  if(manual){
+   lua_getglobal(g_LuaState,"Isaac");lua_getfield(g_LuaState,-1,"RunCallbackWithParam");lua_remove(g_LuaState,-2);
+   lua_pushinteger(g_LuaState,55);lua_getglobal(g_LuaState,"_filter");
+   if(lua_pcall(g_LuaState,2,0,0)!=LUA_OK)std::abort();
+  }else{
+   LuaCallbackInvoker invoker{0,false,false};isaac::runtime::CallbackDispatcher dispatcher{g_CallbackRegistry,invoker};
+   const auto report=dispatcher.DispatchFiltered(55,isaac::runtime::ThreadAffinity::Any,filter);
+   if(report.failed)std::abort();
+  }
+  lua_settop(g_LuaState,top);
+ };
+ isaac::runtime::PushCallbackRunner(g_LuaState);
+ const int runner=luaL_ref(g_LuaState,LUA_REGISTRYINDEX);int helperIndex=0,helperRef=LUA_NOREF;
+ lua_rawgeti(g_LuaState,LUA_REGISTRYINDEX,runner);
+ for(int i=1;;++i){const auto* name=lua_getupvalue(g_LuaState,-1,i);if(!name)break;
+  if(!std::strcmp(name,"nextMatching")){helperIndex=i;helperRef=luaL_ref(g_LuaState,LUA_REGISTRYINDEX);break;}
+  lua_pop(g_LuaState,1);
+ }
+ lua_pop(g_LuaState,1);
+ const auto helper=[&](bool enabled){if(!helperIndex)return;lua_rawgeti(g_LuaState,LUA_REGISTRYINDEX,runner);if(enabled)lua_rawgeti(g_LuaState,LUA_REGISTRYINDEX,helperRef);else lua_pushnil(g_LuaState);lua_setupvalue(g_LuaState,-2,helperIndex);lua_pop(g_LuaState,1);};
+ std::uint64_t instructions[3]{};unsigned helperCalls[3]{};double costs[3]{};
+ for(unsigned mode=0;mode<3;++mode){
+  const bool manual=mode==2;helper(mode!=1);
+  for(unsigned i=0;i<256;++i)once(manual);
+  if(mode==0&&helperIndex){lua_rawgeti(g_LuaState,LUA_REGISTRYINDEX,runner);lua_rawgeti(g_LuaState,LUA_REGISTRYINDEX,helperRef);lua_pushcclosure(g_LuaState,CountNextMatcher,1);lua_setupvalue(g_LuaState,-2,helperIndex);lua_pop(g_LuaState,1);}
+  g_NextMatcherCalls=0;
+  g_FilterInstructions=0;lua_sethook(g_LuaState,CountFilterInstructions,LUA_MASKCOUNT,1);once(manual);
+  lua_sethook(g_LuaState,nullptr,0,0);instructions[mode]=g_FilterInstructions;helperCalls[mode]=g_NextMatcherCalls;
+  helper(mode!=1);
+  constexpr unsigned repeats=2000;double samples[5]{};
+  for(auto& sample:samples){const auto started=std::chrono::steady_clock::now();
+   for(unsigned i=0;i<repeats;++i)once(manual);
+   sample=std::chrono::duration<double,std::nano>(std::chrono::steady_clock::now()-started).count()/repeats;
+  }
+  std::sort(samples,samples+5);costs[mode]=samples[2];
+ }
+ helper(true);luaL_unref(g_LuaState,LUA_REGISTRYINDEX,runner);if(helperRef!=LUA_NOREF)luaL_unref(g_LuaState,LUA_REGISTRYINDEX,helperRef);
+ std::printf("{\"native_helper_available\":%s,\"native_instructions\":%llu,\"fallback_instructions\":%llu,\"manual_instructions\":%llu,\"native_helper_calls\":%u,\"native_ns\":%.3f,\"fallback_ns\":%.3f,\"manual_ns\":%.3f}\n",helperIndex?"true":"false",static_cast<unsigned long long>(instructions[0]),static_cast<unsigned long long>(instructions[1]),static_cast<unsigned long long>(instructions[2]),helperCalls[0],costs[0],costs[1],costs[2]);
+}
 extern "C" void ProbeBootstrapParity(int id,int mode,std::int64_t filter){
  const int oldTop=lua_gettop(g_LuaState);
  LuaCallbackInvoker invoker{0,false,false};
@@ -102,7 +170,9 @@ RUNTIME_DRIVER = r'''
 #include <iterator>
 #include <string>
 extern "C" void ProbeBootstrapParity(int,int,std::int64_t);
-int main(int argc,char** argv){if(argc!=5)return 90;std::ifstream in(argv[1],std::ios::binary);std::string script{std::istreambuf_iterator<char>(in),{}};if(LuaRuntime::InitializeFromBuffer(script.data(),script.size(),"@callbacks.lua")!=LuaRuntime::LuaInitResult::Success)return 91;const auto filter=std::string(argv[4])=="nil"?isaac::runtime::CallbackRegistry::kNoCallbackFilter:std::stoll(argv[4]);ProbeBootstrapParity(std::stoi(argv[2]),std::stoi(argv[3]),filter);return 0;}
+extern "C" void ProbeValueBootstrapParity(int,int);
+extern "C" void ProbeFilterCost();
+int main(int argc,char** argv){if(argc!=5)return 90;std::ifstream in(argv[1],std::ios::binary);std::string script{std::istreambuf_iterator<char>(in),{}};if(LuaRuntime::InitializeFromBuffer(script.data(),script.size(),"@callbacks.lua")!=LuaRuntime::LuaInitResult::Success)return 91;if(std::string(argv[3])=="cost"){ProbeFilterCost();return 0;}if(std::string(argv[4])=="value"){ProbeValueBootstrapParity(std::stoi(argv[2]),std::stoi(argv[3]));return 0;}const auto filter=std::string(argv[4])=="nil"?isaac::runtime::CallbackRegistry::kNoCallbackFilter:std::stoll(argv[4]);ProbeBootstrapParity(std::stoi(argv[2]),std::stoi(argv[3]),filter);return 0;}
 '''
 
 def scenario(callback_id, mode, values, *, priorities=None, declared=None, sent='nil'):
@@ -266,6 +336,106 @@ Isaac.RunCallback('nested','outer')
         for value in ('1.0',"'42'",'false','1.5'):
             with self.subTest(value=value):
                 self.compare('integer_' + value.replace("'",''),64,1,[value,'99'])
+
+    def test_native_live_matcher_truth_and_lua_equality(self):
+        for sent in ('nil', 'false', '-1', '0', '7', '7.0', "'7'", "'-1'"):
+            script = "_order='';_mode=2;_filter=" + sent + ";local m=RegisterMod('truth',1)\n"
+            for i, param in enumerate(('nil', 'false', '-1', '0', '7', '7.0', "'7'", 'true')):
+                script += "m:AddCallback(55,function()_order=_order..'%s' end,%s)\n" % (chr(65+i), param)
+            self.compare_script('native_truth_' + str(abs(hash(sent))), script,55,2,'value')
+        self.compare_script('native_table_eq', """
+_order='';_mode=2
+local mt={__eq=function(a,b)_order=_order..'E';return a.tag==b.tag end}
+_filter=setmetatable({tag=7},mt)
+local m=RegisterMod('eq',1)
+m:AddCallback(55,function()_order=_order..'A' end,setmetatable({tag=8},mt))
+m:AddCallback(55,function()_order=_order..'B' end,setmetatable({tag=7},mt))
+m:AddCallback(55,function()_order=_order..'C' end,false)
+""",55,2,'value')
+        for value in ('false','0','{}'):
+            self.compare_script('native_return_' + value.replace('{}','table'),
+                "_order='';_mode=2;_filter=7;local m=RegisterMod('return',1);"
+                "m:AddCallback(55,function()_order=_order..'A';return " + value +
+                " end,7);m:AddCallback(55,function()_order=_order..'B' end,7)",55,2,'value')
+
+    def test_native_live_matcher_observes_mutations_without_snapshots(self):
+        for mutation in ('remove_self','remove_next','add_before','add_after','hole'):
+            script = """
+_order='';_mode=0;_filter=7
+local m=RegisterMod('live mutation',1);local first,nextfn;local changed=false
+nextfn=function()_order=_order..'B' end
+first=function(self)
+ _order=_order..'A'
+ if not changed then changed=true;MUTATION end
+end
+m:AddCallback(55,first,7);m:AddCallback(55,nextfn,7)
+m:AddCallback(55,function()_order=_order..'C' end,7)
+"""
+            operation = {
+                'remove_self': 'self:RemoveCallback(55,first)',
+                'remove_next': 'self:RemoveCallback(55,nextfn)',
+                'add_before': "self:AddPriorityCallback(55,-1,function()_order=_order..'D' end,7)",
+                'add_after': "self:AddCallback(55,function()_order=_order..'D' end,7)",
+                'hole': 'Isaac.GetCallbacks(55)[2]=nil',
+            }[mutation]
+            self.compare_script('native_' + mutation,script.replace('MUTATION',operation),55,0,'value')
+
+    def test_native_live_matcher_preserves_indexing_errors_and_fallbacks(self):
+        prefix = "_order='';_mode=2;_filter=7;local m=RegisterMod('proxy',1);m:AddCallback(55,function()end,99);local c=Isaac.GetCallbacks(55);"
+        for name, body in (
+            ('boolean_entry', 'c[1]=false'),
+            ('number_entry', 'c[1]=17'),
+            ('string_entry', "c[1]='plain string'"),
+            ('param_error', "c[1]=setmetatable({},{__index=function(_,k)_order=_order..k;error({tag='failure'})end})"),
+            ('param_proxy', "c[1]=setmetatable({Mod=m,Function=function()_order=_order..'A' end},{__index=function(_,k)if k=='Param' then _order=_order..'P';return 7 end end})"),
+            ('matcher', "getmetatable(c).__matchParams=function(a,b)_order=_order..'M';return true end;c[1].Function=function()_order=_order..'A' end"),
+            ('iterator', "local old=ipairs;ipairs=function(t)if t==c then return function(a,i)_order=_order..'I';if i==0 then return 1,a[1] end end,t,0 end;return old(t)end;c[1].Param=7;c[1].Function=function()_order=_order..'A' end"),
+            ('index_proxy', "c[1].Param=99;setmetatable(c,{__index=function(_,i)if i==2 then _order=_order..'I';return {Mod=m,Param=7,Function=function()_order=_order..'A' end} end end})"),
+            ('param_mutates_next', "c[2]={Mod=m,Param=99,Function=function()_order=_order..'B' end};c[1]=setmetatable({Mod=m,Function=function()end},{__index=function(_,k)if k=='Param' then _order=_order..'P';c[2].Param=7;return 99 end end})"),
+            ('nested_manual', "c[1].Param=7;c[1].Function=function()_order=_order..'A';Isaac.RunCallback('inner')end;m:AddCallback('inner',function()_order=_order..'B';return false end)"),
+        ):
+            with self.subTest(case=name):
+                self.compare_script('native_' + name,prefix+body,55,2,'value')
+        # Even wildcard params must read Param first, including its error.
+        self.compare_script('native_nil_param_error',prefix.replace('_filter=7','_filter=nil')+
+                            "c[1]=setmetatable({},{__index=function()_order=_order..'P';error('param')end})",55,2,'value')
+
+    def test_manual_param_metamethod_can_still_yield(self):
+        self.compare_script('manual_param_yield', """
+_order='';_mode=0;_filter=7
+local m=RegisterMod('manual yield',1)
+m:AddCallback(55,function()_order=_order..'C' end,99)
+local c=Isaac.GetCallbacks(55)
+c[1].Param=nil;setmetatable(c[1],{__index=function(_,k)if k=='Param' then _order=_order..'P';coroutine.yield('pause');return 7 end end})
+local thread=coroutine.create(function()Isaac.RunCallbackWithParam(55,7)end)
+local ok,value=coroutine.resume(thread);assert(ok and value=='pause');_order=_order..'Y'
+assert(coroutine.resume(thread));assert(coroutine.status(thread)=='dead')
+""")
+
+    def test_native_matching_has_no_lua_work_per_unmatched_entry(self):
+        rows = {}
+        for name, count, wildcards, sent in (
+            ('miss16',16,0,'7'),('miss512',512,0,'7'),
+            ('effects252wild4',252,4,'7'),('render34miss',34,0,'7'),
+            ('npc176wild27',176,27,'7'),('input29wild16',29,16,'7'),('wild252nil',252,252,'nil'),
+            ('wild252filter',252,252,'7'),('wild252minus1',252,252,'-1'),
+        ):
+            script = self.work / ('cost_' + name + '.lua')
+            script.write_text("_filter="+sent+";local m=RegisterMod('cost',1);local c=Isaac.GetCallbacks(55,true);"
+                              "local f=function()end;for i=1,"+str(count)+" do c[i]={Mod=m,Priority=0,Param=999999,Function=f}end;"
+                              "for i=1,"+str(wildcards)+" do c[i].Param=false end;Isaac.SetBuiltInCallbackState(55,true)")
+            result = subprocess.run([str(self.runtime),str(script),'55','cost','nil'],capture_output=True,text=True)
+            self.assertEqual(result.returncode,0,result.stdout+result.stderr)
+            rows[name] = json.loads(result.stdout)
+            print('FILTER_COST ' + name + ' ' + json.dumps(rows[name]))
+        self.assertLessEqual(rows['miss512']['native_instructions'],rows['miss16']['native_instructions']+20,
+                             'native matching still interprets every unmatched callback')
+        self.assertGreater(rows['miss512']['manual_instructions'],rows['miss16']['manual_instructions']*8)
+        self.assertEqual(rows['wild252filter']['native_helper_calls'],0,
+                         'already-matching callbacks must not pay another C matching call')
+        self.assertLessEqual(rows['input29wild16']['native_helper_calls'],1)
+        self.assertEqual(rows['miss512']['fallback_instructions']-rows['miss16']['fallback_instructions'],
+                         14*(512-16),'helper=nil must retain the original Lua matching loop')
 
 if __name__ == '__main__':
     unittest.main()

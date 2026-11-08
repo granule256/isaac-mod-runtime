@@ -1,7 +1,7 @@
 #pragma once
 // PC Callbacks（main.lua SHA ae0efa…）；默认匹配内联，执行仍读取共享表。
 namespace isaac::runtime {
-inline constexpr char kPcCallbackBootstrap[] = R"pc(local invoke, changed, ownerMatches, nativeInvoke = ...
+inline constexpr char kPcCallbackBootstrap[] = R"pc(local invoke, changed, ownerMatches, nativeInvoke, nextMatching = ...
 nativeInvoke = nativeInvoke or invoke
 local debug_getinfo = debug.getinfo
 local diagnostic_pcall = pcall
@@ -33,7 +33,7 @@ local originalDefaultMatch = defaultCallbackMeta.__matchParams
 -- Keep custom ipairs iterators live; only the fixed Lua array iterator uses the direct loop.
 local standardIterator = ipairs({})
 
-local function MakeRunner(invoke)
+local function MakeRunner(invoke, nextMatching)
  return function(callbackId, param, ...)
     local callbacks = Callbacks[callbackId]
     if callbacks then
@@ -41,6 +41,27 @@ local function MakeRunner(invoke)
         local useDefault = matchFunc == originalDefaultMatch
         local iterator, iteratorState, iteratorIndex = ipairs(callbacks)
         if iterator == standardIterator and iteratorState == callbacks and iteratorIndex == 0 then
+          if nextMatching and useDefault and param and param ~= -1 then
+            local index = 0
+            while true do
+                index = index + 1
+                local v = callbacks[index]
+                if v == nil then break end
+                local p = v.Param
+                if not p or p == -1 or param == p then
+                    local result = invoke(callbackId, v, ...)
+                    if result ~= nil then return result end
+                else
+                    -- Param was already read. Scan after it and do not re-read
+                    -- the matching entry's potentially live getter.
+                    local nextIndex, nextEntry = nextMatching(callbacks, index, param)
+                    if nextIndex == nil then break end
+                    index, v = nextIndex, nextEntry
+                    local result = invoke(callbackId, v, ...)
+                    if result ~= nil then return result end
+                end
+            end
+          else
             local index = 0
             while true do
                 index = index + 1
@@ -58,6 +79,7 @@ local function MakeRunner(invoke)
                     if result ~= nil then return result end
                 end
             end
+          end
         else
             for _, v in iterator, iteratorState, iteratorIndex do
                 local p = v.Param
@@ -78,7 +100,7 @@ end
 end
 
 _RunCallback = MakeRunner(invoke)
-local RunNative = MakeRunner(nativeInvoke)
+local RunNative = MakeRunner(nativeInvoke, nextMatching)
 
 function _UnloadMod(mod)
 	Isaac.RunCallback(ModCallbacks.MC_PRE_MOD_UNLOAD, mod)
