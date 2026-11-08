@@ -18,6 +18,7 @@ class FindByTypeCostTests(unittest.TestCase):
   body+=function(source,'int IsaacFindByType(lua_State* state) {')
   prefix=r'''
 #include <array>
+#include <algorithm>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
@@ -30,9 +31,10 @@ extern "C" {
 }
 constexpr unsigned kEntitySnapshotSpan=0x348,kEntityFlagsOffset=0x1b8,kEntityTypeOffset=0x38,kEntityVariantOffset=0x3c,kEntitySubTypeOffset=0x40,kEntityIndexOffset=0x44,kEntityPositionOffset=0x100,kEntitySizeOffset=0x344,kEntityFlagNoQueryBit=46;
 constexpr unsigned kRoomEntityListOffset=0,kGamePlayerArrayBeginOffset=0x20,kGamePlayerArrayEndOffset=0x28,kEnginePlayerMaximumCount=16;
-std::array<unsigned char,0x348> a{},b{},c{},bad{};std::array<unsigned char,64>game{};
+std::array<unsigned char,0x348> a{},b{},c{},bad{},player{},spawned{};std::array<unsigned char,64>game{};
 std::vector<std::uintptr_t>live,effects,players;std::set<std::uintptr_t>seen;
 unsigned spatialReads=0,pointerChecks=0;
+unsigned effectTableReads=0,playerVectorReads=0;
 std::array<std::array<unsigned char,0x348>,256> crowd{};
 bool measuring=false;unsigned fieldReads=0,unneededReads=0;
 int requestedType=0,requestedVariant=-1,requestedSubType=-1;
@@ -53,11 +55,11 @@ template<class T>bool ReadEngineUnchecked(std::uintptr_t p,T*v){
  for(auto*e:{&a,&b,&c,&bad})for(auto offset:{kEntityPositionOffset,kEntityPositionOffset+4,kEntitySizeOffset})if(p==reinterpret_cast<std::uintptr_t>(e->data())+offset)++spatialReads;
  std::memcpy(v,reinterpret_cast<void*>(p),sizeof(T));return true;
 }
-template<class T>bool ReadEngine(std::uintptr_t p,T*v){return ReadEngineUnchecked(p,v);}
+template<class T>bool ReadEngine(std::uintptr_t p,T*v){if(p==reinterpret_cast<std::uintptr_t>(game.data())+0x20||p==reinterpret_cast<std::uintptr_t>(game.data())+0x28)++playerVectorReads;return ReadEngineUnchecked(p,v);}
 bool IsEntityPointer(std::uintptr_t p){++pointerChecks;std::uintptr_t v;std::memcpy(&v,reinterpret_cast<void*>(p),8);return IsEntityVtableInRange(v);}
 struct EntityTableSpec{int id;};constexpr EntityTableSpec kLiveEntityTable{0},kEffectEntityTable{1};
 struct EntityTableView{std::uintptr_t begin;std::uint32_t count;};
-bool ReadEntityTable(std::uintptr_t,const EntityTableSpec&s,EntityTableView*v){auto&t=s.id?effects:live;v->begin=reinterpret_cast<std::uintptr_t>(t.data());v->count=t.size();return true;}
+bool ReadEntityTable(std::uintptr_t,const EntityTableSpec&s,EntityTableView*v){if(s.id)++effectTableReads;auto&t=s.id?effects:live;v->begin=reinterpret_cast<std::uintptr_t>(t.data());v->count=t.size();return true;}
 std::uintptr_t ResolveGameAddress(){return reinterpret_cast<std::uintptr_t>(game.data());}
 std::uintptr_t ResolveRoom(){return 1;}bool EntityListFingerprintMatches(std::uintptr_t){return true;}
 void RecordApiSequence(unsigned){}void ResetQueryDedup(){seen.clear();}
@@ -66,20 +68,43 @@ struct QuerySink{lua_State*state;int resultIndex;int emitted;};
 void PushQueryResult(QuerySink*s,std::uintptr_t p){if(seen.insert(p).second){lua_pushlightuserdata(s->state,reinterpret_cast<void*>(p));lua_rawseti(s->state,s->resultIndex,++s->emitted);}}
 template<class T>void write(std::array<unsigned char,0x348>&e,unsigned offset,T value){std::memcpy(e.data()+offset,&value,sizeof(value));}
 int mutate(lua_State*){write(c,0x3c,std::uint32_t(470));return 0;}
+int spawn(lua_State*){write(spawned,0,std::uintptr_t(0x1234));write(spawned,0x38,std::uint32_t(160));write(spawned,0x3c,std::uint32_t(470));write(spawned,0x40,std::uint32_t(4));live.push_back(reinterpret_cast<std::uintptr_t>(spawned.data()));return 0;}
+int removeSpawn(lua_State*){const auto p=reinterpret_cast<std::uintptr_t>(spawned.data());live.erase(std::remove(live.begin(),live.end(),p),live.end());return 0;}
+int morph(lua_State*){write(c,0x38,std::uint32_t(1000));write(c,0x3c,std::uint32_t(135));effects={reinterpret_cast<std::uintptr_t>(c.data())};return 0;}
+int removeEffect(lua_State*){const auto p=reinterpret_cast<std::uintptr_t>(c.data());live.erase(std::remove(live.begin(),live.end(),p),live.end());return 0;}
+int exclude(lua_State*){write(a,0x1b8,std::uint64_t(1ULL<<46));return 0;}
 '''
   main=r'''
 int main(){
  for(auto*e:{&a,&b,&c,&bad}){write(*e,0,std::uintptr_t(0x1234));write(*e,0x38,std::uint32_t(160));write(*e,0x3c,std::uint32_t(470));}
  write(b,0x1b8,std::uint64_t(1ULL<<46));write(c,0x3c,std::uint32_t(9));write(bad,0,std::uintptr_t(9));
  auto addr=[](auto&e){return reinterpret_cast<std::uintptr_t>(e.data());};
- live={addr(a),0,addr(b),addr(bad)};effects={addr(c)};players={addr(a)};
+ // PC QueryType415ED0 and NS79718 use live, even for Type1000. The
+ // collision-effect table is only a snapshot subset and can retain removals.
+ write(player,0,std::uintptr_t(0x1234));write(player,0x38,std::uint32_t(1));
+ live={addr(a),0,addr(b),addr(c),addr(bad),addr(player),addr(a)};effects={};players={addr(player)};
  auto begin=reinterpret_cast<std::uintptr_t>(players.data()),end=begin+8;std::memcpy(game.data()+0x20,&begin,8);std::memcpy(game.data()+0x28,&end,8);
  auto*L=luaL_newstate();luaL_requiref(L,"_G",luaopen_base,1);lua_pop(L,1);
  lua_pushcfunction(L,IsaacFindByType);lua_setglobal(L,"query");lua_pushcfunction(L,mutate);lua_setglobal(L,"mutate");
- const char*s="local a=query(160,-1,-1,true,false);assert(#a==2);a[1]='changed';local b=query(160,470,0,false,false);assert(#b==1);mutate();assert(#query(160,470,0,true,false)==2);assert(#query(-1)==0)";
+ lua_pushcfunction(L,spawn);lua_setglobal(L,"spawn");lua_pushcfunction(L,removeSpawn);lua_setglobal(L,"removeSpawn");
+ lua_pushcfunction(L,morph);lua_setglobal(L,"morph");lua_pushcfunction(L,removeEffect);lua_setglobal(L,"removeEffect");lua_pushcfunction(L,exclude);lua_setglobal(L,"exclude");
+ const char*s=R"lua(
+ local first=query(160,-1,-1,true,false);assert(#first==2)
+ local second=query(160,-1,-1,true,false);assert(first~=second and first[1]==second[1] and first[2]==second[2])
+ first[1]='changed';assert(query(160,-1,-1)[1]==second[1])
+ assert(#query(1)==1,'player is already in live')
+ assert(#query(160,470,0,false,false)==1);mutate();assert(#query(160,470,0,true,false)==2)
+ spawn();assert(#query(160,470,-1)==3 and #query(160,470,4)==1)
+ removeSpawn();assert(#query(160,470,-1,true)==2)
+ morph();assert(#query(160,-1,-1)==1 and #query(1000,135,0)==1,'NPC morph to Type1000 remains in live')
+ removeEffect();assert(#query(1000,-1,-1)==0,'removed effect must not return from stale collision table')
+ exclude();assert(#query(160)==0,'NO_QUERY changes are immediate')
+ assert(#query(-1)==0)
+ )lua";
  if(luaL_loadstring(L,s)||lua_pcall(L,0,0,0)){std::fprintf(stderr,"%s",lua_tostring(L,-1));return 2;}
  if(spatialReads){std::fprintf(stderr,"type query read unused spatial fields %u times",spatialReads);return 3;}
  if(pointerChecks){std::fprintf(stderr,"type query repeated pointer validation %u times",pointerChecks);return 4;}
+ if(effectTableReads||playerVectorReads){std::fprintf(stderr,"QueryType traversed extra sources: effects=%u players=%u",effectTableReads,playerVectorReads);return 8;}
  struct Scenario{const char*name;unsigned count,queries;int type,variant,sub,layout;};
  const Scenario scenarios[]={
   {"empty",0,16,160,470,-1,0},{"small_room",32,16,160,470,-1,0},
@@ -102,15 +127,15 @@ int main(){
    write(e,0x38,type);write(e,0x3c,variant);write(e,0x40,sub);write(e,0x1b8,flags);
    if(s.layout==3){type=1000;variant=1809;write(e,0x38,type);write(e,0x3c,variant);}
    if(i==s.count-1)write(e,0,std::uintptr_t(9));
-   auto ptr=addr(e);(type==1000?effects:live).push_back(ptr);
+   auto ptr=addr(e);live.push_back(ptr);if(type==1000&&i%3==0)effects.push_back(ptr);
   }
-  // Reference follows table order and retains fresh independent Lua arrays.
-  for(const auto&table:{live,effects})for(auto ptr:table){
+  // Independent reference follows the native live-array order.
+  for(auto ptr:live){
    const auto*e=reinterpret_cast<const unsigned char*>(ptr);std::uintptr_t vptr;unsigned type,variant,sub;std::uint64_t flags;
    std::memcpy(&vptr,e,8);std::memcpy(&type,e+0x38,4);std::memcpy(&variant,e+0x3c,4);std::memcpy(&sub,e+0x40,4);std::memcpy(&flags,e+0x1b8,8);
    if(vptr==0x1234&&type==s.type&&(s.variant<0||variant==s.variant)&&(s.sub<0||sub==s.sub)&&!(flags&(1ULL<<46)))expected.push_back(ptr);
   }
-  fieldReads=unneededReads=0;requestedType=s.type;requestedVariant=s.variant;requestedSubType=s.sub;measuring=true;
+  fieldReads=unneededReads=effectTableReads=playerVectorReads=0;requestedType=s.type;requestedVariant=s.variant;requestedSubType=s.sub;measuring=true;
   for(unsigned q=0;q<s.queries;++q){
    lua_pushcfunction(L,IsaacFindByType);lua_pushinteger(L,s.type);lua_pushinteger(L,s.variant);lua_pushinteger(L,s.sub);lua_pushboolean(L,q%2);lua_pushboolean(L,0);
    if(lua_pcall(L,5,1,0)){std::fprintf(stderr,"%s",lua_tostring(L,-1));return 5;}
@@ -119,7 +144,8 @@ int main(){
    lua_pushnil(L);lua_rawseti(L,-2,1);lua_pop(L,1);
   }
   measuring=false;
-  std::printf("{\"scenario\":\"%s\",\"candidates\":%u,\"queries\":%u,\"field_reads\":%u,\"unneeded_reads\":%u}\n",s.name,s.count,s.queries,fieldReads,unneededReads);
+  if(effectTableReads||playerVectorReads)return 8;
+  std::printf("{\"scenario\":\"%s\",\"candidates\":%u,\"queries\":%u,\"field_reads\":%u,\"unneeded_reads\":%u,\"extra_source_reads\":%u}\n",s.name,s.count,s.queries,fieldReads,unneededReads,effectTableReads+playerVectorReads);
  }
  lua_close(L);return 0;}
 '''
@@ -135,3 +161,4 @@ int main(){
     print(cost)
     with self.subTest(scenario=cost['scenario']):
      self.assertEqual(cost['unneeded_reads'],0)
+     self.assertEqual(cost['extra_source_reads'],0)

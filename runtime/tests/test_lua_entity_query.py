@@ -378,7 +378,7 @@ void PublishEntityList(std::vector<unsigned char>& room, bool validFingerprint) 
     WriteAt<std::uint32_t>(room, kRoomEntityListOffset + kEntityListArenaCapacityOffset,
                            validFingerprint ? kEntityListArenaCapacity : 0U);
     WriteWord(room, kRoomEntityListOffset + kEntityListLiveBeginOffset, AddressOf(g_LiveArrayBytes));
-    WriteAt<std::uint32_t>(room, kRoomEntityListOffset + kEntityListLiveCountOffset, 13U);
+    WriteAt<std::uint32_t>(room, kRoomEntityListOffset + kEntityListLiveCountOffset, 15U);
     WriteWord(room, kRoomEntityListOffset + kEntityListEffectBeginOffset,
               AddressOf(g_EffectArrayBytes));
     WriteAt<std::uint32_t>(room, kRoomEntityListOffset + kEntityListEffectCapacityOffset,
@@ -386,7 +386,8 @@ void PublishEntityList(std::vector<unsigned char>& room, bool validFingerprint) 
     WriteAt<std::uint32_t>(room, kRoomEntityListOffset + kEntityListEffectCountOffset, 2U);
 }
 
-// 活表：13 个槽，最后两个是"空指针"与"vptr 越界"的坏元素。
+// 原生活动表包含玩家与全部活动效果；碰撞效果表只是其子集。
+// 15 个槽，最后两个是"空指针"与"vptr 越界"的坏元素。
 void PublishLists() {
     const std::uintptr_t live[] = {
         AddressOf(g_Entities[kPlayer]),      AddressOf(g_Entities[kEnemyA]),
@@ -394,7 +395,8 @@ void PublishLists() {
         AddressOf(g_Entities[kTearNear]),    AddressOf(g_Entities[kSizeOnly]),
         AddressOf(g_Entities[kNoQuery]),     AddressOf(g_Entities[kFamiliar]),
         AddressOf(g_Entities[kCharmed]),     AddressOf(g_Entities[kBullet]),
-        AddressOf(g_Entities[kFakePickup]),  0,
+        AddressOf(g_Entities[kFakePickup]),  AddressOf(g_Entities[kEffect]),
+        AddressOf(g_Entities[kEffectNoQuery]), 0,
         AddressOf(g_Entities[kGarbage]),
     };
     g_LiveArrayBytes.assign(sizeof(live), 0);
@@ -722,7 +724,7 @@ local function verifyRadiusAndPartitions()
   checkSet(Isaac.FindInRadius(Vector(900, 900), 10, PICKUP), { 'fakePickup' }, 'far query')
 end
 
--- ===== FindByType：通配、跨表、去重、Cache 参数 =====
+-- ===== FindByType：通配、原生活动表、去重、Cache 参数 =====
 local function verifyFindByType()
   checkSet(Isaac.FindByType(20, 5, 0, false, false), { 'enemyA' }, 'FindByType exact')
   checkSet(Isaac.FindByType(20, -1, -1, false, false), { 'enemyA' }, 'FindByType variant wildcard')
@@ -732,7 +734,7 @@ local function verifyFindByType()
   checkSet(Isaac.FindByType(3, -1, -1), { 'familiar', 'charmed' }, 'FindByType familiar family')
   -- 玩家同时在活表与玩家向量里：必须只返回一个。
   checkSet(Isaac.FindByType(1, -1, -1), { 'player' }, 'FindByType player dedup')
-  -- EFFECT 只存在于 `EL+0xA8` 表里；`FLAG_NO_QUERY` 的那个必须被排除。
+  -- 原生活动表包含EFFECT；`FLAG_NO_QUERY` 的那个必须被排除。
   checkSet(Isaac.FindByType(1000, 7, -1), { 'effect' }, 'FindByType effect')
   checkSet(Isaac.FindByType(1000, -1, -1), { 'effect' }, 'FindByType effect no-query filter')
   -- `FLAG_NO_QUERY` 的 ENEMY（Type 22）必须被排除；坏 vptr 的 Type 20 实体也不许出现。
@@ -1121,7 +1123,7 @@ local function run()
     checkSet(Isaac.FindInRadius(Vector(80, 280), 100, EFFECT), { 'effect' }, 'overflow effect')
     checkSet(Isaac.FindInRadius(Vector(80, 280), 100, PLAYER), { 'player' }, 'overflow player')
     checkArray(Isaac.FindByType(20, -1, -1, false, false), 0, 'overflow live type')
-    checkSet(Isaac.FindByType(1000, 7, -1), { 'effect' }, 'overflow effect type')
+    checkSet(Isaac.FindByType(1000, 7, -1), {}, 'overflow live effect type')
     check(Isaac.CountEnemies() == 3, 'invalid list size does not change native enemy counters')
   check(Isaac.CountBosses() == 1, 'invalid list size does not change native boss counters')
     if frame == 1 then PHASE1_OK = 1 end

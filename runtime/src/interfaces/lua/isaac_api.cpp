@@ -3005,7 +3005,12 @@ int IndexEntity(lua_State* state, EntityView view) {
         (field[0] == 'G' && (std::strcmp(field, "GetData") == 0 ||
                               std::strcmp(field, "GetEffects") == 0 ||
                               std::strcmp(field, "GetSprite") == 0)) ||
-        (field[0] == 'T' && std::strcmp(field, "ToPlayer") == 0) ||
+        (field[0] == 'T' && field[1] == 'o' &&
+         (std::strcmp(field, "ToPlayer") == 0 || std::strcmp(field, "ToNPC") == 0 ||
+          std::strcmp(field, "ToPickup") == 0 || std::strcmp(field, "ToEffect") == 0 ||
+          std::strcmp(field, "ToFamiliar") == 0 || std::strcmp(field, "ToTear") == 0 ||
+          std::strcmp(field, "ToLaser") == 0 || std::strcmp(field, "ToProjectile") == 0 ||
+          std::strcmp(field, "ToBomb") == 0 || std::strcmp(field, "ToKnife") == 0)) ||
         (field[0] == 'H' && (std::strcmp(field, "HasCollectible") == 0 ||
                               std::strcmp(field, "HasTrinket") == 0)) ||
         (field[0] == 'I' && std::strcmp(field, "IsDead") == 0);
@@ -7165,10 +7170,11 @@ int IsaacFindByType(lua_State* state) {
             PushQueryResult(&sink, entity);
         }
     };
-    // 三表去重；visitor已核对完整实体/vptr，跳过重复的入口校验。
+    // 常规PC QueryType(0x415ED0)与NS同名函数(0x79718)只扫描活动表，
+    // 其中已包含玩家及Type1000。EL+0xA8只是collide重建的效果碰撞子集，
+    // 可能仍持有已从活动表移除的对象，不能当作额外查询源。
+    // visitor已核对完整实体/vptr，跳过重复的入口校验；仍逐次读当前身份。
     ForEachEntityInTable<false>(list, kLiveEntityTable, consider);
-    ForEachPlayerEntity<false>(ResolveGameAddress(), consider);
-    ForEachEntityInTable<false>(list, kEffectEntityTable, consider);
     return 1;
 }
 
