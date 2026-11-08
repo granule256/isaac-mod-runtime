@@ -7,6 +7,10 @@
 namespace isaac::runtime {
 // Native Level::load_room completion, including re-entry at the same grid index.
 inline std::atomic<std::uint64_t> g_NativeRoomLoadGeneration{};
+// Birth callbacks inside load_room must already belong to the destination
+// lifetime. Completion remains separate: room/level data is not ready yet.
+inline std::atomic<std::uint64_t> g_NativeRoomLoadStartGeneration{};
+inline std::atomic<std::uint32_t> g_NativeRoomLoadDepth{};
 // Level开头已核的stage/type，只有原生load_room返回后才发布。
 // 层号在下层过场早期就会变化，不能把它本身当作新地图已就绪。
 inline std::atomic<std::uint64_t> g_NativeLoadedLevelKey{};
@@ -24,12 +28,21 @@ inline bool NativeLoadedLevelMatches(std::uint32_t stage, std::uint32_t type) no
     return loaded != 0 && loaded == (static_cast<std::uint64_t>(type) << 32U | stage);
 }
 inline void NoteNativeRoomLoaded() noexcept {
+    // Explicit completion notifications without the wrapper still represent a
+    // new lifetime. CompleteNativeRoomLoad already published its start boundary.
+    if (g_NativeRoomLoadDepth.load(std::memory_order_acquire) == 0)
+        g_NativeRoomLoadStartGeneration.fetch_add(1, std::memory_order_release);
     g_NativeRoomLoadGeneration.fetch_add(1, std::memory_order_release);
+}
+inline std::uint64_t NativeRoomLoadStartGeneration() noexcept {
+    return g_NativeRoomLoadStartGeneration.load(std::memory_order_acquire);
 }
 inline std::uint64_t NativeRoomLoadGeneration() noexcept {
     return g_NativeRoomLoadGeneration.load(std::memory_order_acquire);
 }
 inline void CompleteNativeRoomLoad(void (*original)(void*), void* level) {
+    g_NativeRoomLoadDepth.fetch_add(1, std::memory_order_acq_rel);
+    g_NativeRoomLoadStartGeneration.fetch_add(1, std::memory_order_release);
     original(level);
     if (level != nullptr) {
         std::uint32_t fields[2]{};
@@ -38,6 +51,7 @@ inline void CompleteNativeRoomLoad(void (*original)(void*), void* level) {
                                      std::memory_order_release);
     }
     NoteNativeRoomLoaded();
+    g_NativeRoomLoadDepth.fetch_sub(1, std::memory_order_release);
 }
 inline void CompleteNativeLevelInit(void (*original)(void*), void* level) {
     if (g_NativeLevelInitDepth.fetch_add(1, std::memory_order_acq_rel) == 0)

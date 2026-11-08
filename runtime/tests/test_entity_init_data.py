@@ -29,10 +29,11 @@ static void* Allocate(void* user,void* old,size_t,size_t size){
 static lua_State* state{};
 static const void* expectedData{};
 static unsigned calls{};
+static unsigned npcResets{};
 static void NativeInit(void* entity,std::uint32_t type,std::uint32_t variant,
                        std::uint32_t subtype,std::uint32_t seed){
     assert(reinterpret_cast<std::uintptr_t>(entity)==0x1234);
-    assert(type==5&&variant==10&&subtype==3&&seed==0xabcdef01);
+    assert((type==5||type==20)&&variant==10&&subtype==3&&seed==0xabcdef01);
     ++calls;
     if(state){
         const int top=lua_gettop(state);
@@ -42,6 +43,7 @@ static void NativeInit(void* entity,std::uint32_t type,std::uint32_t variant,
     }
 }
 namespace LuaRuntime {
+void ResetNpcInitialization(std::uintptr_t entity) noexcept {assert(entity==0x1234);++npcResets;}
 void DispatchNativeTearInit(std::uintptr_t) noexcept {}
 void DispatchNativeEffectInit(std::uintptr_t) noexcept {}
 void DispatchNativePickupInit(std::uintptr_t) noexcept {}
@@ -84,7 +86,9 @@ int main(){
     luaL_unref(state,LUA_REGISTRYINDEX,saved);
     ResetEntityLifetimeState();lua_close(state);state=nullptr;
     RunNativeEntityInit(&native,NativeEntityInitKind::Base,reinterpret_cast<void*>(0x1234),5,10,3,0xabcdef01);
-    assert(calls==4);
+    assert(calls==4&&npcResets==0);
+    RunNativeEntityInit(&native,NativeEntityInitKind::Base,reinterpret_cast<void*>(0x1234),20,10,3,0xabcdef01);
+    assert(calls==5&&npcResets==1);
 }
 '''
 

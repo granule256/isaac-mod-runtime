@@ -354,6 +354,9 @@ struct EntitySpawnOverride {
 // 仅由Projectile正常完成尾部调用；同帧显式Update每次独立派发。
 void DispatchPostProjectileInit(std::uintptr_t projectile);
 void DispatchPostProjectileUpdate(std::uintptr_t projectile);
+// Native SpawnEx has completed all derived initialization; publish INIT before
+// returning the new NPC to author code. The later AI/room scan shares its claim.
+void DispatchPostNpcSpawn(std::uintptr_t npc);
 // Inside native NPC::Update, after its AI and before generic death handling.
 void DispatchPostNpcUpdate(std::uintptr_t npc);
 // Explicit Entity:Update only; projectile already dispatches at its native tail.

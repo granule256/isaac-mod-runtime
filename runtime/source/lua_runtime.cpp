@@ -4814,9 +4814,9 @@ void DispatchNpcEntityEvents(EntityEventScan* scan, std::uintptr_t entity,
         return;  // `MC_POST_NPC_RENDER` 不在本批（台账里是 needs_hook），见的记录。
     }
     if (!scan->registered.Has(isaac::runtime::kCallbackPostNpcInit)) return;
-    // Native AI can initialize an NPC before the room lifecycle is observed.
-    // Both paths claim the same load generation, so the later scan keeps it.
-    SyncNpcSeenRoomGeneration(isaac::runtime::NativeRoomLoadGeneration());
+    // Spawn completion can initialize an NPC while load_room is still running.
+    // Claim the start boundary so completion and the later scan preserve it.
+    SyncNpcSeenRoomGeneration(isaac::runtime::NativeRoomLoadStartGeneration());
     if (NoteNewEntity(g_FrameEventState.seenNpcs, kSeenNpcCapacity, &g_FrameEventState.seenNpcCount,
                       entity)) {
         LuaCallbackInvoker invoker = LuaCallbackInvoker::ForEntity(entity);
@@ -5189,7 +5189,7 @@ bool DispatchFrameEvents(bool initialOnly = false) {
             // 实体（掉落物、跟班、敌人…）会各自收到一次 INIT（见文件上方"代价与已知差异"）。
             // 玩家那张表**不清**：玩家跨房间存活，清了会让同一个玩家每次换房都收到一次 INIT。
             ClearSeenEntities(&g_FrameEventState.seenPickupCount);
-            SyncNpcSeenRoomGeneration(roomLoadGeneration,
+            SyncNpcSeenRoomGeneration(isaac::runtime::NativeRoomLoadStartGeneration(),
                 g_FrameEventState.roomKnown != 0 &&
                 roomLoadGeneration == g_FrameEventState.roomLoadGeneration);
             ClearSeenEntities(&g_FrameEventState.seenFamiliarCount);
@@ -5669,6 +5669,32 @@ void DispatchPostProjectileInit(std::uintptr_t projectile) {
 }
 void DispatchPostProjectileUpdate(std::uintptr_t projectile) {
     DispatchProjectileNativeEvent(isaac::runtime::kCallbackPostProjectileUpdate,projectile);
+}
+
+void ResetNpcInitialization(std::uintptr_t entity) noexcept {
+    auto& count = g_FrameEventState.seenNpcCount;
+    for (std::uint32_t i = 0; i < count; ++i) {
+        if (g_FrameEventState.seenNpcs[i] == entity) {
+            g_FrameEventState.seenNpcs[i] = g_FrameEventState.seenNpcs[--count];
+            return;
+        }
+    }
+}
+
+void DispatchPostNpcSpawn(std::uintptr_t npc) {
+    if (!IsReady() || g_LuaState == nullptr || npc == 0 ||
+        !isaac::runtime::BuiltinCallbackEnabled(isaac::runtime::kCallbackPostNpcInit)) return;
+    std::int64_t type{};
+    if (isaac::runtime::ClassifyCallbackEntity(npc, &type) !=
+        isaac::runtime::CallbackEntityClass::Npc) return;
+    if (!isaac::runtime::ShouldDispatchManagedCallbacks()) return;
+    const ManagedEngineDispatchScope dispatchScope;
+    EntityEventScan scan{};
+    scan.registered.low = 1ULL << isaac::runtime::kCallbackPostNpcInit;
+    // DispatchNpcEntityEvents claims before callbacks: reentrant observations
+    // cannot initialize twice. An INIT callback may Remove the new NPC, so no
+    // entity fields are read or rewritten after the dispatcher returns.
+    DispatchNpcEntityEvents(&scan, npc, type);
 }
 
 void DispatchPostNpcUpdate(std::uintptr_t npc) {

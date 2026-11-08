@@ -12,7 +12,13 @@ void RunNativeEntityInit(const EntityInitNativeBindings* native, NativeEntityIni
     native->init(entity, type, variant, subtype, seed);
     const auto address = engine_memory::AddressOf(entity);
     switch (kind) {
-        case NativeEntityInitKind::Base: ReinitializeEntityLifetime(address); break;
+        case NativeEntityInitKind::Base:
+            ReinitializeEntityLifetime(address);
+            // NPC types exclude the built-in projectile/tear families and 1000
+            // effects. Reset only at native Init, never at a late observation.
+            if (IsNpcInitializationType(static_cast<std::int32_t>(type)))
+                LuaRuntime::ResetNpcInitialization(address);
+            break;
         case NativeEntityInitKind::Tear: LuaRuntime::DispatchNativeTearInit(address); break;
         case NativeEntityInitKind::Effect: LuaRuntime::DispatchNativeEffectInit(address); break;
         case NativeEntityInitKind::Pickup: LuaRuntime::DispatchNativePickupInit(address); break;
