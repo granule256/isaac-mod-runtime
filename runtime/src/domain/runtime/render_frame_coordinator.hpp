@@ -57,12 +57,13 @@ bool RenderFrameCoordinator::Dispatch(DispatchFn&& dispatch) {
     return true;
 }
 
+// PC先派发MC_POST_RENDER，再画原生HUD；白边等模组内容必须位于HUD图标下面。
 // HUD::Render的真实ABI是void(this)，只调用一次原HUD，不重画原生前景。
 template <typename DispatchFn>
-void RenderAfterNativeHud(RenderFrameCoordinator& coordinator, void* hud,
-                          void (*original)(void*), DispatchFn&& dispatch) {
-    original(hud);
+void RenderBeforeNativeHud(RenderFrameCoordinator& coordinator, void* hud,
+                           void (*original)(void*), DispatchFn&& dispatch) {
     coordinator.Dispatch(dispatch);
+    original(hud);
 }
 
 } // namespace isaac::runtime
