@@ -5873,7 +5873,7 @@ void DispatchPostEntityKill(std::uintptr_t entity, std::int32_t entityType) {
     if (!isaac::runtime::BuiltinCallbackEnabled(isaac::runtime::kCallbackPostEntityKill)) {
         return;
     }
-    isaac::runtime::EngineGuardEnterDispatch();
+    const ManagedEngineDispatchScope dispatchScope;
     g_InPostEntityKillDispatch = true;
     LuaCallbackInvoker invoker = LuaCallbackInvoker::ForEntity(entity);
     isaac::runtime::CallbackDispatcher dispatcher{g_CallbackRegistry, invoker};
@@ -5881,7 +5881,6 @@ void DispatchPostEntityKill(std::uintptr_t entity, std::int32_t entityType) {
                                                   isaac::runtime::ThreadAffinity::Any,
                                                   static_cast<std::int64_t>(entityType)));
     g_InPostEntityKillDispatch = false;
-    isaac::runtime::EngineGuardLeaveDispatch();
 }
 
 // `MC_POST_NPC_DEATH`(29)。
@@ -5896,13 +5895,12 @@ void DispatchPostNpcDeath(std::uintptr_t npc, std::int32_t entityType) {
     if (!isaac::runtime::BuiltinCallbackEnabled(isaac::runtime::kCallbackPostNpcDeath)) {
         return;
     }
-    isaac::runtime::EngineGuardEnterDispatch();
+    const ManagedEngineDispatchScope dispatchScope;
     LuaCallbackInvoker invoker = LuaCallbackInvoker::ForEntity(npc);
     isaac::runtime::CallbackDispatcher dispatcher{g_CallbackRegistry, invoker};
     static_cast<void>(dispatcher.DispatchFiltered(isaac::runtime::kCallbackPostNpcDeath,
                                                   isaac::runtime::ThreadAffinity::Any,
                                                   static_cast<std::int64_t>(entityType)));
-    isaac::runtime::EngineGuardLeaveDispatch();
 }
 
 // `MC_POST_GAME_END`(16)。
