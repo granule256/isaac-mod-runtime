@@ -10,6 +10,7 @@ struct RPlusEntityFieldNativeTestBindings {
  void (*tearFlags)(void*,BitSet128Value){};
  void (*bombFlags)(void*,BitSet128Value){};
  void (*collisionDamage)(void*,float){};
+ void (*pickupPrice)(void*,std::int32_t){};
 };
 void SetRPlusEntityFieldNativeTestBindings(RPlusEntityFieldNativeTestBindings) noexcept;
 #endif

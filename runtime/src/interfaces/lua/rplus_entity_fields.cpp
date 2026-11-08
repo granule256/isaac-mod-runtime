@@ -20,7 +20,9 @@ bool SupportedFieldName(const char* name,bool writing) noexcept {
         case 'F':return !std::strcmp(name,"Flags")||!std::strcmp(name,"FallingSpeed")||!std::strcmp(name,"FallingAcceleration");
         case 'A':return !std::strcmp(name,"AutoUpdatePrice");
         case 'C':return !std::strcmp(name,"CollisionDamage");
-        case 'P':return writing&&!std::strcmp(name,"ProjectileFlags");
+        case 'P':return writing&&(!std::strcmp(name,"ProjectileFlags")||!std::strcmp(name,"Price"));
+        case 'S':return writing&&!std::strcmp(name,"ShopItemId");
+        case 'O':return writing&&!std::strcmp(name,"OptionsPickupIndex");
         default:return false;
     }
 }
@@ -103,6 +105,24 @@ bool TryWriteRPlusEntityField(lua_State* state,std::uintptr_t entity,const char*
     }
     if(kind==CallbackEntityClass::Pickup&&!std::strcmp(field,"AutoUpdatePrice")) {
         Write(state,entity,kEntityPickupAutoUpdatePriceOffset,static_cast<std::uint8_t>(lua_toboolean(state,3)!=0));return true;
+    }
+    if(kind==CallbackEntityClass::Pickup&&!std::strcmp(field,"Price")) {
+        const auto value=static_cast<std::int32_t>(luaL_checkinteger(state,3));
+        using Fn=void(*)(void*,std::int32_t);Fn fn=nullptr;
+#if !defined(__SWITCH__)
+        fn=g_TestFields.pickupPrice;
+#endif
+        if(!fn){const auto base=LuaRuntime::EngineModuleBase();
+            if(!base||base>UINTPTR_MAX-kEntityPickupSetPriceOffset||
+               !engine_call::VerifyEntryBytes(base+kEntityPickupSetPriceOffset,kEntityPickupSetPriceExpectedBytes.data(),kEntityPickupSetPriceExpectedBytes.size(),engine_memory::EngineMemoryReadable))
+                luaL_error(state,"EntityPickup.Price native setter is unavailable");
+            fn=engine_call::AsFunction<Fn>(base+kEntityPickupSetPriceOffset);
+        }
+        fn(engine_memory::AsObject(entity),value);return true;
+    }
+    if(kind==CallbackEntityClass::Pickup&&(!std::strcmp(field,"ShopItemId")||!std::strcmp(field,"OptionsPickupIndex"))) {
+        const auto offset=!std::strcmp(field,"ShopItemId")?kEntityPickupShopItemIdOffset:kEntityPickupOptionsIndexOffset;
+        Write(state,entity,offset,static_cast<std::int32_t>(luaL_checkinteger(state,3)));return true;
     }
     if(kind==CallbackEntityClass::Projectile&&!std::strcmp(field,"ProjectileFlags")) {
         Write(state,entity,kEntityProjectileFlagsOffset,static_cast<std::uint64_t>(luaL_checkinteger(state,3)));return true;

@@ -2103,12 +2103,20 @@ inline constexpr std::array<u8,16> kEntityNpcCanShutDoorsExpectedBytes = {
 // 是系统调用，逐字段检查会让一次全房间扫描变成上千次调用）。
 inline constexpr std::size_t kEntitySnapshotSpan = 0x348;
 
-// `Entity_Pickup` 字段（`Touched` **未定案**，`+0x560` 只是候选，见注释）。
+// `Entity_Pickup` 字段。Touched 的字节布局由原生碰撞及房间保存/恢复互证：
+// 0x273CE8 置 1；0x455340 保存至 EntitySaveState+0x22，0x455924 恢复。
 inline constexpr uintptr_t kEntityPickupOptionsIndexOffset = 0x55C;
-inline constexpr uintptr_t kEntityPickupTouchedOffset = 0x560;   // 猜测：u8/bool
+inline constexpr uintptr_t kEntityPickupTouchedOffset = 0x560;   // u8/bool
 inline constexpr uintptr_t kEntityPickupForceBlindOffset = 0x562;  // u8
-inline constexpr uintptr_t kEntityPickupPriceOffset = 0x564;       // u32
-inline constexpr uintptr_t kEntityPickupShopItemIdOffset = 0x56C;  // u32
+inline constexpr uintptr_t kEntityPickupPriceOffset = 0x564;       // i32
+inline constexpr uintptr_t kEntityPickupShopItemIdOffset = 0x56C;  // i32
+// PC Price setter 0x6B91E0 calls the pricing logic, including sprite updates.
+// NS Entity_Pickup::SetPrice(int) is also called by Room::restore_entity at 0x45590C.
+inline constexpr uintptr_t kEntityPickupSetPriceOffset = 0x26B1C8;
+inline constexpr std::array<u8,16> kEntityPickupSetPriceExpectedBytes = {
+    0xFF,0x43,0x01,0xD1,0xFD,0x7B,0x01,0xA9,
+    0xFD,0x43,0x00,0x91,0xF7,0x13,0x00,0xF9,
+};
 
 // `EntityPlayer.Luck` 的字段偏移（`0x1950`，**float**）。
 //
