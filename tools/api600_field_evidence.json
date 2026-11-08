@@ -807,7 +807,7 @@
       "key": "Entity:FlipX",
       "owner": "Entity",
       "name": "FlipX",
-      "offset": 449,
+      "offset": 400,
       "value_kind": "bool",
       "writable": true,
       "kind": "field",
@@ -822,6 +822,7 @@
       },
       "judgement": "runtime/tests/test_api600_entities.py",
       "evidence": "dist/apis600-20261016/field-proof-matrix.json",
+      "correction": "PC getter 0x7FA4C0/setter 0x432F30 access Entity+0x13C, matching GetSprite 0x427440 (+0x3C) plus Sprite.FlipX 0x4023C0 (+0x100). NS Entity::Render 0x6252C uses main ANM2 at +0x50; GetDestQuad 0x97DC reads FlipX at ANM2+0x140, so Entity.FlipX is +0x190. The historical +0x1C1 offset is Visible.",
       "previous_status": "implemented_pending_final_verification"
     },
     {

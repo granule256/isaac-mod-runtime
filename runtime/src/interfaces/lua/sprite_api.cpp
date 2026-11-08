@@ -708,31 +708,28 @@ constexpr LuaHandlerBinding kSpriteHandlers[] = {
     {0x0D01001F, &SpriteGetFilename},
 };
 
-// PC: `void Load(string ANM2Path, boolean LoadGraphics)`；引擎侧是
-// `Load(std::string const&, bool)`（x1 = 字符串对象、w2 = 加载图形）。
+// PC main.lua wraps the native Load with loadGraphics ~= false. Omitted/nil
+// therefore loads graphics; Play/PlayOverlay use native Lua truthiness instead.
+// Native Load(std::string const&, bool): x1 string object, w2 graphics flag.
 int SpriteLoad(lua_State* state) {
     void* sprite = nullptr;
     if (const int error = ResolveSprite(state, "Sprite:Load", &sprite); error != 0) {
         return error;
     }
-    const int argumentCount = lua_gettop(state);
-    if (argumentCount < 2 || argumentCount > 3 || lua_type(state, 2) != LUA_TSTRING ||
-        (argumentCount == 3 && lua_type(state, 3) != LUA_TBOOLEAN)) {
-        return luaL_error(state, "Sprite:Load accepts a path and an optional loadGraphics flag");
-    }
+    const char* path = luaL_checkstring(state, 2);
     const LuaRuntime::SpriteLoadFn method = LuaRuntime::SpriteLoadThunk();
     if (method == 0) {
         return luaL_error(state, "Sprite:Load native binding is unavailable");
     }
     // `Load` 不接受空路径（PC 亦然），所以 `allowEmpty = false`。
-    void* nativeString = BuildNativeString(lua_tostring(state, 2), false);
+    void* nativeString = BuildNativeString(path, false);
     if (nativeString == nullptr) {
         return luaL_error(state,
                           "Sprite:Load could not build a native path string (missing binding, "
                           "empty path or path too long)");
     }
-    method(sprite, nativeString,
-           argumentCount == 3 && lua_toboolean(state, 3) != 0);
+    const bool loadGraphics = lua_type(state, 3) != LUA_TBOOLEAN || lua_toboolean(state, 3) != 0;
+    method(sprite, nativeString, loadGraphics);
     return 0;
 }
 
@@ -804,17 +801,13 @@ int SpritePlay(lua_State* state) {
     if (const int error = ResolveSprite(state, "Sprite:Play", &sprite); error != 0) {
         return error;
     }
-    const int argumentCount = lua_gettop(state);
-    if (argumentCount < 2 || argumentCount > 3 || lua_type(state, 2) != LUA_TSTRING ||
-        (argumentCount == 3 && lua_type(state, 3) != LUA_TBOOLEAN)) {
-        return luaL_error(state, "Sprite:Play accepts an animation name and an optional force flag");
-    }
+    // Fixed PC binding reads checklstring(2), toboolean(3), ignoring the tail.
+    const char* name = luaL_checkstring(state, 2);
     const LuaRuntime::SpritePlayFn method = LuaRuntime::SpritePlayThunk();
     if (method == 0) {
         return luaL_error(state, "Sprite:Play native binding is unavailable");
     }
-    method(sprite, lua_tostring(state, 2),
-           argumentCount == 3 && lua_toboolean(state, 3) != 0);
+    method(sprite, name, lua_toboolean(state, 3) != 0);
     return 0;
 }
 
@@ -852,16 +845,12 @@ int SpritePlayOverlay(lua_State* state) {
     if (const int error = ResolveSprite(state, "Sprite:PlayOverlay", &sprite); error != 0) {
         return error;
     }
-    const int argumentCount = lua_gettop(state);
-    if (argumentCount != 3 || lua_type(state, 2) != LUA_TSTRING ||
-        lua_type(state, 3) != LUA_TBOOLEAN) {
-        return luaL_error(state, "Sprite:PlayOverlay accepts an animation name and a force flag");
-    }
+    const char* name = luaL_checkstring(state, 2);
     const LuaRuntime::SpritePlayOverlayFn method = LuaRuntime::SpritePlayOverlayThunk();
     if (method == 0) {
         return luaL_error(state, "Sprite:PlayOverlay native binding is unavailable");
     }
-    method(sprite, lua_tostring(state, 2), lua_toboolean(state, 3) != 0);
+    method(sprite, name, lua_toboolean(state, 3) != 0);
     return 0;
 }
 

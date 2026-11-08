@@ -19,11 +19,12 @@ constexpr Field kFields[]={
 {"SortingLayer",0x330,Kind::Int,true,3},
 {"SpawnGridIndex",0x340,Kind::Int,false,0},
 {"SpriteRotation",0x134,Kind::Float,true,4},
-{"FlipX",0x1c1,Kind::Bool,true,4},
+// PC Entity.FlipX aliases its main ANM2; NS main sprite +0x50, FlipX +0x140.
+{"FlipX",0x190,Kind::Bool,true,5},
 {"SizeMulti",0x348,Kind::Vector,true,1},
 {"TargetPosition",0x308,Kind::ConstVector,true,0},
 };
-api100_native::Cache g_Layouts[5]{};
+api100_native::Cache g_Layouts[6]{};
 constexpr std::uint32_t Hash(const char*p){std::uint32_t h=2166136261U;while(*p)h=(h^static_cast<unsigned char>(*p++))*16777619U;return h;}
 const Field* Find(const char*name){
  if(!name||!name[0]||!name[1])return nullptr;

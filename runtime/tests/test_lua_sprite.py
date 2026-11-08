@@ -577,8 +577,8 @@ int main() {
     if (g_resetCalls != 1) return Report(31);
     // 批次 279：overlay 三条必须把实参**原样**送到原生入口（名字 / 布尔 / 帧号），
     // 而且各自恰好一次（形状错的那些在脚本里已被 `pcall` 拦下）。
-    if (g_playOverlay.calls != 1 || std::strcmp(g_playOverlay.name, "Anim0") != 0 ||
-        g_playOverlay.flag != 1) {
+    if (g_playOverlay.calls != 2 || std::strcmp(g_playOverlay.name, "Anim0") != 0 ||
+        g_playOverlay.flag != 0) {
         return Report(41);
     }
     if (g_setLastFrameCalls != 1) return Report(42);
@@ -723,12 +723,10 @@ mod:AddCallback(ModCallbacks.MC_POST_UPDATE, function()
   if pcall(function() return sprite:IsOverlayPlaying(1) end) then
     error('IsOverlayPlaying must reject a non-string name')
   end
-  -- 形状闸门：下面四种必须报错（模组写错了，PC 也会报）
-  if pcall(function() return sprite:PlayOverlay('Anim0') end) then
-    error('PlayOverlay must require the force flag')
-  end
-  if pcall(function() return sprite:PlayOverlay(1, true) end) then
-    error('PlayOverlay must reject a non-string name')
+  -- The native PC wrapper defaults an omitted force flag to false.
+  assert(select('#',sprite:PlayOverlay('Anim0'))==0)
+  if pcall(function() return sprite:PlayOverlay({}, true) end) then
+    error('PlayOverlay must reject a table as animation name')
   end
   if pcall(function() return sprite:SetLastFrame(1) end) then
     error('SetLastFrame accepts no arguments')
@@ -777,7 +775,7 @@ mod:AddCallback(ModCallbacks.MC_POST_UPDATE, function()
   -- 参数类型不对必须报错，而不是把垃圾送进原生入口
   local bad = {
     function() return sprite:Play() end,
-    function() return sprite:Play(1, true) end,
+    function() return sprite:Play({}, true) end,
     function() return sprite:SetFrame() end,
     function() return sprite:SetFrame('Walk') end,
     function() return sprite:SetFrame(1, 2, 3) end,
@@ -790,7 +788,7 @@ mod:AddCallback(ModCallbacks.MC_POST_UPDATE, function()
     function() return sprite:IsPlaying('Idle', 1) end,
     function() return sprite:IsFinished(1) end,
     function() return sprite:Load() end,
-    function() return sprite:Load(1, true) end,
+    function() return sprite:Load({}, true) end,
     function() return sprite:ReplaceSpritesheet(1) end,
     function() return sprite:LoadGraphics(1) end,
     -- 批次 214 的三条：都是零参数（PC 的 REPENTOGON 签名没有形参）
@@ -870,7 +868,7 @@ class LuaSpriteTests(unittest.TestCase):
         self.assertIn("TEXEL_NATIVE_OK", result.stdout)
         self.assertIn("released=", result.stdout)
         #: 批次 279：overlay 三条的实参必须原样到达原生入口。
-        self.assertIn("SPRITE_OVERLAY overlay=Anim0/1 last=1 oframe=Walk/3 stop=1",
+        self.assertIn("SPRITE_OVERLAY overlay=Anim0/0 last=1 oframe=Walk/3 stop=1",
                       result.stdout)
         #: 批次 283：四条「按名字查询」。★ 数字的意思：
         #:   `overlay=3/3` —— `IsOverlayPlaying` / `IsOverlayFinished` 各被调到**三次**
