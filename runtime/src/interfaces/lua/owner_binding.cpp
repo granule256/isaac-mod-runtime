@@ -34,6 +34,11 @@ int TimedHandlerWrapper(lua_State* state) {
 
 namespace isaac::runtime {
 
+const LuaApiDescriptor* FindLuaApiDescriptor(std::uint32_t id) noexcept {
+    if (const auto* base=ApiCatalog::Default().Find(id)) return base;
+    return g_LuaApiExtension ? g_LuaApiExtension->find(id) : nullptr;
+}
+
 #if PERF_API_WRAPPER
 void PushTimedHandler(lua_State* state, lua_CFunction handler, std::size_t upvalueCount,
                       std::uint32_t identifier) noexcept {
@@ -117,7 +122,7 @@ std::size_t AttachOwnerMethods(lua_State* state, const char* owner,
             break;
         }
     }
-    return attached;
+    return attached + (g_LuaApiExtension ? g_LuaApiExtension->attach(state, owner) : 0);
 }
 
 } // namespace isaac::runtime

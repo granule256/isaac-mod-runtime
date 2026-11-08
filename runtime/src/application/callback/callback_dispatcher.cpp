@@ -1,4 +1,5 @@
 #include "application/callback/callback_dispatcher.hpp"
+#include "application/callback/extended_callback_runtime.hpp"
 
 namespace isaac::runtime {
 
@@ -14,6 +15,7 @@ namespace {
 // relaxed 就够；读数工具在别的线程上读这几个字，取值语义上是"某个已经发生过的时刻的快照"，
 // 不需要跨量的先后关系。
 void RecordDispatch(CallbackId id) noexcept {
+    if (auto* callback = FindExtendedCallback(id)) ++callback->dispatches;
     if (id < kCallbackDispatchCounterCount) {
         g_CallbackDispatchCounts[id].fetch_add(1, std::memory_order_relaxed);
     }
@@ -32,6 +34,7 @@ FrameBoundaryHook g_FrameBoundaryHook = nullptr;
 } // namespace
 
 void ResetCallbackDispatchCounters() noexcept {
+    ResetExtendedCallbackDispatchCounts();
     for (std::size_t index = 0; index < kCallbackDispatchCounterCount; ++index) {
         g_CallbackDispatchCounts[index].store(0, std::memory_order_relaxed);
     }

@@ -21,6 +21,15 @@ struct LuaHandlerBinding {
     lua_CFunction handler;
 };
 
+// The ordinary binder depends on this narrow interface, not on an optional
+// environment. The composition root installs it for the lifetime of one VM.
+struct LuaApiExtension {
+    std::size_t (*attach)(lua_State*, const char* owner);
+    const LuaApiDescriptor* (*find)(std::uint32_t id) noexcept;
+};
+inline const LuaApiExtension* g_LuaApiExtension{};
+[[nodiscard]] const LuaApiDescriptor* FindLuaApiDescriptor(std::uint32_t id) noexcept;
+
 // Attaches every catalog descriptor whose owner matches `owner` and whose id has
 // a binding. Ids without a binding are skipped, so a catalog entry can never
 // publish a null function, and the loop itself lives in one place instead of

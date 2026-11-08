@@ -11,6 +11,8 @@
 #include "card_rng_scope.hpp"
 #include "interfaces/lua/entity_lifetime.hpp"
 #include "interfaces/lua/compatibility_adapter_runtime.hpp"
+#include "interfaces/lua/repentogon_environment.hpp"
+#include "application/repentogon/repentogon_settings.hpp"
 #include "infrastructure/native/world_content_mutations.hpp"
 #include "lua_runtime.hpp"
 #include "notice_integrity_native.hpp"
@@ -2412,6 +2414,9 @@ int InstallRuntimeExtensionsProtected(lua_State* state) {
 }
 
 int PrepareRuntime(lua_State* state) {
+    static_cast<void>(isaac::runtime::g_RepentogonSettings.LoadOnce(isaac::runtime::SessionSaveFilePort()));
+    isaac::runtime::BeginRepentogonEnvironment(state,
+        isaac::runtime::g_RepentogonSettings.StartupEnabled(),isaac::runtime::DefaultRepentogonCatalog());
     OpenSafeLibraries(state);
 #if !defined(EXL_DIAGNOSTIC_STAGE) || EXL_DIAGNOSTIC_STAGE == 13
     // 菜单先建空VM、随后逐模组装载时也需要require/include；实际读文件仍由
@@ -2420,6 +2425,7 @@ int PrepareRuntime(lua_State* state) {
     RegisterStage13Require(state);
 #endif
     RegisterModApi(state);
+    isaac::runtime::CompleteRepentogonEnvironment(state);
     lua_newtable(state);
     lua_pushcfunction(state,GetConsoleControls);lua_setfield(state,-2,"GetControls");
     lua_pushcfunction(state,SetConsoleControls);lua_setfield(state,-2,"SetControls");
@@ -2458,7 +2464,9 @@ LuaInitResult ResetAfterFailure(lua_State* state, LuaInitResult result) {
     }
     isaac::runtime::ResetEntityLifetimeState();
     isaac::runtime::ResetCompatibilityAdapters(state);
+    isaac::runtime::SuspendRepentogonEnvironment(state);
     lua_close(state);
+    isaac::runtime::EndRepentogonEnvironment(state);
     g_LuaState = nullptr;
     g_CallbackRegistry.Reset();
     g_ModRegistered = false;
@@ -6748,7 +6756,9 @@ bool ShutdownForModReload() noexcept {
     // lua_close负责完整运行Font/Sprite和其它userdata终结器；绑定仍须有效。
     isaac::runtime::ResetEntityLifetimeState();
     isaac::runtime::ResetCompatibilityAdapters(state);
+    isaac::runtime::SuspendRepentogonEnvironment(state);
     lua_close(state);
+    isaac::runtime::EndRepentogonEnvironment(state);
     g_LuaState = nullptr;
     // 用户终结器可能再次访问过GetData，关闭之后再解除一次外部缓存。
     isaac::runtime::ResetEntityLifetimeState();

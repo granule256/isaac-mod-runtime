@@ -1,6 +1,8 @@
 #include "interfaces/lua/mod_menu_api.hpp"
 
 #include "application/mod/mod_toggle_service.hpp"
+#include "application/repentogon/repentogon_settings.hpp"
+#include "interfaces/lua/repentogon_environment.hpp"
 
 #include <array>
 #include <atomic>
@@ -153,6 +155,24 @@ int RuntimeModsReload(lua_State* state) {
     return 1;
 }
 
+int RuntimeModsGetRepentogonState(lua_State* state) {
+    if(lua_gettop(state)!=0)return luaL_error(state,"RuntimeMods.GetRepentogonState accepts no arguments");
+    const auto& settings=g_RepentogonSettings;
+    lua_createtable(state,0,5);
+    lua_pushboolean(state,settings.Requested());lua_setfield(state,-2,"Requested");
+    lua_pushboolean(state,settings.StartupEnabled());lua_setfield(state,-2,"StartupEnabled");
+    lua_pushboolean(state,settings.NeedsRestart());lua_setfield(state,-2,"NeedsRestart");
+    lua_pushboolean(state,RepentogonEnvironmentActive());lua_setfield(state,-2,"Active");
+    lua_pushinteger(state,static_cast<lua_Integer>(settings.LoadStatus().code()));lua_setfield(state,-2,"LoadStatus");
+    return 1;
+}
+int RuntimeModsSetRepentogonEnabled(lua_State* state) {
+    if(lua_gettop(state)!=1||lua_type(state,1)!=LUA_TBOOLEAN)
+        return luaL_error(state,"RuntimeMods.SetRepentogonEnabled expects a boolean");
+    const auto saved=g_RepentogonSettings.SetEnabled(SessionSaveFilePort(),lua_toboolean(state,1)!=0);
+    lua_pushboolean(state,saved.ok());return 1;
+}
+
 // 绑定表：id 的高字节是 domain（`ModMenu` = 16 ⇒ 0x10），与目录里的 `MakeId` 一一对应。
 // 用这张表（而不是逐个 `lua_setfield`）是为了和别族同形：目录与实现的对应关系由
 // `AttachOwnerMethods` 一处保证，门禁也按同一种形态核对。
@@ -162,6 +182,8 @@ constexpr LuaHandlerBinding kModMenuHandlers[] = {
     {0x10010003, &RuntimeModsSave},
     {0x10010004, &RuntimeModsReload},
     {0x10010005, &RuntimeModsReport},
+    {0x10010006, &RuntimeModsGetRepentogonState},
+    {0x10010007, &RuntimeModsSetRepentogonEnabled},
 };
 
 } // namespace

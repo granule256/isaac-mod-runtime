@@ -511,7 +511,7 @@ ifneq ($(strip $(DIAGNOSTIC_STAGE))$(strip $(STARTUP_PROBE_STAGE)),)
 # Hardware probes only need the callback registry and Lua API family units.
 # Limiting the roots avoids compiling production-only adapters under diagnostic
 # macros that intentionally hide some of their dependencies.
-RUNTIME_EXTRA_SOURCE_ROOTS := src/application/callback src/application/shader src/interfaces/lua
+RUNTIME_EXTRA_SOURCE_ROOTS := src/application/callback src/application/shader src/application/repentogon src/interfaces/lua
 endif
 HOST_PLUGIN_STAGE ?= $(DIAGNOSTIC_STAGE)
 

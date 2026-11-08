@@ -9007,7 +9007,7 @@ int EngineMethodHandler(lua_State* state) {
         }
     }
     // 消息按 catalog 里的 `owner:name` 现拼（与手写处理器同口径，只在出错路径上拼）。
-    const LuaApiDescriptor* descriptor = ApiCatalog::Default().Find(row->id);
+    const LuaApiDescriptor* descriptor = FindLuaApiDescriptor(row->id);
     const char* owner = descriptor != nullptr ? descriptor->owner : "?";
     const char* name = descriptor != nullptr ? descriptor->name : "?";
     std::size_t shapeCount = 0;
@@ -9486,7 +9486,7 @@ int FieldApiHandler(lua_State* state) {
     if (!argumentsValid) {
         // 消息按 catalog 里的 `owner:name` 现拼，与手写处理器逐字一致
         // （例如 `"EntityPlayer:GetSoulHearts accepts no arguments"`）。只在出错路径上拼。
-        const LuaApiDescriptor* descriptor = ApiCatalog::Default().Find(row->id);
+        const LuaApiDescriptor* descriptor = FindLuaApiDescriptor(row->id);
         const char* owner = descriptor != nullptr ? descriptor->owner : "?";
         const char* name = descriptor != nullptr ? descriptor->name : "?";
         if (wantsBitArrayWriteArguments) {

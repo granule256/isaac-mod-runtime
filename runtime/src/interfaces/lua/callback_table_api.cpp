@@ -1,5 +1,6 @@
 #include "interfaces/lua/callback_table_api.hpp"
 #include "application/callback/callback_registry.hpp"
+#include "application/callback/extended_callback_runtime.hpp"
 #include "interfaces/lua/mod_api.hpp"
 #include "lua_runtime_state.hpp"
 #include "program/callback_bootstrap.hpp"
@@ -31,7 +32,8 @@ int RefreshDiagnostics(lua_State* state) {
     if (lua_type(state, 1) == LUA_TNUMBER && lua_toboolean(state, 2)) {
         int integral = 0;
         const auto id = lua_tointegerx(state, 1, &integral);
-        if (integral && id >= 0 && id <= kCallbackMaximumId) {
+        if (integral && id >= 0 && static_cast<std::uint64_t>(id) <= UINT32_MAX &&
+            (id <= kCallbackMaximumId || FindExtendedCallback(static_cast<CallbackId>(id)))) {
             RecordCallbackTableRegistration(static_cast<std::uint32_t>(id));
         }
     }
@@ -43,7 +45,9 @@ int RefreshDiagnostics(lua_State* state) {
     }
     registry.Reset();g_CallbackDiagnosticViewOverflow=0;
     lua_rawgeti(state,LUA_REGISTRYINDEX,stored->tableRef);const int all=lua_gettop(state);
-    for(std::uint32_t id=0;id<=kCallbackMaximumId;++id) {
+    const std::size_t builtinCount=static_cast<std::size_t>(kCallbackMaximumId)+1;
+    for(std::size_t index=0;index<builtinCount+ExtendedCallbackCount();++index) {
+        const auto id=index<builtinCount?static_cast<CallbackId>(index):ExtendedCallbackAt(index-builtinCount);
         lua_rawgeti(state,all,id);const int list=lua_gettop(state);
         if(!lua_istable(state,list)){lua_pop(state,1);continue;}
         for(lua_Integer i=1;;++i) {
@@ -84,10 +88,13 @@ int MatchOwner(lua_State* state) {
 }
 }
 bool BuiltinCallbackEnabled(std::uint32_t id) noexcept {
-    return id<=kCallbackMaximumId&&(g_BuiltinCallbackStates[id>>5]&(std::uint32_t{1}<<(id&31)))!=0;
+    return id<=kCallbackMaximumId
+        ? (g_BuiltinCallbackStates[id>>5]&(std::uint32_t{1}<<(id&31)))!=0
+        : ExtendedCallbackEnabled(id);
 }
 void ResetCallbackRuntimeState() noexcept {
     g_BuiltinCallbackStates={};
+    ResetExtendedCallbackState();
     g_CallbackDiagnosticViewIncomplete=0;
     g_CallbackDiagnosticViewOverflow=0;
 }
@@ -101,7 +108,7 @@ int SetBuiltInCallbackState(lua_State* state) {
     if(id<=kCallbackMaximumId) {
         const auto bit=std::uint32_t{1}<<(id&31);
         if(enabled)g_BuiltinCallbackStates[id>>5]|=bit;else g_BuiltinCallbackStates[id>>5]&=~bit;
-    }
+    } else if(auto* callback=FindExtendedCallback(id)) callback->enabled=enabled;
     return 0;
 }
 void RegisterCallbackBootstrap(lua_State* state,lua_CFunction invoke,lua_CFunction nativeInvoke) {

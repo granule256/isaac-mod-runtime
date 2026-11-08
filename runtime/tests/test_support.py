@@ -59,6 +59,8 @@ def layered_lua_runtime_sources(source_root: Path) -> list[Path]:
         unit_root / "application" / "callback" / "callback_dispatcher.cpp",
         unit_root / "interfaces" / "lua" / "api_catalog.cpp",
         unit_root / "interfaces" / "lua" / "owner_binding.cpp",
+        unit_root / "interfaces" / "lua" / "repentogon_environment.cpp",
+        unit_root / "application" / "repentogon" / "repentogon_settings.cpp",
         unit_root / "interfaces" / "lua" / "mod_api.cpp",
         unit_root / "interfaces" / "lua" / "callback_table_api.cpp",
         unit_root / "interfaces" / "lua" / "mod_lifecycle_api.cpp",

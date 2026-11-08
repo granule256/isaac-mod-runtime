@@ -1,5 +1,6 @@
 #include <atomic>
 #include "interfaces/lua/mod_api.hpp"
+#include "application/callback/extended_callback_runtime.hpp"
 #include "interfaces/lua/callback_table_api.hpp"
 
 #include "interfaces/lua/owner_binding.hpp"
@@ -171,6 +172,7 @@ const char* PersistenceErrorMessage(ModPersistence::Result result) {
 // `runtime/tests/test_lua_callback_dispatch_sites.py` 现在按源码做一致性门禁：
 // 名单里多一项或漏一项都会红。
 bool HasDispatchSite(CallbackId id) {
+    if (FindExtendedCallback(id)) return true;
     return id == kCallbackGetShaderParams || id == kCallbackGetCard || id == kCallbackInputAction ||  // 三条 ManagerBase 查询中继
            id == kCallbackPostUpdate || id == kCallbackPostRender ||
            id == kCallbackPreGetCollectible || id == kCallbackPostGameStarted ||
@@ -237,7 +239,8 @@ bool ResolveCallbackId(lua_Integer callback, CallbackId* id) {
         *id = kCallbackPostUpdate;
         return true;
     }
-    if (callback < 0 || callback > static_cast<lua_Integer>(kCallbackMaximumId)) {
+    if (callback < 0 || static_cast<std::uint64_t>(callback) > UINT32_MAX ||
+        (callback > kCallbackMaximumId && !FindExtendedCallback(static_cast<CallbackId>(callback)))) {
         return false;
     }
     // PC 表里的值直接作为内部 id：这样 Lua 侧的枚举值与注册表 id 一一对应，
@@ -768,6 +771,7 @@ std::atomic<std::uint32_t> g_Unhooked{0};
 } // namespace
 
 void RecordCallbackRegistration(std::uint32_t callbackId, bool hasDispatchSite) noexcept {
+    if (auto* callback = isaac::runtime::FindExtendedCallback(callbackId)) ++callback->registrations;
     if (callbackId < 64) {
         g_RegisteredLow.fetch_or(1ULL << callbackId, std::memory_order_release);
     } else if (callbackId < 128) {

@@ -1827,6 +1827,10 @@ constexpr LuaApiDescriptor kDefaultApis[] = {
     // `Report` 只给菜单脚本上报"走到哪一步"用（真机排障），不参与 PC 覆盖率口径。
     {MakeId(ApiDomain::ModMenu, 1, 0x0005), ApiDomain::ModMenu, "RuntimeMods", "Report", kV1, 0,
      ThreadAffinity::MainUpdate, ApiMaturity::Experimental},
+    {MakeId(ApiDomain::ModMenu, 1, 0x0006), ApiDomain::ModMenu, "RuntimeMods", "GetRepentogonState", kV1, 0,
+     ThreadAffinity::MainUpdate, ApiMaturity::Experimental},
+    {MakeId(ApiDomain::ModMenu, 1, 0x0007), ApiDomain::ModMenu, "RuntimeMods", "SetRepentogonEnabled", kV1, 0,
+     ThreadAffinity::MainUpdate, ApiMaturity::Experimental},
 
     // ---- 语料模组适配第一波 28 条（引擎方法数据行，0 字节代码）。
     // 底座 = NRO 动态符号表里的同名成员函数，逐条证据（mangled + 偏移 + 入口指纹）见
