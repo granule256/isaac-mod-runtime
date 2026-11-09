@@ -1832,9 +1832,8 @@ bool ReadIntegerArgument(lua_State* state, int index, lua_Integer* value) noexce
 //   3. **count 必须 <= 容量**，否则整张表作废（防止把垃圾当长度去遍历）。
 //   4. **不缓存实体指针跨帧**：句柄里的地址只当身份，每次访问重做 vptr 校验。
 //      （`GetData()` 的Lua表仅跟随真实实体寿命，见 `entity_lifetime.cpp`。）
-//   5. 不调引擎的 `QueryRadius`/`QueryType`：它们的 sret 指向 `EL+0xD8` 的**单调 arena**，
-//      不可重入、不可跨帧持有。自己遍历 `EL+0x78`（引擎 `collide`/`Update`/`CountType` 用的
-//      同一张表）更稳。
+//   5. 原生QueryType的arena不可跨Lua分配持有。缓存查询先分配Lua自有快照，
+//      原生返回后立即复制指针；其余查询直接遍历活动表，不借用arena视图。
 
 // `Game*`：与 `Isaac.GetPlayer` **完全同一条链**（模块基址 + `kGameOwnerGlobalSlotOffset`
 // 是 `g_Game` 的槽，槽里是**指针变量**，解一次才是 `Game*`）。0 = 拿不到。
@@ -3415,7 +3414,10 @@ int EntityNewIndex(lua_State* state) {
     for (const auto& entry : commonIntegers) {
         if (std::strcmp(field, entry.name) != 0) continue;
         const auto value = static_cast<std::uint32_t>(luaL_checkinteger(state, 3));
+        const bool classification = entry.offset == kEntityVariantOffset || entry.offset == kEntitySubTypeOffset;
+        if (classification) InvalidateNativeEntityTypeQueries(entity);
         if (!WriteEngine<std::uint32_t>(entity + entry.offset, value)) return luaL_error(state, "%s is not writable", field);
+        if (classification) InvalidateNativeEntityTypeQueries(entity);
         count_write(entry.bucket);
         return 0;
     }
@@ -3787,7 +3789,9 @@ int EntityTearChangeVariant(lua_State* state) {
         return 0;
     }
     using EntityTearChangeVariantFn = void (*)(std::uintptr_t, std::int32_t);
+    InvalidateNativeEntityTypeQueries(entity);
     engine_call::AsFunction<EntityTearChangeVariantFn>(method)(entity, variant);
+    InvalidateNativeEntityTypeQueries(entity);
     return 0;
 }
 
@@ -7093,6 +7097,69 @@ int IsaacFindInRadius(lua_State* state) {
     return 1;
 }
 
+struct NativeEntityTypeQueryResult {
+    std::uint8_t borrowed;
+    std::uint8_t padding[7];
+    std::uintptr_t data;
+    std::uint32_t capacity;
+    std::uint32_t count;
+};
+static_assert(sizeof(NativeEntityTypeQueryResult) == 24 &&
+              offsetof(NativeEntityTypeQueryResult, data) == 8 &&
+              offsetof(NativeEntityTypeQueryResult, count) == 20);
+
+bool TryPushNativeCachedTypeQuery(lua_State* state, int resultIndex,
+                                 lua_Integer type, lua_Integer variant, lua_Integer subType) {
+    // Native invalidation covers exact / subtype-wildcard / full-wildcard keys.
+    // Its special 3.206 list and variant-wildcard+specific-subtype keys use the scan.
+    if (type > INT32_MAX || variant > INT32_MAX || subType > INT32_MAX ||
+        (variant < 0 && subType >= 0) || (type == 3 && variant == 206)) return false;
+    const auto method = EntityMethodByExpectedBytes(kEntityListQueryTypeOffset,
+                                                    kEntityListQueryTypeExpectedBytes);
+    if (!method || !EntityMethodByExpectedBytes(kEntityListInvalidateQueryOffset,
+                                               kEntityListInvalidateQueryExpectedBytes)) return false;
+    const auto room = ResolveRoom();
+    if (!room || !EntityListFingerprintMatches(room + kRoomEntityListOffset)) return false;
+    EntityTableView live{};
+    if (!ReadEntityTable(room + kRoomEntityListOffset, kLiveEntityTable, &live) ||
+        live.count > kMaximumQueryResults) return false;
+
+    // Ordinary rooms need no scratch allocation. Large snapshots are Lua-owned
+    // and allocated before the native call, when GC may still change the room.
+    const int savedTop = lua_gettop(state);
+    std::array<std::uintptr_t, 256> smallSnapshot;
+    auto* snapshot = smallSnapshot.data();
+    if (live.count > smallSnapshot.size()) snapshot = static_cast<std::uintptr_t*>(
+        lua_newuserdata(state, live.count * sizeof(std::uintptr_t)));
+    if (ResolveRoom() != room || !EntityListFingerprintMatches(room + kRoomEntityListOffset)) {
+        lua_settop(state, savedTop);
+        return false;
+    }
+    using Query = NativeEntityTypeQueryResult (*)(std::uintptr_t, std::int32_t,
+                                                  std::int32_t, std::int32_t, bool, bool);
+    const auto result = engine_call::AsFunction<Query>(method)(room + kRoomEntityListOffset,
+        static_cast<std::int32_t>(type), variant < 0 ? -1 : static_cast<std::int32_t>(variant),
+        subType < 0 ? -1 : static_cast<std::int32_t>(subType), true, false);
+    const auto bytes = static_cast<std::size_t>(result.count) * sizeof(std::uintptr_t);
+    if (result.borrowed != 1 || result.count > result.capacity || result.count > live.count ||
+        (result.count && (result.data % alignof(std::uintptr_t) != 0 ||
+                          !IsEngineMemoryReadable(result.data, bytes)))) {
+        lua_settop(state, savedTop);
+        return false;
+    }
+    if (bytes) std::memcpy(snapshot, engine_memory::AsObject(result.data), bytes);
+    // Native results are unique and ordered. Do not use the shared scan dedup
+    // state here: a GC finalizer can run another query while handles are pushed.
+    int emitted = 0;
+    for (std::uint32_t i = 0; i < result.count; ++i) {
+        if (!IsEntityPointer(snapshot[i])) continue;
+        PushEntityHandle(state, snapshot[i], kEntityMetatable);
+        lua_rawseti(state, resultIndex, ++emitted);
+    }
+    lua_settop(state, savedTop);
+    return true;
+}
+
 // `Isaac.FindByType(EntityType Type, int Variant = -1, int SubType = -1, boolean Cache = false,
 // boolean IgnoreFriendly = false)`（`Isaac.md:118`）：`Variant`/`SubType` 传 -1 表示通配。
 //
@@ -7100,9 +7167,8 @@ int IsaacFindInRadius(lua_State* state) {
 // 一个"），忏悔版（本 Runtime 的目标版本）已经改成纯粹的性能提示（`analysis/isaacdocs-snapshot/
 // docs/Isaac.md:118`）。EID 就是按忏悔版写的：`Isaac.FindByType(5, 100, -1, true, false)`
 // （`main.lua:366`/`826`/`1133`）要拿**房间里所有**收藏品底座，`EntityType.ENTITY_EFFECT`
-// 那一组（`main.lua:1468`）要拿某个效果变体的**所有**实例。所以这里接受该参数但**忽略**它
-// （我们每次都直接遍历，没有缓存可言），恒返回全部命中项 —— 按 `Nearest` 实现会让 EID
-// 每个变体只剩一个实体，是明确的功能回退。
+// 那一组（`main.lua:1468`）要拿某个效果变体的所有实例。缓存由原生QueryType维护，
+// Lua返回表和实体句柄仍独立；不支持的键或原生守卫失败时保持逐次扫描。
 //
 // 第 5 个参数 `IgnoreFriendly` 同样接受但忽略：判"友好"的旗标位没有任何证据
 // （`Entity+0x1B8` 里只有 bit3/bit46 有解释），编一个判据比忽略它更糟。
@@ -7125,11 +7191,16 @@ int IsaacFindByType(lua_State* state) {
     }
     lua_newtable(state);
     const int resultIndex = lua_gettop(state);
-    ResetQueryDedup();
     // `type < 0` 永远不匹配（`Entity.Type` 是无符号枚举），与 PC 的比较语义一致。
     if (!valid || type < 0) {
         return 1;
     }
+    // IgnoreFriendly is not part of the native cache key. Until that existing
+    // query option is restored, keep such calls on the unchanged scan path.
+    if (argumentCount >= 4 && lua_toboolean(state, 4) &&
+        (argumentCount < 5 || !lua_toboolean(state, 5)) &&
+        TryPushNativeCachedTypeQuery(state, resultIndex, type, variant, subType)) return 1;
+    ResetQueryDedup();
     const std::uintptr_t room = ResolveRoom();
     if (room == 0 || !EntityListFingerprintMatches(room + kRoomEntityListOffset)) {
         return 1;
@@ -7571,10 +7642,8 @@ int IsaacGetTrinketIdByName(lua_State* state) {
 // `Isaac.GetRoomEntities()`（`Isaac.md:382`："Returns an iterable table containing **all entities
 // in the room** at the time the function was called"）。
 //
-// 真实现（2026-09-19 ，为 GoodTrip 补）：它的语义与我们 `Isaac.FindByType`
-// 那三段扫描完全一致（活表 + 玩家向量 + 效果表，并去重）—— PC 侧这一条本身是 Lua glue
-// （`tools/build_lua_api_inventory.py` 把它归成 `lua_glue_type`），所以"照 PC 文档的语义实现"
-// 而不是"接一个引擎符号"才是对的。
+// PC GetRoomEntities（0x80C260）只遍历活实体表；玩家与效果已在其中。
+// 效果碰撞表是快照，追加它会重复校验，还可能带回已移除的效果。
 //
 // 为什么 GoodTrip 需要它（`scripts/trip.lua:38/100`）：传送时要把**跟班一起带走**，
 // 它遍历这个表挑出跟班与"主人是玩家"的实体。缺它 ⇒ 那一句直接索引 nil ⇒ 传送功能整块不工作。
@@ -7596,8 +7665,6 @@ int IsaacGetRoomEntities(lua_State* state) {
     const std::uintptr_t list = room + kRoomEntityListOffset;
     const auto consider = [&](std::uintptr_t entity) { PushQueryResult(&sink, entity); };
     ForEachEntityInTable(list, kLiveEntityTable, consider);
-    ForEachPlayerEntity(ResolveGameAddress(), consider);
-    ForEachEntityInTable(list, kEffectEntityTable, consider);
     g_RoomEntityQueryCapacity = sink.emitted < 512 ? sink.emitted : 512;
     return 1;
 }
@@ -7865,6 +7932,21 @@ int GlobalGetPtrHash(lua_State* state) {
 // ============================================================================
 // 字段读取型 API：共享处理器 + 数据行（门禁三期成本压缩，机制说明见 `field_api.hpp`）
 // ============================================================================
+void InvalidateNativeEntityTypeQueries(std::uintptr_t entity) noexcept {
+    if (!entity) return;
+    const auto method = EntityMethodByExpectedBytes(kEntityListInvalidateQueryOffset,
+                                                   kEntityListInvalidateQueryExpectedBytes);
+    if (!method) return;
+    const auto room = ResolveRoom();
+    std::int32_t type{}, variant{}, subtype{};
+    if (!room || !EntityListFingerprintMatches(room + kRoomEntityListOffset) ||
+        !ReadEngine(entity + kEntityTypeOffset, &type) ||
+        !ReadEngine(entity + kEntityVariantOffset, &variant) ||
+        !ReadEngine(entity + kEntitySubTypeOffset, &subtype)) return;
+    using Invalidate = void (*)(std::uintptr_t, std::int32_t, std::int32_t, std::int32_t);
+    engine_call::AsFunction<Invalidate>(method)(room + kRoomEntityListOffset, type, variant, subtype);
+}
+
 namespace {
 
 // 从 Lua 栈上第 `index` 个参数解出接收者对象地址（无效/不可读时返回 0）。
@@ -9328,8 +9410,11 @@ int EngineMethodHandler(lua_State* state) {
     std::uint64_t integerResult = 0;
     double floatResult = 0.0;
     if (callable) {
+        const bool changesClassification = row->id == 0x0E0100C0U || row->id == 0x0E0100C1U;
+        if (changesClassification) InvalidateNativeEntityTypeQueries(receiver);
         ::EngineCallTrampoline(engineMethod, integers, floats, &integerResult,
                                              &floatResult);
+        if (changesClassification) InvalidateNativeEntityTypeQueries(receiver);
         // PC Entity.Update includes its entity-family post-update callback.
         // Normal native frame dispatch remains independent; rejected calls do
         // not dispatch, and the projectile family keeps its existing tail relay.
@@ -11733,7 +11818,10 @@ bool MutateEntityFlags(std::uintptr_t entity, Mutator mutate) noexcept {
     if (!ReadEngine(entity + kEntityFlagsOffset, &current)) {
         return false;
     }
-    return WriteEngine(entity + kEntityFlagsOffset, mutate(current));
+    const auto changed = mutate(current);
+    if (!WriteEngine(entity + kEntityFlagsOffset, changed)) return false;
+    if ((changed ^ current) & (1ULL << kEntityFlagNoQueryBit)) InvalidateNativeEntityTypeQueries(entity);
+    return true;
 }
 
 // `Entity:AddEntityFlags(int Flags)` —— PC 契约 `tools/pc_contract_docs/Entity.md`，语料 28 处。

@@ -1961,6 +1961,18 @@ inline constexpr uintptr_t kEntityListEffectCapacityOffset = 0xB0;   // u32，�
 inline constexpr uintptr_t kEntityListEffectCountOffset = 0xB4;      // u32
 inline constexpr uintptr_t kEntityListArenaCapacityOffset = 0xE0;    // u32，恒 0x8000
 inline constexpr std::uint32_t kEntityListArenaCapacity = 0x8000;
+// Fixed EntityList::QueryType / RemoveFromQueryCache entry guards.
+// QueryType returns a borrowed 24-byte ELE through x8.
+inline constexpr uintptr_t kEntityListQueryTypeOffset = 0x79718;
+inline constexpr std::array<u8, 16> kEntityListQueryTypeExpectedBytes = {
+    0xFF, 0x43, 0x02, 0xD1, 0xFD, 0x7B, 0x03, 0xA9,
+    0xFD, 0xC3, 0x00, 0x91, 0xFC, 0x6F, 0x04, 0xA9,
+};
+inline constexpr uintptr_t kEntityListInvalidateQueryOffset = 0x76050;
+inline constexpr std::array<u8, 16> kEntityListInvalidateQueryExpectedBytes = {
+    0xFD, 0x7B, 0xBC, 0xA9, 0xF7, 0x0B, 0x00, 0xF9,
+    0xFD, 0x03, 0x00, 0x91, 0xF6, 0x57, 0x02, 0xA9,
+};
 
 // ---- `Isaac.CountEntities` 与 `Entity.SpawnerEntity` 的偏移 ---------
 //

@@ -28,6 +28,10 @@ namespace isaac::runtime {
 // （见 `RegisterIsaacApi`）。
 [[nodiscard]] std::size_t RegisterIsaacApi(lua_State* state) noexcept;
 
+// Direct classification writes and native reinitialization must retire cached
+// type queries before author callbacks can query the entity's new membership.
+void InvalidateNativeEntityTypeQueries(std::uintptr_t entity) noexcept;
+
 // 把 Catalog 里 owner 为 `Isaac` 的方法挂到**栈顶的表**上（`RegisterIsaacApi` 的组成部分）。
 // 单独导出是为了让契约测试能像其它家族一样核对绑定表与 Catalog 的 id 一致。
 [[nodiscard]] std::size_t AttachIsaacMethods(lua_State* state) noexcept;

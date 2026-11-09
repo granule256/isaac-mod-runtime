@@ -50,9 +50,26 @@ class EntityWriteViewsTests(unittest.TestCase):
     def setUpClass(cls):
         cls.tmp = tempfile.TemporaryDirectory(prefix='isaac-write-views-')
         text = HARNESS
+        text = text.replace('#include "lua_runtime.hpp"',
+                            '#include "lua_runtime.hpp"\n#include "interfaces/lua/rplus_extended_fields_guards.hpp"')
         a = text.index('    const char* script = nullptr;')
         b = text.index('    const auto result = LuaRuntime::InitializeFromBuffer', a)
-        text = text[:a] + '    const char* script = R"lua(' + SCRIPT + ')lua";\n' + text[b:]
+        guards = r'''
+    // Parent is an evidenced extended field; supply its real layout guards.
+    namespace fields = isaac::runtime::extended_fields;
+    std::memcpy(g_ModuleBytes.data()+fields::kEntity0Entry, fields::kEntity0Guard.data(), fields::kEntity0Guard.size());
+    std::memcpy(g_ModuleBytes.data()+fields::kEntity1Entry, fields::kEntity1Guard.data(), fields::kEntity1Guard.size());
+    std::memcpy(g_ModuleBytes.data()+fields::kEntity2Entry, fields::kEntity2Guard.data(), fields::kEntity2Guard.size());
+'''
+        text = text[:a] + guards + '    const char* script = R"lua(' + SCRIPT + ')lua";\n' + text[b:]
+        text = text.replace('    static_cast<void>(result);', r'''
+    if (result != LuaRuntime::LuaInitResult::Success) {
+        char error[512]{};
+        static_cast<void>(LuaRuntime::CopyLastLuaErrorText(error, sizeof(error)));
+        std::fprintf(stderr, "%s\n", error);
+        return 92;
+    }
+''')
         text = text.replace('    return 0;\n}\n', r'''
     float hp = 0, size = 0;
     std::memcpy(&hp, g_TargetBytes.data() + kEntityHitPointsOffset, sizeof(hp));

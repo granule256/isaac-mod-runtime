@@ -5347,6 +5347,7 @@ void DispatchNativePickupInit(std::uintptr_t pickup) noexcept {
     std::int64_t variant{};
     if (isaac::runtime::ClassifyCallbackEntity(pickup, &variant) !=
         isaac::runtime::CallbackEntityClass::Pickup) return;
+    isaac::runtime::InvalidateNativeEntityTypeQueries(pickup);
     g_NativePickupInitObserved = true;
     if (!isaac::runtime::BuiltinCallbackEnabled(isaac::runtime::kCallbackPostPickupInit)) return;
     // The room's subsequent InitFlipState must observe the real INIT callback

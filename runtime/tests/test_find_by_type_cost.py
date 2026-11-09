@@ -63,6 +63,8 @@ bool ReadEntityTable(std::uintptr_t,const EntityTableSpec&s,EntityTableView*v){i
 std::uintptr_t ResolveGameAddress(){return reinterpret_cast<std::uintptr_t>(game.data());}
 std::uintptr_t ResolveRoom(){return 1;}bool EntityListFingerprintMatches(std::uintptr_t){return true;}
 void RecordApiSequence(unsigned){}void ResetQueryDedup(){seen.clear();}
+// This fixture measures the scan fallback; the native cache has its own arena test.
+bool TryPushNativeCachedTypeQuery(lua_State*,int,lua_Integer,lua_Integer,lua_Integer){return false;}
 bool ReadIntegerArgument(lua_State*L,int i,lua_Integer*v){int valid=0;*v=lua_tointegerx(L,i,&valid);return valid;}
 struct QuerySink{lua_State*state;int resultIndex;int emitted;};
 void PushQueryResult(QuerySink*s,std::uintptr_t p){if(seen.insert(p).second){lua_pushlightuserdata(s->state,reinterpret_cast<void*>(p));lua_rawseti(s->state,s->resultIndex,++s->emitted);}}

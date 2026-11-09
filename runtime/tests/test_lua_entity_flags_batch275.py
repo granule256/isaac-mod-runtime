@@ -227,7 +227,8 @@ class EntityFlagsBatch275Tests(unittest.TestCase):
         handler = body[body.index("bool MutateEntityFlags("):]
         handler = handler[:handler.index("\n}\n")]
         self.assertIn("ReadEngine(entity + kEntityFlagsOffset, &current)", handler)
-        self.assertIn("WriteEngine(entity + kEntityFlagsOffset, mutate(current))", handler)
+        self.assertIn("const auto changed = mutate(current)", handler)
+        self.assertIn("WriteEngine(entity + kEntityFlagsOffset, changed)", handler)
         self.assertNotIn("memcpy", handler)
         self.assertNotIn("reinterpret_cast", handler)
 
