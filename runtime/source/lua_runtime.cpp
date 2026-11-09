@@ -12,6 +12,7 @@
 #include "interfaces/lua/entity_lifetime.hpp"
 #include "interfaces/lua/compatibility_adapter_runtime.hpp"
 #include "interfaces/lua/repentogon_environment.hpp"
+#include "application/callback/extended_callback_runtime.hpp"
 #include "application/repentogon/repentogon_settings.hpp"
 #include "infrastructure/native/world_content_mutations.hpp"
 #include "lua_runtime.hpp"
@@ -4129,21 +4130,9 @@ struct BatchObservation {
     bool hasFailureContext{false};
     bool nativePending{false};
     std::uint64_t nativeStartedAt{0};
-    std::uint64_t extendedFailureKey{};
 };
 BatchObservation* g_ActiveCallbackBatch = nullptr;
 
-std::uint64_t ObservedErrorKey(lua_State* state) noexcept {
-    const auto type=lua_type(state,-1);
-    if(type==LUA_TSTRING) {
-        std::size_t size{};const auto* text=lua_tolstring(state,-1,&size);
-        std::uint64_t hash=1469598103934665603ULL;
-        for(std::size_t i=0;i<size;++i)hash=(hash^static_cast<unsigned char>(text[i]))*1099511628211ULL;
-        return hash?hash:1;
-    }
-    return static_cast<std::uint64_t>(isaac::runtime::engine_memory::AddressOf(lua_topointer(state,-1)))^
-        (static_cast<std::uint64_t>(type+1)<<56)^static_cast<std::uint64_t>(lua_toboolean(state,-1));
-}
 
 void RecordObservedCallbackPerf(std::uint32_t owner, std::uint32_t callbackId,
                                 std::uint64_t perfStart) {
@@ -4179,6 +4168,37 @@ void RecordObservedCallbackPerf(std::uint32_t owner, std::uint32_t callbackId,
         }
 }
 
+bool IsObservedExtension(std::uint32_t id) noexcept {
+    return id>=1000&&isaac::runtime::g_ExtendedCallbackDelivery&&isaac::runtime::repentogon::FindCallbackState(id);
+}
+
+// Run inside the per-listener protection, before a non-nil value can stop
+// traversal. Other selected IDs have no upstream type-check entry.
+void ValidateObservedExtensionReturn(lua_State* state,std::uint32_t id) {
+    const bool render=id>=1080&&id<=1089;
+    if((id!=1026&&id!=1030&&!render)||!IsObservedExtension(id)||lua_isnil(state,-1))return;
+    if(lua_isboolean(state,-1))return;
+    if(render) {
+        if(!isaac::runtime::TryVectorArgument(state,-1))luaL_error(state,"bad callback return type (boolean or Vector expected)");
+        return;
+    }
+    if(id==1026) {luaL_error(state,"bad callback return type (boolean expected)");return;}
+    if(!lua_istable(state,-1)) {luaL_error(state,"bad callback return type (boolean or table expected)");return;}
+    const int table=lua_absindex(state,-1);
+    lua_pushnil(state);
+    while(lua_next(state,table)) {
+        if(lua_isinteger(state,-2)) {
+            const auto index=lua_tointeger(state,-2);
+            if(index>=1&&index<=6) {
+                const bool valid=index==1||index==3?lua_isinteger(state,-1)!=0:
+                    index==4?lua_isboolean(state,-1)!=0:lua_type(state,-1)==LUA_TNUMBER;
+                if(!valid)luaL_error(state,"bad callback return type for sound table index %d",static_cast<int>(index));
+            }
+        }
+        lua_pop(state,1);
+    }
+}
+
 int InvokeObservedProtected(lua_State* state) {
     const int count=lua_gettop(state);
     if(!lua_checkstack(state,count+4))return luaL_error(state,"not enough memory preparing callback arguments");
@@ -4186,7 +4206,8 @@ int InvokeObservedProtected(lua_State* state) {
     lua_getfield(state,2,"Mod");
     g_ErrorContextOwner=isaac::runtime::ModObjectOwner(state,-1);
     for(int index=3;index<=count;++index)lua_pushvalue(state,index);
-    lua_call(state,count-1,1);return 1;
+    lua_call(state,count-1,1);
+    ValidateObservedExtensionReturn(state,g_ErrorContextCallbackId);return 1;
 }
 int InvokeObservedCallback(lua_State* state) {
     if (!isaac::runtime::notice::integrity::RuntimeAllowed())
@@ -4199,6 +4220,7 @@ int InvokeObservedCallback(lua_State* state) {
     g_ErrorContextCallbackId = integral && callbackId >= 0 &&
         static_cast<std::uint64_t>(callbackId) <= UINT32_MAX
         ? static_cast<std::uint32_t>(callbackId) : UINT32_MAX;
+    const bool extension=IsObservedExtension(g_ErrorContextCallbackId);
     const int count=lua_gettop(state);
     lua_pushcfunction(state,InvokeObservedProtected);lua_insert(state,1);
     auto* observation=g_ActiveCallbackBatch;
@@ -4208,19 +4230,12 @@ int InvokeObservedCallback(lua_State* state) {
     RecordObservedCallbackPerf(g_ErrorContextOwner,g_ErrorContextCallbackId,perfStart);
     if(observation) {
         --observation->depth;
-        if(status!=LUA_OK&&g_ErrorContextCallbackId>=1000) {
-            const auto key=ObservedErrorKey(state);
-            if(!observation->hasFailureContext||observation->extendedFailureKey!=key) {
-                observation->failureOwner=g_ErrorContextOwner;
-                observation->failureId=g_ErrorContextCallbackId;
-                observation->hasFailureContext=true;
-                observation->extendedFailureKey=key;
-            }
-        }
         if(nativeEntry) {
             if(status==LUA_OK) {
                 ++observation->result->invoked;
                 if(!lua_isnil(state,-1))observation->lastOwner=g_ErrorContextOwner;
+            } else if(extension) {
+                ++observation->result->failed;
             } else {
                 observation->failureOwner=g_ErrorContextOwner;
                 observation->failureId=g_ErrorContextCallbackId;
@@ -4228,8 +4243,12 @@ int InvokeObservedCallback(lua_State* state) {
             }
         }
     }
+    if(status!=LUA_OK&&extension) {
+        CaptureLuaErrorTop(state);g_CallbackError.store(true,std::memory_order_release);
+        lua_pop(state,1);lua_pushnil(state);
+    }
     g_ErrorContextOwner=previousOwner;g_ErrorContextCallbackId=previousId;
-    return status==LUA_OK?1:lua_error(state);
+    return status==LUA_OK||extension?1:lua_error(state);
 }
 
 // 原生 runner 的未完成调用由外层保护收尾；手动/嵌套 Lua 派发保留独立保护。
@@ -4238,14 +4257,10 @@ void FinishObservedNativeCallback(lua_State* state, BatchObservation& observatio
     observation.nativePending = false;
     observation.depth = 0;
     if (failed) {
-        if(g_ErrorContextCallbackId<1000||!observation.hasFailureContext||
-           observation.extendedFailureKey!=ObservedErrorKey(state)) {
-            observation.failureOwner = g_ErrorContextOwner;
-            observation.failureId = g_ErrorContextCallbackId;
-        }
+        observation.failureOwner = g_ErrorContextOwner;
+        observation.failureId = g_ErrorContextCallbackId;
         observation.hasFailureContext = true;
     } else {
-        observation.hasFailureContext=false;observation.extendedFailureKey=0;
         ++observation.result->invoked;
         if (!lua_isnil(state, -1)) observation.lastOwner = g_ErrorContextOwner;
     }
@@ -4260,6 +4275,10 @@ int InvokeObservedNativeCallback(lua_State* state) {
     g_ErrorContextOwner = 0;
     int integral = 0;
     const auto id = lua_type(state, 1) == LUA_TNUMBER ? lua_tointegerx(state, 1, &integral) : 0;
+    if(integral&&id>=1000&&static_cast<std::uint64_t>(id)<=UINT32_MAX&&isaac::runtime::g_ExtendedCallbackDelivery) {
+        g_ErrorContextOwner=previousOwner;
+        return InvokeObservedCallback(state);
+    }
     g_ErrorContextCallbackId = integral && id >= 0 && static_cast<std::uint64_t>(id) <= UINT32_MAX
         ? static_cast<std::uint32_t>(id) : UINT32_MAX;
     observation->nativePending = true;
@@ -4341,6 +4360,7 @@ struct LuaCallbackInvoker final : isaac::runtime::ICallbackInvoker {
     bool ownerBatch{false};
     void (*extendedReturn)(lua_State*,void*){};
     void* extendedContext{};
+    bool batchFailed{};
     int callbackSpriteScope{LUA_NOREF};
     std::uint32_t batchOwner{0};
     bool InvokeBatch(isaac::runtime::CallbackId id, std::int64_t filter,
@@ -4354,7 +4374,8 @@ struct LuaCallbackInvoker final : isaac::runtime::ICallbackInvoker {
         batchOwner=owner?static_cast<std::uint32_t>(owner->index)|(static_cast<std::uint32_t>(owner->generation)<<16):0;
         isaac::runtime::CallbackDescriptor descriptor{};descriptor.id=id;
         const auto status=InvokeCore(descriptor,true,&result->returned);
-        if(!status.ok())result->failed=1;
+        batchFailed=!status.ok();
+        if(batchFailed)++result->failed;
         tableOwner=observation.lastOwner;
         batchMode=false;g_ActiveCallbackBatch=previous;
         return true;
@@ -4406,7 +4427,7 @@ private:
                     isaac::runtime::PushEntityCallbackArgument(state, argument.entity);
                     break;
                 case CallbackArgument::Kind::Grid:
-                    isaac::runtime::PushGridEntityHandle(state,argument.entity);
+                    isaac::runtime::PushGridEntityCallbackArgument(state,argument.entity);
                     break;
                 case CallbackArgument::Kind::CallbackSprite:
                     if(self->callbackSpriteScope==LUA_NOREF)
@@ -4640,7 +4661,7 @@ void ParseRepentogonReturn(lua_State* state,void* opaque) {
     const auto id=event.id;
     const bool entityRender=id>=1080&&id<=1089;
     const bool gridPre=id>=1400&&id<=1462&&(id&1)==0;
-    const bool pre=entityRender||gridPre||(id>=1160&&id<=1169)||id==1030||id==1218;
+    const bool pre=entityRender||gridPre||(id>=1160&&id<=1169)||id==1026||id==1030||id==1218;
     if(!pre)return;
     if(lua_isboolean(state,-1)) {
         context.result.hasBoolean=true;context.result.boolean=lua_toboolean(state,-1)!=0;
@@ -4653,7 +4674,6 @@ void ParseRepentogonReturn(lua_State* state,void* opaque) {
             lua_rawgeti(state,-1,i);
             if(i==1||i==3) {
                 const auto integer=luaL_checkinteger(state,-1);
-                if(integer<INT32_MIN||integer>INT32_MAX)luaL_error(state,"sound integer out of range");
                 if(i==1)value.id=static_cast<std::int32_t>(integer);else value.delay=static_cast<std::int32_t>(integer);
             } else if(i==4) {
                 if(!lua_isboolean(state,-1))luaL_error(state,"sound loop must be boolean");
@@ -4726,8 +4746,8 @@ isaac::runtime::repentogon::Result DispatchRepentogonCallback(
     RepentogonReturnContext context{&event};
     invoker.extendedReturn=ParseRepentogonReturn;invoker.extendedContext=&context;
     CallbackDispatcher dispatcher{g_CallbackRegistry,invoker};
-    const auto report=dispatcher.DispatchFiltered(event.id,ThreadAffinity::Any,filter);
-    if(report.failed)return {};
+    static_cast<void>(dispatcher.DispatchFiltered(event.id,ThreadAffinity::Any,filter));
+    if(invoker.batchFailed)return {};
     if(context.soundChanged)*event.sound=context.sound;
     return context.result;
 }
@@ -5466,6 +5486,7 @@ bool DispatchFrameEvents(bool initialOnly = false) {
 }
 
 void DispatchPostUpdate() {
+    if(isaac::runtime::g_ExtendedCallbackDelivery&&isaac::runtime::repentogon::UpdatePaused())return;
     if (!IsReady() || g_LuaState == nullptr) return;
     const ManagedEngineDispatchScope dispatchScope;
     if (isaac::runtime::console::ConsolePaused() ||

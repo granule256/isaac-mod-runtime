@@ -151,7 +151,7 @@ void SetSpritePropertyApplyHostImplementation(
 
 namespace isaac::runtime {
 // 借用视图每次重验拥有实体的寿命；指针不拥有，不允许调用者释放。
-// Pause-screen callback sprites remain usable only during their dispatch.
+// Native-validated pause sprites retain their engine lifetime; host ports may use scoped borrowing.
 int BeginCallbackSpriteScope(lua_State*);
 void EndCallbackSpriteScope(lua_State*,int reference) noexcept;
 void PushCallbackSpriteHandle(lua_State*,std::uintptr_t sprite,int scopeReference);

@@ -2,7 +2,7 @@
 
 #include <cstdint>
 
-namespace isaac::runtime { struct RepentogonBatch; }
+namespace isaac::runtime { struct RepentogonBatch; struct ExtendedCallbackState; }
 
 namespace isaac::runtime::repentogon {
 struct Vector { float x{}, y{}; };
@@ -24,9 +24,19 @@ struct Event {
 };
 struct Result { bool hasBoolean{}, boolean{}, hasOffset{}; Vector offset{}; };
 Result Dispatch(const Event&) noexcept;
+const ExtendedCallbackState* FindCallbackState(std::uint32_t id) noexcept;
 bool Listening(std::uint32_t id) noexcept;
-struct NativePort { bool (*ready)() noexcept; bool (*install)() noexcept; };
+struct NativePort {
+    bool (*ready)() noexcept;
+    bool (*install)() noexcept;
+    bool (*spriteAlive)(std::uintptr_t) noexcept{};
+    bool (*updatePaused)() noexcept{};
+};
+bool UpdatePaused() noexcept;
+bool HasSpriteValidator() noexcept;
+bool CallbackSpriteAlive(std::uintptr_t) noexcept;
 void SetNativePort(const NativePort*) noexcept;
+extern const RepentogonBatch kCallbackBatch;
 const RepentogonBatch& CallbackBatch() noexcept;
 bool HasNativePort() noexcept;
 } // namespace isaac::runtime::repentogon

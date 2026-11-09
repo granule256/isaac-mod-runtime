@@ -47,10 +47,6 @@ local function MakeRunner(invoke, nextMatching)
  return function(callbackId, param, ...)
     local callbacks = Callbacks[callbackId]
     if callbacks then
-        local render = type(callbackId) == "number" and callbackId >= 1080 and callbackId <= 1089 and
-            extendedPolicy and extendedPolicy(callbackId)
-        local offset
-        if render then offset = select(2, ...) end
         local matchFunc = getmetatable(callbacks).__matchParams or defaultCallbackMeta.__matchParams
         local useDefault = matchFunc == originalDefaultMatch
         local iterator, iteratorState, iteratorIndex = ipairs(callbacks)
@@ -63,9 +59,7 @@ local function MakeRunner(invoke, nextMatching)
                 if v == nil then break end
                 local p = v.Param
                 if not p or p == -1 or param == p then
-                    local result
-                    if render then result, offset = InvokeRender(invoke, callbackId, v, offset, ...)
-                    else result = invoke(callbackId, v, ...) end
+                    local result = invoke(callbackId, v, ...)
                     if result ~= nil then return result end
                 else
                     -- Param was already read. Scan after it and do not re-read
@@ -73,9 +67,7 @@ local function MakeRunner(invoke, nextMatching)
                     local nextIndex, nextEntry = nextMatching(callbacks, index, param)
                     if nextIndex == nil then break end
                     index, v = nextIndex, nextEntry
-                    local result
-                    if render then result, offset = InvokeRender(invoke, callbackId, v, offset, ...)
-                    else result = invoke(callbackId, v, ...) end
+                    local result = invoke(callbackId, v, ...)
                     if result ~= nil then return result end
                 end
             end
@@ -93,9 +85,7 @@ local function MakeRunner(invoke, nextMatching)
                     matched = matchFunc(param, p)
                 end
                 if matched then
-                    local result
-                    if render then result, offset = InvokeRender(invoke, callbackId, v, offset, ...)
-                    else result = invoke(callbackId, v, ...) end
+                    local result = invoke(callbackId, v, ...)
                     if result ~= nil then return result end
                 end
             end
@@ -110,20 +100,112 @@ local function MakeRunner(invoke, nextMatching)
                     matched = matchFunc(param, p)
                 end
                 if matched then
-                    local result
-                    if render then result, offset = InvokeRender(invoke, callbackId, v, offset, ...)
-                    else result = invoke(callbackId, v, ...) end
+                    local result = invoke(callbackId, v, ...)
                     if result ~= nil then return result end
+                end
+            end
+        end
+    end
+end
+end
+
+-- Ordinary callbacks retain their original runner, including the OFF hot path.
+local mutations = extendedPolicy and {}
+local removedNext = extendedPolicy and setmetatable({}, {__mode="k"})
+local function IsExtensionList(id)
+    return extendedPolicy and type(id)=="number" and id>=1000 and extendedPolicy(id)
+end
+local function MarkRemoved(id, callbacks, index)
+    if IsExtensionList(id) then
+        removedNext[callbacks[index]]=callbacks[index+1] or false
+        mutations[id]=(mutations[id] or 0)+1
+    end
+end
+local function ResumeAfterMutation(callbacks, entry)
+    while entry and removedNext[entry]~=nil do entry=removedNext[entry] end
+    if not entry then return #callbacks+1, nil end
+    for i=1,#callbacks do
+        if callbacks[i]==entry then return i,entry end
+    end
+    return #callbacks+1,nil
+end
+local function MakeExtensionRunner(invoke, nextMatching)
+    return function(callbackId,param,...)
+        local callbacks=Callbacks[callbackId]
+        if not callbacks then return end
+        local render=callbackId>=1080 and callbackId<=1089
+        local offset
+        if render then offset=select(2,...) end
+        local match=getmetatable(callbacks).__matchParams or defaultCallbackMeta.__matchParams
+        local default=match==originalDefaultMatch
+        local iterator,state,initial=ipairs(callbacks)
+        local standard=iterator==standardIterator and state==callbacks and initial==0
+        if standard then
+            local index,entry=1,callbacks[1]
+            while entry do
+                local p=entry.Param
+                local matched
+                if default then matched=not param or not p or param==-1 or p==-1 or param==p
+                else matched=match(param,p) end
+                if matched then
+                    -- Prefetch before invoking, as the upstream linked iterator does.
+                    local nextIndex,following=index+1,callbacks[index+1]
+                    if default and nextMatching and param and param~=-1 then
+                        nextIndex,following=nextMatching(callbacks,index,param)
+                    else
+                        while following do
+                            local candidate=following.Param
+                            local accepted
+                            if default then accepted=not param or not candidate or param==-1 or candidate==-1 or param==candidate
+                            else accepted=match(param,candidate) end
+                            if accepted then break end
+                            nextIndex=nextIndex+1;following=callbacks[nextIndex]
+                        end
+                    end
+                    local version=mutations[callbackId] or 0
+                    local result
+                    if render then result,offset=InvokeRender(invoke,callbackId,entry,offset,...)
+                    else result=invoke(callbackId,entry,...) end
+                    if result~=nil then return result end
+                    if (mutations[callbackId] or 0)~=version then
+                        nextIndex,following=ResumeAfterMutation(callbacks,following)
+                    end
+                    index,entry=nextIndex,following
+                else
+                    if default and nextMatching and param and param~=-1 then
+                        index,entry=nextMatching(callbacks,index,param)
+                    else index=index+1;entry=callbacks[index] end
+                end
+            end
+        else
+            -- Preserve authored custom array iterators and matcher behavior.
+            for _,entry in iterator,state,initial do
+                local p=entry.Param
+                local matched
+                if default then matched=not param or not p or param==-1 or p==-1 or param==p
+                else matched=match(param,p) end
+                if matched then
+                    local result
+                    if render then result,offset=InvokeRender(invoke,callbackId,entry,offset,...)
+                    else result=invoke(callbackId,entry,...) end
+                    if result~=nil then return result end
                 end
             end
         end
         if render then return offset end
     end
 end
+local function SelectRunner(invoke,nextMatching)
+    local ordinary=MakeRunner(invoke,nextMatching)
+    if not extendedPolicy then return ordinary end
+    local extension=MakeExtensionRunner(invoke,nextMatching)
+    return function(id,param,...)
+        if IsExtensionList(id) then return extension(id,param,...) end
+        return ordinary(id,param,...)
+    end
 end
-
-_RunCallback = MakeRunner(invoke)
-local RunNative = MakeRunner(nativeInvoke, nextMatching)
+_RunCallback=SelectRunner(invoke)
+local RunNative=SelectRunner(nativeInvoke,nextMatching)
 
 function _UnloadMod(mod)
 	Isaac.RunCallback(ModCallbacks.MC_PRE_MOD_UNLOAD, mod)
@@ -131,6 +213,7 @@ function _UnloadMod(mod)
 	for callbackId,callbacks in pairs(Callbacks) do
 		for i=#callbacks,1,-1 do
 			if callbacks[i].Mod == mod then
+				MarkRemoved(callbackId,callbacks,i)
 				table.remove(callbacks, i)
 			end
 		end
@@ -161,6 +244,7 @@ rawset(Isaac, "AddPriorityCallback", function(mod, callbackId, priority, fn, par
 	end
 	
 	table.insert(callbacks, pos, {Mod = mod, Function = fn, Priority = priority, Param = param})
+    if IsExtensionList(callbackId) then mutations[callbackId]=(mutations[callbackId] or 0)+1 end
 	diagnostic_pcall(changed, callbackId, true)
 	
 	if wasEmpty then
@@ -183,6 +267,7 @@ rawset(Isaac, "RemoveCallback", function(mod, callbackId, fn)
 	if callbacks then
 		for i=#callbacks,1,-1 do
 			if callbacks[i].Function == fn then
+				MarkRemoved(callbackId,callbacks,i)
 				table.remove(callbacks, i)
 			end
 		end

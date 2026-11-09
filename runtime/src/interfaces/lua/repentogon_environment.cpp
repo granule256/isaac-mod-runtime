@@ -181,7 +181,7 @@ void ReapplyOwnerBindings(lua_State* state) {
 const RepentogonCatalog& DefaultRepentogonCatalog() noexcept {
     // Add independently restored batches here. Infrastructure alone must not
     // advertise an upstream version or send existing Mods into unsupported code.
-    static const RepentogonCatalog catalog{&repentogon::CallbackBatch(),1,nullptr};
+    static constexpr RepentogonCatalog catalog{&repentogon::kCallbackBatch,1,nullptr};
     static constexpr RepentogonCatalog empty{};
     return repentogon::HasNativePort()?catalog:empty;
 }

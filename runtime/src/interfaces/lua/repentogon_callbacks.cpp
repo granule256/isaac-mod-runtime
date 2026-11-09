@@ -2,6 +2,7 @@
 #include "interfaces/lua/repentogon_environment.hpp"
 #include "application/callback/extended_callback_runtime.hpp"
 #include "lua_runtime.hpp"
+#include <array>
 extern "C" {
 #include <lauxlib.h>
 }
@@ -112,23 +113,53 @@ constexpr RepentogonCallbackBinding kCallbacks[]={
     {1463,"MC_POST_GRID_ENTITY_WALL_RENDER"},
 };
 static_assert(sizeof(kCallbacks)/sizeof(kCallbacks[0])==100);
+constexpr RepentogonEnumBinding kAliases[]={{"ModCallbacks","MC_HUD_POST_UPDATE",1021}};
+// A bounded read-only ID map addresses the 100 cached states, not the ordinary ID array.
+constexpr auto MakeStateIndices() noexcept {
+    std::array<std::uint8_t,1464-1020> indices{};
+    for(auto& index:indices)index=255;
+    for(std::size_t i=0;i<100;++i)indices[kCallbacks[i].id-1020]=static_cast<std::uint8_t>(i);
+    return indices;
+}
+constexpr auto kStateIndices=MakeStateIndices();
+std::array<ExtendedCallbackState*,100> g_States{};
+void Reset() noexcept {g_States.fill(nullptr);}
+
 bool Ready() noexcept {
     return g_NativePort&&g_NativePort->ready&&g_NativePort->install&&g_NativePort->ready();
 }
 int Initialize(lua_State* state) {
+    for(std::size_t i=0;i<g_States.size();++i) {
+        g_States[i]=FindExtendedCallback(kCallbacks[i].id);
+        if(!g_States[i])return luaL_error(state,"REPENTOGON callback state unavailable");
+    }
     if(!g_NativePort||!g_NativePort->install||!g_NativePort->install())
         return luaL_error(state,"REPENTOGON callback hooks unavailable");
     return 0;
 }
 }
 void SetNativePort(const NativePort* port) noexcept { g_NativePort=port; }
+bool UpdatePaused() noexcept {
+    return g_ExtendedCallbackDelivery&&g_NativePort&&g_NativePort->updatePaused&&g_NativePort->updatePaused();
+}
+bool HasSpriteValidator() noexcept {return g_NativePort&&g_NativePort->spriteAlive;}
+bool CallbackSpriteAlive(std::uintptr_t address) noexcept {
+    return address&&HasSpriteValidator()&&g_NativePort->spriteAlive(address);
+}
 bool HasNativePort() noexcept { return g_NativePort!=nullptr; }
-const RepentogonBatch& CallbackBatch() noexcept {
-    static constexpr RepentogonBatch batch{"callbacks",nullptr,0,nullptr,0,kCallbacks,100,Initialize,nullptr,Ready};
-    return batch;
+constinit const RepentogonBatch kCallbackBatch{"callbacks",nullptr,0,kAliases,1,kCallbacks,100,Initialize,Reset,Ready};
+const RepentogonBatch& CallbackBatch() noexcept {return kCallbackBatch;}
+const ExtendedCallbackState* FindCallbackState(std::uint32_t id) noexcept {
+    if(id>=1020&&id<1464) {
+        const auto index=kStateIndices[id-1020];
+        if(index!=255&&g_States[index])return g_States[index];
+    }
+    return FindExtendedCallback(id);
 }
 bool Listening(std::uint32_t id) noexcept {
-    return g_ExtendedCallbackDelivery&&g_ExtendedCallbackEnabledCount&&ExtendedCallbackEnabled(id);
+    if(!g_ExtendedCallbackDelivery||!g_ExtendedCallbackEnabledCount)return false;
+    const auto* state=FindCallbackState(id);
+    return state&&state->enabled;
 }
 Result Dispatch(const Event& event) noexcept {
     if(!Listening(event.id))return {};

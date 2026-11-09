@@ -38,6 +38,7 @@ int LevelIndex(lua_State* state);
 // `GridEntity` 族：`Room:GetGridEntity()` 的返回值。
 [[nodiscard]] std::size_t AttachGridEntityMethods(lua_State* state) noexcept;
 void PushGridEntityHandle(lua_State*,std::uintptr_t entity);
+void PushGridEntityCallbackArgument(lua_State*,std::uintptr_t entity);
 // `GridEntityDoor` 自己的方法表（`Open` / `Close` / `IsTargetRoomArcade`）。
 // 挂在门元表的 `__methods` 上，由 `GridEntityDoorIndex` 在答完字段之后先查它。
 [[nodiscard]] std::size_t AttachGridEntityDoorMethods(lua_State* state) noexcept;

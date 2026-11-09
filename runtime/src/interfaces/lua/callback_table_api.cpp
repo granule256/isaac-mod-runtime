@@ -1,3 +1,4 @@
+#include "interfaces/lua/repentogon_callbacks.hpp"
 #include "interfaces/lua/callback_table_api.hpp"
 #include "application/callback/callback_registry.hpp"
 #include "application/callback/extended_callback_runtime.hpp"
@@ -93,7 +94,7 @@ int MatchOwner(lua_State* state) {
 }
 int ExtendedPolicy(lua_State* state) {
     const auto id=static_cast<CallbackId>(lua_tointeger(state,1));
-    lua_pushboolean(state,g_ExtendedCallbackDelivery&&FindExtendedCallback(id));return 1;
+    lua_pushboolean(state,g_ExtendedCallbackDelivery&&repentogon::FindCallbackState(id));return 1;
 }
 // Native dispatch already has a non-yieldable protected C boundary. Keep the
 // live array/Param reads and Lua equality here; manual runners stay in Lua so
@@ -210,7 +211,8 @@ void RegisterCallbackBootstrap(lua_State* state,lua_CFunction invoke,lua_CFuncti
     lua_pushcfunction(state,invoke);lua_pushcfunction(state,RefreshDiagnostics);lua_pushcfunction(state,MatchOwner);
     lua_pushcfunction(state,nativeInvoke?nativeInvoke:invoke);
     lua_pushliteral(state,"Param");lua_pushcclosure(state,NextMatchingCallback,1);
-    lua_pushcfunction(state,ExtendedPolicy);lua_call(state,6,5);
+    if(g_ExtendedCallbackCount)lua_pushcfunction(state,ExtendedPolicy);else lua_pushnil(state);
+    lua_call(state,6,5);
     lua_pushvalue(state,-1);stored->runRef=luaL_ref(state,LUA_REGISTRYINDEX);
     lua_pushvalue(state,-4);stored->tableRef=luaL_ref(state,LUA_REGISTRYINDEX);
     lua_pushvalue(state,-3);stored->unloadRef=luaL_ref(state,LUA_REGISTRYINDEX);

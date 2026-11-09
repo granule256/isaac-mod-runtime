@@ -4,7 +4,12 @@
 .type isaac_internal_hook_context, %function
 .align 2
 isaac_internal_hook_context:
+    .cfi_startproc
+    // The gateway has already saved x17/LR in 16 bytes below the game SP.
+    .cfi_def_cfa sp, 16
+    .cfi_offset 30, -8
     sub sp, sp, #0x340
+    .cfi_def_cfa_offset 0x350
     stp x0, x1, [sp, #0x00]
     stp x2, x3, [sp, #0x10]
     stp x4, x5, [sp, #0x20]
@@ -49,6 +54,26 @@ isaac_internal_hook_context:
     stp q26, q27, [sp, #0x2E0]
     stp q28, q29, [sp, #0x300]
     stp q30, q31, [sp, #0x320]
+    // Native callees can unwind through this frame; these are the actual saved locations.
+    .cfi_offset 19, -696
+    .cfi_offset 20, -688
+    .cfi_offset 21, -680
+    .cfi_offset 22, -672
+    .cfi_offset 23, -664
+    .cfi_offset 24, -656
+    .cfi_offset 25, -648
+    .cfi_offset 26, -640
+    .cfi_offset 27, -632
+    .cfi_offset 28, -624
+    .cfi_offset 29, -616
+    .cfi_offset 72, -400
+    .cfi_offset 73, -384
+    .cfi_offset 74, -368
+    .cfi_offset 75, -352
+    .cfi_offset 76, -336
+    .cfi_offset 77, -320
+    .cfi_offset 78, -304
+    .cfi_offset 79, -288
     mov x0, sp
     bl isaac_internal_hook_dispatch
     ldr x16, [sp, #0x100]
@@ -92,4 +117,5 @@ isaac_internal_hook_context:
     ldr x16, [sp, #0x118]
     add sp, sp, #0x350
     br x16
+    .cfi_endproc
 .size isaac_internal_hook_context, .-isaac_internal_hook_context

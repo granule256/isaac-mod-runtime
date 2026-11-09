@@ -3464,6 +3464,22 @@ void PushGridEntityHandle(lua_State* state,std::uintptr_t entity) {
     PushGridEntityHandleInternal(state,entity);
 }
 
+void PushGridEntityCallbackArgument(lua_State* state,std::uintptr_t entity) {
+    const auto base=EngineModuleBase();
+    std::uintptr_t vtable{};std::int32_t slot{};
+    if(base&&base<=UINTPTR_MAX-kGridEntity_DoorVtableOffset&&
+        engine_memory::ReadAt(entity,&vtable,engine_memory::EngineMemoryReadable)&&
+        vtable==base+kGridEntity_DoorVtableOffset&&
+        engine_memory::ReadField(entity,kGridEntityDoorSlotOffset,&slot,engine_memory::EngineMemoryReadable)&&
+        slot>=kRoomDoorSlotMinimum&&slot<=kRoomDoorSlotMaximum) {
+        auto* handle=static_cast<LuaRuntime::DoorHandle*>(lua_newuserdata(state,sizeof(LuaRuntime::DoorHandle)));
+        *handle={engine_memory::AsObject(entity),slot,0};
+        luaL_getmetatable(state,LuaRuntime::kGridEntityDoorMetatable);lua_setmetatable(state,-2);
+        return;
+    }
+    PushGridEntityHandleInternal(state,entity);
+}
+
 int IsaacGetRandomPosition(lua_State* state) {
     // 固定PC 80BB00从当前Manager取Room，传margin=0给7D9B50；无Lua实参参与。
     return PushRandomRoomPosition(state, 0.0F);
