@@ -34,9 +34,20 @@ SECTIONS
     *anm2_load_override_hook.o(.text .text.*)
     . = ALIGN(4);
     HIDDEN(__notice_code_end__ = .);
+    /* 封印之外的显式落点：被封印 TU 里声明的 JIT 竞技场（运行时会被写）必须用
+     * `JIT_CREATE_IN_SECTION` 给一个不以 `.text` 开头的段名，再由这里收进来。
+     * 竞技场一旦落进上面的封印区间，装钩子写桩就会改写受保护代码，紧接着的
+     * `RecheckCode()` 判 `Failure::CodeIntegrity` 并封停兼容层（2026-11-09 真机 N10：
+     * `.text.RepentogonRelayArena` 跟着 `hook_manager.o` 被吸进了封印区间）。 */
+    HIDDEN(__jit_arena_start__ = .);
+    *(.rgon_relay_arena)
+    HIDDEN(__jit_arena_end__ = .);
     *(.text .text.*)
     HIDDEN(__text_end__ = .);
   } :text
+
+  ASSERT(__jit_arena_start__ >= __notice_code_end__,
+         "JIT arena placed inside the notice code seal")
 
   /* Trampoline and stuffs */
   .plt : { *(.plt .plt.*) } :text
