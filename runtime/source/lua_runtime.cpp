@@ -4765,24 +4765,21 @@ RegisteredCallbackMask BuildRegisteredCallbackMask() noexcept {
     return mask;
 }
 
-// 这一帧要不要遍历实体表/玩家向量。写成一条条 `||` 而不是 id 表循环，理由与派发点相同：
+// 更新阶段要不要遍历实体表/玩家向量；渲染监听只由渲染阶段扫描。
+// 保留轮询补发所需的 INIT 和 UPDATE。写成一条条 `||` 而不是 id 表循环，理由与派发点相同：
 // id 表这种写法离"表驱动派发"只有一步，而派发点必须逐个显式写（门禁靠它把设备侧报出来的
 // 名单与代码里的真实派发对上）。
-[[nodiscard]] bool AnyEntityFamilyRegistered(const RegisteredCallbackMask& mask) noexcept {
+[[nodiscard]] bool AnyEntityUpdateFamilyRegistered(const RegisteredCallbackMask& mask) noexcept {
     return mask.Has(isaac::runtime::kCallbackPostPeffectUpdate) ||
            mask.Has(isaac::runtime::kCallbackFamiliarUpdate) || mask.Has(isaac::runtime::kCallbackFamiliarInit) ||
-           mask.Has(isaac::runtime::kCallbackPostFamiliarRender) || mask.Has(isaac::runtime::kCallbackPostNpcInit) ||
-           mask.Has(isaac::runtime::kCallbackPostPlayerUpdate) || mask.Has(isaac::runtime::kCallbackPostPlayerRender) ||
-           mask.Has(isaac::runtime::kCallbackPostPickupRender) ||
-           mask.Has(isaac::runtime::kCallbackPostTearUpdate) || mask.Has(isaac::runtime::kCallbackPostTearRender) ||
+           mask.Has(isaac::runtime::kCallbackPostNpcInit) || mask.Has(isaac::runtime::kCallbackPostPlayerUpdate) ||
+           mask.Has(isaac::runtime::kCallbackPostTearUpdate) ||
            mask.Has(isaac::runtime::kCallbackPostProjectileInit) ||
-           mask.Has(isaac::runtime::kCallbackPostProjectileRender) || mask.Has(isaac::runtime::kCallbackPostLaserInit) ||
-           mask.Has(isaac::runtime::kCallbackPostLaserUpdate) || mask.Has(isaac::runtime::kCallbackPostLaserRender) ||
+           mask.Has(isaac::runtime::kCallbackPostLaserInit) || mask.Has(isaac::runtime::kCallbackPostLaserUpdate) ||
            mask.Has(isaac::runtime::kCallbackPostKnifeInit) || mask.Has(isaac::runtime::kCallbackPostKnifeUpdate) ||
-           mask.Has(isaac::runtime::kCallbackPostKnifeRender) ||
-           mask.Has(isaac::runtime::kCallbackPostEffectUpdate) || mask.Has(isaac::runtime::kCallbackPostEffectRender) ||
+           mask.Has(isaac::runtime::kCallbackPostEffectUpdate) ||
            mask.Has(isaac::runtime::kCallbackPostBombInit) || mask.Has(isaac::runtime::kCallbackPostBombUpdate) ||
-           mask.Has(isaac::runtime::kCallbackPostBombRender) || mask.Has(isaac::runtime::kCallbackPostPickupInit) ||
+           mask.Has(isaac::runtime::kCallbackPostPickupInit) ||
            mask.Has(isaac::runtime::kCallbackPostPickupUpdate) || mask.Has(isaac::runtime::kCallbackPostPlayerInit);
 }
 
@@ -4802,11 +4799,17 @@ struct EntityEventScan {
     bool renderPhase{false};
     float renderOffsetX{0.0F};
     float renderOffsetY{0.0F};
+    std::uint64_t roomGeneration{isaac::runtime::NativeRoomLoadStartGeneration()};
+    std::uint64_t levelGeneration{isaac::runtime::NativeLevelInitGeneration()};
+    [[nodiscard]] bool CurrentWorld() const noexcept {
+        return roomGeneration == isaac::runtime::NativeRoomLoadStartGeneration() &&
+               levelGeneration == isaac::runtime::NativeLevelInitGeneration();
+    }
 };
 
 // 下面这一族小函数是"按实体类派发"的实现主体：**每个函数里都把回调常量直接写进派发调用**
 // （不许表驱动 —— 见 `runtime/tests/test_lua_callback_dispatch_sites.py`，也见上面
-// `AnyEntityFamilyRegistered` 的注释）。注释里同样不许出现那种调用的字面写法：那条门禁是
+// `AnyEntityUpdateFamilyRegistered` 的注释）。注释里同样不许出现那种调用的字面写法：那条门禁是
 // 纯文本匹配、连注释一起扫（2026-09-18 被它抓过一次）。
 void DispatchNpcEntityEvents(EntityEventScan* scan, std::uintptr_t entity,
                              std::int64_t filter) noexcept {
@@ -4821,6 +4824,7 @@ void DispatchNpcEntityEvents(EntityEventScan* scan, std::uintptr_t entity,
                       entity)) {
         LuaCallbackInvoker invoker = LuaCallbackInvoker::ForEntity(entity);
         isaac::runtime::CallbackDispatcher dispatcher{g_CallbackRegistry, invoker};
+        if (!scan->CurrentWorld()) return;
         static_cast<void>(dispatcher.DispatchFiltered(isaac::runtime::kCallbackPostNpcInit,
                                               isaac::runtime::ThreadAffinity::Any, filter));
     }
@@ -4833,12 +4837,14 @@ void DispatchFamiliarEntityEvents(EntityEventScan* scan, std::uintptr_t entity,
                       &g_FrameEventState.seenFamiliarCount, entity)) {
         LuaCallbackInvoker invoker = LuaCallbackInvoker::ForEntity(entity);
         isaac::runtime::CallbackDispatcher dispatcher{g_CallbackRegistry, invoker};
+        if (!scan->CurrentWorld()) return;
         static_cast<void>(dispatcher.DispatchFiltered(isaac::runtime::kCallbackFamiliarInit,
                                               isaac::runtime::ThreadAffinity::Any, filter));
     }
     if (!scan->renderPhase && scan->registered.Has(isaac::runtime::kCallbackFamiliarUpdate)) {
         LuaCallbackInvoker invoker = LuaCallbackInvoker::ForEntity(entity);
         isaac::runtime::CallbackDispatcher dispatcher{g_CallbackRegistry, invoker};
+        if (!scan->CurrentWorld()) return;
         static_cast<void>(dispatcher.DispatchFiltered(isaac::runtime::kCallbackFamiliarUpdate,
                                               isaac::runtime::ThreadAffinity::Any, filter));
     }
@@ -4846,6 +4852,7 @@ void DispatchFamiliarEntityEvents(EntityEventScan* scan, std::uintptr_t entity,
         LuaCallbackInvoker invoker = LuaCallbackInvoker::ForEntityWithVector(
             entity, scan->renderOffsetX, scan->renderOffsetY);
         isaac::runtime::CallbackDispatcher dispatcher{g_CallbackRegistry, invoker};
+        if (!scan->CurrentWorld()) return;
         static_cast<void>(dispatcher.DispatchFiltered(isaac::runtime::kCallbackPostFamiliarRender,
                                               isaac::runtime::ThreadAffinity::Any, filter));
     }
@@ -4856,6 +4863,7 @@ void DispatchTearEntityEvents(EntityEventScan* scan, std::uintptr_t entity,
     if (!scan->renderPhase && scan->registered.Has(isaac::runtime::kCallbackPostTearUpdate)) {
         LuaCallbackInvoker invoker = LuaCallbackInvoker::ForEntity(entity);
         isaac::runtime::CallbackDispatcher dispatcher{g_CallbackRegistry, invoker};
+        if (!scan->CurrentWorld()) return;
         static_cast<void>(dispatcher.DispatchFiltered(isaac::runtime::kCallbackPostTearUpdate,
                                               isaac::runtime::ThreadAffinity::Any, filter));
     }
@@ -4863,6 +4871,7 @@ void DispatchTearEntityEvents(EntityEventScan* scan, std::uintptr_t entity,
         LuaCallbackInvoker invoker = LuaCallbackInvoker::ForEntityWithVector(
             entity, scan->renderOffsetX, scan->renderOffsetY);
         isaac::runtime::CallbackDispatcher dispatcher{g_CallbackRegistry, invoker};
+        if (!scan->CurrentWorld()) return;
         static_cast<void>(dispatcher.DispatchFiltered(isaac::runtime::kCallbackPostTearRender,
                                               isaac::runtime::ThreadAffinity::Any, filter));
     }
@@ -4875,6 +4884,7 @@ void DispatchProjectileEntityEvents(EntityEventScan* scan, std::uintptr_t entity
         LuaCallbackInvoker invoker = LuaCallbackInvoker::ForEntityWithVector(
             entity, scan->renderOffsetX, scan->renderOffsetY);
         isaac::runtime::CallbackDispatcher dispatcher{g_CallbackRegistry, invoker};
+        if (!scan->CurrentWorld()) return;
         static_cast<void>(dispatcher.DispatchFiltered(isaac::runtime::kCallbackPostProjectileRender,
                                               isaac::runtime::ThreadAffinity::Any, filter));
     }
@@ -4887,12 +4897,14 @@ void DispatchLaserEntityEvents(EntityEventScan* scan, std::uintptr_t entity,
                       &g_FrameEventState.seenLaserCount, entity)) {
         LuaCallbackInvoker invoker = LuaCallbackInvoker::ForEntity(entity);
         isaac::runtime::CallbackDispatcher dispatcher{g_CallbackRegistry, invoker};
+        if (!scan->CurrentWorld()) return;
         static_cast<void>(dispatcher.DispatchFiltered(isaac::runtime::kCallbackPostLaserInit,
                                               isaac::runtime::ThreadAffinity::Any, filter));
     }
     if (!scan->renderPhase && scan->registered.Has(isaac::runtime::kCallbackPostLaserUpdate)) {
         LuaCallbackInvoker invoker = LuaCallbackInvoker::ForEntity(entity);
         isaac::runtime::CallbackDispatcher dispatcher{g_CallbackRegistry, invoker};
+        if (!scan->CurrentWorld()) return;
         static_cast<void>(dispatcher.DispatchFiltered(isaac::runtime::kCallbackPostLaserUpdate,
                                               isaac::runtime::ThreadAffinity::Any, filter));
     }
@@ -4900,6 +4912,7 @@ void DispatchLaserEntityEvents(EntityEventScan* scan, std::uintptr_t entity,
         LuaCallbackInvoker invoker = LuaCallbackInvoker::ForEntityWithVector(
             entity, scan->renderOffsetX, scan->renderOffsetY);
         isaac::runtime::CallbackDispatcher dispatcher{g_CallbackRegistry, invoker};
+        if (!scan->CurrentWorld()) return;
         static_cast<void>(dispatcher.DispatchFiltered(isaac::runtime::kCallbackPostLaserRender,
                                               isaac::runtime::ThreadAffinity::Any, filter));
     }
@@ -4912,12 +4925,14 @@ void DispatchKnifeEntityEvents(EntityEventScan* scan, std::uintptr_t entity,
                       &g_FrameEventState.seenKnifeCount, entity)) {
         LuaCallbackInvoker invoker = LuaCallbackInvoker::ForEntity(entity);
         isaac::runtime::CallbackDispatcher dispatcher{g_CallbackRegistry, invoker};
+        if (!scan->CurrentWorld()) return;
         static_cast<void>(dispatcher.DispatchFiltered(isaac::runtime::kCallbackPostKnifeInit,
                                               isaac::runtime::ThreadAffinity::Any, filter));
     }
     if (!scan->renderPhase && scan->registered.Has(isaac::runtime::kCallbackPostKnifeUpdate)) {
         LuaCallbackInvoker invoker = LuaCallbackInvoker::ForEntity(entity);
         isaac::runtime::CallbackDispatcher dispatcher{g_CallbackRegistry, invoker};
+        if (!scan->CurrentWorld()) return;
         static_cast<void>(dispatcher.DispatchFiltered(isaac::runtime::kCallbackPostKnifeUpdate,
                                               isaac::runtime::ThreadAffinity::Any, filter));
     }
@@ -4925,6 +4940,7 @@ void DispatchKnifeEntityEvents(EntityEventScan* scan, std::uintptr_t entity,
         LuaCallbackInvoker invoker = LuaCallbackInvoker::ForEntityWithVector(
             entity, scan->renderOffsetX, scan->renderOffsetY);
         isaac::runtime::CallbackDispatcher dispatcher{g_CallbackRegistry, invoker};
+        if (!scan->CurrentWorld()) return;
         static_cast<void>(dispatcher.DispatchFiltered(isaac::runtime::kCallbackPostKnifeRender,
                                               isaac::runtime::ThreadAffinity::Any, filter));
     }
@@ -4935,6 +4951,7 @@ void DispatchEffectEntityEvents(EntityEventScan* scan, std::uintptr_t entity,
     if (!scan->renderPhase && scan->registered.Has(isaac::runtime::kCallbackPostEffectUpdate)) {
         LuaCallbackInvoker invoker = LuaCallbackInvoker::ForEntity(entity);
         isaac::runtime::CallbackDispatcher dispatcher{g_CallbackRegistry, invoker};
+        if (!scan->CurrentWorld()) return;
         static_cast<void>(dispatcher.DispatchFiltered(isaac::runtime::kCallbackPostEffectUpdate,
                                               isaac::runtime::ThreadAffinity::Any, filter));
     }
@@ -4942,6 +4959,7 @@ void DispatchEffectEntityEvents(EntityEventScan* scan, std::uintptr_t entity,
         LuaCallbackInvoker invoker = LuaCallbackInvoker::ForEntityWithVector(
             entity, scan->renderOffsetX, scan->renderOffsetY);
         isaac::runtime::CallbackDispatcher dispatcher{g_CallbackRegistry, invoker};
+        if (!scan->CurrentWorld()) return;
         static_cast<void>(dispatcher.DispatchFiltered(isaac::runtime::kCallbackPostEffectRender,
                                               isaac::runtime::ThreadAffinity::Any, filter));
     }
@@ -4954,12 +4972,14 @@ void DispatchBombEntityEvents(EntityEventScan* scan, std::uintptr_t entity,
                       entity)) {
         LuaCallbackInvoker invoker = LuaCallbackInvoker::ForEntity(entity);
         isaac::runtime::CallbackDispatcher dispatcher{g_CallbackRegistry, invoker};
+        if (!scan->CurrentWorld()) return;
         static_cast<void>(dispatcher.DispatchFiltered(isaac::runtime::kCallbackPostBombInit,
                                               isaac::runtime::ThreadAffinity::Any, filter));
     }
     if (!scan->renderPhase && scan->registered.Has(isaac::runtime::kCallbackPostBombUpdate)) {
         LuaCallbackInvoker invoker = LuaCallbackInvoker::ForEntity(entity);
         isaac::runtime::CallbackDispatcher dispatcher{g_CallbackRegistry, invoker};
+        if (!scan->CurrentWorld()) return;
         static_cast<void>(dispatcher.DispatchFiltered(isaac::runtime::kCallbackPostBombUpdate,
                                               isaac::runtime::ThreadAffinity::Any, filter));
     }
@@ -4967,6 +4987,7 @@ void DispatchBombEntityEvents(EntityEventScan* scan, std::uintptr_t entity,
         LuaCallbackInvoker invoker = LuaCallbackInvoker::ForEntityWithVector(
             entity, scan->renderOffsetX, scan->renderOffsetY);
         isaac::runtime::CallbackDispatcher dispatcher{g_CallbackRegistry, invoker};
+        if (!scan->CurrentWorld()) return;
         static_cast<void>(dispatcher.DispatchFiltered(isaac::runtime::kCallbackPostBombRender,
                                               isaac::runtime::ThreadAffinity::Any, filter));
     }
@@ -4980,12 +5001,14 @@ void DispatchPickupEntityEvents(EntityEventScan* scan, std::uintptr_t entity,
                       &g_FrameEventState.seenPickupCount, entity)) {
         LuaCallbackInvoker invoker = LuaCallbackInvoker::ForEntity(entity);
         isaac::runtime::CallbackDispatcher dispatcher{g_CallbackRegistry, invoker};
+        if (!scan->CurrentWorld()) return;
         static_cast<void>(dispatcher.DispatchFiltered(isaac::runtime::kCallbackPostPickupInit,
                                               isaac::runtime::ThreadAffinity::Any, filter));
     }
     if (!scan->renderPhase && scan->registered.Has(isaac::runtime::kCallbackPostPickupUpdate)) {
         LuaCallbackInvoker invoker = LuaCallbackInvoker::ForEntity(entity);
         isaac::runtime::CallbackDispatcher dispatcher{g_CallbackRegistry, invoker};
+        if (!scan->CurrentWorld()) return;
         static_cast<void>(dispatcher.DispatchFiltered(isaac::runtime::kCallbackPostPickupUpdate,
                                               isaac::runtime::ThreadAffinity::Any, filter));
     }
@@ -4993,6 +5016,7 @@ void DispatchPickupEntityEvents(EntityEventScan* scan, std::uintptr_t entity,
         LuaCallbackInvoker invoker = LuaCallbackInvoker::ForEntityWithVector(
             entity, scan->renderOffsetX, scan->renderOffsetY);
         isaac::runtime::CallbackDispatcher dispatcher{g_CallbackRegistry, invoker};
+        if (!scan->CurrentWorld()) return;
         static_cast<void>(dispatcher.DispatchFiltered(isaac::runtime::kCallbackPostPickupRender,
                                               isaac::runtime::ThreadAffinity::Any, filter));
     }
@@ -5006,6 +5030,7 @@ void DispatchPlayerInitialization(EntityEventScan* scan, std::uintptr_t entity,
         if (g_NativePlayerInitObserved) return;
         LuaCallbackInvoker invoker = LuaCallbackInvoker::ForEntity(entity);
         isaac::runtime::CallbackDispatcher dispatcher{g_CallbackRegistry, invoker};
+        if (!scan->CurrentWorld()) return;
         static_cast<void>(dispatcher.DispatchFiltered(isaac::runtime::kCallbackPostPlayerInit,
                                               isaac::runtime::ThreadAffinity::Any, filter));
     }
@@ -5018,12 +5043,14 @@ void DispatchPlayerEntityEvents(EntityEventScan* scan, std::uintptr_t entity,
     if (!scan->renderPhase && scan->registered.Has(isaac::runtime::kCallbackPostPeffectUpdate)) {
         LuaCallbackInvoker invoker = LuaCallbackInvoker::ForEntity(entity);
         isaac::runtime::CallbackDispatcher dispatcher{g_CallbackRegistry, invoker};
+        if (!scan->CurrentWorld()) return;
         static_cast<void>(dispatcher.DispatchFiltered(isaac::runtime::kCallbackPostPeffectUpdate,
                                               isaac::runtime::ThreadAffinity::Any, filter));
     }
     if (!scan->renderPhase && scan->registered.Has(isaac::runtime::kCallbackPostPlayerUpdate)) {
         LuaCallbackInvoker invoker = LuaCallbackInvoker::ForEntity(entity);
         isaac::runtime::CallbackDispatcher dispatcher{g_CallbackRegistry, invoker};
+        if (!scan->CurrentWorld()) return;
         static_cast<void>(dispatcher.DispatchFiltered(isaac::runtime::kCallbackPostPlayerUpdate,
                                               isaac::runtime::ThreadAffinity::Any, filter));
     }
@@ -5032,6 +5059,7 @@ void DispatchPlayerEntityEvents(EntityEventScan* scan, std::uintptr_t entity,
         LuaCallbackInvoker invoker = LuaCallbackInvoker::ForEntityWithVector(
             entity, scan->renderOffsetX, scan->renderOffsetY);
         isaac::runtime::CallbackDispatcher dispatcher{g_CallbackRegistry, invoker};
+        if (!scan->CurrentWorld()) return;
         static_cast<void>(dispatcher.DispatchFiltered(isaac::runtime::kCallbackPostPlayerRender,
                                               isaac::runtime::ThreadAffinity::Any, filter));
     }
@@ -5136,7 +5164,7 @@ void DispatchEntityRenderEvents(const RegisteredCallbackMask& registered) noexce
 
 bool DispatchFrameEvents(bool initialOnly = false) {
     const RegisteredCallbackMask registered = BuildRegisteredCallbackMask();
-    const bool wantsEntityScan = AnyEntityFamilyRegistered(registered);
+    const bool wantsEntityScan = AnyEntityUpdateFamilyRegistered(registered);
     const bool wantsRoom = registered.Has(isaac::runtime::kCallbackPostNewRoom);
     const bool wantsLevel = registered.Has(isaac::runtime::kCallbackPostNewLevel);
     // 一种都没登记就整段跳过：这条路径每帧都要读房间身份，有实体时还要扫实体表，
@@ -5160,6 +5188,13 @@ bool DispatchFrameEvents(bool initialOnly = false) {
     bool initialRoomConsumed = false;
     const auto roomLoadGeneration = isaac::runtime::NativeRoomLoadGeneration();
     const auto levelInitGeneration = isaac::runtime::NativeLevelInitGeneration();
+    const auto roomStartGeneration = isaac::runtime::NativeRoomLoadStartGeneration();
+    const auto sameWorld = [&] {
+        return isaac::runtime::NativeRoomLoadGeneration() == roomLoadGeneration &&
+               isaac::runtime::NativeRoomLoadStartGeneration() == roomStartGeneration &&
+               isaac::runtime::NativeLevelInitGeneration() == levelInitGeneration &&
+               !isaac::runtime::NativeLevelInitializing();
+    };
     const bool regeneratedLevel = levelInitGeneration != g_FrameEventState.levelInitGeneration;
     // stage/type may stay unchanged during Init. Its previous loaded key is
     // invalidated on entry; only its own load_room completion proves readiness.
@@ -5208,26 +5243,15 @@ bool DispatchFrameEvents(bool initialOnly = false) {
         // 只有"运行时在该层中途才加载"（没有 `initialRoomPending`）时才不判变化。
     }
 
-    // 先扫实体与玩家，再派发"换房/换层"。顺序是照 PC 的观感定的：换层时模组先收到
-    // `POST_NEW_LEVEL`、再收到 `POST_NEW_ROOM`，而实体的 INIT/UPDATE 属于"新房间已经在了"
-    // 之后的事 —— 放在前面会让模组在一个它还不认识的房间里收到实体事件。
-    if (wantsEntityScan && !initialOnly) {
-        EntityEventScan scan{};
-        scan.registered = registered;
-        scan.renderPhase = false;
-        isaac::runtime::VisitRoomEntities(&OnEntityEvent, &scan);
-        isaac::runtime::VisitPlayerEntities(&OnEntityEventPlayer, &scan);
-    }
-
     // 这两条不受"有没有人登记"影响：判"换房/换层"要读的那四个字本来就要读，而
     // 派发器会把计数记在最前面 ⇒ 即使一条登记都没有，"引擎确实到了这个时机"仍然留在
     // 派发计数里。那正是设备侧区分"事件没送到"与"送到了没人听"的唯一依据。
     // （按实体派发的那一族要遍历实体表/玩家向量，只在有人登记时才做 ⇒ 它们的计数
     //   只代表"有人听的时候"）。
     // 2026-10-14 更正：上面的历史顺序注释写反了；PC 官方明确 NEW_LEVEL 总在 NEW_ROOM 之后。
-    // Entity callbacks can also mutate world contents. Give compatibility
-    // consumers their isolated attempt before room snapshot callbacks run.
+    // Compatibility consumers finish before room snapshot callbacks run.
     if (acceptedLocation) isaac::runtime::PumpCompatibilityAdapters(g_LuaState);
+    if (!sameWorld()) return false;
     if (acceptedLocation) {
         // A same-stage Init owns a fresh starting room. Publish it with the
         // accepted lifecycle identity after compatibility consumers had a turn.
@@ -5248,12 +5272,33 @@ bool DispatchFrameEvents(bool initialOnly = false) {
         isaac::runtime::CallbackDispatcher dispatcher{g_CallbackRegistry, invoker};
         static_cast<void>(dispatcher.Dispatch(isaac::runtime::kCallbackPostNewRoom,
                                               isaac::runtime::ThreadAffinity::Any));
+        // A room callback can move within the same floor. Its pending level
+        // notification still belongs to this floor; never send an old floor's
+        // notification after a synchronous Level::Init.
+        if (!sameWorld() && (!enteredNewLevel ||
+            isaac::runtime::NativeLevelInitGeneration() != levelInitGeneration ||
+            isaac::runtime::NativeLevelInitializing())) return false;
     }
     if (enteredNewLevel) {
         LuaCallbackInvoker invoker{0, false, false};
         isaac::runtime::CallbackDispatcher dispatcher{g_CallbackRegistry, invoker};
         static_cast<void>(dispatcher.Dispatch(isaac::runtime::kCallbackPostNewLevel,
                                               isaac::runtime::ThreadAffinity::Any));
+        if (!sameWorld()) return false;
+    }
+    // Publish lifecycle state before managed entity updates can load another room.
+    // Native INIT callbacks retain their native boundaries; polling INIT fallbacks
+    // still run before their entity's first managed update.
+    const auto updateRegistered = (enteredNewRoom || enteredNewLevel)
+        ? BuildRegisteredCallbackMask() : registered;
+    if (!initialOnly && AnyEntityUpdateFamilyRegistered(updateRegistered)) {
+        EntityEventScan scan{};
+        scan.registered = updateRegistered;
+        scan.renderPhase = false;
+        isaac::runtime::VisitRoomEntities(&OnEntityEvent, &scan);
+        if (!sameWorld()) return false;
+        isaac::runtime::VisitPlayerEntities(&OnEntityEventPlayer, &scan);
+        if (!sameWorld()) return false;
     }
     return true;
 }
@@ -5283,7 +5328,7 @@ void DispatchPostUpdate() {
                 return;
             }
         }
-        DispatchFrameEvents(true);
+        if (!DispatchFrameEvents(true)) return;
         const bool initialRoomReady = g_FrameEventState.initialRoomPending == 0;
         if (!initialRoomReady || !DispatchPostGameStarted(pending == kGameStartedFromSave)) {
             return;

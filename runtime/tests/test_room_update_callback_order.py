@@ -38,12 +38,17 @@ void InstallRoomOrderInputs();
 }
 static GameLocationKey currentLocation{84,0,1,0};
 static unsigned nativeFrame=10,locationReads{},roomVisits{},playerVisits{},reentries{};
-static bool gridAlive=true,paused{};
+static bool gridAlive=true,paused{},loadFromEntity{};
 extern "C" void RoomOrderVisitRoom(){++roomVisits;}
 extern "C" void RoomOrderVisitPlayer(){++playerVisits;}
 extern "C" int RoomOrderHash(lua_State*L){lua_pushinteger(L,currentLocation.roomIndex);return 1;}
 extern "C" int RoomOrderGrid(lua_State*L){lua_pushboolean(L,gridAlive);return 1;}
-extern "C" int RoomOrderReenter(lua_State*){++reentries;LuaRuntime::DispatchPostUpdate();return 0;}
+extern "C" int RoomOrderReenter(lua_State*){
+ ++reentries;
+ if(loadFromEntity){currentLocation.roomIndex=86;isaac::runtime::NoteNativeRoomLoaded();}
+ else LuaRuntime::DispatchPostUpdate();
+ return 0;
+}
 GameRoomObservation ReadGameLocationKey(uintptr_t,GameLocationKey*key){
  ++locationReads;*key=currentLocation;return GameRoomObservation::Success;
 }
@@ -63,25 +68,35 @@ static bool Dispatch(){
 }
 int main(int argc,char**argv){
  assert(argc==2);const std::string mode=argv[1];
+ loadFromEntity=mode=="player_load"||mode=="effect_load"||mode=="peffect_load"||mode=="startup_load";
  static_cast<void>(kScriptTemplate);static_cast<void>(&HarnessHasCollectible);static_cast<void>(&BuildPrelude);
  CreateBlocks();FillEntities();PublishLists();PublishGame();PublishEntityList(g_RoomBytes,true);
  LuaRuntime::ObserveGameThread();LuaRuntime::SetEngineModuleBase(g_EngineBase);
  LuaRuntime::SetGameBindings(g_EngineBase+kGameOwnerGlobalSlotOffset,0);
  std::string script=mode=="reentry"?"requestReentry=true\n":"";
+ if(mode=="startup_load")script+="startupLoad=true;requestStartupLoad=true\n";
+ if(loadFromEntity&&mode!="startup_load")script+="entityLoadTest=true\n";
+ if(mode=="peffect_load")script+="requestPeffectLoad=true\n";
+ if(mode=="late_listener")script+="lateListener=true\n";
+ if(mode=="player_load")script+="requestEntityLoad=true\n";
+ if(mode=="effect_load")script+="requestEffectLoad=true\n";
  script+=R"lua(
  local m=RegisterMod('independent room grid tracker',1)
- rooms=0;levels=0;started=0;updates=0;destroyed=0
+ rooms=0;levels=0;started=0;updates=0;destroyed=0;roomA=0;roomB=0;lateUpdates=0
  local destroyedGrids,trackedGrids={},{}
  m:AddCallback(19,function()
    local hash=TestRoomHash()
+   if hash==85 then roomA=roomA+1 elseif hash==86 then roomB=roomB+1 end
    if not destroyedGrids[hash] then destroyedGrids[hash]={} end
    trackedGrids={}
    if TestGridAlive() and not destroyedGrids[hash][0] then trackedGrids[0]=true end
    rooms=rooms+1
+   if lateListener and rooms==2 then m:AddCallback(31,function()lateUpdates=lateUpdates+1 end) end
+   if requestStartupLoad then requestStartupLoad=false;TestReenterUpdate() end
    if requestReentry and started>0 then TestReenterUpdate() end
  end)
  m:AddCallback(18,function() assert(rooms>levels);levels=levels+1 end)
- m:AddCallback(15,function() assert(rooms==1 and levels==1);started=started+1 end)
+ m:AddCallback(15,function() assert(rooms==(startupLoad and 2 or 1) and levels==1);started=started+1 end)
  m:AddCallback(1,function()
    local hash=TestRoomHash()
    for i in pairs(trackedGrids) do
@@ -96,11 +111,28 @@ int main(int argc,char**argv){
  end)
  -- Keep production entity scanning enabled to check its cost and deduplication.
  m:AddCallback(0,function() end)
- m:AddCallback(31,function() end)
+ m:AddCallback(4,function()
+   if requestPeffectLoad and updates>0 then requestPeffectLoad=false;TestReenterUpdate() end
+ end)
+ if not lateListener then m:AddCallback(31,function()
+   if entityLoadTest and updates>0 then
+     assert(destroyedGrids[TestRoomHash()], 'player update before NEW_ROOM initialization')
+   end
+   if requestEntityLoad and updates>0 then requestEntityLoad=false;TestReenterUpdate() end
+ end) end
+ m:AddCallback(55,function()
+   if requestEffectLoad and updates>0 then requestEffectLoad=false;TestReenterUpdate() end
+ end,7)
  )lua";
  assert(LuaRuntime::InitializeFromBuffer(script.data(),script.size(),"@room-grid-tracker.lua")==LuaRuntime::LuaInitResult::Success);
  InstallRoomOrderInputs();isaac::runtime::SetManagedUpdateSnapshotReaderForTest(Snapshot);
  LuaRuntime::NoteGameStarted(false);if(!Dispatch())return 1;
+ if(mode=="startup_load"){
+   assert(Number("rooms",1)&&Number("levels",1)&&Number("started",0)&&Number("updates",0));
+   ++nativeFrame;if(!Dispatch())return 11;
+   assert(Number("rooms",2)&&Number("levels",1)&&Number("started",1)&&Number("updates",1));
+   assert(reentries==1);std::puts("PASS startup_load: one level/start notification after stable destination");return 0;
+ }
  assert(Number("rooms",1)&&Number("updates",1)&&Number("started",1));
  locationReads=roomVisits=playerVisits=0;
  gridAlive=false;
@@ -112,12 +144,25 @@ int main(int argc,char**argv){
    assert(locationReads==0&&roomVisits==0&&playerVisits==0);
  }
  ++nativeFrame;
+ if(loadFromEntity)isaac::runtime::NoteNativeRoomLoaded();
  if(mode=="paused"){
    paused=true;if(!Dispatch())return 3;
    assert(Number("rooms",1)&&Number("updates",1));
    assert(locationReads==0&&roomVisits==0&&playerVisits==0);paused=false;
  }
  if(!Dispatch())return 4;
+ if(mode=="late_listener"){assert(Number("lateUpdates",1));std::puts("PASS late_listener: new entity listener runs on first room update");return 0;}
+ if(loadFromEntity){
+   assert(Number("roomA",1)&&Number("roomB",0)&&Number("rooms",2));
+   assert(Number("updates",1)&&reentries==1);
+   ++nativeFrame;if(!Dispatch())return 9;
+   assert(Number("roomA",1)&&Number("roomB",1)&&Number("rooms",3));
+   assert(Number("updates",2));
+   if(!Dispatch())return 10;
+   assert(Number("rooms",3)&&reentries==1);
+   std::printf("PASS %s: A=1 B=1, no update in unannounced destination\n",mode.c_str());
+   return 0;
+ }
  assert(Number("rooms",2)&&Number("updates",2)&&Number("destroyed",0));
  assert(locationReads==1&&roomVisits==1&&playerVisits==1);
  assert(reentries==(mode=="reentry"?1U:0U));
@@ -181,6 +226,11 @@ class RoomUpdateCallbackOrderTests(unittest.TestCase):
         print(mode, result.returncode, result.stdout + result.stderr, flush=True)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
+    def test_player_effect_update_stops_before_destination_player_update(self): self.check_mode('peffect_load')
+    def test_new_room_entity_listener_runs_in_the_first_update(self): self.check_mode('late_listener')
+    def test_startup_room_callback_can_load_a_stable_destination(self): self.check_mode('startup_load')
+    def test_player_update_can_load_another_room_without_mislabeling_events(self): self.check_mode('player_load')
+    def test_effect_update_stops_before_destination_player_callbacks(self): self.check_mode('effect_load')
     def test_new_room_initializes_tracker_before_update(self): self.check_mode('transition')
     def test_same_index_reload_does_not_report_old_grid_as_destroyed(self): self.check_mode('reload')
     def test_paused_transition_waits_for_simulation(self): self.check_mode('paused')

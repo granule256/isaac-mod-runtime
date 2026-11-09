@@ -101,6 +101,7 @@
 
 #include "lua_object_handles.hpp"
 #include "lua_runtime.hpp"
+#include "native_room_events.hpp"
 #include "infrastructure/call/managed_update_snapshot.hpp"
 #include "lua_runtime_state.hpp"
 #include "room_descriptor_layout.hpp"
@@ -2250,7 +2251,11 @@ void ForEachEntityInTable(std::uintptr_t list, const EntityTableSpec& spec, Visi
             return;
         }
         if (entity != 0 && (!ValidatePointer || IsEntityPointer(entity))) {
-            visit(entity);
+            if constexpr (std::is_same_v<decltype(visit(entity)), bool>) {
+                if (!visit(entity)) return;
+            } else {
+                visit(entity);
+            }
         }
     }
 }
@@ -2279,7 +2284,11 @@ void ForEachPlayerEntity(std::uintptr_t game, Visit&& visit) {
             return;
         }
         if (entity != 0 && (!ValidatePointer || IsEntityPointer(entity))) {
-            visit(entity);
+            if constexpr (std::is_same_v<decltype(visit(entity)), bool>) {
+                if (!visit(entity)) return;
+            } else {
+                visit(entity);
+            }
         }
     }
 }
@@ -13647,9 +13656,15 @@ void VisitRoomEntities(EntityVisitFn visit, void* context) noexcept {
         return;
     }
     const std::uintptr_t list = room + kRoomEntityListOffset;
+    const auto roomGeneration = NativeRoomLoadStartGeneration();
+    const auto levelGeneration = NativeLevelInitGeneration();
     // 枚举用"房间内活动实体全集"（`EL+0x78`）—— 与 `Isaac.GetRoomEntities` 同一张表。
-    ForEachEntityInTable(list, kLiveEntityTable,
-                         [visit, context](std::uintptr_t entity) { visit(context, entity); });
+    ForEachEntityInTable(list, kLiveEntityTable, [=](std::uintptr_t entity) {
+        visit(context, entity);
+        // The callback may synchronously replace the table and its entities.
+        return NativeRoomLoadStartGeneration() == roomGeneration &&
+               NativeLevelInitGeneration() == levelGeneration && !NativeLevelInitializing();
+    });
 }
 
 void VisitPlayerEntities(EntityVisitFn visit, void* context) noexcept {
@@ -13660,7 +13675,13 @@ void VisitPlayerEntities(EntityVisitFn visit, void* context) noexcept {
     if (game == 0) {
         return;
     }
-    ForEachPlayerEntity(game, [visit, context](std::uintptr_t entity) { visit(context, entity); });
+    const auto roomGeneration = NativeRoomLoadStartGeneration();
+    const auto levelGeneration = NativeLevelInitGeneration();
+    ForEachPlayerEntity(game, [=](std::uintptr_t entity) {
+        visit(context, entity);
+        return NativeRoomLoadStartGeneration() == roomGeneration &&
+               NativeLevelInitGeneration() == levelGeneration && !NativeLevelInitializing();
+    });
 }
 
 std::uintptr_t EntityPointerArgument(lua_State* state, int index) noexcept {
