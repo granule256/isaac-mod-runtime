@@ -1,0 +1,137 @@
+#include "interfaces/lua/repentogon_callbacks.hpp"
+#include "interfaces/lua/repentogon_environment.hpp"
+#include "application/callback/extended_callback_runtime.hpp"
+#include "lua_runtime.hpp"
+extern "C" {
+#include <lauxlib.h>
+}
+
+namespace isaac::runtime::repentogon {
+namespace {
+const NativePort* g_NativePort{};
+constexpr RepentogonCallbackBinding kCallbacks[]={
+    {1020,"MC_HUD_UPDATE"},
+    {1021,"MC_POST_HUD_UPDATE"},
+    {1022,"MC_HUD_RENDER"},
+    {1024,"MC_POST_HUD_RENDER"},
+    {1026,"MC_PRE_UPDATE"},
+    {1030,"MC_PRE_SFX_PLAY"},
+    {1031,"MC_POST_SFX_PLAY"},
+    {1080,"MC_PRE_FAMILIAR_RENDER"},
+    {1081,"MC_PRE_NPC_RENDER"},
+    {1082,"MC_PRE_PLAYER_RENDER"},
+    {1083,"MC_PRE_PICKUP_RENDER"},
+    {1084,"MC_PRE_TEAR_RENDER"},
+    {1085,"MC_PRE_PROJECTILE_RENDER"},
+    {1086,"MC_PRE_KNIFE_RENDER"},
+    {1087,"MC_PRE_EFFECT_RENDER"},
+    {1088,"MC_PRE_BOMB_RENDER"},
+    {1089,"MC_PRE_SLOT_RENDER"},
+    {1090,"MC_POST_SLOT_RENDER"},
+    {1121,"MC_POST_SLOT_INIT"},
+    {1122,"MC_POST_SLOT_UPDATE"},
+    {1160,"MC_PRE_PLAYER_UPDATE"},
+    {1161,"MC_PRE_TEAR_UPDATE"},
+    {1162,"MC_PRE_FAMILIAR_UPDATE"},
+    {1163,"MC_PRE_BOMB_UPDATE"},
+    {1164,"MC_PRE_PICKUP_UPDATE"},
+    {1165,"MC_PRE_KNIFE_UPDATE"},
+    {1166,"MC_PRE_PROJECTILE_UPDATE"},
+    {1167,"MC_PRE_LASER_UPDATE"},
+    {1168,"MC_PRE_EFFECT_UPDATE"},
+    {1169,"MC_PRE_SLOT_UPDATE"},
+    {1210,"MC_POST_MODS_LOADED"},
+    {1218,"MC_PRE_PAUSE_SCREEN_RENDER"},
+    {1219,"MC_POST_PAUSE_SCREEN_RENDER"},
+    {1231,"MC_POST_PLAYER_COLLISION"},
+    {1233,"MC_POST_TEAR_COLLISION"},
+    {1235,"MC_POST_FAMILIAR_COLLISION"},
+    {1237,"MC_POST_BOMB_COLLISION"},
+    {1239,"MC_POST_PICKUP_COLLISION"},
+    {1400,"MC_PRE_GRID_ENTITY_DECORATION_UPDATE"},
+    {1401,"MC_POST_GRID_ENTITY_DECORATION_UPDATE"},
+    {1402,"MC_PRE_GRID_ENTITY_DOOR_UPDATE"},
+    {1403,"MC_POST_GRID_ENTITY_DOOR_UPDATE"},
+    {1404,"MC_PRE_GRID_ENTITY_FIRE_UPDATE"},
+    {1405,"MC_POST_GRID_ENTITY_FIRE_UPDATE"},
+    {1406,"MC_PRE_GRID_ENTITY_GRAVITY_UPDATE"},
+    {1407,"MC_POST_GRID_ENTITY_GRAVITY_UPDATE"},
+    {1408,"MC_PRE_GRID_ENTITY_LOCK_UPDATE"},
+    {1409,"MC_POST_GRID_ENTITY_LOCK_UPDATE"},
+    {1410,"MC_PRE_GRID_ENTITY_PIT_UPDATE"},
+    {1411,"MC_POST_GRID_ENTITY_PIT_UPDATE"},
+    {1412,"MC_PRE_GRID_ENTITY_POOP_UPDATE"},
+    {1413,"MC_POST_GRID_ENTITY_POOP_UPDATE"},
+    {1414,"MC_PRE_GRID_ENTITY_PRESSUREPLATE_UPDATE"},
+    {1415,"MC_POST_GRID_ENTITY_PRESSUREPLATE_UPDATE"},
+    {1416,"MC_PRE_GRID_ENTITY_ROCK_UPDATE"},
+    {1417,"MC_POST_GRID_ENTITY_ROCK_UPDATE"},
+    {1418,"MC_PRE_GRID_ENTITY_SPIKES_UPDATE"},
+    {1419,"MC_POST_GRID_ENTITY_SPIKES_UPDATE"},
+    {1420,"MC_PRE_GRID_ENTITY_STAIRCASE_UPDATE"},
+    {1421,"MC_POST_GRID_ENTITY_STAIRCASE_UPDATE"},
+    {1422,"MC_PRE_GRID_ENTITY_STATUE_UPDATE"},
+    {1423,"MC_POST_GRID_ENTITY_STATUE_UPDATE"},
+    {1424,"MC_PRE_GRID_ENTITY_TELEPORTER_UPDATE"},
+    {1425,"MC_POST_GRID_ENTITY_TELEPORTER_UPDATE"},
+    {1426,"MC_PRE_GRID_ENTITY_TRAPDOOR_UPDATE"},
+    {1427,"MC_POST_GRID_ENTITY_TRAPDOOR_UPDATE"},
+    {1428,"MC_PRE_GRID_ENTITY_WEB_UPDATE"},
+    {1429,"MC_POST_GRID_ENTITY_WEB_UPDATE"},
+    {1430,"MC_PRE_GRID_ENTITY_TNT_UPDATE"},
+    {1431,"MC_POST_GRID_ENTITY_TNT_UPDATE"},
+    {1432,"MC_PRE_GRID_ENTITY_SPIKES_RENDER"},
+    {1433,"MC_POST_GRID_ENTITY_SPIKES_RENDER"},
+    {1434,"MC_PRE_GRID_ENTITY_WEB_RENDER"},
+    {1435,"MC_POST_GRID_ENTITY_WEB_RENDER"},
+    {1436,"MC_PRE_GRID_ENTITY_TNT_RENDER"},
+    {1437,"MC_POST_GRID_ENTITY_TNT_RENDER"},
+    {1438,"MC_PRE_GRID_ENTITY_TRAPDOOR_RENDER"},
+    {1439,"MC_POST_GRID_ENTITY_TRAPDOOR_RENDER"},
+    {1440,"MC_PRE_GRID_ENTITY_STAIRCASE_RENDER"},
+    {1441,"MC_POST_GRID_ENTITY_STAIRCASE_RENDER"},
+    {1444,"MC_PRE_GRID_ENTITY_DECORATION_RENDER"},
+    {1445,"MC_POST_GRID_ENTITY_DECORATION_RENDER"},
+    {1446,"MC_PRE_GRID_ENTITY_DOOR_RENDER"},
+    {1447,"MC_POST_GRID_ENTITY_DOOR_RENDER"},
+    {1448,"MC_PRE_GRID_ENTITY_FIRE_RENDER"},
+    {1449,"MC_POST_GRID_ENTITY_FIRE_RENDER"},
+    {1450,"MC_PRE_GRID_ENTITY_LOCK_RENDER"},
+    {1451,"MC_POST_GRID_ENTITY_LOCK_RENDER"},
+    {1452,"MC_PRE_GRID_ENTITY_TELEPORTER_RENDER"},
+    {1453,"MC_POST_GRID_ENTITY_TELEPORTER_RENDER"},
+    {1454,"MC_PRE_GRID_ENTITY_PIT_RENDER"},
+    {1455,"MC_POST_GRID_ENTITY_PIT_RENDER"},
+    {1456,"MC_PRE_GRID_ENTITY_POOP_RENDER"},
+    {1457,"MC_POST_GRID_ENTITY_POOP_RENDER"},
+    {1458,"MC_PRE_GRID_ENTITY_ROCK_RENDER"},
+    {1459,"MC_POST_GRID_ENTITY_ROCK_RENDER"},
+    {1460,"MC_PRE_GRID_ENTITY_PRESSUREPLATE_RENDER"},
+    {1461,"MC_POST_GRID_ENTITY_PRESSUREPLATE_RENDER"},
+    {1462,"MC_PRE_GRID_ENTITY_WALL_RENDER"},
+    {1463,"MC_POST_GRID_ENTITY_WALL_RENDER"},
+};
+static_assert(sizeof(kCallbacks)/sizeof(kCallbacks[0])==100);
+bool Ready() noexcept {
+    return g_NativePort&&g_NativePort->ready&&g_NativePort->install&&g_NativePort->ready();
+}
+int Initialize(lua_State* state) {
+    if(!g_NativePort||!g_NativePort->install||!g_NativePort->install())
+        return luaL_error(state,"REPENTOGON callback hooks unavailable");
+    return 0;
+}
+}
+void SetNativePort(const NativePort* port) noexcept { g_NativePort=port; }
+bool HasNativePort() noexcept { return g_NativePort!=nullptr; }
+const RepentogonBatch& CallbackBatch() noexcept {
+    static constexpr RepentogonBatch batch{"callbacks",nullptr,0,nullptr,0,kCallbacks,100,Initialize,nullptr,Ready};
+    return batch;
+}
+bool Listening(std::uint32_t id) noexcept {
+    return g_ExtendedCallbackDelivery&&g_ExtendedCallbackEnabledCount&&ExtendedCallbackEnabled(id);
+}
+Result Dispatch(const Event& event) noexcept {
+    if(!Listening(event.id))return {};
+    return LuaRuntime::DispatchRepentogonCallback(event);
+}
+} // namespace isaac::runtime::repentogon

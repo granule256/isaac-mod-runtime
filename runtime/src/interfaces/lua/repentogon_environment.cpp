@@ -1,4 +1,5 @@
 #include "interfaces/lua/repentogon_environment.hpp"
+#include "interfaces/lua/repentogon_callbacks.hpp"
 
 #include "application/callback/extended_callback_runtime.hpp"
 #include "interfaces/lua/api_catalog.hpp"
@@ -180,8 +181,9 @@ void ReapplyOwnerBindings(lua_State* state) {
 const RepentogonCatalog& DefaultRepentogonCatalog() noexcept {
     // Add independently restored batches here. Infrastructure alone must not
     // advertise an upstream version or send existing Mods into unsupported code.
-    static constexpr RepentogonCatalog catalog{};
-    return catalog;
+    static const RepentogonCatalog catalog{&repentogon::CallbackBatch(),1,nullptr};
+    static constexpr RepentogonCatalog empty{};
+    return repentogon::HasNativePort()?catalog:empty;
 }
 
 void BeginRepentogonEnvironment(lua_State* state,bool requested,const RepentogonCatalog& catalog) {
@@ -290,7 +292,7 @@ void EndRepentogonEnvironment(lua_State* state) noexcept {
         const auto& batch=g_Catalog->batches[--g_Initialized];
         if(batch.reset)batch.reset();
     }
-    g_ExtendedCallbacks=nullptr;g_ExtendedCallbackCount=0;
+    g_ExtendedCallbacks=nullptr;g_ExtendedCallbackCount=0;g_ExtendedCallbackEnabledCount=0;
     delete[] g_CallbackStorage;g_CallbackStorage=nullptr;
     delete[] g_AttachedApis;g_AttachedApis=nullptr;
     g_State=nullptr;g_Catalog=nullptr;

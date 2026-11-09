@@ -1,7 +1,7 @@
 #pragma once
 // PC Callbacks（main.lua SHA ae0efa…）；默认匹配内联，执行仍读取共享表。
 namespace isaac::runtime {
-inline constexpr char kPcCallbackBootstrap[] = R"pc(local invoke, changed, ownerMatches, nativeInvoke, nextMatching = ...
+inline constexpr char kPcCallbackBootstrap[] = R"pc(local invoke, changed, ownerMatches, nativeInvoke, nextMatching, extendedPolicy = ...
 nativeInvoke = nativeInvoke or invoke
 local debug_getinfo = debug.getinfo
 local diagnostic_pcall = pcall
@@ -33,10 +33,24 @@ local originalDefaultMatch = defaultCallbackMeta.__matchParams
 -- Keep custom ipairs iterators live; only the fixed Lua array iterator uses the direct loop.
 local standardIterator = ipairs({})
 
+-- Function objects are created once at bootstrap, never per rendered entity.
+local function InvokeRender(invoke, id, entry, offset, entity, ignored, ...)
+    local result = invoke(id, entry, entity, offset, ...)
+    if result == false then return false, offset end
+    if result ~= nil and type(result) ~= "boolean" and result.X and result.Y then
+        offset = offset + result
+    end
+    return nil, offset
+end
+
 local function MakeRunner(invoke, nextMatching)
  return function(callbackId, param, ...)
     local callbacks = Callbacks[callbackId]
     if callbacks then
+        local render = type(callbackId) == "number" and callbackId >= 1080 and callbackId <= 1089 and
+            extendedPolicy and extendedPolicy(callbackId)
+        local offset
+        if render then offset = select(2, ...) end
         local matchFunc = getmetatable(callbacks).__matchParams or defaultCallbackMeta.__matchParams
         local useDefault = matchFunc == originalDefaultMatch
         local iterator, iteratorState, iteratorIndex = ipairs(callbacks)
@@ -49,7 +63,9 @@ local function MakeRunner(invoke, nextMatching)
                 if v == nil then break end
                 local p = v.Param
                 if not p or p == -1 or param == p then
-                    local result = invoke(callbackId, v, ...)
+                    local result
+                    if render then result, offset = InvokeRender(invoke, callbackId, v, offset, ...)
+                    else result = invoke(callbackId, v, ...) end
                     if result ~= nil then return result end
                 else
                     -- Param was already read. Scan after it and do not re-read
@@ -57,7 +73,9 @@ local function MakeRunner(invoke, nextMatching)
                     local nextIndex, nextEntry = nextMatching(callbacks, index, param)
                     if nextIndex == nil then break end
                     index, v = nextIndex, nextEntry
-                    local result = invoke(callbackId, v, ...)
+                    local result
+                    if render then result, offset = InvokeRender(invoke, callbackId, v, offset, ...)
+                    else result = invoke(callbackId, v, ...) end
                     if result ~= nil then return result end
                 end
             end
@@ -75,7 +93,9 @@ local function MakeRunner(invoke, nextMatching)
                     matched = matchFunc(param, p)
                 end
                 if matched then
-                    local result = invoke(callbackId, v, ...)
+                    local result
+                    if render then result, offset = InvokeRender(invoke, callbackId, v, offset, ...)
+                    else result = invoke(callbackId, v, ...) end
                     if result ~= nil then return result end
                 end
             end
@@ -90,11 +110,14 @@ local function MakeRunner(invoke, nextMatching)
                     matched = matchFunc(param, p)
                 end
                 if matched then
-                    local result = invoke(callbackId, v, ...)
+                    local result
+                    if render then result, offset = InvokeRender(invoke, callbackId, v, offset, ...)
+                    else result = invoke(callbackId, v, ...) end
                     if result ~= nil then return result end
                 end
             end
         end
+        if render then return offset end
     end
 end
 end

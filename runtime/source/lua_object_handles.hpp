@@ -414,3 +414,4 @@ struct ItemConfigItemHandle {
 
 // 仅额外网格Sprite借用使用扩展userdata；SpriteHandle本身大小不变。
 namespace LuaRuntime { inline constexpr std::uint8_t kSpriteSourceEngineGridExtra=3; }
+namespace LuaRuntime { inline constexpr std::uint8_t kSpriteSourceCallbackBorrowed=4; }

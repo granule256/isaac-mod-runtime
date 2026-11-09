@@ -4006,6 +4006,8 @@ struct CallbackArgument {
         Integer,   // 整数
         Boolean,   // 布尔（`lua_pushboolean`，不是整数 0/1）
         Entity,    // 实体句柄（视图与 `Isaac.GetRoomEntities()` 给的一致）
+        Grid,
+        CallbackSprite,
         Nil,       // 明确压 `nil`
         Vector,    // 渲染回调的 `RenderOffset`（`Vector` userdata）
         // `MC_ENTITY_TAKE_DMG` 的 `Amount`。PC 是 float ⇒
@@ -4063,6 +4065,14 @@ struct CallbackArguments {
         items[count].entity = value;
         ++count;
     }
+    void AddGrid(std::uintptr_t value) noexcept {
+        if(count>=kMaximum)return;
+        auto& argument=items[count++];argument.kind=CallbackArgument::Kind::Grid;argument.entity=value;
+    }
+    void AddCallbackSprite(std::uintptr_t value) noexcept {
+        if(count>=kMaximum)return;
+        auto& argument=items[count++];argument.kind=CallbackArgument::Kind::CallbackSprite;argument.entity=value;
+    }
     void AddVector(float x, float y) noexcept {
         if (count >= kMaximum) {
             return;
@@ -4119,8 +4129,21 @@ struct BatchObservation {
     bool hasFailureContext{false};
     bool nativePending{false};
     std::uint64_t nativeStartedAt{0};
+    std::uint64_t extendedFailureKey{};
 };
 BatchObservation* g_ActiveCallbackBatch = nullptr;
+
+std::uint64_t ObservedErrorKey(lua_State* state) noexcept {
+    const auto type=lua_type(state,-1);
+    if(type==LUA_TSTRING) {
+        std::size_t size{};const auto* text=lua_tolstring(state,-1,&size);
+        std::uint64_t hash=1469598103934665603ULL;
+        for(std::size_t i=0;i<size;++i)hash=(hash^static_cast<unsigned char>(text[i]))*1099511628211ULL;
+        return hash?hash:1;
+    }
+    return static_cast<std::uint64_t>(isaac::runtime::engine_memory::AddressOf(lua_topointer(state,-1)))^
+        (static_cast<std::uint64_t>(type+1)<<56)^static_cast<std::uint64_t>(lua_toboolean(state,-1));
+}
 
 void RecordObservedCallbackPerf(std::uint32_t owner, std::uint32_t callbackId,
                                 std::uint64_t perfStart) {
@@ -4185,6 +4208,15 @@ int InvokeObservedCallback(lua_State* state) {
     RecordObservedCallbackPerf(g_ErrorContextOwner,g_ErrorContextCallbackId,perfStart);
     if(observation) {
         --observation->depth;
+        if(status!=LUA_OK&&g_ErrorContextCallbackId>=1000) {
+            const auto key=ObservedErrorKey(state);
+            if(!observation->hasFailureContext||observation->extendedFailureKey!=key) {
+                observation->failureOwner=g_ErrorContextOwner;
+                observation->failureId=g_ErrorContextCallbackId;
+                observation->hasFailureContext=true;
+                observation->extendedFailureKey=key;
+            }
+        }
         if(nativeEntry) {
             if(status==LUA_OK) {
                 ++observation->result->invoked;
@@ -4206,10 +4238,14 @@ void FinishObservedNativeCallback(lua_State* state, BatchObservation& observatio
     observation.nativePending = false;
     observation.depth = 0;
     if (failed) {
-        observation.failureOwner = g_ErrorContextOwner;
-        observation.failureId = g_ErrorContextCallbackId;
+        if(g_ErrorContextCallbackId<1000||!observation.hasFailureContext||
+           observation.extendedFailureKey!=ObservedErrorKey(state)) {
+            observation.failureOwner = g_ErrorContextOwner;
+            observation.failureId = g_ErrorContextCallbackId;
+        }
         observation.hasFailureContext = true;
     } else {
+        observation.hasFailureContext=false;observation.extendedFailureKey=0;
         ++observation.result->invoked;
         if (!lua_isnil(state, -1)) observation.lastOwner = g_ErrorContextOwner;
     }
@@ -4303,6 +4339,9 @@ struct LuaCallbackInvoker final : isaac::runtime::ICallbackInvoker {
     bool batchMode{false};
     std::int64_t batchFilter{isaac::runtime::CallbackRegistry::kNoCallbackFilter};
     bool ownerBatch{false};
+    void (*extendedReturn)(lua_State*,void*){};
+    void* extendedContext{};
+    int callbackSpriteScope{LUA_NOREF};
     std::uint32_t batchOwner{0};
     bool InvokeBatch(isaac::runtime::CallbackId id, std::int64_t filter,
                      isaac::runtime::CallbackBatchResult* result,
@@ -4366,6 +4405,14 @@ private:
                     // 否则模组在回调里对参数调 `player:HasCollectible()` 会失败。
                     isaac::runtime::PushEntityCallbackArgument(state, argument.entity);
                     break;
+                case CallbackArgument::Kind::Grid:
+                    isaac::runtime::PushGridEntityHandle(state,argument.entity);
+                    break;
+                case CallbackArgument::Kind::CallbackSprite:
+                    if(self->callbackSpriteScope==LUA_NOREF)
+                        self->callbackSpriteScope=isaac::runtime::BeginCallbackSpriteScope(state);
+                    isaac::runtime::PushCallbackSpriteHandle(state,argument.entity,self->callbackSpriteScope);
+                    break;
                 case CallbackArgument::Kind::Vector:
                     // 渲染偏移（`Vector` userdata，与 `Room:GetRenderScrollOffset()` 给出的是同一种值类型）。
                     isaac::runtime::PushLuaVector(state, argument.x, argument.y);
@@ -4400,6 +4447,10 @@ private:
         }
         const int argumentCount = (self->batchMode ? (self->ownerBatch ? 3 : 2) : 1) + static_cast<int>(self->arguments.count);
         lua_callk(state, argumentCount, collecting ? 1 : 0, 0, nullptr);
+        if(collecting&&self->extendedReturn) {
+            if(g_ActiveCallbackBatch)g_ErrorContextOwner=g_ActiveCallbackBatch->lastOwner;
+            self->extendedReturn(state,self->extendedContext);
+        }
         const auto id = descriptor->id;
         const bool integerReturn = id == isaac::runtime::kCallbackPreGetCollectible ||
             id == isaac::runtime::kCallbackPostGetCollectible || id == isaac::runtime::kCallbackGetCard ||
@@ -4469,6 +4520,10 @@ private:
         // 三个桥接实参：invoker、登记项、是否收集结果；真正实参在保护内准备。
         const int callbackStatus = lua_pcallk(g_LuaState, 3, collecting ? 1 : 0, 0, 0,
                                              nullptr);
+        if(callbackSpriteScope!=LUA_NOREF) {
+            isaac::runtime::EndCallbackSpriteScope(g_LuaState,callbackSpriteScope);
+            callbackSpriteScope=LUA_NOREF;
+        }
         // 复原必须放在错误捕获之后：`CaptureLuaErrorTop` 要读这两个值来盖归属，
         // 放在 pcall 之后立刻复原的话，记录到的永远是默认值（宿主测试第一次就是这么红的）。
         g_InManagedCallbackDispatch.store(previousManagedScope, std::memory_order_release);
@@ -4487,6 +4542,8 @@ private:
             if(batchMode&&g_ActiveCallbackBatch&&g_ActiveCallbackBatch->hasFailureContext) {
                 g_ErrorContextOwner=g_ActiveCallbackBatch->failureOwner;
                 g_ErrorContextCallbackId=g_ActiveCallbackBatch->failureId;
+            } else if(extendedReturn&&batchMode&&g_ActiveCallbackBatch) {
+                g_ErrorContextOwner=g_ActiveCallbackBatch->lastOwner;
             }
             CaptureLuaErrorTop(g_LuaState);
             lua_pop(g_LuaState, 1);
@@ -4569,6 +4626,111 @@ private:
 constexpr std::uint32_t kGameStartedFromSave = 1;
 constexpr std::uint32_t kGameStartedFresh = 2;
 }  // namespace
+
+namespace {
+struct RepentogonReturnContext {
+    const isaac::runtime::repentogon::Event* event;
+    isaac::runtime::repentogon::Result result{};
+    isaac::runtime::repentogon::Sound sound{};
+    bool soundChanged{};
+};
+void ParseRepentogonReturn(lua_State* state,void* opaque) {
+    auto& context=*static_cast<RepentogonReturnContext*>(opaque);
+    const auto& event=*context.event;
+    const auto id=event.id;
+    const bool entityRender=id>=1080&&id<=1089;
+    const bool gridPre=id>=1400&&id<=1462&&(id&1)==0;
+    const bool pre=entityRender||gridPre||(id>=1160&&id<=1169)||id==1030||id==1218;
+    if(!pre)return;
+    if(lua_isboolean(state,-1)) {
+        context.result.hasBoolean=true;context.result.boolean=lua_toboolean(state,-1)!=0;
+    } else if((entityRender||(gridPre&&id>=1432))&&lua_isuserdata(state,-1)) {
+        const auto* offset=isaac::runtime::RequireVectorArgument(state,-1);
+        context.result.hasOffset=true;context.result.offset={offset->x,offset->y};
+    } else if(id==1030&&event.sound&&lua_istable(state,-1)&&lua_rawlen(state,-1)==6) {
+        auto value=*event.sound;
+        for(int i=1;i<=6;++i) {
+            lua_rawgeti(state,-1,i);
+            if(i==1||i==3) {
+                const auto integer=luaL_checkinteger(state,-1);
+                if(integer<INT32_MIN||integer>INT32_MAX)luaL_error(state,"sound integer out of range");
+                if(i==1)value.id=static_cast<std::int32_t>(integer);else value.delay=static_cast<std::int32_t>(integer);
+            } else if(i==4) {
+                if(!lua_isboolean(state,-1))luaL_error(state,"sound loop must be boolean");
+                value.loop=lua_toboolean(state,-1)!=0;
+            } else {
+                const auto number=static_cast<float>(luaL_checknumber(state,-1));
+                if(i==2)value.volume=number;else if(i==5)value.pitch=number;else value.pan=number;
+            }
+            lua_pop(state,1);
+        }
+        context.sound=value;context.soundChanged=true;
+    }
+}
+}
+
+isaac::runtime::repentogon::Result DispatchRepentogonCallback(
+    const isaac::runtime::repentogon::Event& event) noexcept {
+    using namespace isaac::runtime;
+    using repentogon::EventKind;
+    if(!repentogon::Listening(event.id)||!IsOnGameThread()||!IsReady()||!g_LuaState)return {};
+    const ManagedEngineDispatchScope scope;
+    LuaCallbackInvoker invoker{0,false,false};
+    auto filter=CallbackRegistry::kNoCallbackFilter;
+    switch(event.kind) {
+        case EventKind::Entity:
+        case EventKind::EntityRender:
+        case EventKind::Collision: {
+            std::uint32_t type{},variant{};
+            if(!ReadEntityIdentity(event.object,&type,&variant))return {};
+            filter=variant;
+            if(event.id==1081)filter=type;
+            if(event.id==1165) {
+                std::uint32_t subtype{};if(!ReadEntitySubType(event.object,&subtype))return {};
+                filter=subtype;
+            }
+            invoker.arguments.AddEntity(event.object);
+            if(event.kind==EventKind::Collision) {
+                invoker.arguments.AddEntity(event.collider);invoker.arguments.AddBoolean(event.low);
+            }
+            break;
+        }
+        case EventKind::Grid:
+        case EventKind::GridRender: {
+            std::uint32_t type{};
+            if(!event.object||!engine_memory::ReadAt(event.object+kGridEntityTypeOffset,&type,
+                &engine_memory::EngineMemoryReadable))return {};
+            filter=type;invoker.arguments.AddGrid(event.object);break;
+        }
+        case EventKind::Sound: {
+            if(!event.sound)return {};
+            const auto& sound=*event.sound;filter=sound.id;
+            invoker.arguments.AddInteger(sound.id);invoker.arguments.AddFloat(sound.volume);
+            invoker.arguments.AddInteger(sound.delay);invoker.arguments.AddBoolean(sound.loop);
+            invoker.arguments.AddFloat(sound.pitch);invoker.arguments.AddFloat(sound.pan);break;
+        }
+        case EventKind::Global:
+            if(event.id==1218||event.id==1219) {
+                invoker.arguments.AddCallbackSprite(event.object);
+                invoker.arguments.AddCallbackSprite(event.collider);
+            }
+            break;
+    }
+    if(event.kind==EventKind::EntityRender||
+       (event.kind==EventKind::GridRender&&(event.id&1)==0)) {
+        repentogon::Vector offset{};
+        if(!event.offset||!engine_memory::ReadAt(engine_memory::AddressOf(event.offset),&offset,
+            &engine_memory::EngineMemoryReadable))return {};
+        invoker.arguments.AddVector(offset.x,offset.y);
+    }
+    RepentogonReturnContext context{&event};
+    invoker.extendedReturn=ParseRepentogonReturn;invoker.extendedContext=&context;
+    CallbackDispatcher dispatcher{g_CallbackRegistry,invoker};
+    const auto report=dispatcher.DispatchFiltered(event.id,ThreadAffinity::Any,filter);
+    if(report.failed)return {};
+    if(context.soundChanged)*event.sound=context.sound;
+    return context.result;
+}
 
 void NoteGameStarted(bool isSave) noexcept {
     isaac::runtime::BeginWorldContentRun();

@@ -1469,7 +1469,7 @@ int RoomGetDoor(lua_State* state) {
 //
 // 抽出来共用：`Room:GetGridEntity(index)` 与 `Isaac.GridSpawn(...)` 的返回值
 // 是同一个东西（后者在 PC 上就是"再读一次那一格的实体指针当返回值"）⇒ 只留这一份实现。
-void PushGridEntityHandle(lua_State* state, std::uintptr_t entity) {
+void PushGridEntityHandleInternal(lua_State* state, std::uintptr_t entity) {
     auto* handle = static_cast<LuaRuntime::GridEntityHandle*>(
         lua_newuserdata(state, sizeof(LuaRuntime::GridEntityHandle)));
     handle->entity = isaac::runtime::engine_memory::AsObject(entity);
@@ -3459,6 +3459,10 @@ int RoomGetDoorSlotPosition(lua_State* state) {
 
 
 } // namespace
+
+void PushGridEntityHandle(lua_State* state,std::uintptr_t entity) {
+    PushGridEntityHandleInternal(state,entity);
+}
 
 int IsaacGetRandomPosition(lua_State* state) {
     // 固定PC 80BB00从当前Manager取Room，传margin=0给7D9B50；无Lua实参参与。

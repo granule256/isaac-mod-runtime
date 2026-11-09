@@ -1,4 +1,6 @@
 #pragma once
+
+#include "interfaces/lua/repentogon_callbacks.hpp"
 #include "raw_engine_input.hpp"
 #include "entity_init_hook.hpp"
 #include "domain/callback/use_item_result.hpp"
@@ -496,4 +498,9 @@ namespace LuaRuntime {
 isaac::runtime::UseItemCallbackResult DispatchUseItemAtNativeBoundary(std::uintptr_t player,
     std::int32_t item,std::int32_t flags,std::int32_t slot,std::int32_t custom,
     std::uint64_t nativeResult,bool animationAllowed);
+}
+
+namespace LuaRuntime {
+isaac::runtime::repentogon::Result DispatchRepentogonCallback(
+    const isaac::runtime::repentogon::Event&) noexcept;
 }

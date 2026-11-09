@@ -91,6 +91,10 @@ int RefreshDiagnostics(lua_State* state) {
 int MatchOwner(lua_State* state) {
     lua_pushboolean(state,Owner(state,1)==static_cast<std::uint32_t>(luaL_checkinteger(state,2)));return 1;
 }
+int ExtendedPolicy(lua_State* state) {
+    const auto id=static_cast<CallbackId>(lua_tointeger(state,1));
+    lua_pushboolean(state,g_ExtendedCallbackDelivery&&FindExtendedCallback(id));return 1;
+}
 // Native dispatch already has a non-yieldable protected C boundary. Keep the
 // live array/Param reads and Lua equality here; manual runners stay in Lua so
 // their indexing and equality metamethods retain their existing yield behavior.
@@ -182,7 +186,12 @@ int SetBuiltInCallbackState(lua_State* state) {
     if(id<=kCallbackMaximumId) {
         const auto bit=std::uint32_t{1}<<(id&31);
         if(enabled)g_BuiltinCallbackStates[id>>5]|=bit;else g_BuiltinCallbackStates[id>>5]&=~bit;
-    } else if(auto* callback=FindExtendedCallback(id)) callback->enabled=enabled;
+    } else if(auto* callback=FindExtendedCallback(id)) {
+        if(callback->enabled!=enabled) {
+            if(enabled)++g_ExtendedCallbackEnabledCount;else --g_ExtendedCallbackEnabledCount;
+            callback->enabled=enabled;
+        }
+    }
     return 0;
 }
 void RegisterCallbackBootstrap(lua_State* state,lua_CFunction invoke,lua_CFunction nativeInvoke) {
@@ -200,7 +209,8 @@ void RegisterCallbackBootstrap(lua_State* state,lua_CFunction invoke,lua_CFuncti
     if(luaL_loadbuffer(state,kPcCallbackBootstrap,sizeof(kPcCallbackBootstrap)-1,"@pc/callbacks.lua")!=LUA_OK)lua_error(state);
     lua_pushcfunction(state,invoke);lua_pushcfunction(state,RefreshDiagnostics);lua_pushcfunction(state,MatchOwner);
     lua_pushcfunction(state,nativeInvoke?nativeInvoke:invoke);
-    lua_pushliteral(state,"Param");lua_pushcclosure(state,NextMatchingCallback,1);lua_call(state,5,5);
+    lua_pushliteral(state,"Param");lua_pushcclosure(state,NextMatchingCallback,1);
+    lua_pushcfunction(state,ExtendedPolicy);lua_call(state,6,5);
     lua_pushvalue(state,-1);stored->runRef=luaL_ref(state,LUA_REGISTRYINDEX);
     lua_pushvalue(state,-4);stored->tableRef=luaL_ref(state,LUA_REGISTRYINDEX);
     lua_pushvalue(state,-3);stored->unloadRef=luaL_ref(state,LUA_REGISTRYINDEX);

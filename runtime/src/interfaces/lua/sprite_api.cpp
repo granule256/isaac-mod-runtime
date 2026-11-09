@@ -103,9 +103,15 @@ bool WriteEngine(std::uintptr_t address, const T& value) noexcept {
 // 这里只有一条纪律：任何访问都先走 `ResolveSpriteObject`，绝不再直接读 `handle->sprite`
 // 去解引用。引擎实体随时可能随换房间/死亡消失，所以引擎来源的地址**每次重新算**（`owner` →
 // 校验实体活着 → `owner + kEntitySpriteOffset`），句柄里缓存的地址只当身份。
+struct CallbackSpriteLifetime { bool active{}; };
+struct CallbackSpriteHandle { SpriteHandle base{}; CallbackSpriteLifetime* lifetime{}; };
 void* ResolveSpriteObject(const SpriteHandle* handle) noexcept {
     if (handle == nullptr) {
         return nullptr;
+    }
+    if(handle->source==LuaRuntime::kSpriteSourceCallbackBorrowed) {
+        const auto* borrowed=static_cast<const CallbackSpriteHandle*>(static_cast<const void*>(handle));
+        return borrowed->lifetime&&borrowed->lifetime->active?handle->sprite:nullptr;
     }
     if(handle->source==LuaRuntime::kSpriteSourceEngineGridExtra)return ResolveApi700GridSprite(handle);
     if (handle->source == kSpriteSourceEngineEntity) {
@@ -1699,6 +1705,33 @@ void SetSpritePropertyApplyHostImplementation(
 }
 #endif
 
+int BeginCallbackSpriteScope(lua_State* state) {
+    // luaL_unref writes the reference free-list header at registry[0].
+    // Reserve that slot inside the caller's protection so cleanup cannot grow it.
+    lua_rawgeti(state,LUA_REGISTRYINDEX,0);
+    const bool missing=lua_isnil(state,-1);lua_pop(state,1);
+    if(missing){lua_pushinteger(state,0);lua_rawseti(state,LUA_REGISTRYINDEX,0);}
+    auto* scope=static_cast<CallbackSpriteLifetime*>(lua_newuserdata(state,sizeof(CallbackSpriteLifetime)));
+    scope->active=true;return luaL_ref(state,LUA_REGISTRYINDEX);
+}
+void EndCallbackSpriteScope(lua_State* state,int reference) noexcept {
+    if(reference==LUA_NOREF)return;
+    lua_rawgeti(state,LUA_REGISTRYINDEX,reference);
+    if(auto* scope=static_cast<CallbackSpriteLifetime*>(lua_touserdata(state,-1)))scope->active=false;
+    lua_pop(state,1);luaL_unref(state,LUA_REGISTRYINDEX,reference);
+}
+void PushCallbackSpriteHandle(lua_State* state,std::uintptr_t sprite,int scopeReference) {
+    if(!sprite){lua_pushnil(state);return;}
+    auto* handle=static_cast<CallbackSpriteHandle*>(lua_newuserdata(state,sizeof(CallbackSpriteHandle)));
+    *handle={};handle->base.sprite=engine_memory::AsObject(sprite);
+    handle->base.source=LuaRuntime::kSpriteSourceCallbackBorrowed;
+    handle->base.scaleX=handle->base.scaleY=1;
+    handle->base.colorRed=handle->base.colorGreen=handle->base.colorBlue=handle->base.colorAlpha=1;
+    luaL_getmetatable(state,kSpriteMetatable);lua_setmetatable(state,-2);
+    lua_rawgeti(state,LUA_REGISTRYINDEX,scopeReference);
+    handle->lifetime=static_cast<CallbackSpriteLifetime*>(lua_touserdata(state,-1));
+    lua_setuservalue(state,-2);
+}
 int DestroySpriteHandle(lua_State* state) {
     auto* handle = static_cast<SpriteHandle*>(luaL_checkudata(state, 1, kSpriteMetatable));
     // 引擎实体借出的 `Sprite`（`Entity:GetSprite()`）：这块 `ANM2` 是引擎实体的成员，
@@ -1711,7 +1744,8 @@ int DestroySpriteHandle(lua_State* state) {
     // 这条分支就是所有权标记存在的唯一理由（去掉它 = 每次 GC 都踩一次引擎内存）。
     if (handle->source == kSpriteSourceEngineEntity ||
         handle->source == kSpriteSourceEngineGridEntity ||
-        handle->source == LuaRuntime::kSpriteSourceEngineGridExtra) {
+        handle->source == LuaRuntime::kSpriteSourceEngineGridExtra ||
+        handle->source == LuaRuntime::kSpriteSourceCallbackBorrowed) {
         return 0;
     }
     if (handle->sprite == nullptr) {

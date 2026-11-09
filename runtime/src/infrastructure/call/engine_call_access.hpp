@@ -55,6 +55,20 @@ namespace isaac::runtime::engine_call {
 // 免得调用点在两种"看起来一样"的指针之间转来转去。
 using engine_memory::ReadableCheck;
 
+// Optional native extensions must validate their exact installed patch and fallback.
+// The verifier is consulted only after an original entry comparison fails.
+using InstalledEntryVerifier = bool (*)(std::uintptr_t,const std::uint8_t*,std::size_t,ReadableCheck) noexcept;
+inline std::atomic<InstalledEntryVerifier> g_InstalledEntryVerifier{};
+inline void SetInstalledEntryVerifier(InstalledEntryVerifier verifier) noexcept {
+    g_InstalledEntryVerifier.store(verifier,std::memory_order_release);
+}
+[[nodiscard]] inline bool VerifyInstalledEntry(std::uintptr_t address,const std::uint8_t* expected,
+    std::size_t size,ReadableCheck readable) noexcept {
+    const auto verifier=g_InstalledEntryVerifier.load(std::memory_order_acquire);
+    return verifier&&size==16&&verifier(address,expected,size,readable);
+}
+
+
 // 入口序言的宽度：16 字节，与项目里所有引擎入口常量（`kXxxExpectedBytes`）一致。
 //
 // 为什么固定宽度、不做"指针 + 长度"那么通用的样子：现在需要核对入口的 C++ 调用点全部是
@@ -106,9 +120,9 @@ inline constexpr std::size_t kEntryPrologueBytes = 16;
     }
     const std::uintptr_t candidate = base + offset;
     std::array<std::uint8_t, kEntryPrologueBytes> actual{};
-    if (!engine_memory::ReadAt(candidate, &actual, readable) || actual != expected) {
+    if (!engine_memory::ReadAt(candidate, &actual, readable)) return false;
+    if (actual != expected && !VerifyInstalledEntry(candidate,expected.data(),expected.size(),readable))
         return false;
-    }
     *address = candidate;
     return true;
 }
@@ -171,7 +185,8 @@ template <typename T>
     if (!readable(address, expectedSize)) {
         return false;
     }
-    return BytesMatchAt(address, expected, expectedSize);
+    return BytesMatchAt(address, expected, expectedSize) ||
+        VerifyInstalledEntry(address,expected,expectedSize,readable);
 }
 
 // 全仓唯一一处"整数地址 → 带签名的引擎函数指针"的转换。
