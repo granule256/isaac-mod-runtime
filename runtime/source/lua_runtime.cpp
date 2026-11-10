@@ -140,9 +140,11 @@ extern "C" {
 // 需要从别的编译单元记账时，**调函数**（PLT），不要引用变量 —— 见 `runtime_perf.hpp` 的约定。
 // C 链接保留稳定符号名，hidden 可见性避免跨模块抢占和数据 GOT 间接访问。
 extern "C" {
-__attribute__((visibility("hidden"))) std::atomic<std::uint64_t> g_RuntimePerfCallbackCalls{0};
-__attribute__((visibility("hidden"))) std::atomic<std::uint64_t> g_RuntimePerfCallbackTicks{0};
-__attribute__((visibility("hidden"))) std::atomic<std::uint64_t> g_RuntimePerfCallbackMaxTicks{0};
+// 回调派发只由游戏线程执行；普通计数避免每条监听多出原子读改写，
+// 读数工具按固定地址直接读取，跨线程同步不参与。
+__attribute__((visibility("hidden"))) std::uint64_t g_RuntimePerfCallbackCalls{0};
+__attribute__((visibility("hidden"))) std::uint64_t g_RuntimePerfCallbackTicks{0};
+__attribute__((visibility("hidden"))) std::uint64_t g_RuntimePerfCallbackMaxTicks{0};
 __attribute__((visibility("hidden"))) std::atomic<std::uint64_t> g_RuntimePerfSyscalls{0};
 __attribute__((visibility("hidden"))) std::atomic<std::uint64_t> g_RuntimePerfSyscallTicks{0};
 // 按 (事件 id, 属主模组) 分开的回调耗时桶（"贵的是哪一个回调"）。
@@ -3821,12 +3823,14 @@ std::uint64_t GcBudgetClock(void*) {
 void BeginGcFrame(std::uint64_t serial) noexcept {
     if (!IsReady() || !g_LuaState || !g_ProfileSessionStarted ||
         isaac::runtime::RuntimePerfTick() == 0) return;
-    // Start earlier than Lua's default 2x live-set threshold. Share 2 ms across
+    // Use Lua's 2x live-set threshold, capped at the pressure highwater.
+    // Share 2 ms across
     // all callbacks/coroutines; pressure above 112 MiB gets a bounded 8 ms.
-    // Leave explicit mod changes to the pause setting intact after setup.
+    // Explicit mod pause settings take precedence, even before host setup.
     lua_gc_budgetinfo(g_LuaState, &g_RuntimeGcBudgetSnapshot);
-    if (!g_RuntimeGcBudgetSnapshot.budget) lua_gc(g_LuaState, LUA_GCSETPAUSE, 110);
+
     lua_gc_setframebudget(g_LuaState, GcBudgetClock, nullptr, 38400, 112U * 1024U * 1024U);
+    lua_gc_setautomaticpause(g_LuaState, 200, 110, 112U * 1024U * 1024U);
     lua_gc_beginframe(g_LuaState, serial);
 }
 
@@ -4125,6 +4129,8 @@ private:
 
 struct BatchObservation {
     isaac::runtime::CallbackBatchResult* result;
+    std::uint32_t callbackId{0};
+    bool extension{false};
     std::uint32_t lastOwner{0};
     std::uint32_t depth{0};
     std::uint32_t failureOwner{0};
@@ -4140,16 +4146,14 @@ void RecordObservedCallbackPerf(std::uint32_t owner, std::uint32_t callbackId,
                                 std::uint64_t perfStart) {
         {
             const std::uint64_t perfEnd = isaac::runtime::RuntimePerfTick();
-            g_RuntimePerfCallbackCalls.fetch_add(1, std::memory_order_relaxed);
+            const auto calls = ++g_RuntimePerfCallbackCalls;
             if (perfEnd > perfStart) {
                 const std::uint64_t spent = perfEnd - perfStart;
-                g_RuntimePerfCallbackTicks.fetch_add(spent, std::memory_order_relaxed);
-                if (spent > g_RuntimePerfCallbackMaxTicks.load(std::memory_order_relaxed)) {
-                    g_RuntimePerfCallbackMaxTicks.store(spent, std::memory_order_relaxed);
-                }
+                g_RuntimePerfCallbackTicks += spent;
+                if (spent > g_RuntimePerfCallbackMaxTicks) g_RuntimePerfCallbackMaxTicks = spent;
                 // 每隔 256 次回调做一次量具自校准（读一次 tick 要多少 tick）。
                 // 直方图在 `RecordRuntimePerfCallbackSample` 里随桶一起记。
-                if ((g_RuntimePerfCallbackCalls.load(std::memory_order_relaxed) & 0xFFU) == 0U) {
+                if ((calls & 0xFFU) == 0U) {
                     const std::uint64_t calibration0 = isaac::runtime::RuntimePerfTick();
                     static_cast<void>(isaac::runtime::RuntimePerfTick());  // 中间那次只为把流水线拉开
                     const std::uint64_t calibration2 = isaac::runtime::RuntimePerfTick();
@@ -4271,18 +4275,13 @@ void FinishObservedNativeCallback(lua_State* state, BatchObservation& observatio
 int InvokeObservedNativeCallback(lua_State* state) {
     auto* observation = g_ActiveCallbackBatch;
     if (!observation || observation->depth != 0) return InvokeObservedCallback(state);
-    if (!isaac::runtime::notice::integrity::RuntimeAllowed())
-        return luaL_error(state, "compatibility layer disabled: notice resources do not match this build");
+    // InvokeCore checked integrity once for this batch. Reuse its fixed event id
+    // instead of parsing and checking the same values for every listener.
+    const auto id = observation->callbackId;
+    if (observation->extension) return InvokeObservedCallback(state);
     const auto previousOwner = g_ErrorContextOwner, previousId = g_ErrorContextCallbackId;
     g_ErrorContextOwner = 0;
-    int integral = 0;
-    const auto id = lua_type(state, 1) == LUA_TNUMBER ? lua_tointegerx(state, 1, &integral) : 0;
-    if(integral&&id>=1000&&static_cast<std::uint64_t>(id)<=UINT32_MAX&&isaac::runtime::g_ExtendedCallbackDelivery) {
-        g_ErrorContextOwner=previousOwner;
-        return InvokeObservedCallback(state);
-    }
-    g_ErrorContextCallbackId = integral && id >= 0 && static_cast<std::uint64_t>(id) <= UINT32_MAX
-        ? static_cast<std::uint32_t>(id) : UINT32_MAX;
+    g_ErrorContextCallbackId = id;
     observation->nativePending = true;
     observation->depth = 1;
     observation->nativeStartedAt = isaac::runtime::RuntimePerfTick();
@@ -4370,7 +4369,7 @@ struct LuaCallbackInvoker final : isaac::runtime::ICallbackInvoker {
                      const isaac::runtime::ModHandle* owner = nullptr) noexcept override {
         *result={};
         if(!isaac::runtime::BuiltinCallbackEnabled(id))return true;
-        BatchObservation observation{result};
+        BatchObservation observation{result, id, IsObservedExtension(id)};
         const auto previous=g_ActiveCallbackBatch;g_ActiveCallbackBatch=&observation;
         batchMode=true;batchFilter=filter;ownerBatch=owner!=nullptr;
         batchOwner=owner?static_cast<std::uint32_t>(owner->index)|(static_cast<std::uint32_t>(owner->generation)<<16):0;
@@ -6340,7 +6339,7 @@ InputActionOutcome DispatchLogicalInputAction(std::uint32_t luaAction,
     }
     // 覆盖口径：官方教程原文 "`Isaac.RunCallback` will stop at the first callback that returns a
     //   value and return it." ⇒ 取**第一条**返回非 nil 的登记（`DispatchModifying` 的汇总就是这个口径）。
-    //   ⚠️ 已知差别：我们**仍然会把后面的登记也叫一遍**（派发器不做短路），PC 会停。
+    //   派发器在第一条非 nil 返回值处短路，后续登记不会执行。
     outcome.overridden = true;
     if (inputHook == kInputHookGetActionValue) {
         // PC 契约：`GET_ACTION_VALUE` 的覆盖值是 **0.0~1.0 的 float**。模组常写 `return 0`（整数）

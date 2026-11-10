@@ -13,6 +13,8 @@ extern "C" {
 #include "lstate.h"
 }
 namespace LuaRuntime {
+std::uint32_t g_TestRuntimeAllowedCalls{};
+std::uint32_t g_TestBatchIdParses{};
 int ProtectionDepth(lua_State* state) {
  unsigned count=0;auto* link=state->errorJmp;
  while(link){++count;std::memcpy(&link,link,sizeof(std::uintptr_t));}
@@ -42,7 +44,8 @@ extern "C" bool ProbeProtectedDispatch(int mode) {
  const int top=lua_gettop(g_LuaState);
  const auto owner=g_ErrorContextOwner,id=g_ErrorContextCallbackId;
  const auto manager=g_CurrentCallbackManager.load();const auto scope=InManagedCallbackScope();
- auto before=g_RuntimePerfCallbackCalls.load();
+ auto before=g_RuntimePerfCallbackCalls;
+ if(mode==9){g_TestRuntimeAllowedCalls=0;g_TestBatchIdParses=0;}
  LuaCallbackInvoker invoker{0x1234,true,false};
  isaac::runtime::CallbackDispatcher dispatcher{g_CallbackRegistry,invoker};
  void* allocContext=nullptr;const auto allocator=lua_getallocf(g_LuaState,&allocContext);
@@ -51,16 +54,17 @@ extern "C" bool ProbeProtectedDispatch(int mode) {
   if(!lua_checkstack(g_LuaState,128))return false;
   const auto warm=dispatcher.Dispatch(1,isaac::runtime::ThreadAffinity::Any);
   if(warm.failed||warm.invoked!=1)return false;
-  before=g_RuntimePerfCallbackCalls.load();g_BridgeBodyEntered=false;
+  before=g_RuntimePerfCallbackCalls;g_BridgeBodyEntered=false;
   lua_setallocf(g_LuaState,RejectBridgeAllocation,&failing);
  }
  const auto report=dispatcher.Dispatch(1,isaac::runtime::ThreadAffinity::Any);
  if(mode==7)lua_setallocf(g_LuaState,allocator,allocContext);
+ const bool batchChecks=mode!=9||(g_TestRuntimeAllowedCalls==1&&g_TestBatchIdParses==0);
  const bool failed=mode==1||mode==3||mode==4||mode==7;
  const unsigned expectedInvoked=mode==1?1:failed?0:1;
  if(report.failed!=unsigned(failed)||report.invoked!=expectedInvoked){std::fprintf(stderr,"report failed=%u invoked=%u expected=%u/%u\n",report.failed,report.invoked,unsigned(failed),expectedInvoked);return false;}
  const unsigned expectedCalls=mode==0||mode==1||mode==2||mode==6||mode==8?2:1;
- if(g_RuntimePerfCallbackCalls.load()-before!=expectedCalls){std::fprintf(stderr,"perf calls=%llu expected=%u\n",static_cast<unsigned long long>(g_RuntimePerfCallbackCalls.load()-before),expectedCalls);return false;}
+ if(g_RuntimePerfCallbackCalls-before!=expectedCalls){std::fprintf(stderr,"perf calls=%llu expected=%u\n",static_cast<unsigned long long>(g_RuntimePerfCallbackCalls-before),expectedCalls);return false;}
  if(lua_gettop(g_LuaState)!=top||g_ErrorContextOwner!=owner||g_ErrorContextCallbackId!=id||
     g_CurrentCallbackManager.load()!=manager||InManagedCallbackScope()!=scope||g_ActiveCallbackBatch){std::fprintf(stderr,"scope/owner/stack not restored\n");return false;}
  if(failed){
@@ -74,7 +78,7 @@ extern "C" bool ProbeProtectedDispatch(int mode) {
   const auto retry=dispatcher.Dispatch(1,isaac::runtime::ThreadAffinity::Any);
   if(retry.failed||retry.invoked!=1||lua_gettop(g_LuaState)!=top||g_ActiveCallbackBatch){std::fprintf(stderr,"retry failed=%u invoked=%u\n",retry.failed,retry.invoked);return false;}
  }
- return true;
+ return batchChecks;
 }
 }
 '''
@@ -159,6 +163,9 @@ Isaac.GetCallbacks(1)[1].Function=function()
  assert(protection_depth()==1 and root_context())
 end
 )lua";
+ if(mode==9)body=R"lua(
+Isaac.GetCallbacks(1)[1].Function=function() end
+)lua";
  if(!body||LuaRuntime::InitializeFromBuffer(body,std::strlen(body),"@protection-cases.lua")!=LuaRuntime::LuaInitResult::Success)return 2;
  // Repeat failures as well: pending timing, depth and owner must always clear.
  for(unsigned i=0;i<8;++i)if(!ProbeProtectedDispatch(mode)){char e[512]{};static_cast<void>(LuaRuntime::CopyLastLuaErrorText(e,sizeof(e)));std::fprintf(stderr,"mode %d: %s",mode,e);return 3;}
@@ -170,7 +177,15 @@ class CallbackProtectionCostTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.tmp=tempfile.TemporaryDirectory(prefix='callback-protection-');p=Path(cls.tmp.name)
-        runtime=p/'instrumented_runtime.cpp';runtime.write_text('#include <chrono>\n'+(SOURCE/'lua_runtime.cpp').read_text()+BRIDGE)
+        runtime=p/'instrumented_runtime.cpp'
+        source=(SOURCE/'lua_runtime.cpp').read_text()
+        source=source.replace('namespace LuaRuntime {',
+            'namespace LuaRuntime {\nextern std::uint32_t g_TestRuntimeAllowedCalls;\nextern std::uint32_t g_TestBatchIdParses;',1)
+        source=source.replace('isaac::runtime::notice::integrity::RuntimeAllowed()',
+            '(++g_TestRuntimeAllowedCalls, isaac::runtime::notice::integrity::RuntimeAllowed())')
+        source=source.replace('lua_tointegerx(state, 1, &integral)',
+            '(++g_TestBatchIdParses, lua_tointegerx(state, 1, &integral))')
+        runtime.write_text('#include <chrono>\n'+source+BRIDGE)
         sources=tuple(runtime if f==SOURCE/'lua_runtime.cpp' else f for f in test_support.layered_lua_runtime_sources(SOURCE))
         with mock.patch.object(test_support,'layered_lua_runtime_sources',return_value=sources):
             cls.binary=test_support.build_lua_harness(source_root=SOURCE,workdir=p,harness_source=DRIVER)
@@ -188,3 +203,4 @@ class CallbackProtectionCostTests(unittest.TestCase):
     def test_coroutine_manual_error_restores_native_owner(self):self.mode(8)
     def test_callback_body_oom_restores_and_retries(self):self.mode(7)
     def test_function_getter_catches_manual_error_inside_native_entry(self):self.mode(6)
+    def test_batch_checks_runtime_once_and_reuses_callback_id(self):self.mode(9)

@@ -49,10 +49,10 @@ extern "C" bool ProbeBatchLife(int mode) {
   lua_gc(g_LuaState,LUA_GCCOLLECT,0);lua_gc(g_LuaState,LUA_GCCOLLECT,0);return true;
  }
  if(mode==3){
-  const auto before=g_RuntimePerfCallbackCalls.load();
+  const auto before=g_RuntimePerfCallbackCalls;
   lua_pushnil(g_LuaState);invoker.tableStackIndex=top+1;
   auto r=dispatcher.DispatchModifying(71,isaac::runtime::ThreadAffinity::Any,isaac::runtime::CallbackRegistry::kNoCallbackFilter);
-  const auto calls=g_RuntimePerfCallbackCalls.load()-before;
+  const auto calls=g_RuntimePerfCallbackCalls-before;
   lua_getfield(g_LuaState,top+1,"Type");const auto type=lua_tointeger(g_LuaState,-1);
   lua_settop(g_LuaState,top);
   return r.invoked==1&&r.failed==0&&r.hasTable&&invoker.tableOwner==0x10002&&type==5&&calls==3;
