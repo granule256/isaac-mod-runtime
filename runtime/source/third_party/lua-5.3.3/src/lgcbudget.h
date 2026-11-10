@@ -20,6 +20,10 @@ typedef struct lua_GCBudgetInfo {
 ** NULL clock/zero budget disables pacing. No allocations or GC in these calls. */
 LUA_API void lua_gc_setframebudget (lua_State *L, lua_GCClock clock,
     void *context, uint64_t budget, size_t highwater);
+/* Explicit host opt-in, independent of time pacing. An explicit Lua setpause
+** permanently takes precedence, including calls made before host setup. */
+LUA_API void lua_gc_setautomaticpause (lua_State *L, int pause,
+    int minimum, size_t maxthreshold);
 LUA_API void lua_gc_beginframe (lua_State *L, uint64_t serial);
 LUA_API void lua_gc_budgetinfo (lua_State *L, lua_GCBudgetInfo *info);
 /* May run finalizers/raise errors: call only within a protected Lua call.
@@ -31,6 +35,10 @@ typedef struct lua_GCBudget {
   void *context;
   lua_GCBudgetInfo info;
   int hasframe;
+  int explicitpause;
+  int automaticpause;
+  int minimumpause;
+  size_t maxthreshold;
 } lua_GCBudget;
 
 #endif

@@ -152,20 +152,22 @@ static void test_saturation(void) {
   }
 }
 static void test_pressure(void) {
-  Alloc a={0};Clock c={0,1};lua_State *L=newvm(&a);lua_GCBudgetInfo info;int i;
-  /* The retained live set itself can exceed the pressure threshold. */
-  lua_newuserdata(L,65536);garbage(L,3000);budget(L,&c,3,32768);
+  Alloc a={0};Clock c={0,1};lua_State *L=newvm(&a);lua_GCBudgetInfo info;
+  /* A retained live set above highwater is not sustained pressure. */
+  lua_newuserdata(L,65536);garbage(L,3000);lua_gc(L,LUA_GCCOLLECT,0);
+  budget(L,&c,3,32768);
   CHECK(call(L,automatic)==LUA_OK);lua_gc_budgetinfo(L,&info);
-  CHECK(info.pressure==1);CHECK(info.spent<=3*4+c.cost);
+  CHECK(info.pressure==0);CHECK(info.spent<=3+c.cost);
   {uint64_t steps=info.steps,t=c.tick;
    CHECK(call(L,automatic)==LUA_OK);CHECK(call(L,advance)==LUA_OK);
    lua_gc_budgetinfo(L,&info);CHECK(info.steps==steps);CHECK(c.tick==t);}
-  for(i=2;i<20000 && !info.cycles;++i) {
-    lua_gc_beginframe(L,i);CHECK(call(L,advance)==LUA_OK);
-    lua_gc_budgetinfo(L,&info);CHECK(info.spent<=3*4+c.cost);
-  }
-  CHECK(info.cycles==1);CHECK(a.live>=32768);CHECK(a.live<100000);
-  {uint64_t t=c.tick;lua_gc_beginframe(L,i);CHECK(call(L,advance)==LUA_OK);CHECK(c.tick==t);}
+  closevm(L,&a);
+
+  /* Growth above a bounded live-set estimate still gets pressure throughput. */
+  L=newvm(&a);lua_newuserdata(L,4096);lua_gc(L,LUA_GCCOLLECT,0);
+  garbage(L,3000);budget(L,&c,3,32768);
+  CHECK(call(L,automatic)==LUA_OK);lua_gc_budgetinfo(L,&info);
+  CHECK(info.pressure==1);CHECK(info.spent<=3*4+c.cost);
   closevm(L,&a);
 }
 static int allocate(lua_State *L) {lua_newuserdata(L,1024);return 1;}
@@ -187,8 +189,33 @@ static void test_isolation(void) {
   {l_mem debt=G(L)->GCdebt;CHECK(call(L,automatic)==LUA_OK);CHECK(G(L)->GCdebt<debt);}
   closevm(L,&a);
 }
+static l_mem threshold(lua_State *L) {return gettotalbytes(G(L))-G(L)->GCdebt;}
+static void test_pausepolicy(void) {
+  Alloc a={0};Clock c={0,1};lua_State *L=newvm(&a);l_mem low,high;
+  CHECK(sizeof(lua_GCBudgetInfo)==136);
+  lua_gc_setautomaticpause(L,200,110,65536);
+  lua_gc(L,LUA_GCCOLLECT,0);low=threshold(L);
+  CHECK(low>gettotalbytes(G(L))*19/10); /* real post-collection allocation credit */
+  lua_newuserdata(L,40000);lua_gc(L,LUA_GCCOLLECT,0);
+  CHECK(threshold(L)==65536);
+  lua_newuserdata(L,40000);lua_gc(L,LUA_GCCOLLECT,0);high=threshold(L);
+  CHECK(high>gettotalbytes(G(L)));CHECK(high<gettotalbytes(G(L))*12/10);
+  lua_gc(L,LUA_GCSETPAUSE,150);lua_gc(L,LUA_GCCOLLECT,0);
+  CHECK(threshold(L)>gettotalbytes(G(L))*14/10);
+  budget(L,&c,2,1);lua_gc_setframebudget(L,NULL,NULL,0,0);
+  lua_gc_setautomaticpause(L,200,110,65536);lua_gc(L,LUA_GCCOLLECT,0);
+  CHECK(threshold(L)>gettotalbytes(G(L))*14/10);
+  lua_gc(L,LUA_GCSETPAUSE,200);lua_gc_setautomaticpause(L,200,110,65536);
+  lua_gc(L,LUA_GCCOLLECT,0);CHECK(threshold(L)>gettotalbytes(G(L))*19/10);
+  lua_gc(L,LUA_GCSETPAUSE,-1);lua_gc(L,LUA_GCCOLLECT,0);CHECK(G(L)->GCdebt>0);
+  closevm(L,&a);
+  L=newvm(&a);lua_gc(L,LUA_GCSETPAUSE,125);budget(L,&c,2,1);
+  lua_gc_setautomaticpause(L,200,110,1);lua_gc(L,LUA_GCCOLLECT,0);
+  CHECK(threshold(L)>gettotalbytes(G(L))*12/10);
+  CHECK(threshold(L)<gettotalbytes(G(L))*13/10);closevm(L,&a);
+}
 int main(int argc,char **argv) {
-  const char *names[]={"shared","continuation","explicit","stop","finalizers","gcerror","nested","pressure","oom","isolation","credit","saturation"};
-  void (*tests[])(void)={test_shared,test_continuation,test_explicit,test_stop,test_finalizers,test_gcerror,test_nested,test_pressure,test_oom,test_isolation,test_credit,test_saturation};
-  int i;CHECK(argc==2);for(i=0;i<12;++i)if(!strcmp(argv[1],names[i])) {tests[i]();puts("PASS");return 0;}return 2;
+  const char *names[]={"pausepolicy","shared","continuation","explicit","stop","finalizers","gcerror","nested","pressure","oom","isolation","credit","saturation"};
+  void (*tests[])(void)={test_pausepolicy,test_shared,test_continuation,test_explicit,test_stop,test_finalizers,test_gcerror,test_nested,test_pressure,test_oom,test_isolation,test_credit,test_saturation};
+  int i;CHECK(argc==2);for(i=0;i<13;++i)if(!strcmp(argv[1],names[i])) {tests[i]();puts("PASS");return 0;}return 2;
 }

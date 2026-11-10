@@ -941,6 +941,14 @@ static void setpause (global_State *g) {
   threshold = (g->gcpause < MAX_LMEM / estimate)  /* overflow? */
             ? estimate * g->gcpause  /* no overflow */
             : MAX_LMEM;  /* overflow; truncate to maximum */
+  if (g->gcbudget.automaticpause) {
+    l_mem minimum = (g->gcbudget.minimumpause < MAX_LMEM / estimate)
+                 ? estimate * g->gcbudget.minimumpause : MAX_LMEM;
+    l_mem cap = g->gcbudget.maxthreshold > cast(lu_mem, MAX_LMEM)
+              ? MAX_LMEM : cast(l_mem, g->gcbudget.maxthreshold);
+    if (cap < minimum) cap = minimum;
+    if (threshold > cap) threshold = cap;
+  }
   debt = gettotalbytes(g) - threshold;
   luaE_setdebt(g, debt);
 }
@@ -1186,11 +1194,26 @@ LUA_API void lua_gc_setframebudget (lua_State *L, lua_GCClock clock,
   lua_GCBudget *b = &G(L)->gcbudget;
   if (b->clock == clock && b->context == context &&
       b->info.budget == budget && b->info.highwater == highwater) return;
-  memset(b, 0, sizeof(*b));
+  memset(&b->info, 0, sizeof(b->info));
+  b->hasframe = 0;
   b->clock = clock;
   b->context = context;
   b->info.budget = budget;
   b->info.highwater = highwater;
+}
+
+LUA_API void lua_gc_setautomaticpause (lua_State *L, int pause,
+    int minimum, size_t maxthreshold) {
+  global_State *g = G(L);
+  lua_GCBudget *b = &g->gcbudget;
+  if (b->explicitpause || pause <= 0 || minimum <= 0 || !maxthreshold) return;
+  if (b->automaticpause && g->gcpause == pause &&
+      b->minimumpause == minimum && b->maxthreshold == maxthreshold) return;
+  b->automaticpause = 1;
+  b->minimumpause = minimum;
+  b->maxthreshold = maxthreshold;
+  g->gcpause = pause;
+  if (g->gcstate == GCSpause) setpause(g);
 }
 
 LUA_API void lua_gc_beginframe (lua_State *L, uint64_t serial) {
@@ -1226,9 +1249,14 @@ void luaC_autostep (lua_State *L, int continuation) {
   /* Host API setup (notably lua_pushcfunction) can check GC before pcall.
      Keep paced finalizer errors inside the existing protected entry. */
   if (L->errorJmp == NULL) return;
-  pressure = b->info.highwater && gettotalbytes(g) >= b->info.highwater;
-  /* Large live sets may never fall below highwater. Pressure can increase
-     throughput, but must not turn an incremental slice into an entire cycle. */
+  /* Pressure is transient growth beyond a bounded live set. Once the live
+  ** estimate itself exceeds highwater, absolute heap size no longer grants
+  ** extra throughput or every slice would remain on the 4x budget path. */
+  pressure = b->info.highwater &&
+             gettotalbytes(g) >= b->info.highwater &&
+             g->GCestimate < b->info.highwater;
+  /* Pressure can increase throughput, but must not turn an incremental slice
+  ** into an entire cycle. */
   limit = pressure ? (b->info.budget > UINT64_MAX / 4
                      ? UINT64_MAX : b->info.budget * 4) : b->info.budget;
   if (b->info.spent == UINT64_MAX || b->info.spent >= limit) {
@@ -1249,7 +1277,8 @@ void luaC_autostep (lua_State *L, int continuation) {
     ++b->info.steps;
     elapsed = b->clock(b->context) - started;
     if (g->gcstate == GCSpause) break;
-    if (pressure && gettotalbytes(g) < b->info.highwater) {
+    if (pressure && (gettotalbytes(g) < b->info.highwater ||
+                     g->GCestimate >= b->info.highwater)) {
       pressure = 0;
       limit = b->info.budget;
     }

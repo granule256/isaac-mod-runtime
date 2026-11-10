@@ -1086,6 +1086,8 @@ LUA_API int lua_gc (lua_State *L, int what, int data) {
     }
     case LUA_GCSETPAUSE: {
       res = g->gcpause;
+      g->gcbudget.explicitpause = 1;
+      g->gcbudget.automaticpause = 0;
       g->gcpause = data;
       break;
     }

@@ -18,7 +18,7 @@ class GcFrameBudgetTest(unittest.TestCase):
                             '-I' + str(lua), str(ROOT / 'tests/gc_frame_budget_harness.c'),
                             *sources, '-lm', '-o', str(exe)], check=True,
                            capture_output=True, text=True)
-            for case in ['shared', 'continuation', 'explicit', 'stop', 'finalizers',
+            for case in ['pausepolicy', 'shared', 'continuation', 'explicit', 'stop', 'finalizers',
                          'gcerror', 'nested', 'pressure', 'oom', 'isolation', 'credit',
                          'saturation']:
                 with self.subTest(case=case):
