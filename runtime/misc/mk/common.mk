@@ -258,6 +258,12 @@ CPPFILES := $(filter-out saltynx_external_plugin_runtime_state_probe.cpp,$(CPPFI
 CPPFILES := $(filter-out saltynx_external_plugin_runtime_state_persist_probe.cpp,$(CPPFILES))
 CPPFILES += saltynx_runtime_bridge.cpp
 CPPFILES += test_run_observer.cpp
+# 2026-11-09：SD 卡读写探针（只在 SD_PROBE=1 的实验构建里参与链接）。
+# 与下面几行同一个理由 —— `source/` 根目录下的文件不被 `SOURCES` 的 wildcard 收，
+# 必须显式登记，否则调用点会以"未定义符号"在链接期被门禁拦下（本轮实际被拦了一次）。
+ifeq ($(SD_PROBE),1)
+CPPFILES += sd_probe.cpp
+endif
 # 2026-09-25（批次 134）：`source/` 根目录下的文件不会被上面的 wildcard 收（`SOURCES` 只含子目录），
 # 必须像上面两行那样显式登记。这个 TU 负责把本模块的 `.eh_frame` 登记给展开器 ——
 # 没有它，本模块里任何 C++ 异常都会走 `abort()` + `_exit` 自旋（无声卡死）。原因见该文件头部注释。
