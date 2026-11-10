@@ -813,7 +813,7 @@ $(DEPLOY_NATIVE_HEAP_IPS): $(BUILD) FORCE ../tools/native_heap_budget_patch.py
 	  --report "$(NATIVE_HEAP_PATCH_DIR)/budget.json"
 
 $(DEPLOY_NPDM): $(BUILD) tools/patch_npdm.py
-	@$(PYTHON) tools/patch_npdm.py --input "$(ORIGINAL_NPDM)" --output "$@"
+	@$(PYTHON) tools/patch_npdm.py --input "$(ORIGINAL_NPDM)" --output "$@" --sd-access
 
 $(DEPLOY_RELAY_IPS): $(BUILD)
 $(DEPLOY_RELAY_IPS): FORCE

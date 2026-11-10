@@ -255,7 +255,30 @@ def _validate_output(source: bytes, output: bytes, replaced: frozenset[int]) -> 
             raise ValueError("NPDM patch did not extend the group 2 syscall mask")
 
 
-def patch_npdm(source: Path, destination: Path) -> PatchReport:
+def grant_sd_access(data: bytes) -> tuple[bytes, frozenset[int]]:
+    """Grant only SdCard, in both bounded FS permission blocks."""
+    if len(data) < 0x80 or data[:4] != b"META":
+        raise ValueError("malformed NPDM: missing META header")
+    output = bytearray(data)
+    for offset, size_field, header, magic in ((0x70, 0x74, 0, b"ACI0"),
+                                            (0x78, 0x7C, 0x200, b"ACID")):
+        section = _range(_read_u32(data, offset, "section offset"),
+                         _read_u32(data, size_field, "section size"), len(data), "section")
+        start = section.start + header
+        if start + 0x28 > section.stop or data[start:start + 4] != magic:
+            raise ValueError("malformed NPDM: missing FS section header")
+        block = _range(section.start + _read_u32(data, start + 0x20, "FS offset"),
+                       _read_u32(data, start + 0x24, "FS size"), section.stop, "FS block")
+        if block.start < start + 0x28 or len(block) < 12:
+            raise ValueError("malformed NPDM: invalid FS block")
+        flag_offset = block.start + 4
+        flags = int.from_bytes(data[flag_offset:flag_offset + 8], "little")
+        output[flag_offset:flag_offset + 8] = (flags | (1 << 21)).to_bytes(8, "little")
+    changed = frozenset(i for i, (a, b) in enumerate(zip(data, output)) if a != b)
+    return bytes(output), changed
+
+
+def patch_npdm(source: Path, destination: Path, *, sd_access: bool = False) -> PatchReport:
     """Validate *source*, create the minimal overlay at *destination*, and report it."""
     source_path = source.resolve()
     destination_path = destination.resolve()
@@ -272,6 +295,10 @@ def patch_npdm(source: Path, destination: Path) -> PatchReport:
     _validate_source(parsed)
     output, replaced = _expected_output(source_data, parsed)
     _validate_output(source_data, output, replaced)
+    if sd_access:
+        output, sd_changed = grant_sd_access(output)
+        replaced |= sd_changed
+        _validate_output(source_data, output, replaced)
 
     destination_path.parent.mkdir(parents=True, exist_ok=True)
     destination_path.write_bytes(output)
@@ -282,8 +309,9 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--input", required=True, type=Path, dest="source")
     parser.add_argument("--output", required=True, type=Path, dest="destination")
+    parser.add_argument("--sd-access", action="store_true", help="grant SD access for the runtime backend")
     args = parser.parse_args()
-    report = patch_npdm(args.source, args.destination)
+    report = patch_npdm(args.source, args.destination, sd_access=args.sd_access)
     print(f"source_sha256={report.source_sha256}")
     print(f"output_sha256={report.output_sha256}")
     print("replaced_offsets=" + ",".join(f"{offset:#x}" for offset in sorted(report.replaced_offsets)))

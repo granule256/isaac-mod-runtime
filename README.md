@@ -65,6 +65,10 @@
 | [`tools/`](tools/) | 构建、打包和验证工具 |
 | [`tests/`](tests/) | 工具及跨模块测试 |
 
+从当前源码构建的运行时支持直接读写 SD 卡；须一并安装生成的 `main.npdm`，以提供 SD 权限。MCM 等模组配置及兼容层设置写入 `SD:/switch/isaac-runtime/users/<账号标识>/`，保留存档槽隔离；首次读取时迁移缺少的旧配置，原存档文件保留。
+
+可将完整 `isaac_mods` 树放到 `SD:/isaac_mods/`。存在 `SD:/isaac_mods/mods/` 时，该树整体优先于原覆盖层目录，清单也从该树读取；没有该目录时沿用原安装路径。更换模组树后须完全重启游戏。
+
 构建需要 Python、Docker、相应 C++ 交叉工具链及自行准备的受支持游戏原件输入。参数与构建目标见 [`runtime/Makefile`](runtime/Makefile)。完整运行时还需要与源码和公告资源匹配的 `NOTICE_GUARD_ARCHIVE`；该模块的内部实现未包含在本仓库中。Lua 宿主集成测试需要匹配宿主平台的 `NOTICE_GUARD_HOST_ARCHIVE`。
 
 ## 许可与致谢
@@ -145,6 +149,10 @@ Successful loading or zero logged errors does not prove full compatibility. For 
 | [`runtime/game_patches/`](runtime/game_patches/) | Compatibility-layer patch generation and verification |
 | [`tools/`](tools/) | Build, packaging and verification tools |
 | [`tests/`](tests/) | Tool and cross-module tests |
+
+Runtime builds from the current source support direct SD access. Install the generated `main.npdm` alongside the core to grant SD permission. Mod configuration, including MCM, and runtime settings are stored under `SD:/switch/isaac-runtime/users/<account-id>/`, preserving save-slot isolation. Missing configuration is migrated on first read; original save files are retained.
+
+An entire `isaac_mods` tree can be placed at `SD:/isaac_mods/`. When `SD:/isaac_mods/mods/` exists, this tree takes precedence over the original overlay directory, including its manifest. Otherwise, the original installation path is used. Fully restart the game after changing the mod tree.
 
 Building requires Python, Docker, the C++ cross toolchain and your own supported original game inputs. See [`runtime/Makefile`](runtime/Makefile) for arguments and targets. A complete runtime build also requires a `NOTICE_GUARD_ARCHIVE` matching the source and notice resources; its internal implementation is not included in this repository. Host Lua integration tests require a matching `NOTICE_GUARD_HOST_ARCHIVE` for the host platform.
 
