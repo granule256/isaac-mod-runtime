@@ -1,8 +1,19 @@
 #include "cold_callbacks_internal_hook.hpp"
 #include "lua_runtime.hpp"
+#include "interfaces/lua/callback_table_api.hpp"
+#include "domain/callback/callback_descriptor.hpp"
 #include "runtime_constants.hpp"
 #include "infrastructure/memory/engine_field_access.hpp"
 namespace isaac::runtime {
+std::uint32_t SpeedCacheInternalCallback(relay::InternalHookContext& ctx,const void*) noexcept {
+    std::uint32_t mask{};
+    if (engine_memory::ReadAt(ctx.x[21],&mask,engine_memory::EngineMemoryReadable) &&
+        (mask & 16U) != 0 && BuiltinCallbackEnabled(kCallbackEvaluateCache)) {
+        LuaRuntime::DispatchEvaluateCache(ctx.x[19],16);
+    }
+    return 0; // gate+16 replays LDRB and resumes the original TBZ with fresh mask.
+}
+
 std::uint32_t LevelCurseFirstRandomInternalCallback(relay::InternalHookContext& ctx,const void* user) noexcept {
     const auto& n=*static_cast<const ColdCallbackNativeBindings*>(user);
     if (n.random==nullptr) __builtin_trap();

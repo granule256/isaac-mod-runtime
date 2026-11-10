@@ -192,11 +192,13 @@ public:
     // 而槽号 = `controller & kIndexMask`，不同设备号可能落进同一个槽（引擎手柄号 `1` 与
     // `33` 相差 32 ⇒ 同槽 1）。⇒ 调用方必须先把"所有设备"的结果按槽聚合，再每槽只写一次
     // （`input_api.cpp` 的 `SampleInputFrame` 就是这么做的）。
-    void SampleRow(std::uint32_t controller, std::uint32_t frame, const bool* pressed,
+    // Return the already-computed row mask for the next render snapshot; no rescan.
+    std::uint32_t SampleRow(std::uint32_t controller, std::uint32_t frame, const bool* pressed,
                    const bool* edge_or_null) noexcept {
         if (pressed == nullptr) {
-            return;
+            return 0;
         }
+        std::uint32_t triggeredMask = 0;
         Entry* const row = entries_[controller & kIndexMask];
         for (std::uint32_t code = 0; code < kSlots; ++code) {
             Entry& entry = row[code];
@@ -215,6 +217,7 @@ public:
                 }
             }
             if (edge) {
+                triggeredMask |= std::uint32_t{1} << code;
                 entry.lastEdgeFrame = frame;
             }
             if (cur) {
@@ -230,6 +233,7 @@ public:
             entry.edge = edge;
             entry.held = cur;
         }
+        return triggeredMask;
     }
 
     // 纯读：这一格是不是本帧有记录（A2 用它决定"读采样值"还是"回退现查"）。

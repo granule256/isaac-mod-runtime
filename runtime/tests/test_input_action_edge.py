@@ -446,7 +446,7 @@ class ActionEdgeWiringTests(unittest.TestCase):
         钉住 `InputFrameEdges` 的接口形状（采样入口 + 三个纯读入口）与判定本体
         `entry.frame == frame && entry.edge`（纯比较、不做任何帧号算术）。
         """
-        self.assertIn("void SampleRow(", self.edge_header)
+        self.assertIn("std::uint32_t SampleRow(", self.edge_header)
         self.assertIn("bool Triggered(", self.edge_header)
         self.assertIn("bool Pressed(", self.edge_header)
         self.assertIn("bool HasFrame(", self.edge_header)

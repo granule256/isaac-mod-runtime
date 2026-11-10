@@ -2822,6 +2822,8 @@ std::size_t CopyLastLuaErrorText(char* output, std::size_t capacity) noexcept {
     return copyLength;
 }
 
+std::uint32_t CurrentCallbackId() noexcept { return g_ErrorContextCallbackId; }
+
 void RecordLuaErrorText(const char* text, std::size_t length) noexcept {
     if (text == nullptr || length == 0) {
         return;

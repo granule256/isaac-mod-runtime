@@ -77,6 +77,29 @@ std::atomic<std::uint32_t> g_InputPressedControllerMask{0};
 // （每帧由 `SampleInputFrame()` 在帧边界采一次；判定只看"本帧是不是边沿"）——
 // 口径见 `runtime/source/input_edge.hpp` 第五节。`Entry` 布局未变（读数工具按它解码）。
 LuaRuntime::InputFrameEdges g_ActionEdge{};
+// Script dispatch follows the existing single-threaded input/VM contract. No TLS:
+// injected module TLS has caused hardware faults. Poll only ORs into pending;
+// every outer native Render consumes it, even if no mod queries input.
+std::uint32_t g_PendingRenderActionEdges[32]{};
+std::uint32_t g_VisibleRenderActionEdges[32]{};
+std::uint32_t g_RenderInputDepth{};
+
+[[nodiscard]] bool UseRenderActionEdges() noexcept {
+    if (g_RenderInputDepth == 0) return false;
+    const auto id = LuaRuntime::CurrentCallbackId();
+    switch (id) {
+        case UINT32_MAX: // native render code outside a Lua callback
+        case 2: case 25: case 28: case 32: case 36: case 41:
+        case 45: case 49: case 52: case 56: case 59:
+        case 1022: case 1024: case 1218: case 1219:
+            return true;
+        default:
+            // Registered Repentogon entity/grid render ranges; the gap 1442/3
+            // has no render event. Nested update/input callbacks stay native.
+            return (id >= 1080 && id <= 1090) || (id >= 1432 && id <= 1441) ||
+                   (id >= 1444 && id <= 1463);
+    }
+}
 
 // 按键号那三条查询的读数（与上面动作那几张位图同族）。
 // 为什么要有它：`IsButtonPressed` 从"恒 false"改成真值之后，真机上唯一能判"到底读到了没有"的
@@ -854,7 +877,9 @@ int InputIsActionTriggered(lua_State* state) {
     // 不被问；旧判定（"自这个调用方上次问过以来"）下一帧把它认成"新按下"⇒ **光标再走一格**
     //（"一次推动走两格"）。改成纯读之后，"晚一帧问"一律答 false ⇒ 与 PC 同形。
     const std::uint32_t frame = CurrentInputFrame();
-    const bool triggered = g_ActionEdge.Triggered(code, controller, frame);
+    const bool triggered = UseRenderActionEdges()
+        ? (g_VisibleRenderActionEdges[controller & 31u] & (std::uint32_t{1} << (code & 31u))) != 0
+        : g_ActionEdge.Triggered(code, controller, frame);
     // 把"这次问的现场"记下来（见那四个数组的声明处 —— 粘性掩码分不出"按下的那一刻"）。
     // 记的是引擎 + 边沿表算出来的那一次回答，不是"这一帧有没有报过"（同帧多次问答案相同）。
     g_InputActionAskedFrame[code & 31u].store(frame, std::memory_order_relaxed);
@@ -1727,7 +1752,8 @@ void SampleInputFrame(std::uint32_t frame) noexcept {
         const bool* buttonPressed = slotButtonPressed[slot];
         const bool* actionPressed = slotActionPressed[slot];
         g_ButtonEdge.SampleRow(slot, frame, buttonPressed, nullptr);
-        g_ActionEdge.SampleRow(slot, frame, actionPressed, nullptr);
+        g_PendingRenderActionEdges[slot] |=
+            g_ActionEdge.SampleRow(slot, frame, actionPressed, nullptr);
     }
 
     // "任意设备"聚合槽（`0xFFFFFFFF & 31 = 31`）：模组问 `0xFFFFFFFF` 时读它。
@@ -1736,7 +1762,8 @@ void SampleInputFrame(std::uint32_t frame) noexcept {
     // The native restart gate queries each component with "any device", so
     // its global action may span controllers. Per-device actions stay separate.
     aggActionPressed[kLuaRestartAction] = NativeRestartChordHeld(aggButtonPressed);
-    g_ActionEdge.SampleRow(kNsAnyInputDevice, frame, aggActionPressed, nullptr);
+    g_PendingRenderActionEdges[kNsAnyInputDevice & 31u] |=
+        g_ActionEdge.SampleRow(kNsAnyInputDevice, frame, aggActionPressed, nullptr);
 
     g_InputSampleCalls.store(calls, std::memory_order_relaxed);
     g_InputSampleCodes.store(kSampleButtonCodeCount + kSampleActionCodeCount,
@@ -1757,7 +1784,23 @@ void FrameBoundaryHookEntry(std::uint64_t frame) noexcept {
 // 本批第一版把它放进了匿名命名空间（内部链接）⇒ 只编译 API 层子集的宿主 harness 集体链接失败，
 // 而只编译 `input_api.cpp` 的那些 harness 报 `-Werror=unused-function`（那正是"内部链接、没人用"
 // 的信号）。**106 批也踩过同一个坑**（见 `lua_runtime.cpp` 里那段注释）。
+void BeginRenderInputFrame() noexcept {
+    if (g_RenderInputDepth++ != 0) return;
+    for (std::size_t slot = 0; slot < 32; ++slot) {
+        g_VisibleRenderActionEdges[slot] = g_PendingRenderActionEdges[slot];
+        g_PendingRenderActionEdges[slot] = 0;
+    }
+}
+
+void EndRenderInputFrame() noexcept {
+    if (g_RenderInputDepth != 0) --g_RenderInputDepth;
+}
+
 void ResetInputEdgeState() noexcept {
+    for (std::size_t slot = 0; slot < 32; ++slot) {
+        g_PendingRenderActionEdges[slot] = 0;
+        g_VisibleRenderActionEdges[slot] = 0;
+    }
     g_ActionEdge.Reset();
     // 按键号的边沿表也是"每会话"口径（理由同上：不清的话新一次加载会读到上一次的残留）。
     g_ButtonEdge.Reset();

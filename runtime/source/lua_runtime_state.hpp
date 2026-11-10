@@ -118,6 +118,8 @@ inline constexpr int kStage13CallbackValue = 1;
 // calls outside this scope instead of touching game memory from an unsafe
 // point.
 [[nodiscard]] bool InManagedCallbackScope() noexcept;
+// Read-only nested callback context; UINT32_MAX outside callbacks.
+[[nodiscard]] std::uint32_t CurrentCallbackId() noexcept;
 
 // --- Game binding slots ---------------------------------------------------
 

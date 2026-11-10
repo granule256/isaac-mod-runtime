@@ -64,7 +64,7 @@ int main(){auto*L=luaL_newstate();luaL_requiref(L,"_G",luaopen_base,1);lua_pop(L
  auto*h=static_cast<EntityHandle*>(lua_newuserdata(L,sizeof(EntityHandle)));h->valid=true;luaL_getmetatable(L,"Player");lua_setmetatable(L,-2);lua_setglobal(L,"p");
  lua_pushcfunction(L,EntityToNpc);lua_setglobal(L,"productionToNPC");
  const char*script=R"lua(
- for _,k in ipairs({'GetData','ToPlayer','GetEffects','HasCollectible','GetSprite','IsDead','HasTrinket','ToNPC','ToPickup','ToEffect','ToFamiliar','ToTear','ToLaser','ToProjectile','ToBomb','ToKnife'})do
+ for _,k in ipairs({'GetActiveItem','GetCollectibleRNG','GetName','GetMainTwin','GetCollectibleNum','AreControlsEnabled','IsSubPlayer','IsCoopGhost','HasCurseMistEffect','GetPlayerType','GetData','ToPlayer','GetEffects','HasCollectible','GetSprite','IsDead','HasTrinket','ToNPC','ToPickup','ToEffect','ToFamiliar','ToTear','ToLaser','ToProjectile','ToBomb','ToKnife'})do
   base.__methods[k]=function()return 10 end
   assert(p[k](p)==10)
   sub.__methods[k]=function()return 20 end;assert(p[k](p)==20)

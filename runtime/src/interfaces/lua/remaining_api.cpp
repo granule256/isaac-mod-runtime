@@ -1499,9 +1499,33 @@ int PushGridEntityAtSlot(lua_State* state, std::uintptr_t room, std::int64_t ind
         lua_pushnil(state);
         return 1;
     }
+    // The fixed 448-slot table is embedded in Room. Reuse its readable range
+    // within a managed window, but always load the current slot: DestroyGrid,
+    // SpawnGridEntity and native updates can change entries during callbacks.
+    struct GridTableRange { std::uintptr_t room{}; std::uint32_t epoch{}; };
+    static GridTableRange range{};
+    const bool scoped = EngineGuardDispatchActive().load(std::memory_order_acquire) != 0 &&
+                        EngineGuardCacheEnabledFlag().load(std::memory_order_acquire) != 0;
+    const auto epoch = EngineGuardDispatchEpoch().load(std::memory_order_acquire);
     std::uintptr_t entity = 0;
-    if (!isaac::runtime::engine_memory::ReadAt(room + within, &entity, &IsEngineMemoryReadable) ||
-        entity == 0) {
+    bool loaded = false;
+    if (scoped) {
+        constexpr std::size_t tableBytes = 448 * sizeof(std::uintptr_t);
+        const auto table = room + kRoomGridEntityTableOffset;
+        if (range.room != room || range.epoch != epoch) {
+            if (table > UINTPTR_MAX - tableBytes || !IsEngineMemoryReadable(table, tableBytes)) {
+                lua_pushnil(state);
+                return 1;
+            }
+            range = {room, epoch};
+        }
+        loaded = isaac::runtime::engine_memory::LoadVerifiedAt(table,
+            static_cast<std::size_t>(index), &entity);
+    } else {
+        loaded = isaac::runtime::engine_memory::ReadAt(room + within, &entity,
+                                                       &IsEngineMemoryReadable);
+    }
+    if (!loaded || entity == 0) {
         lua_pushnil(state);
         return 1;
     }
@@ -4542,12 +4566,17 @@ namespace {
 //
 // 开销：只在**有人给 `TimeCounter` 赋值**时执行 —— 一次 `ResolveCurrentLevel`（7 步读 + 检查）
 // + 一次 4 字节写，不进任何每帧路径；没有新的堆分配、没有新的 I/O。
-bool TryWriteGameTimeCounter(lua_State* state) noexcept {
+bool TryWriteGameMutableScalar(lua_State* state) noexcept {
     if (lua_type(state, 2) != LUA_TSTRING) {
         return false;
     }
     const char* key = lua_tostring(state, 2);
-    if (key == nullptr || std::strcmp(key, "TimeCounter") != 0) {
+    if (key == nullptr) {
+        return false;
+    }
+    const bool timeCounter = std::strcmp(key, "TimeCounter") == 0;
+    const bool challenge = std::strcmp(key, "Challenge") == 0;
+    if (!timeCounter && !challenge) {
         return false;
     }
     int isNumber = 0;
@@ -4561,12 +4590,17 @@ bool TryWriteGameTimeCounter(lua_State* state) noexcept {
     }
     // PC 侧这个字段是 `int`（32 位有符号）；Lua 整数按同样宽度截断，与 PC 的转换一致。
     const auto value = static_cast<std::int32_t>(raw);
-    if (!engine_memory::WriteField(game, kGameTimeCounterOffset, value,
+    // PC Game.Challenge is writable too. CuerLib temporarily sets challenge 6
+    // around UpdateCanShoot, then restores it; the native call must see the write.
+    const auto offset = timeCounter ? kGameTimeCounterOffset : kGameChallengeOffset;
+    if (!engine_memory::WriteField(game, offset, value,
                                    engine_memory::EngineMemoryWritable)) {
         return false;
     }
-    g_IsaacLastGameTimeCounterWrite = value;
-    g_IsaacGameTimeCounterWriteCount.fetch_add(1, std::memory_order_relaxed);
+    if (timeCounter) {
+        g_IsaacLastGameTimeCounterWrite = value;
+        g_IsaacGameTimeCounterWriteCount.fetch_add(1, std::memory_order_relaxed);
+    }
     return true;
 }
 }  // namespace
@@ -4584,10 +4618,9 @@ int IgnoredObjectFieldWrite(lua_State* state) {
         return 0;
     }
     if(owner&&IsApi600WorldField(owner,key)){std::uintptr_t p{};if(ResolveCurrentLevel(&p)&&TryWriteApi600WorldField(state,p,owner,key))return 0;}
-    // BUG-014：`Game.TimeCounter` 是 PC 契约里**唯一**还没真写的可写标量字段（另外两个
-    // `BlueWombParTime`/`BossRushParTime` 走上面的 api600 表；`Difficulty`/`ScreenShakeOffset`
-    // 在 PC 契约里是 `const` ⇒ 保持忽略是对的）。只在 `Game` 句柄上生效，`Level` 不受影响。
-    if (owner != nullptr && std::strcmp(owner, "Game") == 0 && TryWriteGameTimeCounter(state)) {
+    // Only Game owns these writable scalars; Level and read-only fields retain
+    // their existing behavior. Challenge shares the getter's proven native slot.
+    if (owner != nullptr && std::strcmp(owner, "Game") == 0 && TryWriteGameMutableScalar(state)) {
         return 0;
     }
     if (lua_gettop(state) < 3 || !lua_isstring(state, 2)) {

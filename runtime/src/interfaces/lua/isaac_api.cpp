@@ -2150,7 +2150,15 @@ std::size_t g_QuerySeenCount = 0;
 
 // 方法分派热路径的"已校验入口"缓存槽（见下面 `InvokeEngineRow` 的 else 支）。
 // 只存**成功**的解析结果；按"模块基址 + 行偏移 + 入口指纹"核对，基址一变自动重判。
-isaac::runtime::EngineEntrySlot g_EngineRowEntrySlot{};
+isaac::runtime::EngineEntrySlot g_EngineRowEntrySlots[64]{};
+isaac::runtime::EngineEntrySlot& EngineRowEntrySlotFor(std::uintptr_t offset,
+                                                      std::uint32_t entryWord) noexcept {
+    // A single shared slot was evicted on every alternating method call.
+    // Collisions only evict: EngineEntryAddressCached still checks the complete
+    // module/offset/word key, and failed guards are never retained.
+    const auto index = ((offset >> 2) ^ (offset >> 9) ^ entryWord) & 63U;
+    return g_EngineRowEntrySlots[index];
+}
 
 // 每个查询开始时"翻一代"。去重表是**文件级**的（不是栈上的：8192 个 u64 放进
 // 栈会占 64 KiB），而 Lua 只在托管回调里单线程执行，所以"每个查询前翻一代"就够了 ——
@@ -3011,7 +3019,13 @@ int IndexEntity(lua_State* state, EntityView view) {
     // 这些键只属于方法表；仍实时查本类/基类，不能缓存第三方可覆写的方法。
     const bool methodOnly =
         (field[0] == 'G' && (std::strcmp(field, "GetData") == 0 ||
+                              std::strcmp(field, "GetPlayerType") == 0 ||
                               std::strcmp(field, "GetEffects") == 0 ||
+                              std::strcmp(field, "GetActiveItem") == 0 ||
+                              std::strcmp(field, "GetName") == 0 ||
+                              std::strcmp(field, "GetCollectibleRNG") == 0 ||
+                              std::strcmp(field, "GetMainTwin") == 0 ||
+                              std::strcmp(field, "GetCollectibleNum") == 0 ||
                               std::strcmp(field, "GetSprite") == 0)) ||
         (field[0] == 'T' && field[1] == 'o' &&
          (std::strcmp(field, "ToPlayer") == 0 || std::strcmp(field, "ToNPC") == 0 ||
@@ -3020,8 +3034,12 @@ int IndexEntity(lua_State* state, EntityView view) {
           std::strcmp(field, "ToLaser") == 0 || std::strcmp(field, "ToProjectile") == 0 ||
           std::strcmp(field, "ToBomb") == 0 || std::strcmp(field, "ToKnife") == 0)) ||
         (field[0] == 'H' && (std::strcmp(field, "HasCollectible") == 0 ||
-                              std::strcmp(field, "HasTrinket") == 0)) ||
-        (field[0] == 'I' && std::strcmp(field, "IsDead") == 0);
+                              std::strcmp(field, "HasTrinket") == 0 ||
+                              std::strcmp(field, "HasCurseMistEffect") == 0)) ||
+        (field[0] == 'I' && (std::strcmp(field, "IsDead") == 0 ||
+                              std::strcmp(field, "IsSubPlayer") == 0 ||
+                              std::strcmp(field, "IsCoopGhost") == 0)) ||
+        (field[0] == 'A' && std::strcmp(field, "AreControlsEnabled") == 0);
     // 纯方法键的查找不使用原生状态，方法执行时仍由各自入口校验。
     // 字段读取保留即时校验：Player 要求精确 vptr，其余使用 Entity 家族范围。
     const std::uintptr_t entity = methodOnly ? 0 :
@@ -9104,21 +9122,24 @@ int EngineMethodHandler(lua_State* state) {
         }
     }
     // 消息按 catalog 里的 `owner:name` 现拼（与手写处理器同口径，只在出错路径上拼）。
-    const LuaApiDescriptor* descriptor = FindLuaApiDescriptor(row->id);
-    const char* owner = descriptor != nullptr ? descriptor->owner : "?";
-    const char* name = descriptor != nullptr ? descriptor->name : "?";
+    const auto error = [state, row](const char* format, int count = 0) {
+        // Names are diagnostic only. In particular MiniMAPI's repeated effect
+        // queries must not scan the API catalog on every successful call.
+        const LuaApiDescriptor* descriptor = FindLuaApiDescriptor(row->id);
+        return luaL_error(state, format, descriptor ? descriptor->owner : "?",
+                          descriptor ? descriptor->name : "?", count);
+    };
     std::size_t shapeCount = 0;
     const EngineCallShapeRow* shapes = EngineCallShapeRows(&shapeCount);
     const std::size_t shapeIndex = static_cast<std::size_t>(row->shape);
     if (shapes == nullptr || shapeIndex >= shapeCount) {
-        return luaL_error(state, "%s:%s has an unsupported call shape", owner, name);
+        return error("%s:%s has an unsupported call shape");
     }
     const EngineCallShapeRow& shape = shapes[shapeIndex];
     if (shape.argumentCount != row->argumentCount) {
         // 数据行自相矛盾：按错误的 ABI 调进去会踩坏引擎状态，所以这里**报错**而不是硬调。
         // 门禁（`test_engine_method_rows.py`）会在构建前就把这种情况拦下来。
-        return luaL_error(state, "%s:%s row and call shape disagree on the argument count", owner,
-                          name);
+        return error("%s:%s row and call shape disagree on the argument count");
     }
     // 接收者：`Room` 不从栈上取（解析当前房间），其余都在第 1 个参数上。
     // 静态调用（`EntityNPC.ThrowSpider(...)`）连"第 1 个参数"都没有 ——
@@ -9149,10 +9170,9 @@ int EngineMethodHandler(lua_State* state) {
     }
     if (providedArguments < minimumArguments || providedArguments > maximumArguments) {
         if (shape.optionalArgumentCount != 0) {
-            return luaL_error(state, "%s:%s expects at most %d argument(s)", owner, name,
-                              maximumArguments);
+            return error("%s:%s expects at most %d argument(s)", maximumArguments);
         }
-        return luaL_error(state, "%s:%s expects %d argument(s)", owner, name, maximumArguments);
+        return error("%s:%s expects %d argument(s)", maximumArguments);
     }
     // `integers[0]` 留给接收者（AAPCS64 的 `x0` = this），参数从 `integers[1]`/`floats[0]` 起排。
     std::uint64_t integers[8] = {0, 0, 0, 0, 0, 0, 0, 0};
@@ -9307,8 +9327,7 @@ int EngineMethodHandler(lua_State* state) {
         }
     }
     if (!argumentsValid) {
-        return luaL_error(state, "%s:%s expects %d argument(s)", owner, name,
-                          static_cast<int>(shape.argumentCount));
+        return error("%s:%s expects %d argument(s)", static_cast<int>(shape.argumentCount));
     }
     // 静态调用没有接收者 —— 连解析都不做（`ResolveFieldReceipt` 对静态行
     //   没有意义，而且解析失败会被后面那段当成"降级"记一笔、把这一行判成不可调）。
@@ -9357,7 +9376,7 @@ int EngineMethodHandler(lua_State* state) {
         //   只缓存成功：判据没过时下面照原样重跑一遍并记 `RecordEngineRowReject`，
         //   所以"降级三原因"的计数口径与不缓存时完全一致。
         engineMethod = isaac::runtime::EngineEntryAddressCached<IsEngineMemoryReadable>(
-            g_EngineRowEntrySlot, row->offset, row->entryWord);
+            EngineRowEntrySlotFor(row->offset, row->entryWord), row->offset, row->entryWord);
         // 卡牌使用已安装5号入口中继；完整登记校验通过后仍调用公开入口。
         if (engineMethod == 0 && row->offset == kEntityPlayerUseCardOffset) {
             engineMethod = EntityMethodByExpectedBytes(kEntityPlayerUseCardOffset,

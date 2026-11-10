@@ -18,14 +18,16 @@ DRIVER=r'''
 #include <array>
 #include <cassert>
 #include <cstring>
+#include <cstdlib>
 using namespace isaac::runtime::relay;
 extern "C" void isaac_internal_hook_context(){}
 alignas(4096)std::array<unsigned char,4096> image{};
-int main(){
+int main(int argc,char**argv){
+ assert(argc==2);const auto original=static_cast<unsigned>(std::strtoul(argv[1],nullptr,0));
  auto base=reinterpret_cast<std::uintptr_t>(image.data());auto source=base+64,gate=base+128;
- ColdInternalHookSite site{source,gate,0x7100a29f};
+ ColdInternalHookSite site{source,gate,original};
  unsigned branch{};assert(BuildInternalBranch(&branch,source,gate));std::memcpy(image.data()+64,&branch,4);
- unsigned code[]={0x100000d0,0xc8dffe10,0xb4000050,0xd61f0200,0x7100a29f,0};assert(BuildInternalBranch(&code[5],gate+20,source+4));std::memcpy(image.data()+128,code,24);
+ unsigned code[]={0x100000d0,0xc8dffe10,0xb4000050,0xd61f0200,original,0};assert(BuildInternalBranch(&code[5],gate+20,source+4));std::memcpy(image.data()+128,code,24);
  InternalHookBinding b{};b.callback=+[](InternalHookContext&,const void*)noexcept->unsigned{return 0;};b.resumes[0]=gate+16;b.resumeCount=1;b.scratch=InternalScratchPolicy::ProvedDeadX16;
  auto before=image;
  for(unsigned off=128;off<152;++off){image[off]^=1;assert(TryInstallPreinstalledInternalHook(b,site)==InternalHookFailure::GuardMismatch);image[off]^=1;}
@@ -45,4 +47,5 @@ class ColdPublisherTests(unittest.TestCase):
    p=Path(tmp);(p/'lib/util/sys').mkdir(parents=True);(p/'lib/util/sys/jit.hpp').write_text(SHIM);(p/'test.cpp').write_text(DRIVER)
    r=subprocess.run(['clang++','-std=c++23','-Wall','-Wextra','-Werror','-I',str(p),'-I',str(ROOT/'runtime/source'),'-I',str(ROOT/'runtime/src'),str(p/'test.cpp'),str(ROOT/'runtime/source/relay/internal_hook.cpp'),'-o',str(p/'test')],capture_output=True,text=True)
    self.assertEqual(r.returncode,0,r.stdout+r.stderr)
-   r=subprocess.run([str(p/'test')],capture_output=True,text=True);self.assertEqual(r.returncode,0,r.stdout+r.stderr)
+   for original in ('0x7100a29f','0x394002a8'):
+    r=subprocess.run([str(p/'test'),original],capture_output=True,text=True);self.assertEqual(r.returncode,0,r.stdout+r.stderr)

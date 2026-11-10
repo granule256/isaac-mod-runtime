@@ -119,6 +119,7 @@ class ExclusiveGroup:
 
 # 允许互相重叠的中继。每条都必须写明"为什么可以共用"。
 EXCLUSIVE_GROUPS: tuple[ExclusiveGroup, ...] = (
+    ExclusiveGroup(reason="生产速度缓存冷中继与冻结stage109 restart诊断互斥；安装器拒绝EXL_DIAGNOSTIC_STAGE=109。",relays=frozenset({"runtime:kSpeedCacheRelay","GameRestartRelay"})),
     ExclusiveGroup(reason="压力板析构绝对近桩使用生产cold拾取中继尾部空区，与冻结game-ispaused-render诊断包互斥。",relays=frozenset({"runtime:kPressurePlateDtorVeneer","GameIsPausedRenderObserverRelay"})),
     ExclusiveGroup(reason="压力板析构绝对近桩使用生产cold拾取中继尾部空区，与冻结game-ispaused-render诊断包互斥。",relays=frozenset({"runtime:kPressurePlateDeletingVeneer","GameIsPausedRenderObserverRelay"})),
     ExclusiveGroup(reason="生产Literal8指针槽位于console冷中继尾部空隙，与DIAGNOSTIC_STAGE=48旧MusicPlay整段互斥；生产包不发布stage48。",relays=frozenset({"runtime:kClearAwardPointer","Stage48MusicPlayRelay"})),

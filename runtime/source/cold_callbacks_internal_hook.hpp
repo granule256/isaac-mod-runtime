@@ -1,6 +1,7 @@
 #pragma once
 #include "relay/internal_hook.hpp"
 namespace isaac::runtime {
+std::uint32_t SpeedCacheInternalCallback(relay::InternalHookContext&,const void*) noexcept;
 struct ColdCallbackNativeBindings {using Random=std::uint32_t(*)(void*,std::uint32_t);Random random{};};
 std::uint32_t LevelCurseFirstRandomInternalCallback(relay::InternalHookContext&,const void*) noexcept;
 std::uint32_t LevelCurseEvaluateInternalCallback(relay::InternalHookContext&,const void*) noexcept;

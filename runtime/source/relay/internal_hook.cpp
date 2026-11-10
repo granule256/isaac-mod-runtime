@@ -155,7 +155,7 @@ InternalHookFailure TryInstallPreinstalledInternalHook(const InternalHookBinding
     if (!ValidInternalBinding(binding) || site.source==0 || site.gate==0 || (site.gate&7)!=0 ||
         site.source>UINTPTR_MAX-4 || site.gate>UINTPTR_MAX-32 ||
         site.gate%0x1000+32>0x1000 || binding.resumeCount!=1 || binding.resumes[0]!=site.gate+16 ||
-        (site.original!=0xF9400309U && site.original!=0x7100A29FU && site.original!=0xB85FC3B4U && site.original!=0xB94056E8U && site.original!=0xB9595B69U) ||
+        (site.original!=0xF9400309U && site.original!=0x7100A29FU && site.original!=0xB85FC3B4U && site.original!=0xB94056E8U && site.original!=0xB9595B69U && site.original!=0x394002A8U) ||
         !engine_memory::EngineMemoryReadable(site.source,4) ||
         !engine_memory::EngineMemoryReadable(site.gate,32)) return Failure::InvalidPlan;
     std::uint32_t branch{},resume{};
