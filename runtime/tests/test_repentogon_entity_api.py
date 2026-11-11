@@ -24,7 +24,11 @@ static void* Give(void* self,const RepentogonEntityVector& position,const Repent
  const auto value=Address(minecart);std::memcpy(static_cast<unsigned char*>(self)+0x3c8,&value,sizeof(value));
  return minecart.data();
 }
-static void InitFlip(void* self){assert(self==pickup.data());++calls;const auto value=Address(flipState);std::memcpy(static_cast<unsigned char*>(self)+0x610,&value,sizeof(value));}
+static void InitFlip(void* self){
+ assert(self==pickup.data());++calls;const auto value=Address(flipState);
+ std::memcpy(static_cast<unsigned char*>(self)+0x610,&value,sizeof(value));
+ const std::int32_t nativeSubtype=321;std::memcpy(flipState.data()+8,&nativeSubtype,sizeof(nativeSubtype));
+}
 static void Extensions(lua_State* state) noexcept{
  isaac::runtime::PushEntityCallbackArgument(state,Address(entity));lua_setglobal(state,"entity");
  isaac::runtime::PushEntityCallbackArgument(state,Address(slot));lua_setglobal(state,"slot");
@@ -55,15 +59,19 @@ if s:GetPrizeCollectible()~=123 then error('prize='..tostring(s:GetPrizeCollecti
 local cycle=pickup:GetCollectibleCycle();if #cycle~=3 or cycle[1]~=10 or cycle[2]~=11 or cycle[3]~=12 then error('cycle='..#cycle..':'..tostring(cycle[1])..':'..tostring(cycle[2])..':'..tostring(cycle[3])) end
 local flip=pickup:GetFlipCollectible();if flip~=321 then error('flip='..tostring(flip)) end
 pickup:InitFlipState();assert(pickup:GetFlipCollectible()==321)
+pickup:InitFlipState(654,false);assert(pickup:GetFlipCollectible()==654)
+pickup:InitFlipState(0,true);assert(pickup:GetFlipCollectible()==321)
 pickup:RemoveCollectibleCycle();assert(#pickup:GetCollectibleCycle()==0)
 assert(not pcall(function()entity:GiveMinecart(Vector(3,4),nil)end))
 assert(not pcall(function()s:GetPrizeCollectible(1)end))
-assert(not pcall(function()pickup:InitFlipState(1)end))
+assert(not pcall(function()pickup:InitFlipState('bad')end))
+assert(not pcall(function()pickup:InitFlipState(1,true,2)end))
 )lua";
  if(LuaRuntime::InitializeFromBuffer(script,std::strlen(script),"@entity-extension.lua")!=LuaRuntime::LuaInitResult::Success){
   char error[2048]{};static_cast<void>(LuaRuntime::CopyLastLuaErrorText(error,sizeof(error)));std::fprintf(stderr,"%s\n",error);return 1;
  }
- assert(calls==2);assert(LuaRuntime::ShutdownForModReload());
+ if(calls!=4){std::fprintf(stderr,"native calls=%u\n",calls);return 1;}
+ assert(LuaRuntime::ShutdownForModReload());
  SetRepentogonEntityNativeTestBindings({});repentogon::SetNativePort(nullptr);SetSessionSaveFilePort(nullptr);LuaRuntime::SetRuntimeExtensionInstaller(nullptr);
 }
 '''

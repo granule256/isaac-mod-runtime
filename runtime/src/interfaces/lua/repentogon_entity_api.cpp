@@ -170,7 +170,12 @@ int RepentogonEntityPickupGetFlipCollectible(lua_State* state) {
 
 int RepentogonEntityPickupInitFlipState(lua_State* state) {
     const auto pickup=Pickup(state);
-    if(lua_gettop(state)!=1)return luaL_error(state,"EntityPickup:InitFlipState accepts no arguments");
+    const auto arguments=lua_gettop(state);
+    if(arguments>3)return luaL_error(state,"EntityPickup:InitFlipState accepts up to two arguments");
+    const auto collectible=arguments>=2&&!lua_isnil(state,2)
+        ?static_cast<std::int32_t>(luaL_checkinteger(state,2)):0;
+    const bool setupGraphics=arguments<3||lua_isnil(state,3)||lua_toboolean(state,3)!=0;
+    static_cast<void>(setupGraphics);
 #if defined(__SWITCH__)
     Guard(state,0x26b6c8,kInitFlipStateGuard,"EntityPickup:InitFlipState");
     using Fn=void(*)(void*);
@@ -179,6 +184,13 @@ int RepentogonEntityPickupInitFlipState(lua_State* state) {
     if(!g_Tests.initFlipState)return luaL_error(state,"EntityPickup:InitFlipState host binding is unavailable");
     g_Tests.initFlipState(engine_memory::AsObject(pickup));
 #endif
+    if(collectible!=0) {
+        const auto save=Read<std::uintptr_t>(state,pickup,kEntityPickupFlipStateOffset,
+                                             "EntityPickup flip state");
+        if(save&&!engine_memory::WriteField(save,kEntityPickupFlipSubtype,collectible,
+                                            engine_memory::EngineMemoryWritable))
+            return luaL_error(state,"EntityPickup flip state is not writable");
+    }
     return 0;
 }
 
