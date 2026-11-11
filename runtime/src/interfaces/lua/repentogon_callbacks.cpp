@@ -7,6 +7,8 @@
 #include "interfaces/lua/repentogon_persistent_api.hpp"
 #include "interfaces/lua/repentogon_player_api.hpp"
 #include "interfaces/lua/repentogon_player_manager_api.hpp"
+#include "interfaces/lua/api600_player.hpp"
+#include "interfaces/lua/api700_player.hpp"
 #include "application/callback/extended_callback_runtime.hpp"
 #include "lua_runtime.hpp"
 #include <array>
@@ -39,6 +41,7 @@ constexpr RepentogonCallbackBinding kCallbacks[]={
     {1089,"MC_PRE_SLOT_RENDER"},
     {1090,"MC_POST_SLOT_RENDER"},
     {1101,"MC_POST_GRID_ENTITY_SPAWN"},
+    {1104,"MC_PRE_LEVEL_SELECT"},
     {1121,"MC_POST_SLOT_INIT"},
     {1122,"MC_POST_SLOT_UPDATE"},
     {1160,"MC_PRE_PLAYER_UPDATE"},
@@ -125,13 +128,15 @@ constexpr RepentogonCallbackBinding kCallbacks[]={
     {1464,"MC_MENU_INPUT_ACTION"},
     {1470,"MC_POST_SAVESLOT_LOAD"},
 };
-static_assert(sizeof(kCallbacks)/sizeof(kCallbacks[0])==106);
+static_assert(sizeof(kCallbacks)/sizeof(kCallbacks[0])==107);
 constexpr RepentogonEnumBinding kAliases[]={{"ModCallbacks","MC_HUD_POST_UPDATE",1021}};
 constexpr RepentogonApiBinding kApis[]={
     {{0x07020001,ApiDomain::Rng,"RNG","SetSeed",{},0,ThreadAffinity::ManagedCallback,
       ApiMaturity::Experimental},RepentogonRngSetSeed,nullptr,nullptr,true},
     {{0x03020001,ApiDomain::Level,"Level","GetDimension",{},0,ThreadAffinity::ManagedCallback,
       ApiMaturity::Experimental},RepentogonLevelGetDimension},
+    {{0x03020002,ApiDomain::Level,"Level","SetStage",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonLevelSetStage,nullptr,nullptr,true},
     {{0x0E020001,ApiDomain::Isaac,"GridEntity","ToTrapDoor",{},0,ThreadAffinity::ManagedCallback,
       ApiMaturity::Experimental},RepentogonGridToTrapDoor},
     {{0x0E020002,ApiDomain::Isaac,"Isaac","IsInGame",{},0,ThreadAffinity::ManagedCallback,
@@ -150,6 +155,12 @@ constexpr RepentogonApiBinding kApis[]={
       ApiMaturity::Experimental},RepentogonPlayerManagerAnyoneHasCollectible},
     {{0x0E020009,ApiDomain::Isaac,"PlayerManager","AnyoneHasTrinket",{},0,ThreadAffinity::ManagedCallback,
       ApiMaturity::Experimental},RepentogonPlayerManagerAnyoneHasTrinket},
+    {{0x0E02000A,ApiDomain::Isaac,"EntityPlayer","GetDeadEyeCharge",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonEntityPlayerGetDeadEyeCharge},
+    {{0x0E02000B,ApiDomain::Isaac,"EntityPlayer","GetPurityState",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonEntityPlayerGetPurityState},
+    {{0x0E02000C,ApiDomain::Isaac,"Entity","SetDead",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonEntitySetDead},
     {{0x04020001,ApiDomain::Room,"Room","SetWaterAmount",{},0,ThreadAffinity::ManagedCallback,
       ApiMaturity::Experimental},RepentogonRoomSetWaterAmount},
     {{0x04020002,ApiDomain::Room,"Room","SetWaterCurrent",{},0,ThreadAffinity::ManagedCallback,
@@ -182,16 +193,22 @@ constexpr RepentogonApiBinding kApis[]={
       ApiMaturity::Experimental},ProceduralEffectGetActionType},
     {{0x0E02010D,ApiDomain::Isaac,"ProceduralEffect","GetActionProperty",{},0,ThreadAffinity::ManagedCallback,
       ApiMaturity::Experimental},ProceduralEffectGetActionProperty},
+    {{0x0E02010E,ApiDomain::Isaac,"PocketItem","GetSlot",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},Api700PocketItemGetSlot},
+    {{0x0E02010F,ApiDomain::Isaac,"PocketItem","GetType",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},Api700PocketItemGetType},
+    {{0x0E020110,ApiDomain::Isaac,"MultiShotParams","GetNumLanesPerEye",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},Api600MultiShotParamsGetNumLanesPerEye},
 };
 // A bounded read-only ID map addresses the cached states, not the ordinary ID array.
 constexpr auto MakeStateIndices() noexcept {
     std::array<std::uint8_t,1472-1000> indices{};
     for(auto& index:indices)index=255;
-    for(std::size_t i=0;i<106;++i)indices[kCallbacks[i].id-1000]=static_cast<std::uint8_t>(i);
+    for(std::size_t i=0;i<107;++i)indices[kCallbacks[i].id-1000]=static_cast<std::uint8_t>(i);
     return indices;
 }
 constexpr auto kStateIndices=MakeStateIndices();
-std::array<ExtendedCallbackState*,106> g_States{};
+std::array<ExtendedCallbackState*,107> g_States{};
 void Reset() noexcept {g_States.fill(nullptr);}
 
 bool Ready() noexcept {
@@ -218,7 +235,7 @@ bool CallbackSpriteAlive(std::uintptr_t address) noexcept {
     return address&&HasSpriteValidator()&&g_NativePort->spriteAlive(address);
 }
 bool HasNativePort() noexcept { return g_NativePort!=nullptr; }
-constinit const RepentogonBatch kCallbackBatch{"callbacks",kApis,sizeof(kApis)/sizeof(kApis[0]),kAliases,1,kCallbacks,106,Initialize,Reset,Ready};
+constinit const RepentogonBatch kCallbackBatch{"callbacks",kApis,sizeof(kApis)/sizeof(kApis[0]),kAliases,1,kCallbacks,107,Initialize,Reset,Ready};
 const RepentogonBatch& CallbackBatch() noexcept {return kCallbackBatch;}
 const ExtendedCallbackState* FindCallbackState(std::uint32_t id) noexcept {
     if(id>=1000&&id<1472) {

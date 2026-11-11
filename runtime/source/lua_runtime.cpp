@@ -4734,6 +4734,18 @@ void ParseRepentogonReturn(lua_State* state,void* opaque) {
     auto& context=*static_cast<RepentogonReturnContext*>(opaque);
     const auto& event=*context.event;
     const auto id=event.id;
+    if(id==1104) {
+        if(!lua_istable(state,-1))return;
+        lua_len(state,-1);const auto length=lua_tointeger(state,-1);lua_pop(state,1);
+        if(length!=2)return;
+        lua_rawgeti(state,-1,1);const auto stage=lua_tointeger(state,-1);lua_pop(state,1);
+        lua_rawgeti(state,-1,2);const auto type=lua_tointeger(state,-1);lua_pop(state,1);
+        if(stage<1||stage>(event.low?7:14)||type<0||type==3||type>5)return;
+        context.result.hasIntegerPair=true;
+        context.result.first=static_cast<std::int32_t>(stage);
+        context.result.second=static_cast<std::int32_t>(type);
+        return;
+    }
     const bool entityRender=id>=1080&&id<=1089;
     const bool gridPre=id>=1400&&id<=1462&&(id&1)==0;
     const bool pre=entityRender||gridPre||(id>=1160&&id<=1169)||id==1026||id==1030||id==1218;

@@ -26,7 +26,10 @@ struct Event {
     Sound* sound{};
     std::int32_t first{}, second{}, third{}, fourth{};
 };
-struct Result { bool hasBoolean{}, boolean{}, hasOffset{}; Vector offset{}; };
+struct Result {
+    bool hasBoolean{}, boolean{}, hasOffset{}; Vector offset{};
+    bool hasIntegerPair{};std::int32_t first{},second{};
+};
 Result Dispatch(const Event&) noexcept;
 const ExtendedCallbackState* FindCallbackState(std::uint32_t id) noexcept;
 bool Listening(std::uint32_t id) noexcept;

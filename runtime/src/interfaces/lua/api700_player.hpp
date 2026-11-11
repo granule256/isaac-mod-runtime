@@ -13,6 +13,8 @@ void RegisterApi700PlayerTypes(lua_State*);
 void* Api700ConstEntityRefBufferAt(lua_State*,int)noexcept;
 int Api700EntityPlayerGetLastDamageSource(lua_State*);
 int Api700EntityPlayerGetPocketItem(lua_State*);
+int Api700PocketItemGetSlot(lua_State*);
+int Api700PocketItemGetType(lua_State*);
 #if !defined(__SWITCH__)
 struct Api700PlayerNativeTestBindings{std::uintptr_t methods[6];};
 void SetApi700PlayerNativeTestBindings(Api700PlayerNativeTestBindings)noexcept;

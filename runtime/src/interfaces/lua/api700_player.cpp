@@ -11,6 +11,8 @@
 #include "interfaces/lua/api700_string.hpp"
 #include "interfaces/lua/vector_api.hpp"
 #include "interfaces/lua/object_identity_registry.hpp"
+#include "interfaces/lua/class_metadata.hpp"
+#include "interfaces/lua/owner_binding.hpp"
 extern "C" {
 #include <lauxlib.h>
 }
@@ -81,16 +83,32 @@ int ConstIndex(lua_State*L){const auto p=ViewAddress(L,static_cast<View*>(luaL_c
  else if(!std::strcmp(n,"Entity")){const auto e=ViewRead<std::uintptr_t>(L,p,0x28);if(e){PushEntityCallbackArgument(L,e);}else{lua_pushnil(L);}}
  else{lua_pushnil(L);}return 1;
 }
-int PocketIndex(lua_State*L){static_cast<void>(ViewAddress(L,static_cast<View*>(luaL_checkudata(L,1,kPocket))));lua_pushnil(L);return 1;}
+int PocketIndex(lua_State*L){static_cast<void>(ViewAddress(L,static_cast<View*>(luaL_checkudata(L,1,kPocket))));return NativeClassMethodIndex(L);}
 int ConstNewIndex(lua_State*L){View*v=static_cast<View*>(luaL_testudata(L,1,kConstRef));if(!v)v=static_cast<View*>(luaL_checkudata(L,1,kPocket));static_cast<void>(ViewAddress(L,v));return luaL_error(L,"player view is const");}
 void PushView(lua_State*L,std::uintptr_t p,unsigned offset,const char*mt){auto*t=PushEntityLifetimeToken(L,p);const int token=lua_gettop(L);auto*v=static_cast<View*>(lua_newuserdata(L,sizeof(View)));*v={t,p,LuaRuntime::EngineModuleBase(),offset};luaL_getmetatable(L,mt);lua_setmetatable(L,-2);lua_pushvalue(L,token);lua_setuservalue(L,-2);lua_remove(L,token);}
 }
 void RegisterApi700PlayerTypes(lua_State*L){
  if(luaL_newmetatable(L,kConstRef)){lua_pushcfunction(L,ConstIndex);lua_setfield(L,-2,"__index");lua_pushcfunction(L,ConstNewIndex);lua_setfield(L,-2,"__newindex");lua_pushliteral(L,"EntityRef");lua_setfield(L,-2,"__type");luaL_getmetatable(L,LuaRuntime::kEntityRefMetatable);lua_getfield(L,-1,"__class");lua_setfield(L,-3,"__class");lua_pop(L,1);}lua_pop(L,1);
- if(luaL_newmetatable(L,kPocket)){lua_pushcfunction(L,PocketIndex);lua_setfield(L,-2,"__index");lua_pushcfunction(L,ConstNewIndex);lua_setfield(L,-2,"__newindex");lua_pushliteral(L,"PlayerPocketItem");lua_setfield(L,-2,"__type");lua_pushvalue(L,-1);lua_setfield(L,-2,"__class");}lua_pop(L,1);
+ if(luaL_newmetatable(L,kPocket)){lua_pushcfunction(L,PocketIndex);lua_setfield(L,-2,"__index");lua_pushcfunction(L,ConstNewIndex);lua_setfield(L,-2,"__newindex");lua_newtable(L);lua_setfield(L,-2,"__methods");lua_pushliteral(L,"PlayerPocketItem");lua_setfield(L,-2,"__type");lua_pushvalue(L,-1);lua_setfield(L,-2,"__class");}
+ lua_getfield(L,-1,"__methods");static_cast<void>(AttachOwnerMethods(L,"PocketItem",nullptr,0));lua_pop(L,2);
  for(const auto*mt:{kConstRef,kPocket}){luaL_getmetatable(L,mt);if(!RegisterNativeObjectIdentity(L,-1,ViewIdentity))luaL_error(L,"player view identity resolver conflicts");lua_pop(L,1);}
 }
 void* Api700ConstEntityRefBufferAt(lua_State*L,int index)noexcept{auto*v=static_cast<View*>(luaL_testudata(L,index,kConstRef));if(!v)return nullptr;const auto p=ViewAddress(L,v);if(!engine_memory::EngineMemoryReadable(p,0x30)){luaL_error(L,"EntityRef memory is not readable");}return engine_memory::AsObject(p);}
 int Api700EntityPlayerGetLastDamageSource(lua_State*L){auto*p=Player(L);static api100_native::Cache cache{};static_cast<void>(api100_native::Resolve(L,api700_player::kLastDamageEntry,cache));PushView(L,engine_memory::AddressOf(p),0x1a70,kConstRef);return 1;}
 int Api700EntityPlayerGetPocketItem(lua_State*L){auto*p=Player(L);const auto slot=static_cast<std::uint32_t>(Integer(L,2));if(slot>=4){return luaL_argerror(L,2,"pocket slot must be in 0..3");}static api100_native::Cache cache{};static_cast<void>(api100_native::Resolve(L,api700_player::kPocketEntry,cache));PushView(L,engine_memory::AddressOf(p),0x1c10+slot*8,kPocket);return 1;}
+namespace {
+std::uintptr_t Pocket(lua_State*L){
+ if(!LuaRuntime::IsOnGameThread())luaL_error(L,"PocketItem access requires the game thread");
+ if(lua_rawlen(L,1)!=sizeof(View))luaL_argerror(L,1,"PocketItem expected");
+ return ViewAddress(L,static_cast<View*>(luaL_checkudata(L,1,kPocket)));
+}
+}
+int Api700PocketItemGetSlot(lua_State*L){
+ if(lua_gettop(L)!=1)return luaL_error(L,"PocketItem:GetSlot accepts no arguments");
+ lua_pushinteger(L,ViewRead<std::int32_t>(L,Pocket(L),0));return 1;
+}
+int Api700PocketItemGetType(lua_State*L){
+ if(lua_gettop(L)!=1)return luaL_error(L,"PocketItem:GetType accepts no arguments");
+ lua_pushinteger(L,ViewRead<std::int32_t>(L,Pocket(L),4));return 1;
+}
 }

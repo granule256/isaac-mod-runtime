@@ -10,6 +10,9 @@ namespace isaac::runtime {
 int RepentogonEntityPlayerGetHealthType(lua_State* state);
 int RepentogonEntityPlayerGetMarkedTarget(lua_State* state);
 int RepentogonEntityPlayerIsLocalPlayer(lua_State* state);
+int RepentogonEntityPlayerGetDeadEyeCharge(lua_State* state);
+int RepentogonEntityPlayerGetPurityState(lua_State* state);
+int RepentogonEntitySetDead(lua_State* state);
 
 #if !defined(__SWITCH__)
 using RepentogonPlayerIntHost = std::int64_t (*)(void* player);

@@ -10,6 +10,7 @@
 #include "interfaces/lua/class_metadata.hpp"
 #include "interfaces/lua/object_identity_registry.hpp"
 #include "interfaces/lua/opaque_scalar_value.hpp"
+#include "interfaces/lua/owner_binding.hpp"
 #include "infrastructure/memory/engine_field_access.hpp"
 #include "infrastructure/call/engine_call_access.hpp"
 #include "lua_runtime.hpp"
@@ -96,7 +97,7 @@ int TearIndex(lua_State*L){const auto*p=luaL_checkudata(L,1,kTear);const auto*f=
  switch(f->kind){case Kind::Int:lua_pushinteger(L,At<std::int32_t>(p,f->offset));break;case Kind::Float:lua_pushnumber(L,At<float>(p,f->offset));break;case Kind::Color:PushLuaColorFromEngineColorMod(L,At<EngineColorMod>(p,f->offset));break;case Kind::Flags:PushBitSet128(L,At<BitSet128Value>(p,f->offset));break;}return 1;}
 int TearNewIndex(lua_State*L){auto*p=luaL_checkudata(L,1,kTear);const auto*f=TearField(lua_tostring(L,2));if(!f)return luaL_error(L,"unknown TearParams field");
  switch(f->kind){case Kind::Int:Put(p,f->offset,Int(L,3));break;case Kind::Float:Put(p,f->offset,static_cast<float>(luaL_checknumber(L,3)));break;case Kind::Color:{EngineColorMod c{};if(!FillEngineColorMod(L,3,&c))return luaL_argerror(L,3,"expected Color");Put(p,f->offset,c);break;}case Kind::Flags:{BitSet128Value b{};if(!Flags(L,3,&b))return luaL_argerror(L,3,"expected BitSet128 or integer");Put(p,f->offset,b);break;}}return 0;}
-int OpaqueIndex(lua_State*L){luaL_checkudata(L,1,kMulti);lua_pushnil(L);return 1;}
+int OpaqueIndex(lua_State*L){luaL_checkudata(L,1,kMulti);return NativeClassMethodIndex(L);}
 int OpaqueNewIndex(lua_State*L){luaL_checkudata(L,1,kMulti);return luaL_error(L,"MultiShotParams has no public writable fields");}
 int PosVelIndex(lua_State*L){const auto*p=static_cast<Api600PosVel*>(luaL_checkudata(L,1,kPosVel));const char*n=lua_tostring(L,2);if(n&&!std::strcmp(n,"Position"))PushLuaVector(L,p->positionX,p->positionY);else if(n&&!std::strcmp(n,"Velocity"))PushLuaVector(L,p->velocityX,p->velocityY);else lua_pushnil(L);return 1;}
 int PosVelNewIndex(lua_State*L){auto*p=static_cast<Api600PosVel*>(luaL_checkudata(L,1,kPosVel));const char*n=lua_tostring(L,2);if(n&&!std::strcmp(n,"Position")){const auto v=*RequireVectorArgument(L,3);p->positionX=v.x;p->positionY=v.y;}else if(n&&!std::strcmp(n,"Velocity")){const auto v=*RequireVectorArgument(L,3);p->velocityX=v.x;p->velocityY=v.y;}else return luaL_error(L,"unknown PosVel field");return 0;}
@@ -148,7 +149,15 @@ void Type(lua_State*L,const char*mt,lua_CFunction index,lua_CFunction write,Nati
 #if !defined(__SWITCH__)
 void SetApi600PlayerNativeTestBindings(Api600PlayerNativeTestBindings v)noexcept{g_Tests=v;}
 #endif
-void RegisterApi600PlayerTypes(lua_State*L){Type(L,kTear,TearIndex,TearNewIndex,TearIdentity);PublishNativeClass(L,"TearParams",kTear);Type(L,kMulti,OpaqueIndex,OpaqueNewIndex,MultiIdentity);PublishNativeClass(L,"MultiShotParams",kMulti);Type(L,kPosVel,PosVelIndex,PosVelNewIndex,PosVelIdentity);PublishNativeClass(L,"PlayerTypesPosVel",kPosVel);Type(L,kDesc,DescIndex,DescNewIndex,DescAddress);PublishNativeClass(L,"EntityDesc",kDesc);}
+void RegisterApi600PlayerTypes(lua_State*L){
+ Type(L,kTear,TearIndex,TearNewIndex,TearIdentity);PublishNativeClass(L,"TearParams",kTear);
+ Type(L,kMulti,OpaqueIndex,OpaqueNewIndex,MultiIdentity);
+ luaL_getmetatable(L,kMulti);lua_newtable(L);
+ static_cast<void>(AttachOwnerMethods(L,"MultiShotParams",nullptr,0));
+ lua_setfield(L,-2,"__methods");lua_pop(L,1);PublishNativeClass(L,"MultiShotParams",kMulti);
+ Type(L,kPosVel,PosVelIndex,PosVelNewIndex,PosVelIdentity);PublishNativeClass(L,"PlayerTypesPosVel",kPosVel);
+ Type(L,kDesc,DescIndex,DescNewIndex,DescAddress);PublishNativeClass(L,"EntityDesc",kDesc);
+}
 int TryPushApi600PlayerField(lua_State*L,std::uintptr_t p,const char*n){const auto f=Find(p,n);if(f==PlayerField::None)return 0;Layout(L);
  switch(f){case PlayerField::Head:Guard(L,3);lua_pushinteger(L,Read<std::int32_t>(L,p,0x16b0));break;
  case PlayerField::IBS:lua_pushnumber(L,Read<float>(L,p,0x2844));break;
@@ -172,6 +181,12 @@ bool TryWriteApi600PlayerField(lua_State*L,std::uintptr_t p,const char*n){const 
 int Api600EntityPlayerGetTearHitParams(lua_State*L){auto*p=engine_memory::AsObject(Player(L));const auto weapon=Int(L,2);const auto scale=lua_toboolean(L,3)?static_cast<float>(luaL_checknumber(L,3)):1.0F;const auto displacement=DefaultInt(L,4,1);std::uintptr_t source{};if(!lua_isnoneornil(L,5)){source=EntityPointerArgument(L,5);if(!source)luaL_argerror(L,5,"expected a live Entity or nil");}
  const auto value=Native<Api600TearParams(*)(void*,std::int32_t,float,std::int32_t,void*)>(L,0)(p,weapon,scale,displacement,engine_memory::AsObject(source));PushOwned(L,kTear,value);return 1;}
 int Api600EntityPlayerGetMultiShotParams(lua_State*L){auto*p=engine_memory::AsObject(Player(L));const auto weapon=DefaultInt(L,2,1);const auto value=Native<Api600MultiShotParams(*)(void*,std::int32_t)>(L,1)(p,weapon);PushOwned(L,kMulti,value);return 1;}
+int Api600MultiShotParamsGetNumLanesPerEye(lua_State*L){
+ if(lua_gettop(L)!=1)return luaL_error(L,"MultiShotParams:GetNumLanesPerEye accepts no arguments");
+ if(lua_rawlen(L,1)!=sizeof(Api600MultiShotParams))return luaL_argerror(L,1,"MultiShotParams expected");
+ const auto*p=static_cast<const Api600MultiShotParams*>(luaL_checkudata(L,1,kMulti));
+ lua_pushinteger(L,At<std::uint32_t>(p->bytes,0x14));return 1;
+}
 int Api600EntityPlayerGetMultiShotPositionVelocity(lua_State*L){
  // PC wrapper838140 has loop/weapon/vector/speed/params at1..5 and no receiver.
  // Also accept the documented colon shape without passing an invented this to NS.

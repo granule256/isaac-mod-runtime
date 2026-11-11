@@ -1,4 +1,5 @@
 #include "interfaces/lua/repentogon_player_api.hpp"
+#include "interfaces/lua/api100_native.hpp"
 
 #include "infrastructure/call/engine_call_access.hpp"
 #include "infrastructure/memory/engine_field_access.hpp"
@@ -17,6 +18,10 @@ extern "C" {
 
 namespace isaac::runtime {
 namespace {
+// Native Add/ClearDeadEyeCharge and update_purity_sprite identify these fields.
+constexpr std::uint8_t kDeadEyeGuard[]={0x08,0x28,0x5d,0xb9,0xf3,0x03,0x00,0xaa,0x1f,0x1d,0x00,0x71,0x0c,0x01,0x00,0x54};
+constexpr std::uint8_t kPurityGuard[]={0x08,0xa4,0x5d,0xb9,0xf3,0x03,0x00,0xaa,0x1f,0x11,0x00,0x71,0xab,0x00,0x00,0x54};
+api100_native::Cache g_DeadEyeLayout{},g_PurityLayout{};
 #if defined(__SWITCH__)
 struct Method {
     std::uintptr_t offset;
@@ -102,6 +107,36 @@ int RepentogonEntityPlayerIsLocalPlayer(lua_State* state) {
 #endif
     lua_pushboolean(state,value!=0);
     return 1;
+}
+
+int RepentogonEntityPlayerGetDeadEyeCharge(lua_State* state) {
+    const auto player=Player(state);
+    static_cast<void>(api100_native::Resolve(state,{0x2fbf38,kDeadEyeGuard},g_DeadEyeLayout));
+    std::uint32_t value{};
+    if (!engine_memory::ReadField(player,0x1d28,&value,engine_memory::EngineMemoryReadable))
+        return luaL_error(state,"EntityPlayer Dead Eye charge is not readable");
+    lua_pushinteger(state,value);return 1;
+}
+
+int RepentogonEntityPlayerGetPurityState(lua_State* state) {
+    const auto player=Player(state);
+    static_cast<void>(api100_native::Resolve(state,{0x29a9fc,kPurityGuard},g_PurityLayout));
+    std::int32_t value{};
+    if (!engine_memory::ReadField(player,0x1da4,&value,engine_memory::EngineMemoryReadable))
+        return luaL_error(state,"EntityPlayer Purity state is not readable");
+    lua_pushinteger(state,value);return 1;
+}
+
+int RepentogonEntitySetDead(lua_State* state) {
+    if (!LuaRuntime::IsOnGameThread())
+        return luaL_error(state,"Entity:SetDead requires the game thread");
+    const auto entity=EntityPointerArgument(state,1);
+    if (!entity) return luaL_argerror(state,1,"live Entity expected");
+    if (!lua_isboolean(state,2)) return luaL_argerror(state,2,"boolean expected");
+    const auto dead=static_cast<std::uint8_t>(lua_toboolean(state,2)!=0);
+    if (!engine_memory::WriteField(entity,0x1c3,dead,engine_memory::EngineMemoryWritable))
+        return luaL_error(state,"Entity dead flag is not writable");
+    return 0;
 }
 
 #if !defined(__SWITCH__)

@@ -20,6 +20,7 @@ int Api600EntityPlayerAreOpposingShootDirectionsPressed(lua_State*);
 int Api600EntityPlayerHasWeaponType(lua_State*);
 int Api600EntityPlayerGetMultiShotParams(lua_State*);
 int Api600EntityPlayerGetMultiShotPositionVelocity(lua_State*);
+int Api600MultiShotParamsGetNumLanesPerEye(lua_State*);
 #if !defined(__SWITCH__)
 struct Api600PlayerNativeTestBindings {std::uintptr_t methods[4];};
 void SetApi600PlayerNativeTestBindings(Api600PlayerNativeTestBindings)noexcept;
