@@ -244,6 +244,10 @@ struct PlayerLookupProbe {
 // （就是这里 `CheckEntityHandle` + `ValidatedEntity` 那一对），所以这里给一个**不抛错**的出口：
 // 拿不到就返回 0，由调用方决定是"传 nullptr 给引擎"还是报错。
 [[nodiscard]] std::uintptr_t EntityPointerArgument(lua_State* state, int index) noexcept;
+// Resolves a live PersistentGameData userdata to the Manager-owned object.
+[[nodiscard]] std::uintptr_t PersistentGameDataObjectArgument(lua_State* state, int index) noexcept;
+[[nodiscard]] bool EntityPlayerHasCollectibleForApi(
+    std::uintptr_t player, std::uint32_t collectibleId, bool ignoreModifiers) noexcept;
 
 // 读一个实体的 `Type`/`Variant`（`Entity + 0x38` / `+0x3C`，两张布局都是
 // `confirmed` 的）。`EntityRef` 的替身缓冲区要用这两个值填 `+0x08`/`+0x00` 两格，

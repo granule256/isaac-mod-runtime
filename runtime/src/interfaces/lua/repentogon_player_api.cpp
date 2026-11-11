@@ -1,0 +1,112 @@
+#include "interfaces/lua/repentogon_player_api.hpp"
+
+#include "infrastructure/call/engine_call_access.hpp"
+#include "infrastructure/memory/engine_field_access.hpp"
+#include "interfaces/lua/field_api.hpp"
+#include "interfaces/lua/isaac_api.hpp"
+#include "lua_runtime.hpp"
+#include "runtime_constants.hpp"
+
+#include <array>
+#include <cstdint>
+#include <cstring>
+
+extern "C" {
+#include <lauxlib.h>
+}
+
+namespace isaac::runtime {
+namespace {
+#if defined(__SWITCH__)
+struct Method {
+    std::uintptr_t offset;
+    std::array<std::uint8_t, 16> guard;
+};
+constexpr Method kHealthType{0x27d3a4,{0x08,0x38,0x57,0xb9,0x08,0x11,0x00,0x51,0x1f,0x91,0x00,0x71,0xa8,0x01,0x00,0x54}};
+constexpr Method kMarkedTarget{0x2b7ffc,{0x00,0xcc,0x4b,0xf9,0xc0,0x03,0x5f,0xd6,0xff,0x83,0x06,0xd1,0xfd,0x7b,0x16,0xa9}};
+constexpr Method kIsLocalPlayer{0x27cf3c,{0x20,0x00,0x80,0x52,0xc0,0x03,0x5f,0xd6,0xfd,0x7b,0xbe,0xa9,0xf3,0x0b,0x00,0xf9}};
+#else
+RepentogonPlayerIntHost g_HealthTypeHost{};
+RepentogonPlayerPointerHost g_MarkedTargetHost{};
+RepentogonPlayerIntHost g_IsLocalPlayerHost{};
+#endif
+
+std::uintptr_t Player(lua_State* state) {
+    if (!LuaRuntime::IsOnGameThread())
+        luaL_error(state, "EntityPlayer native access requires the game thread");
+    const auto player=ResolveEngineReceiver(state,FieldReceipt::EntityPlayer,1);
+    if (!player) luaL_error(state, "EntityPlayer is no longer available");
+    return player;
+}
+
+#if defined(__SWITCH__)
+std::uintptr_t MethodAddress(lua_State* state,const Method& method,const char* name) {
+    const auto base=LuaRuntime::EngineModuleBase();
+    if (!base || base>UINTPTR_MAX-method.offset ||
+        !engine_memory::EngineMemoryReadable(base+method.offset,method.guard.size()) ||
+        std::memcmp(engine_memory::AsObject(base+method.offset),method.guard.data(),method.guard.size())!=0)
+        luaL_error(state,"EntityPlayer:%s native binding is unavailable",name);
+    return base+method.offset;
+}
+#endif
+}
+
+int RepentogonEntityPlayerGetHealthType(lua_State* state) {
+    if (lua_gettop(state)!=1) return luaL_error(state,"EntityPlayer:GetHealthType accepts no arguments");
+    const auto player=Player(state);
+    std::int32_t value=0;
+#if defined(__SWITCH__)
+    using Fn=std::int32_t (*)(void*);
+    value=engine_call::AsFunction<Fn>(MethodAddress(state,kHealthType,"GetHealthType"))(
+        engine_memory::AsObject(player));
+#else
+    if (!g_HealthTypeHost) return luaL_error(state,"EntityPlayer:GetHealthType host binding is unavailable");
+    value=static_cast<std::int32_t>(g_HealthTypeHost(engine_memory::AsObject(player)));
+#endif
+    lua_pushinteger(state,value);
+    return 1;
+}
+
+int RepentogonEntityPlayerGetMarkedTarget(lua_State* state) {
+    if (lua_gettop(state)!=1) return luaL_error(state,"EntityPlayer:GetMarkedTarget accepts no arguments");
+    const auto player=Player(state);
+    std::uintptr_t target=0;
+#if defined(__SWITCH__)
+    using Fn=std::uintptr_t (*)(void*);
+    target=engine_call::AsFunction<Fn>(MethodAddress(state,kMarkedTarget,"GetMarkedTarget"))(
+        engine_memory::AsObject(player));
+#else
+    if (!g_MarkedTargetHost) return luaL_error(state,"EntityPlayer:GetMarkedTarget host binding is unavailable");
+    target=g_MarkedTargetHost(engine_memory::AsObject(player));
+#endif
+    if (!target) {
+        lua_pushnil(state);
+        return 1;
+    }
+    PushEntityCallbackArgument(state,target);
+    if (lua_isnil(state,-1)) return luaL_error(state,"EntityPlayer marked target is no longer available");
+    return 1;
+}
+
+int RepentogonEntityPlayerIsLocalPlayer(lua_State* state) {
+    if (lua_gettop(state)!=1) return luaL_error(state,"EntityPlayer:IsLocalPlayer accepts no arguments");
+    const auto player=Player(state);
+    std::int32_t value=0;
+#if defined(__SWITCH__)
+    using Fn=std::int32_t (*)(void*);
+    value=engine_call::AsFunction<Fn>(MethodAddress(state,kIsLocalPlayer,"IsLocalPlayer"))(
+        engine_memory::AsObject(player));
+#else
+    if (!g_IsLocalPlayerHost) return luaL_error(state,"EntityPlayer:IsLocalPlayer host binding is unavailable");
+    value=static_cast<std::int32_t>(g_IsLocalPlayerHost(engine_memory::AsObject(player)));
+#endif
+    lua_pushboolean(state,value!=0);
+    return 1;
+}
+
+#if !defined(__SWITCH__)
+void SetRepentogonPlayerGetHealthTypeHost(RepentogonPlayerIntHost value) noexcept {g_HealthTypeHost=value;}
+void SetRepentogonPlayerGetMarkedTargetHost(RepentogonPlayerPointerHost value) noexcept {g_MarkedTargetHost=value;}
+void SetRepentogonPlayerIsLocalPlayerHost(RepentogonPlayerIntHost value) noexcept {g_IsLocalPlayerHost=value;}
+#endif
+}

@@ -244,7 +244,7 @@ class EntryRelayPolicyTests(unittest.TestCase):
         self.assertEqual(self.output["pre_exhausted"], "3")
         self.assertEqual(self.output["slot_offset_0"], "0")
         self.assertEqual(self.output["slot_offset_1"], "64")
-        # 最后一个槽的偏移由 kMaxRelays 派生，不硬编码容量：容量改成一页满槽（64）
+        # 最后一个槽的偏移由 kMaxRelays 派生，不硬编码容量：容量改成两页满槽（128）
         # 时这里不该跟着改（硬编码 15 会在改容量后变成一条与实现无关的失败）。
         self.assertEqual(self.output["slot_offset_last"], str((header_constant("kMaxRelays") - 1) * 64))
         implementation = IMPLEMENTATION.read_text(encoding="utf-8")

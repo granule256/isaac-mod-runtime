@@ -77,13 +77,13 @@ namespace isaac::runtime::relay {
 // 竞技场与槽布局
 // ---------------------------------------------------------------------------
 
-// 竞技场字节数（一页，`JIT_CREATE` 的 size 参数）。
-constexpr std::size_t kArenaBytes = 0x1000;
+// 竞技场字节数（两页，`JIT_CREATE` 的 size 参数）。
+constexpr std::size_t kArenaBytes = 0x2000;
 // 槽步长：槽地址 = 竞技场 + index * kSlotStride。
 constexpr std::size_t kSlotStride = 0x40;
-// 最多允许的中继数：竞技场一页 0x1000 ÷ 槽步长 0x40 = 64 槽，这里正好取满，
+// 最多允许的中继数：竞技场 0x2000 ÷ 槽步长 0x40 = 128 槽，这里正好取满，
 // 不再人为留半页 —— 兼容层的挂点数会超过 16，而竞技场是我们自己的空间（可增长）。
-constexpr std::size_t kMaxRelays = 64;
+constexpr std::size_t kMaxRelays = 128;
 
 // 槽内偏移。
 constexpr std::size_t kSlotStubOffset = 0x00;

@@ -13934,4 +13934,24 @@ void RegisterApi600ConfigLists(lua_State*L){
  }
 }
 
+std::uintptr_t PersistentGameDataObjectArgument(lua_State* state, int index) noexcept {
+    if (state == nullptr || lua_rawlen(state, index) != sizeof(std::uintptr_t)) return 0;
+    void* userdata = luaL_testudata(state, index, "IsaacRuntime.PersistentGameData");
+    if (userdata == nullptr) return 0;
+    std::uintptr_t handleManager = 0;
+    std::memcpy(&handleManager, userdata, sizeof(handleManager));
+    const std::uintptr_t manager = ResolveManagerAddress();
+    if (manager == 0 || manager != handleManager ||
+        manager > UINTPTR_MAX - kManagerPersistentGameDataObjectOffset) return 0;
+    const std::uintptr_t object = manager + kManagerPersistentGameDataObjectOffset;
+    return engine_memory::EngineMemoryReadable(object, 0x2a8 + 523 * sizeof(std::uint32_t))
+        ? object : 0;
+}
+
+bool EntityPlayerHasCollectibleForApi(
+    std::uintptr_t player, std::uint32_t collectibleId, bool ignoreModifiers) noexcept {
+    return CallEntityPlayerHasCollectible(
+        HasCollectibleMethod(), player, collectibleId, ignoreModifiers);
+}
+
 } // namespace isaac::runtime

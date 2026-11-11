@@ -242,12 +242,12 @@ class EntryRelayEncodingTests(unittest.TestCase):
                          self.sizes["kSlotFallbackTargetOffset"])
 
     def test_arena_capacity_covers_max_relays(self):
-        self.assertEqual(self.sizes["kArenaBytes"], 0x1000)
-        # 一页满槽：64 × 0x40 = 0x1000。容量是常量而非硬件限制，兼容层的挂点数会超过 16。
-        self.assertEqual(self.sizes["kMaxRelays"], 64)
+        self.assertEqual(self.sizes["kArenaBytes"], 0x2000)
+        # 两页满槽：128 × 0x40 = 0x2000。现有原生回调挂点已超过 64。
+        self.assertEqual(self.sizes["kMaxRelays"], 128)
         self.assertLessEqual(self.sizes["kMaxRelays"] * self.sizes["kSlotStride"],
                              self.sizes["kArenaBytes"])
-        # 竞技场必须正好一页（JIT_CREATE 的对齐要求），且槽步长是 64 字节对齐
+        # 竞技场必须整页对齐，且槽步长是 64 字节对齐
         self.assertEqual(self.sizes["kArenaBytes"] % self.sizes["kPageBytes"], 0)
         self.assertEqual(self.sizes["kSlotStride"] % 0x40, 0)
 
@@ -335,9 +335,9 @@ class EntryRelayEncodingTests(unittest.TestCase):
             self.assertIn(name, accepted, name)
         # 反例：这些登记字节里确实含 PC 相对指令，本机制必须拒绝（否则回放会算错地址）
         self.assertIn("kManagerIsActionPressedExpectedBytes", rejected)  # adrp + b（尾调用 thunk）
-        self.assertIn("kFontDestructorExpectedBytes", rejected)  # b
+        self.assertIn("kFontGetStringWidthExpectedBytes", rejected)  # cbz
         self.assertIn("kLevelIsAscentExpectedBytes", rejected)  # b.cond
-        self.assertIn("kSpriteSetFrameExpectedBytes", rejected)  # cbz
+        self.assertIn("kEntityPlayerIsExtraAnimationFinishedExpectedBytes", rejected)  # cbz
         self.assertIn("kGameFileOpenReadExpectedBytes", rejected)  # adrp
         self.assertIn("kRebuildMountPointsRelayExpectedOriginal", rejected)  # bl（调用点，非序言）
 

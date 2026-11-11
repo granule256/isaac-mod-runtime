@@ -26,7 +26,7 @@ namespace isaac::runtime::relay {
 
 namespace {
 
-// 中继竞技场：`JIT_CREATE` 在本模块 `.text` 里放一块 0x1000 字节、页对齐的静态零区
+// 中继竞技场：`JIT_CREATE` 在本模块 `.text` 里放一块 0x2000 字节、页对齐的静态零区
 // （section `.text.EntryRelayArena`），`exl::util::Jit` 再用 `RwPages` 映射出可写别名。
 // 注意它**从来不是**游戏映像的一部分，也不占任何游戏代码洞。
 JIT_CREATE(EntryRelayArena, kArenaBytes);

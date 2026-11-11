@@ -4707,6 +4707,20 @@ private:
 
 constexpr std::uint32_t kGameStartedFromSave = 1;
 constexpr std::uint32_t kGameStartedFresh = 2;
+
+bool RepentogonGameplayScene() noexcept {
+    const std::uintptr_t base=EngineModuleBase();
+    std::uintptr_t slot{},manager{};
+    std::uint32_t scene{};
+    return base&&
+        isaac::runtime::engine_memory::ReadField(base,kGameManagerGlobalSlotOffset,&slot,
+            isaac::runtime::engine_memory::EngineMemoryReadable)&&slot&&
+        isaac::runtime::engine_memory::ReadAt(slot,&manager,
+            isaac::runtime::engine_memory::EngineMemoryReadable)&&manager&&
+        isaac::runtime::engine_memory::ReadField(manager,kManagerRenderSceneOffset,&scene,
+            isaac::runtime::engine_memory::EngineMemoryReadable)&&
+        scene==kManagerGameplayScene;
+}
 }  // namespace
 
 namespace {
@@ -4792,6 +4806,20 @@ isaac::runtime::repentogon::Result DispatchRepentogonCallback(
         }
         case EventKind::IntegerPair:
             invoker.arguments.AddInteger(event.first);
+            invoker.arguments.AddInteger(event.second);
+            break;
+        case EventKind::AddCollectible:
+            filter=event.first;
+            invoker.arguments.AddInteger(event.first);
+            invoker.arguments.AddInteger(event.second);
+            invoker.arguments.AddBoolean(event.low);
+            invoker.arguments.AddInteger(event.third);
+            invoker.arguments.AddInteger(event.fourth);
+            invoker.arguments.AddEntity(event.object);
+            break;
+        case EventKind::SaveSlot:
+            invoker.arguments.AddInteger(event.first);
+            invoker.arguments.AddBoolean(event.low);
             invoker.arguments.AddInteger(event.second);
             break;
         case EventKind::Global:
@@ -6342,9 +6370,18 @@ InputActionOutcome DispatchLogicalInputAction(std::uint32_t luaAction,
                                                std::int32_t inputHook, std::uintptr_t entity) {
     InputActionOutcome outcome{};
     if (!IsReady() || g_LuaState == nullptr) return outcome;
-    if (!isaac::runtime::BuiltinCallbackEnabled(isaac::runtime::kCallbackInputAction)) {
-        return outcome;  // 快路径（绝大多数帧走这里）
+    const bool gameplayListener =
+        isaac::runtime::BuiltinCallbackEnabled(isaac::runtime::kCallbackInputAction);
+    constexpr std::uint32_t kMenuInputCallback = 1464;
+    const bool menuListener = isaac::runtime::repentogon::Listening(kMenuInputCallback);
+    if (!gameplayListener && !menuListener) return outcome;  // 快路径（绝大多数帧走这里）
+    bool gameplay = true;
+    if (menuListener) {
+        gameplay = RepentogonGameplayScene();
+        if (gameplay && !gameplayListener) return outcome;
     }
+    const auto callbackId = gameplay
+        ? isaac::runtime::kCallbackInputAction : kMenuInputCallback;
     static bool inInputActionDispatch = false;
     if (inInputActionDispatch) {
         return outcome;
@@ -6352,7 +6389,7 @@ InputActionOutcome DispatchLogicalInputAction(std::uint32_t luaAction,
     // Native player queries can reenter here inside another Lua dispatch.
     // Only the owner may close that window; retain its permission/cache epoch.
     const ManagedEngineDispatchScope dispatchScope;
-    if (!isaac::runtime::ShouldDispatchManagedCallbacks()) return outcome;
+    if (gameplay && !isaac::runtime::ShouldDispatchManagedCallbacks()) return outcome;
     LuaCallbackInvoker invoker{0, false, false};
     // PC 签名：`(Entity, InputHook, ButtonAction)`。
     // 真实nil/玩家/受控实体，保留原调用者上下文，不把界面输入伪装成玩家0。
@@ -6394,7 +6431,7 @@ InputActionOutcome DispatchLogicalInputAction(std::uint32_t luaAction,
     // 回归断言钉在 `runtime/tests/test_lua_callback_dispatch_sites.py`（那条门禁还会核对
     //   "派发点名单 ↔ 源码里的派发调用"，所以这三行的**写法**也别乱改）。
     const isaac::runtime::CallbackDispatchOutcome result =
-        dispatcher.DispatchModifying(isaac::runtime::kCallbackInputAction,
+        dispatcher.DispatchModifying(callbackId,
                                      isaac::runtime::ThreadAffinity::Any,
                                      static_cast<std::int64_t>(inputHook));
     inInputActionDispatch = false;

@@ -7,7 +7,7 @@ from . import test_support
 from .test_repentogon_callbacks import RUNTIME_DRIVER,SOURCE
 
 DRIVER=RUNTIME_DRIVER.replace('mode=="catalog"','(mode=="catalog"||mode=="cached_listeners")')
-needle='''            Check();assert(Number("calls")==102&&g_ExtendedCallbackEnabledCount==102);'''
+needle='''            Check();assert(Number("calls")==106&&g_ExtendedCallbackEnabledCount==106);'''
 assert needle in DRIVER
 DRIVER=DRIVER.replace(needle,needle+r'''
             if(mode=="cached_listeners") {

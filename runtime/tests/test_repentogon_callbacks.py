@@ -141,6 +141,7 @@ static void Extensions(lua_State* state) noexcept {
     lua_pushcfunction(state,Reenter);lua_setglobal(state,"_reenter");
 }
 static const RepentogonCallbackBinding expected[]={
+{1005,"MC_POST_ADD_COLLECTIBLE"},
 {1020,"MC_HUD_UPDATE"},
 {1021,"MC_POST_HUD_UPDATE"},
 {1022,"MC_HUD_RENDER"},
@@ -160,6 +161,7 @@ static const RepentogonCallbackBinding expected[]={
 {1088,"MC_PRE_BOMB_RENDER"},
 {1089,"MC_PRE_SLOT_RENDER"},
 {1090,"MC_POST_SLOT_RENDER"},
+{1101,"MC_POST_GRID_ENTITY_SPAWN"},
 {1121,"MC_POST_SLOT_INIT"},
 {1122,"MC_POST_SLOT_UPDATE"},
 {1160,"MC_PRE_PLAYER_UPDATE"},
@@ -243,6 +245,8 @@ static const RepentogonCallbackBinding expected[]={
 {1461,"MC_POST_GRID_ENTITY_PRESSUREPLATE_RENDER"},
 {1462,"MC_PRE_GRID_ENTITY_WALL_RENDER"},
 {1463,"MC_POST_GRID_ENTITY_WALL_RENDER"},
+{1464,"MC_MENU_INPUT_ACTION"},
+{1470,"MC_POST_SAVESLOT_LOAD"},
 
 };
 int main(int argc,char** argv){
@@ -375,16 +379,16 @@ local f;f=function()m:RemoveCallback(1400,f);calls=calls+1 end;m:AddCallback(140
     if(mode=="off"||mode=="none"){
         assert(!Listening(1400));assert(installCalls==0&&readyCalls==0);assert(ExtendedCallbackCount()==0);
     }else{
-        assert(installCalls==1&&readyCalls==1&&ExtendedCallbackCount()==102);
+        assert(installCalls==1&&readyCalls==1&&ExtendedCallbackCount()==106);
         unsigned type=20,variant=7,subtype=9,gridType=4;
         std::memcpy(entity+kEntityTypeOffset,&type,4);std::memcpy(entity+kEntityVariantOffset,&variant,4);
         std::memcpy(entity+kEntitySubTypeOffset,&subtype,4);std::memcpy(grid+kGridEntityTypeOffset,&gridType,4);
         Vector offset{10,20};Sound sound{5,0.5f,2,false,1,0};
         auto send=[&](unsigned id,EventKind kind=EventKind::Global){return Dispatch(Event{id,kind,kind==EventKind::Grid||kind==EventKind::GridRender?Address(grid):Address(entity),Address(collider),&offset,true,&sound});};
         if(mode=="catalog"){
-            assert(sizeof(expected)/sizeof(expected[0])==102);
+            assert(sizeof(expected)/sizeof(expected[0])==106);
             for(const auto& c:expected){assert(Listening(c.id));send(c.id);}
-            Check();assert(Number("calls")==102&&g_ExtendedCallbackEnabledCount==102);
+            Check();assert(Number("calls")==106&&g_ExtendedCallbackEnabledCount==106);
         }else if(mode=="render"){
             auto result=send(1080,EventKind::EntityRender);Check();assert(result.hasOffset&&result.offset.x==11&&result.offset.y==27);
         }else if(mode=="booleans"){
@@ -494,7 +498,7 @@ class RepentogonCallbackTests(unittest.TestCase):
 #include <cassert>
 using namespace isaac::runtime;
 int main(){
- g_ExtendedCallbacks=reinterpret_cast<ExtendedCallbackState*>(1);g_ExtendedCallbackCount=102;
+ g_ExtendedCallbacks=reinterpret_cast<ExtendedCallbackState*>(1);g_ExtendedCallbackCount=106;
  for(unsigned id=0;id<1000;++id)assert(FindExtendedCallback(id)==nullptr);
  g_ExtendedCallbackDelivery=false;g_ExtendedCallbackEnabledCount=100;
  assert(!ExtendedCallbackEnabled(1400));
