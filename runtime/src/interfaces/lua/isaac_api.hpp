@@ -387,6 +387,7 @@ enum class CallbackEntityClass : std::uint32_t {
     Bomb,
     Player,
     Pickup,
+    Slot,
 };
 
 // 分类判据逐条写在实现处。判不出（指针不合法 / vptr 不在 `Entity` 家族区间 / 类型不属于上面

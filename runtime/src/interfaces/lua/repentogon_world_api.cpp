@@ -1,5 +1,6 @@
 #include "interfaces/lua/repentogon_world_api.hpp"
 #include "infrastructure/call/engine_call_access.hpp"
+#include "interfaces/lua/api100_native.hpp"
 
 #include "infrastructure/memory/engine_field_access.hpp"
 #include "interfaces/lua/field_api.hpp"
@@ -29,6 +30,8 @@ constexpr std::uintptr_t kGridEntityTrapDoorVtableOffset = 0xA38120;
 // (GridEntityTrapDoor is the GRID_TRAPDOOR type).
 constexpr std::uint32_t kGridEntityTypeTrapDoor = 17;
 constexpr std::uint8_t kSetStageGuard[]={0xfd,0x7b,0xbd,0xa9,0xf6,0x57,0x01,0xa9,0xfd,0x03,0x00,0x91,0xf4,0x4f,0x02,0xa9};
+constexpr std::uint8_t kGreedTimerGuard[]={0xff,0x03,0x01,0xd1,0xfd,0x7b,0x01,0xa9,0xfd,0x43,0x00,0x91,0xf6,0x57,0x02,0xa9};
+api100_native::Cache g_GreedTimerLayout{};
 #if !defined(__SWITCH__)
 void (*g_SetStageHost)(void*,std::int32_t,std::int32_t){};
 #endif
@@ -54,6 +57,32 @@ int RepentogonLevelSetStage(lua_State* state) {
     method=g_SetStageHost;
 #endif
     method(engine_memory::AsObject(level),stage,type);return 0;
+}
+
+int RepentogonRoomGetGreedWaveTimer(lua_State* state) {
+    if(!LuaRuntime::IsOnGameThread())return luaL_error(state,"Room:GetGreedWaveTimer requires the game thread");
+    luaL_checkudata(state,1,LuaRuntime::kRoomMetatable);
+    if(lua_gettop(state)!=1)return luaL_error(state,"Room:GetGreedWaveTimer accepts no arguments");
+    const auto room=ResolveEngineReceiver(state,FieldReceipt::Room,1);
+    if(!room)return luaL_error(state,"Room reference is no longer available");
+    static_cast<void>(api100_native::Resolve(state,{0x46bd50,kGreedTimerGuard},g_GreedTimerLayout));
+    std::int32_t value{};
+    if(!engine_memory::ReadField(room,0x7910,&value,engine_memory::EngineMemoryReadable))
+        return luaL_error(state,"Room greed wave timer is not readable");
+    lua_pushinteger(state,value);return 1;
+}
+
+int RepentogonRoomSetGreedWaveTimer(lua_State* state) {
+    if(!LuaRuntime::IsOnGameThread())return luaL_error(state,"Room:SetGreedWaveTimer requires the game thread");
+    luaL_checkudata(state,1,LuaRuntime::kRoomMetatable);
+    if(lua_gettop(state)!=2)return luaL_error(state,"Room:SetGreedWaveTimer expects one integer");
+    const auto room=ResolveEngineReceiver(state,FieldReceipt::Room,1);
+    if(!room)return luaL_error(state,"Room reference is no longer available");
+    static_cast<void>(api100_native::Resolve(state,{0x46bd50,kGreedTimerGuard},g_GreedTimerLayout));
+    const auto value=static_cast<std::int32_t>(luaL_checkinteger(state,2));
+    if(!engine_memory::WriteField(room,0x7910,value,engine_memory::EngineMemoryWritable))
+        return luaL_error(state,"Room greed wave timer is not writable");
+    return 0;
 }
 #if !defined(__SWITCH__)
 void SetRepentogonLevelSetStageHost(void (*method)(void*,std::int32_t,std::int32_t)) noexcept {

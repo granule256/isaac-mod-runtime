@@ -397,6 +397,7 @@ using LuaRuntime::ItemConfigHandle;
 using LuaRuntime::ItemConfigItemHandle;
 using LuaRuntime::kEntityMetatable;
 using LuaRuntime::kEntityPickupMetatable;
+using LuaRuntime::kEntitySlotMetatable;
 using LuaRuntime::kEntityPlayerMetatable;
 using LuaRuntime::kEntityProjectileMetatable;
 using LuaRuntime::kEntityTearMetatable;
@@ -513,6 +514,7 @@ int IsaacGetSoundIdByName(lua_State* state);
 int EntityIndex(lua_State* state);
 int EntityPlayerIndex(lua_State* state);
 int EntityPickupIndex(lua_State* state);
+int EntitySlotIndex(lua_State* state);
 // `EntityProjectile` 视图的 `__index`。
 int EntityProjectileIndex(lua_State* state);
 int EntityPickupIsShopItem(lua_State* state);
@@ -1759,7 +1761,7 @@ EntityHandle* TryGetEntityHandle(lua_State* state, int index) noexcept {
     }
     constexpr const char* metatables[] = {
         kEntityPlayerMetatable, kEntityMetatable, kEntityPickupMetatable,
-        kEntityProjectileMetatable, kEntityTearMetatable, kEntityBombMetatable,
+        kEntityProjectileMetatable, kEntityTearMetatable, kEntityBombMetatable, kEntitySlotMetatable,
         kEntityLaserMetatable, kEntityKnifeMetatable, kEntityNPCMetatable, kEntityFamiliarMetatable,
     };
     // 玩家保留原来的短路径；其余视图在本次识别中共用真实元表。
@@ -2213,6 +2215,7 @@ const char* EntityViewMetatableForPointer(std::uintptr_t entity) noexcept {
     switch (ClassifyCallbackEntity(entity)) {
         case CallbackEntityClass::Player: return kEntityPlayerMetatable;
         case CallbackEntityClass::Pickup: return kEntityPickupMetatable;
+        case CallbackEntityClass::Slot: return kEntitySlotMetatable;
         case CallbackEntityClass::Familiar: return kEntityFamiliarMetatable;
         case CallbackEntityClass::Laser:
             return IsTypedEntity(entity,kEntityLaserVtableOffset,kEntityTypeLaser)
@@ -2912,7 +2915,7 @@ bool PushMethodFrom(lua_State* state, const char* metatable, const char* field) 
 
 // 视图身份：决定用哪套字段与方法表（`EntityPlayer`/`EntityPickup`/`EntityProjectile` 都回落到
 // `Entity` 的方法表，与 PC 的继承关系一致），以及用哪一级句柄校验。
-enum class EntityView : std::uint8_t { Base, Player, Pickup, Projectile, Tear, Laser, Npc, Familiar, Bomb, Knife };
+enum class EntityView : std::uint8_t { Base, Player, Pickup, Projectile, Tear, Laser, Npc, Familiar, Bomb, Knife, Slot };
 
 const char* EntityViewMetatable(EntityView view) noexcept {
     if(view==EntityView::Knife)return kEntityKnifeMetatable;
@@ -2943,6 +2946,7 @@ const char* EntityViewMetatable(EntityView view) noexcept {
     }
     // `EntityFamiliar`（`Entity:ToFamiliar()` 的返回值）—— 同一形态：自己的方法
     // （`FollowParent`/`AddToFollowers`）挂在自己的元表上，字段回落到 `Entity`。
+    if (view == EntityView::Slot) return kEntitySlotMetatable;
     return view == EntityView::Familiar ? kEntityFamiliarMetatable : kEntityMetatable;
 }
 
@@ -3125,6 +3129,9 @@ int EntityPlayerIndex(lua_State* state) {
 
 int EntityPickupIndex(lua_State* state) {
     return IndexEntity(state, EntityView::Pickup);
+}
+int EntitySlotIndex(lua_State* state) {
+    return IndexEntity(state, EntityView::Slot);
 }
 
 // `EntityTear` 视图的 `__index`。
@@ -13150,6 +13157,16 @@ void RegisterViewMetatables(lua_State* state) {
     lua_setfield(state, -2, "__newindex");
     lua_pop(state, 1);
 
+    luaL_newmetatable(state, kEntitySlotMetatable);
+    lua_newtable(state);
+    static_cast<void>(AttachOwnerMethods(state, "EntitySlot", nullptr, 0));
+    lua_setfield(state, -2, "__methods");
+    lua_pushcfunction(state, EntitySlotIndex);
+    lua_setfield(state, -2, "__index");
+    lua_pushcfunction(state, EntityNewIndex);
+    lua_setfield(state, -2, "__newindex");
+    lua_pop(state, 1);
+
     luaL_newmetatable(state, kEntityPlayerMetatable);
     lua_newtable(state);
     static_cast<void>(AttachEntityPlayerMethods(state));
@@ -13347,7 +13364,7 @@ void RegisterViewMetatables(lua_State* state) {
     PublishNativeClass(state,"Entity",kEntityMetatable);
     for(const auto& cls : {std::pair<const char*,const char*>{"EntityPlayer",kEntityPlayerMetatable},
         {"EntityPickup",kEntityPickupMetatable},{"EntityProjectile",kEntityProjectileMetatable},
-        {"EntityTear",kEntityTearMetatable},{"EntityBomb",kEntityBombMetatable},
+        {"EntityTear",kEntityTearMetatable},{"EntityBomb",kEntityBombMetatable},{"EntitySlot",kEntitySlotMetatable},
         {"EntityLaser",kEntityLaserMetatable},{"EntityKnife",kEntityKnifeMetatable},{"EntityNPC",kEntityNPCMetatable},
         {"EntityFamiliar",kEntityFamiliarMetatable}}) {
         PublishNativeClass(state,cls.first,cls.second,kEntityMetatable);
@@ -13833,6 +13850,11 @@ CallbackEntityClass ClassifyCallbackEntity(std::uintptr_t candidate,
         base <= UINTPTR_MAX - kEntityPickupVtableOffset &&
         snapshot.vtable == base + kEntityPickupVtableOffset) {
         return CallbackEntityClass::Pickup;
+    }
+    if (snapshot.type == 6 && base != 0 &&
+        base <= UINTPTR_MAX - kEntitySlotVtableOffset &&
+        snapshot.vtable == base + kEntitySlotVtableOffset) {
+        return CallbackEntityClass::Slot;
     }
     if (snapshot.type == kEntityTypeFamiliar && base != 0 &&
         base <= UINTPTR_MAX - kEntityFamiliarVtableOffset &&

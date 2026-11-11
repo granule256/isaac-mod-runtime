@@ -29,8 +29,8 @@ constexpr unsigned kEntitySnapshotSpan=0x348,kEntityFlagsOffset=0x1b8,kEntityTyp
 constexpr unsigned kEntityTypePlayer=1,kEntityTypePickup=5,kEntityTypeFamiliar=3,
  kEntityTypeTear=2,kEntityTypeProjectile=9,kEntityTypeLaser=7,kEntityTypeKnife=8,
  kEntityTypeEffect=1000,kEntityTypeBomb=4;
-constexpr unsigned kEntityPlayerVtableOffset=16,kEntityPickupVtableOffset=24,kEntityFamiliarVtableOffset=32;
-enum class CallbackEntityClass{None,Player,Pickup,Familiar,Tear,Projectile,Laser,Knife,Effect,Bomb,Npc};
+constexpr unsigned kEntityPlayerVtableOffset=16,kEntityPickupVtableOffset=24,kEntityFamiliarVtableOffset=32,kEntitySlotVtableOffset=48;
+enum class CallbackEntityClass{None,Npc,Familiar,Tear,Projectile,Laser,Knife,Effect,Bomb,Player,Pickup,Slot};
 std::array<unsigned char,kEntitySnapshotSpan> entity{};
 bool readable=true;unsigned spatialReads{};
 std::uintptr_t EngineModuleBase(){return 0x1000;}
@@ -51,7 +51,8 @@ int main(){
  {3,32,CallbackEntityClass::Familiar},{2,40,CallbackEntityClass::Tear},
  {9,40,CallbackEntityClass::Projectile},{7,40,CallbackEntityClass::Laser},
  {8,40,CallbackEntityClass::Knife},{1000,40,CallbackEntityClass::Effect},
- {4,40,CallbackEntityClass::Bomb},{160,40,CallbackEntityClass::Npc},{6,40,CallbackEntityClass::None}};
+ {4,40,CallbackEntityClass::Bomb},{160,40,CallbackEntityClass::Npc},
+ {6,48,CallbackEntityClass::Slot},{6,40,CallbackEntityClass::None}};
  auto address=reinterpret_cast<std::uintptr_t>(entity.data());
  for(auto c:cases){
   write(0,std::uintptr_t(0x1000+c.offset));write(kEntityTypeOffset,c.type);

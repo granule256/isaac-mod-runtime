@@ -6078,6 +6078,7 @@ void DispatchPostManualEntityUpdate(std::uintptr_t entity) {
         // post-update callback. Neither may be fed into another entity family.
         case isaac::runtime::CallbackEntityClass::Npc:
         case isaac::runtime::CallbackEntityClass::Projectile:
+        case isaac::runtime::CallbackEntityClass::Slot:
         case isaac::runtime::CallbackEntityClass::None:
             return;
     }

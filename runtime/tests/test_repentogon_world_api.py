@@ -42,6 +42,13 @@ void InspectDefaultSurface(lua_State* state) noexcept {
     lua_pushboolean(state, lua_isfunction(state, -1));
     lua_setglobal(state, "defaultGridTrapDoor");
     lua_pop(state, 3);
+
+    luaL_getmetatable(state, LuaRuntime::kRoomMetatable);
+    lua_getfield(state, -1, "__index");
+    lua_getfield(state, -1, "GetGreedWaveTimer");
+    lua_pushboolean(state, lua_isfunction(state, -1));
+    lua_setglobal(state, "defaultRoomGreedTimer");
+    lua_pop(state, 3);
 }
 
 int main() {
@@ -52,6 +59,7 @@ int main() {
 local missing = {}
 if not defaultLevelDimension then missing[#missing + 1] = 'Level.GetDimension' end
 if not defaultGridTrapDoor then missing[#missing + 1] = 'GridEntity.ToTrapDoor' end
+if not defaultRoomGreedTimer then missing[#missing + 1] = 'Room.GetGreedWaveTimer' end
 assert(#missing == 0, 'missing APIs: ' .. table.concat(missing, ', '))
 )lua";
     LuaRuntime::SetRuntimeExtensionInstaller(InspectDefaultSurface);
@@ -71,8 +79,10 @@ BEHAVIOR = r'''
 #include "lua_object_handles.hpp"
 #include "lua_runtime.hpp"
 #include "runtime_constants.hpp"
+#include "game_observer.hpp"
 
 #include <cstdint>
+#include <cassert>
 #include <cstdio>
 #include <cstring>
 #include <vector>
@@ -86,6 +96,7 @@ namespace {
 std::vector<unsigned char> g_ModuleBytes;
 std::vector<unsigned char> g_OwnerSlotBytes;
 std::vector<unsigned char> g_GameBytes;
+std::vector<unsigned char> g_RoomBytes;
 std::vector<unsigned char> g_TrapDoorBytes;
 std::vector<unsigned char> g_RockBytes;
 std::vector<unsigned char> g_WrongTypeBytes;
@@ -93,6 +104,7 @@ std::vector<unsigned char> g_WrongTypeBytes;
 constexpr std::uintptr_t kTrapDoorVtable = 0xA38120;
 constexpr std::uint32_t kTrapDoorType = 17;
 constexpr std::uint32_t kRockType = 2;
+constexpr std::uintptr_t kGreedTimerOffset = 0x7910;
 
 template <typename T>
 void WriteAt(std::vector<unsigned char>& bytes, std::size_t offset, T value) {
@@ -107,6 +119,7 @@ void PublishNativeState() {
     g_ModuleBytes.assign(kGameOwnerGlobalSlotOffset + sizeof(std::uintptr_t), 0);
     g_OwnerSlotBytes.assign(sizeof(std::uintptr_t), 0);
     g_GameBytes.assign(kLevelCurrentRoomDimensionOffset + sizeof(std::uint32_t), 0);
+    g_RoomBytes.assign(0x8000, 0);
     g_TrapDoorBytes.assign(0x40, 0);
     g_RockBytes.assign(0x40, 0);
     g_WrongTypeBytes.assign(0x40, 0);
@@ -115,6 +128,11 @@ void PublishNativeState() {
                             AddressOf(g_OwnerSlotBytes));
     WriteAt<std::uintptr_t>(g_OwnerSlotBytes, 0, AddressOf(g_GameBytes));
     WriteAt<std::uint32_t>(g_GameBytes, kLevelCurrentRoomDimensionOffset, 1);
+    WriteAt<std::uintptr_t>(g_GameBytes, 0x21550,
+                            AddressOf(g_RoomBytes));
+    WriteAt<std::int32_t>(g_RoomBytes, kGreedTimerOffset, 240);
+    const unsigned char greedGuard[]={0xff,0x03,0x01,0xd1,0xfd,0x7b,0x01,0xa9,0xfd,0x43,0x00,0x91,0xf6,0x57,0x02,0xa9};
+    std::memcpy(g_ModuleBytes.data()+0x46bd50,greedGuard,sizeof(greedGuard));
 
     const auto base = AddressOf(g_ModuleBytes);
     WriteAt<std::uintptr_t>(g_TrapDoorBytes, 0,
@@ -129,7 +147,7 @@ void PublishNativeState() {
     WriteAt<std::uint32_t>(g_WrongTypeBytes, kGridEntityTypeOffset, 16);
 
     LuaRuntime::SetEngineModuleBase(base);
-    LuaRuntime::SetGameBindings(AddressOf(g_OwnerSlotBytes), 0);
+    LuaRuntime::SetGameBindings(base + kGameOwnerGlobalSlotOffset, 0);
 }
 
 void InstallTestBindings(lua_State* state) noexcept {
@@ -144,6 +162,19 @@ void InstallTestBindings(lua_State* state) noexcept {
     lua_setfield(state, -2, "ToTrapDoor");
     lua_pop(state, 2);
 
+    lua_pushcfunction(state, [](lua_State* lua) -> int {
+        luaL_checkudata(lua, 1, LuaRuntime::kRoomMetatable);
+        lua_getmetatable(lua, 1);
+        lua_getfield(lua, -1, "__index");
+        lua_pushcfunction(lua, isaac::runtime::RepentogonRoomGetGreedWaveTimer);
+        lua_setfield(lua, -2, "GetGreedWaveTimer");
+        lua_pushcfunction(lua, isaac::runtime::RepentogonRoomSetGreedWaveTimer);
+        lua_setfield(lua, -2, "SetGreedWaveTimer");
+        lua_pop(lua, 2);
+        return 0;
+    });
+    lua_setglobal(state, "_installRoomMethods");
+
     isaac::runtime::PushGridEntityHandle(state, AddressOf(g_TrapDoorBytes));
     lua_setglobal(state, "trapdoor");
     isaac::runtime::PushGridEntityHandle(state, AddressOf(g_RockBytes));
@@ -154,6 +185,13 @@ void InstallTestBindings(lua_State* state) noexcept {
 
 } // namespace
 
+GameRoomObservation ReadCurrentGameRoom(std::uintptr_t, void** room) {
+    if (room == nullptr) return GameRoomObservation::RoomUnreadable;
+    *room = g_RoomBytes.data();
+    return g_RoomBytes.empty() ? GameRoomObservation::RoomUnreadable
+                               : GameRoomObservation::Success;
+}
+
 int main() {
     PublishNativeState();
     LuaRuntime::ObserveGameThread();
@@ -163,6 +201,14 @@ int main() {
 savedLevel = Game():GetLevel()
 assert(savedLevel:GetDimension() == 1)
 assert(not pcall(function() return savedLevel:GetDimension(1) end))
+if type(_installRoomMethods)~='function' then error('room installer missing') end
+local room=Game():GetRoom();if room==nil then error('room nil') end
+_installRoomMethods(room)
+assert(room:GetGreedWaveTimer()==240)
+room:SetGreedWaveTimer(17)
+assert(room:GetGreedWaveTimer()==17)
+assert(not pcall(function() room:GetGreedWaveTimer(1) end))
+assert(not pcall(function() room:SetGreedWaveTimer({}) end))
 
 local trap = trapdoor:ToTrapDoor()
 assert(trap ~= nil and trap:GetType() == 17)

@@ -9,6 +9,7 @@
 #include "interfaces/lua/repentogon_player_manager_api.hpp"
 #include "interfaces/lua/api600_player.hpp"
 #include "interfaces/lua/api700_player.hpp"
+#include "interfaces/lua/repentogon_entity_api.hpp"
 #include "application/callback/extended_callback_runtime.hpp"
 #include "lua_runtime.hpp"
 #include <array>
@@ -165,6 +166,10 @@ constexpr RepentogonApiBinding kApis[]={
       ApiMaturity::Experimental},RepentogonRoomSetWaterAmount},
     {{0x04020002,ApiDomain::Room,"Room","SetWaterCurrent",{},0,ThreadAffinity::ManagedCallback,
       ApiMaturity::Experimental},RepentogonRoomSetWaterCurrent},
+    {{0x04020003,ApiDomain::Room,"Room","GetGreedWaveTimer",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonRoomGetGreedWaveTimer},
+    {{0x04020004,ApiDomain::Room,"Room","SetGreedWaveTimer",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonRoomSetGreedWaveTimer},
     {{0x0E020100,ApiDomain::Isaac,"ProceduralItemManager","GetProceduralItem",{},0,ThreadAffinity::ManagedCallback,
       ApiMaturity::Experimental},ProceduralItemManagerGetProceduralItem},
     {{0x0E020101,ApiDomain::Isaac,"ProceduralItem","GetTargetItem",{},0,ThreadAffinity::ManagedCallback,
@@ -199,6 +204,22 @@ constexpr RepentogonApiBinding kApis[]={
       ApiMaturity::Experimental},Api700PocketItemGetType},
     {{0x0E020110,ApiDomain::Isaac,"MultiShotParams","GetNumLanesPerEye",{},0,ThreadAffinity::ManagedCallback,
       ApiMaturity::Experimental},Api600MultiShotParamsGetNumLanesPerEye},
+    {{0x0E020111,ApiDomain::Isaac,"Entity","GiveMinecart",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonEntityGiveMinecart},
+    {{0x0E020112,ApiDomain::Isaac,"Entity","GetMinecart",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonEntityGetMinecart},
+    {{0x0E020113,ApiDomain::Isaac,"Entity","ToSlot",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonEntityToSlot},
+    {{0x0E020114,ApiDomain::Isaac,"EntitySlot","GetPrizeCollectible",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonEntitySlotGetPrizeCollectible},
+    {{0x0E020115,ApiDomain::Isaac,"EntityPickup","GetCollectibleCycle",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonEntityPickupGetCollectibleCycle},
+    {{0x0E020116,ApiDomain::Isaac,"EntityPickup","RemoveCollectibleCycle",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonEntityPickupRemoveCollectibleCycle},
+    {{0x0E020117,ApiDomain::Isaac,"EntityPickup","GetFlipCollectible",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonEntityPickupGetFlipCollectible},
+    {{0x0E020118,ApiDomain::Isaac,"EntityPickup","InitFlipState",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonEntityPickupInitFlipState},
 };
 // A bounded read-only ID map addresses the cached states, not the ordinary ID array.
 constexpr auto MakeStateIndices() noexcept {

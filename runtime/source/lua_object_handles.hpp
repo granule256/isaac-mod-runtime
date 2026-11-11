@@ -56,6 +56,8 @@ inline constexpr char kEntityPlayerMetatable[] = "IsaacRuntime.EntityPlayer";
 // `OptionsPickupIndex`/`ForceBlind`/`Touched`）走它自己的 `__index`。判据是 `Type == 5`
 // **且** vptr == `base + 0xA36E28`（`Entity_Pickup` 的 vtable 唯一），见 `isaac_api.cpp`。
 inline constexpr char kEntityPickupMetatable[] = "IsaacRuntime.EntityPickup";
+// `Entity:ToSlot()` 的返回值；槽位对象不是拾取物，奖赏字段走自己的 `__methods`。
+inline constexpr char kEntitySlotMetatable[] = "IsaacRuntime.EntitySlot";
 // `EntityProjectile`：`Entity:ToProjectile()` 的返回值。
 // 句柄体同样复用 `EntityHandle`（一个原生实体指针）。判据 = `Type == 9` **且**
 // vptr == `base + 0xA37410`（就是 `_ZTVN15IsaacRepentance17Entity_ProjectileE` + 0x10），
