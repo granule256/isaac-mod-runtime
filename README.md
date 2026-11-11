@@ -156,6 +156,16 @@ An entire `isaac_mods` tree can be placed at `SD:/isaac_mods/`. When `SD:/isaac_
 
 Building requires Python, Docker, the C++ cross toolchain and your own supported original game inputs. See [`runtime/Makefile`](runtime/Makefile) for arguments and targets. A complete runtime build also requires a `NOTICE_GUARD_ARCHIVE` matching the source and notice resources; its internal implementation is not included in this repository. Host Lua integration tests require a matching `NOTICE_GUARD_HOST_ARCHIVE` for the host platform.
 
+### Performance capture
+
+With the game running and an existing NXC host connection, use the ELF paired with the installed runtime:
+
+```sh
+python3 tools/runtime_perf_capture.py --elf runtime.elf --seconds 8 --output sample.json
+```
+
+If NXC is not on Python's module path, pass `--nxc-package` with its zipapp or package directory. The tool verifies the runtime before requesting game-thread snapshots; it does not change clocks or mod settings. The default reports totals and GC counters without per-callback attribution overhead. Add `--callback-details` for callback owners, rates, coverage and overflow; this enables a bounded profiling window and restores the default afterward, with automatic expiry if the tool exits unexpectedly. Its instrumented FPS is not an uninstrumented benchmark. Nested timings are inclusive, not additive CPU usage. Full API-handler timings require a build with `PERF_API_WRAPPER=1`; production defaults retain only explicitly instrumented subpaths. Presentation FPS is included when the SaltyNX counter is available.
+
 ## License and credits
 
 The source code published in this repository is licensed under [GPL-2.0](LICENSE). Original code is **Copyright (C) 2026 granule256**. Third-party files retain their own copyrights and licenses.

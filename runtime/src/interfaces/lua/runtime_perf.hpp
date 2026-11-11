@@ -130,7 +130,7 @@ inline void RecordRuntimePerfBin(std::uint32_t* bins, std::uint64_t spentTicks) 
 // 桶的个数与每项字节数。读数工具按 `PERF_BUCKET_COUNT × PERF_BUCKET_BYTES` 整块读它们，
 // 改这里必须同步 `tools/read_device_state_via_gdb.py` 的同名常量 ——
 // 门禁 `runtime/tests/test_perf_callback_buckets.py` 会核对两边一致。
-inline constexpr std::size_t kRuntimePerfBucketCount = 64;
+inline constexpr std::size_t kRuntimePerfBucketCount = 512;
 inline constexpr std::size_t kRuntimePerfBucketBytes = sizeof(RuntimePerfCallbackBucket);
 
 // 把 `CallbackDescriptor` 的 id 与属主打包成一个键（与错误历史里的 `#N 代M` 同一套口径）。
@@ -149,7 +149,9 @@ inline constexpr std::size_t kRuntimePerfBucketBytes = sizeof(RuntimePerfCallbac
 // 这样这些行为有真测试，而不是只靠读代码。
 [[nodiscard]] inline bool RecordRuntimePerfCallbackSample(
     RuntimePerfCallbackBucket* buckets, std::size_t capacity,
-    std::uint64_t key, std::uint64_t spent, std::uint64_t* overflow) noexcept {
+    std::uint64_t key, std::uint64_t spent, std::uint64_t* overflow,
+    bool enabled = true) noexcept {
+    if (!enabled) return false;
     // 散列探测取代线性扫描。原来每次记账都从第 0 个槽开始逐项比较，
     // 而 API 桶已经扩到 512 个 ⇒ 每次接口调用都可能比较几百次（每帧 646 次调用）。
     // 现在按 key 散列到起点、最多探测 8 次；失败才退回一次完整扫描（正确性不变）。

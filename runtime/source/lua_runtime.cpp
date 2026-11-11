@@ -127,6 +127,7 @@ extern "C" {
 
 #include "interfaces/lua/runtime_perf.hpp"
 #include "interfaces/lua/runtime_profiler.hpp"
+#include "interfaces/lua/runtime_perf_snapshot.hpp"
 #include "interfaces/lua/owner_binding.hpp"
 
 // ============================================================================
@@ -153,6 +154,19 @@ __attribute__((visibility("hidden"))) std::atomic<std::uint64_t> g_RuntimePerfSy
 __attribute__((visibility("hidden"))) isaac::runtime::RuntimePerfCallbackBucket
     g_RuntimePerfCallbackBuckets[isaac::runtime::kRuntimePerfBucketCount]{};
 __attribute__((visibility("hidden"))) std::uint64_t g_RuntimePerfBucketOverflow{0};
+// External tools write only Request; Done publishes a complete immutable capture.
+[[gnu::used, gnu::visibility("hidden")]] std::uint64_t g_RuntimePerfCaptureRequest{};
+[[gnu::used, gnu::visibility("hidden")]] std::uint64_t g_RuntimePerfCaptureDone{};
+[[gnu::used, gnu::visibility("hidden")]] std::uint64_t g_RuntimePerfAttributionUntil{};
+[[gnu::used, gnu::visibility("hidden")]] isaac::runtime::RuntimePerfSnapshot g_RuntimePerfSnapshot{};
+[[gnu::used, gnu::visibility("hidden")]] extern const isaac::runtime::RuntimePerfLayout g_RuntimePerfLayout{
+    isaac::runtime::kRuntimePerfLayoutMagic, 1, sizeof(isaac::runtime::RuntimePerfLayout),
+    sizeof(isaac::runtime::RuntimePerfSnapshot), sizeof(isaac::runtime::RuntimePerfSnapshotHeader),
+    sizeof(isaac::runtime::RuntimePerfCallbackBucket), isaac::runtime::kRuntimePerfBucketCount,
+    isaac::runtime::kRuntimePerfApiBucketCount, kModOwnerNameSlots, kModOwnerNameCapacity,
+    &g_RuntimePerfLayout, &g_RuntimePerfCaptureRequest, &g_RuntimePerfCaptureDone,
+    &g_RuntimePerfAttributionUntil, &g_RuntimePerfSnapshot, &g_ModOwnerNames[0][0]
+};
 // 按 API 接口 分开的耗时桶（与上面回调桶是两张独立的表）。
 __attribute__((visibility("hidden"))) isaac::runtime::RuntimePerfCallbackBucket
     g_RuntimePerfApiBuckets[isaac::runtime::kRuntimePerfApiBucketCount]{};
@@ -3821,6 +3835,49 @@ std::uint64_t GcBudgetClock(void*) {
 }
 
 void BeginGcFrame(std::uint64_t serial) noexcept {
+    const auto request = __atomic_load_n(&g_RuntimePerfCaptureRequest, __ATOMIC_ACQUIRE);
+    if (request != g_RuntimePerfCaptureDone) {
+        // Retain the external descriptor under section GC, only on a request.
+        __asm__ __volatile__("" : : "r"(&g_RuntimePerfLayout));
+        isaac::runtime::RuntimePerfSnapshotHeader header{};
+        header.sequence = request;
+        header.tick = isaac::runtime::RuntimePerfTick();
+        header.tickFrequency = isaac::runtime::RuntimePerfTicksPerSecond();
+        header.generation = isaac::runtime::CallbackDispatchGeneration();
+        header.nativeCycles = isaac::runtime::NativeFrameClock::Count();
+        header.logicCycles = isaac::runtime::ManagedFrameClock::Count();
+        header.callbackCalls = g_RuntimePerfCallbackCalls;
+        header.callbackTicks = g_RuntimePerfCallbackTicks;
+        header.callbackOverflow = g_RuntimePerfBucketOverflow;
+        header.apiCalls = g_RuntimePerfApiTotalCalls;
+        header.apiTicks = g_RuntimePerfApiTotalTicks;
+        header.apiOverflow = g_RuntimePerfApiBucketOverflow;
+        header.syscalls = g_RuntimePerfSyscalls.load(std::memory_order_relaxed);
+        header.syscallTicks = g_RuntimePerfSyscallTicks.load(std::memory_order_relaxed);
+        header.errors = g_LuaErrorHistoryCount;
+        if (isaac::runtime::RuntimePerfAttributionActive(
+                __atomic_load_n(&g_RuntimePerfAttributionUntil, __ATOMIC_ACQUIRE), header.tick))
+            header.flags |= isaac::runtime::kRuntimePerfSnapshotAttribution;
+        if (header.tick != 0) header.flags |= isaac::runtime::kRuntimePerfSnapshotTiming;
+#if PERF_API_WRAPPER
+        header.flags |= isaac::runtime::kRuntimePerfSnapshotApiWrappers;
+#endif
+        if (IsReady() && g_LuaState) {
+            lua_GCBudgetInfo gc{};
+            lua_gc_budgetinfo(g_LuaState, &gc);
+            header.flags |= isaac::runtime::kRuntimePerfSnapshotReady;
+            header.gcTicks = gc.ticks;
+            header.gcSteps = gc.steps;
+            header.gcCycles = gc.cycles;
+            header.gcMaxFrame = gc.maxframe;
+            header.gcHeap = gc.heap;
+            header.gcDebt = static_cast<std::uint64_t>(gc.debt);
+        }
+        isaac::runtime::CopyRuntimePerfSnapshot(g_RuntimePerfSnapshot, header,
+                                               g_RuntimePerfCallbackBuckets,
+                                               g_RuntimePerfApiBuckets);
+        __atomic_store_n(&g_RuntimePerfCaptureDone, request, __ATOMIC_RELEASE);
+    }
     if (!IsReady() || !g_LuaState || !g_ProfileSessionStarted ||
         isaac::runtime::RuntimePerfTick() == 0) return;
     // Use Lua's 2x live-set threshold, capped at the pressure highwater.
@@ -4165,11 +4222,14 @@ void RecordObservedCallbackPerf(std::uint32_t owner, std::uint32_t callbackId,
                 // 传的是本 TU 自己的数组（直接寻址、不碰数据 GOT）；记账逻辑在头文件里，宿主有测试。
                 // 返回值在这里**故意不用**（表满时由 `g_RuntimePerfBucketOverflow` 记账、读数里会报），
                 // 显式丢弃是为了过 `-Werror=unused-result`（`nodiscard` 是给宿主门禁看的）。
-                static_cast<void>(isaac::runtime::RecordRuntimePerfCallbackSample(
+                const bool sampled = isaac::runtime::RecordRuntimePerfCallbackSample(
                     g_RuntimePerfCallbackBuckets, isaac::runtime::kRuntimePerfBucketCount,
                     isaac::runtime::RuntimePerfCallbackKey(
                         callbackId, static_cast<std::uint16_t>(owner), static_cast<std::uint16_t>(owner >> 16)),
-                    spent, &g_RuntimePerfBucketOverflow));
+                    spent, &g_RuntimePerfBucketOverflow,
+                    isaac::runtime::RuntimePerfAttributionActive(
+                        __atomic_load_n(&g_RuntimePerfAttributionUntil, __ATOMIC_ACQUIRE), perfEnd));
+                static_cast<void>(sampled);
             }
         }
 }
