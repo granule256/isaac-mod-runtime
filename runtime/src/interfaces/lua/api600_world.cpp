@@ -59,8 +59,8 @@ constexpr Layout kLayouts[]={
 };
 api100_native::Cache g_Layouts[14]{};
 constexpr std::uint32_t Hash(const char*p){std::uint32_t h=2166136261U;while(*p)h=(h^static_cast<unsigned char>(*p++))*16777619U;return h;}
-const Field* Find(const char*owner,const char*name){
- if(!owner||!name||!name[0]||!name[1])return nullptr;
+const Field* FindField(const char*name){
+ if(!name||!name[0]||!name[1])return nullptr;
  const unsigned prefix=(static_cast<unsigned char>(name[0])<<8)|static_cast<unsigned char>(name[1]);
  switch(prefix){
 case 0x416e:
@@ -101,7 +101,12 @@ case Hash("Anim"):f=&kFields[16];break;
 case Hash("RubbleAnim"):f=&kFields[17];break;
 case Hash("FrameCnt"):f=&kFields[18];break;
 case Hash("DungeonReturnRoomIndex"):f=&kFields[19];break;
-default:return nullptr;}return std::strcmp(owner,f->owner)||std::strcmp(name,f->name)?nullptr:f;
+default:return nullptr;}return std::strcmp(name,f->name)?nullptr:f;
+}
+const Field* Find(const char*owner,const char*name){
+ if(!owner)return nullptr;
+ const auto* field=FindField(name);
+ return field&&!std::strcmp(owner,field->owner)?field:nullptr;
 }
 void Check(lua_State*L,const Field&f){const auto&g=kLayouts[f.layout];static_cast<void>(api100_native::Resolve(L,{g.offset,g.bytes.data()},g_Layouts[f.layout]));}
 template<class T>T Read(lua_State*L,std::uintptr_t p,unsigned o){T v{};if(!engine_memory::ReadField(p,o,&v,engine_memory::EngineMemoryReadable))luaL_error(L,"api600 world field is not readable");return v;}
@@ -128,10 +133,9 @@ bool TryWriteApi600WorldField(lua_State*L,std::uintptr_t p,const char*owner,cons
  }return true;}
 namespace {
 const char* GridOwner(lua_State*L,std::uintptr_t p,const char*name){
- if(!name||!name[0])return nullptr;
- switch(name[0]){case 'O':case 'C':case 'L':case 'S':case 'G':case 'A':case 'R':case 'F':break;default:return nullptr;}
- bool candidate=false;for(const auto&f:kFields)if(f.owner[0]=='G'&&f.owner[1]=='r'&&!std::strcmp(name,f.name)){candidate=true;break;}
- if(!candidate)return nullptr;
+ // Reuse the immutable name index; method lookups must not scan world fields.
+ const auto* field=FindField(name);
+ if(!field||field->owner[0]!='G'||field->owner[1]!='r')return nullptr;
  if(!IsLiveGridEntityPointer(p))luaL_error(L,"GridEntity reference is no longer available");
  const auto vt=Read<std::uintptr_t>(L,p,0),base=LuaRuntime::EngineModuleBase();
  if(vt==base+kGridEntity_DoorVtableOffset)return "GridEntityDoor";
