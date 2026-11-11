@@ -395,6 +395,14 @@ enum class CallbackEntityClass : std::uint32_t {
 namespace isaac::runtime {
 // 重用配置向量身份校验，供HUD的玩家/道具重载消费，失效句柄返回0。
 std::uintptr_t ItemConfigPointerArgument(lua_State*,int) noexcept;
+
+// Push the real ItemConfig::Item borrowed by a ProceduralItemManager wrapper at
+// wrapper+0x18. The userdata keeps wrapper/index as its live parent identity;
+// every later ItemConfig access rechecks that pointer.
+[[nodiscard]] bool ProceduralTargetItemBelongs(std::uintptr_t item) noexcept;
+[[nodiscard]] bool PushProceduralTargetItemHandle(
+    lua_State* state, std::uintptr_t item, std::uintptr_t manager,
+    std::uintptr_t wrapper, std::uint32_t index);
 }
 
 namespace isaac::runtime {

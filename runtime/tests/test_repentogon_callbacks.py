@@ -148,6 +148,7 @@ static const RepentogonCallbackBinding expected[]={
 {1026,"MC_PRE_UPDATE"},
 {1030,"MC_PRE_SFX_PLAY"},
 {1031,"MC_POST_SFX_PLAY"},
+{1060,"MC_PRE_LEVEL_INIT"},
 {1080,"MC_PRE_FAMILIAR_RENDER"},
 {1081,"MC_PRE_NPC_RENDER"},
 {1082,"MC_PRE_PLAYER_RENDER"},
@@ -179,6 +180,7 @@ static const RepentogonCallbackBinding expected[]={
 {1235,"MC_POST_FAMILIAR_COLLISION"},
 {1237,"MC_POST_BOMB_COLLISION"},
 {1239,"MC_POST_PICKUP_COLLISION"},
+{1270,"MC_POST_BOSS_INTRO_SHOW"},
 {1400,"MC_PRE_GRID_ENTITY_DECORATION_UPDATE"},
 {1401,"MC_POST_GRID_ENTITY_DECORATION_UPDATE"},
 {1402,"MC_PRE_GRID_ENTITY_DOOR_UPDATE"},
@@ -256,7 +258,7 @@ int main(int argc,char** argv){
     SetSessionSaveFilePort(&files);LuaRuntime::ObserveGameThread();LuaRuntime::SetRuntimeExtensionInstaller(Extensions);
     SetNativePort(mode=="none"?nullptr:&port);
     ready=mode!="ready_fail";install=mode!="install_fail";
-    std::string script="assert(REPENTOGON==nil);local m=RegisterMod('callback100',1);calls=0;order=''\n";
+    std::string script="assert(REPENTOGON==nil);local m=RegisterMod('callback102',1);calls=0;order=''\n";
     if(mode=="off"||mode=="none"){
         script+="assert(ModCallbacks.MC_PRE_GRID_ENTITY_DECORATION_UPDATE==nil)";
     }else if(mode=="catalog"){
@@ -308,6 +310,21 @@ end,8)
         script+=R"lua(
 m:AddCallback(1030,function()return {9,0.25,4,'bad loop',1.5,0}end,5)
 )lua";
+    }else if(mode=="level_boss"){
+        script+=R"lua(
+m:AddCallback(1060,function(...)
+    assert(select('#',...) == 1)
+    calls=calls+1
+    return true
+end)
+m:AddCallback(1270,function(...)
+    assert(select('#',...) == 3)
+    local _, boss1, boss2 = ...
+    assert(boss1 == 55 and boss2 == -1)
+    calls=calls+1
+    return false
+end)
+)lua";
     }else if(mode=="nested"){
         script+=R"lua(
 local once=true;local removed
@@ -349,7 +366,7 @@ local f;f=function()m:RemoveCallback(1400,f);calls=calls+1 end;m:AddCallback(140
     }else if(mode=="empty"){
         script+="assert(not Isaac.GetBuiltInCallbackState(1400))";
     }
-    const auto init=LuaRuntime::InitializeFromBuffer(script.data(),script.size(),"@callback100.lua");
+    const auto init=LuaRuntime::InitializeFromBuffer(script.data(),script.size(),"@callback102.lua");
     if(mode=="ready_fail"||mode=="install_fail"){
         assert(init!=LuaRuntime::LuaInitResult::Success);assert(!Listening(1020));
         assert(readyCalls==1&&installCalls==(mode=="ready_fail"?0:1));return 0;
@@ -358,16 +375,16 @@ local f;f=function()m:RemoveCallback(1400,f);calls=calls+1 end;m:AddCallback(140
     if(mode=="off"||mode=="none"){
         assert(!Listening(1400));assert(installCalls==0&&readyCalls==0);assert(ExtendedCallbackCount()==0);
     }else{
-        assert(installCalls==1&&readyCalls==1&&ExtendedCallbackCount()==100);
+        assert(installCalls==1&&readyCalls==1&&ExtendedCallbackCount()==102);
         unsigned type=20,variant=7,subtype=9,gridType=4;
         std::memcpy(entity+kEntityTypeOffset,&type,4);std::memcpy(entity+kEntityVariantOffset,&variant,4);
         std::memcpy(entity+kEntitySubTypeOffset,&subtype,4);std::memcpy(grid+kGridEntityTypeOffset,&gridType,4);
         Vector offset{10,20};Sound sound{5,0.5f,2,false,1,0};
         auto send=[&](unsigned id,EventKind kind=EventKind::Global){return Dispatch(Event{id,kind,kind==EventKind::Grid||kind==EventKind::GridRender?Address(grid):Address(entity),Address(collider),&offset,true,&sound});};
         if(mode=="catalog"){
-            assert(sizeof(expected)/sizeof(expected[0])==100);
+            assert(sizeof(expected)/sizeof(expected[0])==102);
             for(const auto& c:expected){assert(Listening(c.id));send(c.id);}
-            Check();assert(Number("calls")==100&&g_ExtendedCallbackEnabledCount==100);
+            Check();assert(Number("calls")==102&&g_ExtendedCallbackEnabledCount==102);
         }else if(mode=="render"){
             auto result=send(1080,EventKind::EntityRender);Check();assert(result.hasOffset&&result.offset.x==11&&result.offset.y==27);
         }else if(mode=="booleans"){
@@ -394,6 +411,14 @@ local f;f=function()m:RemoveCallback(1400,f);calls=calls+1 end;m:AddCallback(140
             assert(sound.id==5&&sound.volume==0.5f&&sound.delay==2&&!sound.loop&&sound.pitch==1&&sound.pan==0);
             LuaRuntime::LuaErrorHistoryEntryView errors[8]{};
             const auto n=LuaRuntime::CopyLuaErrorHistory(errors,8);assert(n==1&&errors[0].owner!=0&&errors[0].callbackId==1030);
+        }else if(mode=="level_boss"){
+            auto result=Dispatch(Event{1060});
+            assert(!result.hasBoolean&&!result.hasOffset);
+            Event boss{};
+            boss.id=1270;boss.kind=EventKind::IntegerPair;boss.first=55;boss.second=-1;
+            result=Dispatch(boss);
+            assert(!result.hasBoolean&&!result.hasOffset);
+            Check();assert(Number("calls")==2);
         }else if(mode=="nested"){
             send(1020);Check();
         }else if(mode=="error"){
@@ -416,8 +441,18 @@ local f;f=function()m:RemoveCallback(1400,f);calls=calls+1 end;m:AddCallback(140
             assert(!Listening(1400)&&g_ExtendedCallbackEnabledCount==0);
             Dispatch(Event{1400,EventKind::Grid,1});Check();
         }else if(mode=="empty"){
-            for(unsigned i=0;i<10000;++i){assert(!Listening(1444));Dispatch(Event{1444,EventKind::GridRender,1,1,reinterpret_cast<Vector*>(1),true,reinterpret_cast<Sound*>(1)});}
-            assert(ExtendedCallbackDispatchCount(1444)==0&&g_ExtendedCallbackEnabledCount==0);Check();
+            Event boss{};
+            boss.id=1270;boss.kind=EventKind::IntegerPair;boss.first=55;boss.second=-1;
+            for(unsigned i=0;i<10000;++i){
+                assert(!Listening(1444));assert(!Listening(1060));assert(!Listening(1270));
+                Dispatch(Event{1444,EventKind::GridRender,1,1,reinterpret_cast<Vector*>(1),true,reinterpret_cast<Sound*>(1)});
+                Dispatch(Event{1060});
+                Dispatch(boss);
+            }
+            assert(ExtendedCallbackDispatchCount(1444)==0);
+            assert(ExtendedCallbackDispatchCount(1060)==0);
+            assert(ExtendedCallbackDispatchCount(1270)==0);
+            assert(g_ExtendedCallbackEnabledCount==0);Check();
         }
     }
     assert(LuaRuntime::ShutdownForModReload());assert(!Listening(1400)&&g_ExtendedCallbackEnabledCount==0&&ExtendedCallbackCount()==0);
@@ -448,7 +483,7 @@ class RepentogonCallbackTests(unittest.TestCase):
     def test_native_catalog_delivery_and_lifecycle(self):
         with tempfile.TemporaryDirectory(prefix='repentogon-native-') as tmp:
             binary=test_support.build_lua_harness(source_root=SOURCE,workdir=Path(tmp),harness_source=RUNTIME_DRIVER)
-            for mode in ('sprite_cleanup','off','none','ready_fail','install_fail','catalog','render','booleans','filter','sound','sound_error','nested','error','pause','pause_error','bad_vector','remove_all','reset','empty'):
+            for mode in ('sprite_cleanup','off','none','ready_fail','install_fail','catalog','render','booleans','filter','sound','sound_error','level_boss','nested','error','pause','pause_error','bad_vector','remove_all','reset','empty'):
                 with self.subTest(mode=mode):
                     result=subprocess.run([str(binary),mode],capture_output=True,text=True)
                     self.assertEqual(result.returncode,0,result.stdout+result.stderr)
@@ -459,7 +494,7 @@ class RepentogonCallbackTests(unittest.TestCase):
 #include <cassert>
 using namespace isaac::runtime;
 int main(){
- g_ExtendedCallbacks=reinterpret_cast<ExtendedCallbackState*>(1);g_ExtendedCallbackCount=100;
+ g_ExtendedCallbacks=reinterpret_cast<ExtendedCallbackState*>(1);g_ExtendedCallbackCount=102;
  for(unsigned id=0;id<1000;++id)assert(FindExtendedCallback(id)==nullptr);
  g_ExtendedCallbackDelivery=false;g_ExtendedCallbackEnabledCount=100;
  assert(!ExtendedCallbackEnabled(1400));

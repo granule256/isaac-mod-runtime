@@ -13,7 +13,7 @@ struct Sound {
     bool loop{};
     float pitch{}, pan{};
 };
-enum class EventKind { Global, Entity, EntityRender, Grid, GridRender, Collision, Sound };
+enum class EventKind { Global, Entity, EntityRender, Grid, GridRender, Collision, Sound, IntegerPair };
 struct Event {
     std::uint32_t id{};
     EventKind kind{EventKind::Global};
@@ -21,6 +21,7 @@ struct Event {
     const Vector* offset{};
     bool low{};
     Sound* sound{};
+    std::int32_t first{}, second{};
 };
 struct Result { bool hasBoolean{}, boolean{}, hasOffset{}; Vector offset{}; };
 Result Dispatch(const Event&) noexcept;

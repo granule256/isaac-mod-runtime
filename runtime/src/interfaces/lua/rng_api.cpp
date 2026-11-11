@@ -8,6 +8,7 @@
 #include "infrastructure/memory/engine_field_access.hpp"
 #include "infrastructure/memory/engine_memory_guard.hpp"
 #include "lua_runtime_state.hpp"
+#include "lua_runtime.hpp"
 #include "runtime_constants.hpp"
 
 #include <cstddef>
@@ -198,6 +199,21 @@ int RngRandomFloat(lua_State* state) {
 }
 
 } // namespace
+
+int RepentogonRngSetSeed(lua_State* state) {
+    if (!LuaRuntime::IsOnGameThread()) return luaL_error(state, "RNG:SetSeed requires the game thread");
+    auto* rng = static_cast<LuaRuntime::RngHandle*>(luaL_checkudata(state, 1, LuaRuntime::kRngMetatable));
+    const auto seed = static_cast<std::uint32_t>(luaL_checkinteger(state, 2));
+    const auto shift = static_cast<std::uint32_t>(luaL_optinteger(state, 3, 35));
+    if (seed == 0) return luaL_argerror(state, 2, "RNG seed must be an integer above 0");
+    if (shift > 80) return luaL_argerror(state, 3, "RNG shift index must be between 0 and 80 (inclusive)");
+    const auto method = LuaRuntime::RngSetSeedThunk();
+    if (!LuaRuntime::ValidateRngSetSeedBinding(method))
+        return luaL_error(state, "RNG:SetSeed native bindings are unavailable");
+    using SetSeedFn = void (*)(void*, std::uint32_t, std::uint32_t);
+    engine_call::AsFunction<SetSeedFn>(method)(ResolveRngObject(state, rng, true), seed, shift);
+    return 0;
+}
 
 std::size_t AttachRngMethods(lua_State* state) noexcept {
     return AttachOwnerMethods(state, kRngOwner, kRngHandlers,

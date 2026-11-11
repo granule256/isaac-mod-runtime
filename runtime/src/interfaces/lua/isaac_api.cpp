@@ -88,6 +88,8 @@
 // 它住在 `remaining_api.cpp`（`Level`/`Room`/`ItemPool` 那个 TU），这里只声明。
 #include "interfaces/lua/remaining_api.hpp"
 #include "interfaces/lua/vector_api.hpp"
+#include "interfaces/lua/procedural_item_api.hpp"
+#include "infrastructure/native/world_content_mutations.hpp"
 // `Isaac.RenderScaledText` 的绘制本体在 `font_api.cpp`（字体句柄的生命周期、`Font:Load` 的
 // 路径归一化、四个绘制变体与绘制探针都归那个 TU）：这里只做参数校验 + 转调。
 #include "interfaces/lua/font_api.hpp"
@@ -5807,6 +5809,38 @@ void PushItemConfigItemHandle(lua_State* state, std::uintptr_t item, std::uintpt
     lua_setmetatable(state, -2);
 }
 
+constexpr std::uint32_t kProceduralTargetItemConfigOffset = UINT32_MAX - 1U;
+struct ProceduralTargetItemIdentity {
+    std::uintptr_t manager;
+    std::uintptr_t wrapper;
+    std::uint32_t index;
+    std::uint32_t reserved;
+    std::uintptr_t item;
+    std::uint64_t worldEpoch;
+};
+bool PushProceduralTargetItemHandleImpl(lua_State* state, std::uintptr_t item,
+                                        std::uintptr_t manager, std::uintptr_t wrapper,
+                                        std::uint32_t index) {
+    if (item == 0 || !ProceduralTargetItemBelongs(item)) {
+        lua_pushnil(state);
+        return false;
+    }
+    auto* handle = static_cast<ItemConfigItemHandle*>(
+        lua_newuserdata(state, sizeof(ItemConfigItemHandle)));
+    auto* identity = static_cast<ProceduralTargetItemIdentity*>(
+        lua_newuserdata(state, sizeof(ProceduralTargetItemIdentity)));
+    *identity = {manager, wrapper, index, 0, item,
+                 CaptureWorldContentSnapshot().worldEpoch};
+    handle->item = engine_memory::AsObject(item);
+    handle->items = identity;
+    handle->beginOffset = kProceduralTargetItemConfigOffset;
+    handle->index = index;
+    lua_setuservalue(state, -2);
+    luaL_getmetatable(state, kItemConfigItemMetatable);
+    lua_setmetatable(state, -2);
+    return true;
+}
+
 // PC GetItemConfig返回Manager内嵌单例。内部vector扩容/追加/重建不改变父对象身份；
 // getter必须读取当前vector。具体Item/列表句柄仍按自己的元素/归属验证，不能混为一谈。
 std::uintptr_t ValidatedItemConfig(const ItemConfigHandle* handle) noexcept {
@@ -5868,6 +5902,30 @@ std::uintptr_t ValidatedItem(const ItemConfigItemHandle* handle) noexcept {
         return 0;
     }
     return current == item ? item : 0;
+}
+
+std::uintptr_t ValidatedItemReference(const ItemConfigItemHandle* handle) noexcept {
+    if (handle == nullptr) {
+        return 0;
+    }
+    const std::uintptr_t item = engine_memory::AddressOf(handle->item);
+    if (handle->beginOffset == kProceduralTargetItemConfigOffset) {
+        if (!LuaRuntime::IsOnGameThread()) {
+            return 0;
+        }
+        ProceduralTargetItemIdentity identity{};
+        if (!ReadEngine(engine_memory::AddressOf(handle->items), &identity) ||
+            identity.item != item ||
+            identity.worldEpoch != CaptureWorldContentSnapshot().worldEpoch) {
+            return 0;
+        }
+        return ValidateProceduralTargetItem(identity.manager, identity.wrapper,
+                                            identity.index, identity.worldEpoch, item)
+                       && ProceduralTargetItemBelongs(item)
+                   ? item
+                   : 0;
+    }
+    return ValidatedItem(handle);
 }
 
 // libc++ `std::string`（SSO）的**内容视图**（`data`/`size` 指向引擎内存里那串字节）。
@@ -6336,9 +6394,8 @@ ItemConfigItemHandle* CheckItemConfigItemHandle(lua_State* state, int index) {
 // `GetCollectible`/`GetTrinket`/`GetCard`/`GetPillEffect` 的共同实现：句柄校验 → 向量读取 →
 // 下标边界 → 条目句柄。
 //
-// 负下标一律返回 nil：引擎的 `GetCollectible` 对 `id < 0` 会 `tbz w1,#0x1f` 转发到
-// `ProceduralItemManager::GetProceduralItem`（`*(g_Game) + 0x345F18`），我们**不支持程序化道具**
-// （那需要一整套 ProceduralItemManager 视图），所以直接 nil —— 编一个条目出来比返回 nil 更糟。
+// 本共享入口只处理非负下标；`ItemConfigGetCollectible` 在进入这里之前单独解析
+// `ProceduralItemManager::GetProceduralItem`（`*(g_Game) + 0x345F18`）的负 ID 路径。
 // 注意 `GetTrinket` 在引擎里是 `and w1, w1, #0x7fff`（负值会绕成正下标），我们**不复制**这个
 // 行为：负 id 在这里同样是 nil。
 // id 参数的解析口径：与 PC 的 `luaL_checkinteger` **同一接受范围**（整数、整值浮点如 `1.0`、
@@ -6624,7 +6681,7 @@ int ItemConfigItemHasTags(lua_State* state) {
     if (!ReadItemId(state, 2, &mask)) {
         return luaL_error(state, "ItemConfig_Item:HasTags expects an integer tag mask");
     }
-    const std::uintptr_t item = ValidatedItem(handle);
+    const std::uintptr_t item = ValidatedItemReference(handle);
     std::uint64_t tags = 0;
     if (item == 0 || !ReadEngine(item + kItemConfigItemTagsOffset, &tags)) {
         lua_pushboolean(state, 0);
@@ -6684,7 +6741,7 @@ int ItemConfigItemIsCollectible(lua_State* state) {
     if (lua_gettop(state) != 1) {
         return luaL_error(state, "ItemConfig_Item:IsCollectible accepts no arguments");
     }
-    const std::uintptr_t item = ValidatedItem(handle);
+    const std::uintptr_t item = ValidatedItemReference(handle);
     std::uint32_t type = kItemTypeNull;
     const bool readable = item != 0 && ReadEngine(item + kItemConfigItemTypeOffset, &type);
     lua_pushboolean(state, (readable && IsCollectibleItemType(type)) ? 1 : 0);
@@ -6719,7 +6776,7 @@ int ItemConfigItemIsAvailable(lua_State* state) {
     if (lua_gettop(state) != 1) {
         return luaL_error(state, "ItemConfig_Item:IsAvailable accepts no arguments");
     }
-    const std::uintptr_t entry = ValidatedItem(handle);
+    const std::uintptr_t entry = ValidatedItemReference(handle);
     if (entry == 0) {
         lua_pushboolean(state, 0);
         return 1;
@@ -6760,7 +6817,7 @@ int ItemConfigItemIsRune(lua_State* state) {
     if (lua_gettop(state) != 1) {
         return luaL_error(state, "ItemConfig_Card:IsRune accepts no arguments");
     }
-    const std::uintptr_t entry = ValidatedItem(handle);
+    const std::uintptr_t entry = ValidatedItemReference(handle);
     if (entry == 0 || handle->beginOffset != kItemConfigCardBeginOffset) {
         lua_pushboolean(state, 0);
         return 1;
@@ -6809,7 +6866,7 @@ int ItemConfigItemIndex(lua_State* state) {
         return 1;
     }
     const char* field = lua_tostring(state, 2);
-    const std::uintptr_t item = ValidatedItem(handle);
+    const std::uintptr_t item = ValidatedItemReference(handle);
     if(const int pushed=TryPushApi500ConfigField(state,item,handle->beginOffset,field))return pushed;
     if(item)if(const int pushed=TryPushExtendedItemConfigField(state,item,field))return pushed;
     // `MimicCharge`（2026-09-16）：**卡牌与胶囊各有一个**（`+0x64` / `+0x48`），收藏品/饰品没有。
@@ -8004,7 +8061,7 @@ std::uintptr_t ResolveFieldReceipt(lua_State* state, FieldReceipt receipt, int i
         }
         case FieldReceipt::ItemConfigItem: {
             auto* handle = CheckItemConfigItemHandle(state, index);
-            return ValidatedItem(handle);
+            return ValidatedItemReference(handle);
         }
         case FieldReceipt::GridEntity: {
             // `GridEntity:*` 引擎方法行的接收者 —— 从栈上取。
@@ -13352,6 +13409,42 @@ void RegisterViewMetatables(lua_State* state) {
 
 } // namespace
 
+bool ProceduralTargetItemBelongs(std::uintptr_t item) noexcept {
+    if (!LuaRuntime::IsOnGameThread() ||
+        item == 0 || item > UINTPTR_MAX - kItemConfigItemIdOffset) {
+        return false;
+    }
+    const std::uintptr_t config = ResolveItemConfig();
+    std::int32_t type = 0;
+    std::int32_t id = 0;
+    if (config == 0 ||
+        !ReadEngine(item + kItemConfigItemTypeOffset, &type) ||
+        !ReadEngine(item + kItemConfigItemIdOffset, &id) || id < 0) {
+        return false;
+    }
+    const std::uintptr_t beginOffset =
+        type == kItemTypeTrinket ? kItemConfigTrinketBeginOffset
+                                 : kItemConfigCollectibleBeginOffset;
+    const std::uintptr_t endOffset =
+        type == kItemTypeTrinket ? kItemConfigTrinketEndOffset
+                                 : kItemConfigCollectibleEndOffset;
+    ItemVectorView view{};
+    if (!ReadItemVector(config, beginOffset, endOffset, &view) ||
+        static_cast<std::uint64_t>(id) >= view.count) {
+        return false;
+    }
+    std::uintptr_t current = 0;
+    return ReadEngine(view.begin + static_cast<std::size_t>(id) * sizeof(std::uintptr_t),
+                      &current) &&
+           current == item;
+}
+
+bool PushProceduralTargetItemHandle(lua_State* state, std::uintptr_t item,
+                                    std::uintptr_t manager, std::uintptr_t wrapper,
+                                    std::uint32_t index) {
+    return PushProceduralTargetItemHandleImpl(state, item, manager, wrapper, index);
+}
+
 std::uintptr_t ResolveContentConfigRoot(bool entityConfig) noexcept {
     const auto items=ResolveItemConfig(nullptr);
     if(!entityConfig)return items;
@@ -13404,7 +13497,7 @@ std::uintptr_t ResolveEngineReceiver(lua_State* state,FieldReceipt receipt,int i
 
 std::uintptr_t ItemConfigPointerArgument(lua_State* state,int index) noexcept {
     auto* item=static_cast<ItemConfigItemHandle*>(luaL_testudata(state,index,kItemConfigItemMetatable));
-    return ValidatedItem(item);
+    return ValidatedItemReference(item);
 }
 
 std::size_t RegisterIsaacApi(lua_State* state) noexcept {
@@ -13811,14 +13904,14 @@ int Api600ItemConfigGetCards(lua_State*L){return PushItemConfigList(L,kItemConfi
 int Api600ItemConfigGetPillEffects(lua_State*L){return PushItemConfigList(L,kItemConfigPillEffectBeginOffset,kItemConfigPillEffectEndOffset);}
 int Api600ItemConfigGetNullItems(lua_State*L){return PushItemConfigList(L,kItemConfigNullItemBeginOffset,kItemConfigNullItemEndOffset);}
 int Api600ItemConfigItemIsNull(lua_State*L){
- const auto*h=CheckItemConfigItemHandle(L,1);const auto p=ValidatedItem(h);
+ const auto*h=CheckItemConfigItemHandle(L,1);const auto p=ValidatedItemReference(h);
  if(!p||h->beginOffset==kItemConfigCardBeginOffset||h->beginOffset==kItemConfigPillEffectBeginOffset)return luaL_error(L,"ItemConfigItem reference is unavailable");
  std::uint32_t type{};if(!ReadEngine(p,&type))return luaL_error(L,"ItemConfigItem Type is not readable");lua_pushboolean(L,type==0);return 1;
 }
 int Api600ItemConfigShouldAddCostumeOnPickup(lua_State*L){
  int index=1;if(luaL_testudata(L,1,kItemConfigMetatable))index=2;
  if(lua_isnoneornil(L,index)){lua_pushboolean(L,false);return 1;}
- const auto*h=CheckItemConfigItemHandle(L,index);const auto p=ValidatedItem(h);
+ const auto*h=CheckItemConfigItemHandle(L,index);const auto p=ValidatedItemReference(h);
  if(!p||h->beginOffset==kItemConfigCardBeginOffset||h->beginOffset==kItemConfigPillEffectBeginOffset)return luaL_argerror(L,index,"live ItemConfigItem expected");
  // Reuse the confirmed AddCostumeOnPickup native field and its complete layout guard.
  return TryPushApi500ConfigField(L,p,h->beginOffset,"AddCostumeOnPickup");

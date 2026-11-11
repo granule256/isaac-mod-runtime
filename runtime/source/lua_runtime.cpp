@@ -4790,6 +4790,10 @@ isaac::runtime::repentogon::Result DispatchRepentogonCallback(
             invoker.arguments.AddInteger(sound.delay);invoker.arguments.AddBoolean(sound.loop);
             invoker.arguments.AddFloat(sound.pitch);invoker.arguments.AddFloat(sound.pan);break;
         }
+        case EventKind::IntegerPair:
+            invoker.arguments.AddInteger(event.first);
+            invoker.arguments.AddInteger(event.second);
+            break;
         case EventKind::Global:
             if(event.id==1218||event.id==1219) {
                 invoker.arguments.AddCallbackSprite(event.object);

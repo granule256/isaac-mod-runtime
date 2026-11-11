@@ -15,6 +15,9 @@ namespace isaac::runtime {
 // 在交给原生方法前统一复核引用身份与读写权限，失效抛Lua错误。
 [[nodiscard]] void* ResolveRngObject(lua_State* state, LuaRuntime::RngHandle* handle, bool writable);
 
+// Installed only by the REPENTOGON extension; ordinary SetSeed keeps its contract.
+int RepentogonRngSetSeed(lua_State* state);
+
 // Registers the `RNG` owner methods (SetSeed / Next) from the API catalog.
 //
 // Slice 8 of the per-family split: the binding table and the handler bodies
