@@ -248,6 +248,8 @@ struct PlayerLookupProbe {
 [[nodiscard]] std::uintptr_t PersistentGameDataObjectArgument(lua_State* state, int index) noexcept;
 [[nodiscard]] bool EntityPlayerHasCollectibleForApi(
     std::uintptr_t player, std::uint32_t collectibleId, bool ignoreModifiers) noexcept;
+[[nodiscard]] std::uint64_t ItemConfigItemTagsForApi(
+    bool trinket, std::uint32_t id) noexcept;
 // Same current ordinary/procedural ItemConfig lookup used by GetCollectible,
 // without allocating a Lua handle. The caller supplies the upstream int32 ID.
 [[nodiscard]] bool CollectibleConfigExistsForApi(std::int32_t id) noexcept;

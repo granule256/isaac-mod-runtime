@@ -4,6 +4,21 @@
 #include "infrastructure/console/console_panel_guards.hpp"
 
 namespace isaac::runtime::console {
+using ConsoleHistoryVisitor=void(*)(void*,const char*,std::size_t);
+#if !defined(__SWITCH__)
+struct ConsolePanelHostBindings {
+    bool (*printWarning)(const char*,std::size_t){};
+    bool (*printError)(const char*,std::size_t){};
+    bool (*visitHistory)(ConsoleHistoryVisitor,void*){};
+};
+inline ConsolePanelHostBindings& ConsolePanelTestBindings() noexcept {
+    static ConsolePanelHostBindings bindings{};
+    return bindings;
+}
+inline void SetConsolePanelHostBindings(ConsolePanelHostBindings bindings) noexcept {
+    ConsolePanelTestBindings()=bindings;
+}
+#endif
 struct PanelTouch { bool pressed{}; std::uint32_t rawX{}, rawY{}; };
 struct PanelNativeEntries {
     void (*show)(void*){};
@@ -56,7 +71,8 @@ inline void SetPanelInput(const PanelNativeEntries& ui,const char* text) noexcep
     ui.inputLines(c.consoleObject);
 }
 inline void PrintPanel(const PanelNativeEntries& ui,const char* text,std::size_t length,
-                       std::uint32_t color=0xFFD3D3D3U) noexcept {
+                       std::uint32_t color=0xFFD3D3D3U,
+                       std::uint32_t flags=0) noexcept {
     if (!text || !length) return;
     alignas(8) unsigned char borrowed[kEngineStringBytes]{};
     if (!BuildBorrowedCommandString(text,length,borrowed)) return;
@@ -65,7 +81,7 @@ inline void PrintPanel(const PanelNativeEntries& ui,const char* text,std::size_t
     std::uintptr_t output{};
     std::memcpy(&output,c.consoleObject+0x150,sizeof(output));
     std::memset(c.consoleObject+0x150,0,sizeof(output));
-    ui.print(c.consoleObject,borrowed,color,0);
+    ui.print(c.consoleObject,borrowed,color,flags);
     std::memcpy(c.consoleObject+0x150,&output,sizeof(output));
 }
 // ConsoleOutput与界面共用同一份原生历史；加载期没有模块基址时保留调用方原日志通道。
@@ -83,6 +99,101 @@ inline bool AppendConsoleHistory(std::uintptr_t base,const char* text,std::size_
     if (!ready || !EnsureConsoleObject(engine)) return false;
     PrintPanel(ui,text,length);
     return ObjectFenceIntact(Storage());
+}
+inline bool PrintConsoleWarning(std::uintptr_t base,const char* text,std::size_t length) noexcept {
+#if !defined(__SWITCH__)
+    if (const auto& bindings=ConsolePanelTestBindings();bindings.printWarning)
+        return bindings.printWarning(text,length);
+#endif
+    if (!base || !text || !length) return false;
+    static std::uintptr_t cachedBase{};
+    static EngineEntries engine{};
+    static PanelNativeEntries ui{};
+    static bool ready{};
+    if (cachedBase!=base) {
+        cachedBase=base;
+        ready=ResolveConsoleEntries(base,kGameModuleRangeCheckSize,&engine) &&
+              ResolvePanelEntries(base,kGameModuleRangeCheckSize,&ui);
+    }
+    if (!ready || !EnsureConsoleObject(engine)) return false;
+    PrintPanel(ui,text,length,0xFFFCCA03U,0x96U);
+    return ObjectFenceIntact(Storage());
+}
+inline bool PrintConsoleError(std::uintptr_t base,const char* text,std::size_t length) noexcept {
+#if !defined(__SWITCH__)
+    if (const auto& bindings=ConsolePanelTestBindings();bindings.printError)
+        return bindings.printError(text,length);
+#endif
+    if (!base || !text || !length) return false;
+    static std::uintptr_t cachedBase{};
+    static EngineEntries engine{};
+    static void (*printError)(void*,const void*){};
+    static bool ready{};
+    if (cachedBase!=base) {
+        cachedBase=base;
+        ready=ResolveConsoleEntries(base,kGameModuleRangeCheckSize,&engine);
+        printError=ready?engine_call::ResolveFunction<decltype(printError)>(
+            base,kGameModuleRangeCheckSize,native_panel::kPrintErrorOffset,
+            native_panel::kPrintErrorBytes,&engine_memory::EngineMemoryReadable):nullptr;
+        ready=ready&&printError;
+    }
+    if (!ready || !EnsureConsoleObject(engine)) return false;
+    alignas(8) unsigned char borrowed[kEngineStringBytes]{};
+    if (!BuildBorrowedCommandString(text,length,borrowed)) return false;
+    printError(Storage().consoleObject,borrowed);
+    return ObjectFenceIntact(Storage());
+}
+inline bool VisitConsoleHistory(std::uintptr_t base,ConsoleHistoryVisitor visitor,void* user) noexcept {
+#if !defined(__SWITCH__)
+    if (const auto& bindings=ConsolePanelTestBindings();bindings.visitHistory)
+        return bindings.visitHistory(visitor,user);
+#endif
+    if (!base || !visitor) return false;
+    static std::uintptr_t cachedBase{};
+    static EngineEntries engine{};
+    static bool ready{};
+    if (cachedBase!=base) {
+        cachedBase=base;
+        ready=ResolveConsoleEntries(base,kGameModuleRangeCheckSize,&engine);
+    }
+    if (!ready || !EnsureConsoleObject(engine) || !ObjectFenceIntact(Storage())) return false;
+    auto* bytes=static_cast<unsigned char*>(Storage().consoleObject);
+    std::uintptr_t map{};
+    std::uint64_t begin{},end{};
+    std::memcpy(&map,bytes+0x58,sizeof(map));
+    std::memcpy(&begin,bytes+0x70,sizeof(begin));
+    std::memcpy(&end,bytes+0x78,sizeof(end));
+    if (!map) return begin==end;
+    if (end<begin || end-begin>0x10000) return false;
+    constexpr std::uint64_t kBlockEntries=85;
+    constexpr std::uintptr_t kEntryBytes=0x30;
+    for (std::uint64_t index=begin;index<end;++index) {
+        const auto blockIndex=index/kBlockEntries;
+        const auto entryIndex=index%kBlockEntries;
+        std::uintptr_t block{};
+        if (!engine_memory::ReadField(map,blockIndex*sizeof(block),&block,
+                                      engine_memory::EngineMemoryReadable) ||
+            !block) return false;
+        const auto entry=block+entryIndex*kEntryBytes;
+        unsigned char header[0x18]{};
+        if (!engine_memory::ReadField(entry,0,&header,
+                                      engine_memory::EngineMemoryReadable)) return false;
+        const bool longString=(header[0]&1U)!=0;
+        std::uintptr_t data{};
+        std::size_t length{};
+        if (longString) {
+            std::memcpy(&length,header+0x08,sizeof(length));
+            std::memcpy(&data,header+0x10,sizeof(data));
+            if (!data || length>1024*1024) return false;
+            if (!engine_memory::EngineMemoryReadable(data,length)) return false;
+            visitor(user,reinterpret_cast<const char*>(data),length);
+        } else {
+            length=static_cast<std::size_t>(header[0]>>1);
+            if (length>sizeof(header)-1) return false;
+            visitor(user,reinterpret_cast<const char*>(header+1),length);
+        }
+    }
+    return true;
 }
 inline void ClosePanelImmediately(const PanelNativeEntries& ui) noexcept {
     auto& p=Panel();

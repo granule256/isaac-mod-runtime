@@ -22,9 +22,12 @@ namespace {
 constexpr std::array<std::uint8_t,16> kHasTrinketGuard={
     0xfd,0x7b,0xbe,0xa9,0xf4,0x4f,0x01,0xa9,0xfd,0x03,0x00,0x91,0xf3,0x03,0x01,0x2a};
 #endif
+constexpr std::uintptr_t kBackupPlayerOffset=0x2588;
+constexpr std::uint64_t kLazSharedTag=0x80000000ULL;
 
 #if !defined(__SWITCH__)
 RepentogonPlayerManagerTrinketHost g_TrinketHost{};
+RepentogonPlayerManagerTrinketMultiplierHost g_TrinketMultiplierHost{};
 #endif
 
 std::uint32_t ItemId(lua_State* state) {
@@ -38,6 +41,28 @@ std::uint32_t ItemId(lua_State* state) {
 }
 
 bool HasTrinket(lua_State* state,std::uintptr_t player,std::uint32_t id,bool ignoreModifiers) {
+    if (!ignoreModifiers) {
+#if defined(__SWITCH__)
+        const auto base=LuaRuntime::EngineModuleBase();
+        if (!base || base>UINTPTR_MAX-kEntityPlayerGetTrinketMultiplierOffset ||
+            !engine_memory::EngineMemoryReadable(
+                base+kEntityPlayerGetTrinketMultiplierOffset,
+                kEntityPlayerGetTrinketMultiplierExpectedBytes.size()) ||
+            std::memcmp(engine_memory::AsObject(
+                            base+kEntityPlayerGetTrinketMultiplierOffset),
+                        kEntityPlayerGetTrinketMultiplierExpectedBytes.data(),
+                        kEntityPlayerGetTrinketMultiplierExpectedBytes.size())!=0)
+            luaL_error(state,"PlayerManager trinket multiplier binding is unavailable");
+        using Fn=std::int32_t (*)(void*,std::uint32_t);
+        return engine_call::AsFunction<Fn>(
+                   base+kEntityPlayerGetTrinketMultiplierOffset)(
+                   engine_memory::AsObject(player),id)>0;
+#else
+        if (!g_TrinketMultiplierHost)
+            luaL_error(state,"PlayerManager trinket multiplier host binding is unavailable");
+        return g_TrinketMultiplierHost(engine_memory::AsObject(player),id)>0;
+#endif
+    }
 #if defined(__SWITCH__)
     const auto base=LuaRuntime::EngineModuleBase();
     if (!base || base>UINTPTR_MAX-kEntityPlayerHasTrinketOffset ||
@@ -54,6 +79,27 @@ bool HasTrinket(lua_State* state,std::uintptr_t player,std::uint32_t id,bool ign
     return g_TrinketHost(engine_memory::AsObject(player),id,ignoreModifiers);
 #endif
 }
+
+bool PlayerHasQuery(lua_State* state,std::uintptr_t player,std::uint32_t id,
+                    bool trinket,bool ignore) {
+    std::uint32_t variant=UINT32_MAX;
+    if (!player || !engine_memory::ReadField(player,kEntityVariantOffset,&variant,
+            engine_memory::EngineMemoryReadable) || variant!=0) return false;
+    return trinket?HasTrinket(state,player,id,ignore)
+                  :EntityPlayerHasCollectibleForApi(player,id,ignore);
+}
+
+bool ItemHasLazSharedTag(bool trinket,std::uint32_t id) {
+    return (ItemConfigItemTagsForApi(trinket,id)&kLazSharedTag)!=0;
+}
+
+bool BackupPlayer(lua_State* state,std::uintptr_t player,bool trinket,
+                  std::uint32_t id,bool ignore) {
+    std::uintptr_t backup{};
+    if (!player || !engine_memory::ReadField(player,kBackupPlayerOffset,&backup,
+            engine_memory::EngineMemoryReadable) || !backup) return false;
+    return PlayerHasQuery(state,backup,id,trinket,ignore);
+}
 }
 
 int RepentogonPlayerManagerAnyoneHasCollectible(lua_State* state) {
@@ -65,10 +111,9 @@ int RepentogonPlayerManagerAnyoneHasCollectible(lua_State* state) {
     if (!players.readable) return luaL_error(state,"PlayerManager player list is unavailable");
     for (std::size_t i=0;i<players.count;++i) {
         const auto player=ResolveEnginePlayerAt(i);
-        std::uint32_t variant=UINT32_MAX;
-        if (!player || !engine_memory::ReadField(player,kEntityVariantOffset,&variant,
-                engine_memory::EngineMemoryReadable)) continue;
-        if (variant==0 && EntityPlayerHasCollectibleForApi(player,id,ignore)) {
+        if (PlayerHasQuery(state,player,id,false,ignore) ||
+            (ItemHasLazSharedTag(false,id) &&
+             BackupPlayer(state,player,false,id,ignore))) {
             lua_pushboolean(state,1);
             return 1;
         }
@@ -86,10 +131,9 @@ int RepentogonPlayerManagerAnyoneHasTrinket(lua_State* state) {
     if (!players.readable) return luaL_error(state,"PlayerManager player list is unavailable");
     for (std::size_t i=0;i<players.count;++i) {
         const auto player=ResolveEnginePlayerAt(i);
-        std::uint32_t variant=UINT32_MAX;
-        if (!player || !engine_memory::ReadField(player,kEntityVariantOffset,&variant,
-                engine_memory::EngineMemoryReadable)) continue;
-        if (variant==0 && HasTrinket(state,player,id,ignore)) {
+        if (PlayerHasQuery(state,player,id,true,ignore) ||
+            (ItemHasLazSharedTag(true,id) &&
+             BackupPlayer(state,player,true,id,ignore))) {
             lua_pushboolean(state,1);
             return 1;
         }
@@ -108,5 +152,9 @@ int RegisterPlayerManagerApi(lua_State* state) {
 #if !defined(__SWITCH__)
 void SetRepentogonPlayerManagerTrinketHost(
     RepentogonPlayerManagerTrinketHost function) noexcept {g_TrinketHost=function;}
+void SetRepentogonPlayerManagerTrinketMultiplierHost(
+    RepentogonPlayerManagerTrinketMultiplierHost function) noexcept {
+    g_TrinketMultiplierHost=function;
+}
 #endif
 }

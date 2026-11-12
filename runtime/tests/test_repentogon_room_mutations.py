@@ -23,6 +23,12 @@ room:SetBackdropType(3,1)
 assert(not pcall(room.SetBackdropType,room,-1,1))
 assert(not pcall(room.SetBackdropType,room,1,{}))
 assert(not pcall(room.SetBackdropType,room,61,1))
+room:SetRail(0,5)
+room:SetRail(3,15)
+assert(not pcall(room.SetRail,room,-1,0))
+assert(not pcall(room.SetRail,room,4,0))
+assert(not pcall(room.SetRail,room,0,16))
+assert(not pcall(room.SetRail,room,0))
 '''
 
 
@@ -35,6 +41,8 @@ class RoomMutationsTests(unittest.TestCase):
     const unsigned char backdropGuard[]={0xff,0x03,0x01,0xd1,0xfd,0x7b,0x01,0xa9,0xfd,0x43,0x00,0x91,0xf5,0x13,0x00,0xf9};
     std::memcpy(g_ModuleBytes.data()+0x4883c0,removeGuard,16);
     std::memcpy(g_ModuleBytes.data()+0x26e80,backdropGuard,16);
+    WriteAt<std::int32_t>(g_RoomBytes,kRoomGridWidthOffset,2);
+    WriteAt<std::int32_t>(g_RoomBytes,kRoomGridHeightOffset,2);
     isaac::runtime::SetRepentogonRoomMutationNativeTestBindings({Remove,Backdrop});
 ''')
         driver = driver.replace('        lua_pop(lua, 2);', r'''
@@ -42,11 +50,13 @@ class RoomMutationsTests(unittest.TestCase):
         lua_setfield(lua,-2,"RemoveGridEntityImmediate");
         lua_pushcfunction(lua,isaac::runtime::RepentogonRoomSetBackdropType);
         lua_setfield(lua,-2,"SetBackdropType");
+        lua_pushcfunction(lua,isaac::runtime::RepentogonRoomSetRail);
+        lua_setfield(lua,-2,"SetRail");
         lua_pop(lua, 2);
 ''')
         driver = driver.replace('_installRoomMethods(room)', '_installRoomMethods(room)\n' + SCRIPT)
         driver = driver.replace('if (result == LuaRuntime::LuaInitResult::Success) return 0;',
-                                'if (result == LuaRuntime::LuaInitResult::Success) {assert(removeCalls==2&&backdropCalls==1);return 0;}')
+                                'if (result == LuaRuntime::LuaInitResult::Success) {assert(removeCalls==2&&backdropCalls==1);assert(g_RoomBytes[0x7c80]==5&&g_RoomBytes[0x7c83]==15);return 0;}')
         with tempfile.TemporaryDirectory(prefix='room-mutations-') as folder:
             extra = SOURCE.parent / 'src/interfaces/lua/repentogon_room_mutations.cpp'
             added = () if extra in test_support.layered_lua_runtime_sources(SOURCE) else (extra,)

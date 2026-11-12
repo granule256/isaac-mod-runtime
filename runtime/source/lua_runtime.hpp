@@ -433,6 +433,7 @@ bool MusicDiagnosticCycleCompleted();
 bool MusicDiagnosticCurrentId(u32* value);
 #endif
 bool TakeCallbackError();
+void ReportCallbackError(lua_State* state) noexcept;
 
 // Probe-facing read-only access to the Lua state, used to turn "did the Mod actually run"
 // into machine evidence instead of an audible guess:

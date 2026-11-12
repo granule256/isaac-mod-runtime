@@ -59,6 +59,32 @@ int RepentogonRoomSetBackdropType(lua_State* L) {
         engine_memory::AsObject(room+offset),static_cast<std::uint32_t>(id),decoration!=0);
     return 0;
 }
+int RepentogonRoomSetRail(lua_State* L) {
+    const auto room=Room(L);
+    if(lua_gettop(L)!=3)return luaL_error(L,"Room:SetRail expects a grid index and rail type");
+    const auto index=luaL_checkinteger(L,2);
+    const auto rail=luaL_checkinteger(L,3);
+    std::int32_t width{},height{};
+    if(!engine_memory::ReadField(room,kRoomGridWidthOffset,&width,
+                                 engine_memory::EngineMemoryReadable)||
+       !engine_memory::ReadField(room,kRoomGridHeightOffset,&height,
+                                 engine_memory::EngineMemoryReadable)||
+       width<=0||height<=0||
+       static_cast<std::uint64_t>(width)*static_cast<std::uint64_t>(height)>0x10000)
+        return luaL_error(L,"Room grid dimensions are unavailable");
+    if(index<0||index>=static_cast<lua_Integer>(width)*height)
+        return luaL_error(L,"Invalid grid index %I",index);
+    // Room::Init constructs the embedded RailManager at Room+0x7c78. Its
+    // variant array starts at +8 and RailManager::Init clears 0x1c0 bytes.
+    if(rail<0||rail>15)return luaL_error(L,"Invalid rail type %I",rail);
+    if(index>=0x1c0)return luaL_error(L,"Rail index exceeds the room rail array");
+    constexpr std::uintptr_t kRailVariantsOffset=0x7c80;
+    if(!engine_memory::WriteField(room,
+            kRailVariantsOffset+static_cast<std::uintptr_t>(index),
+            static_cast<std::uint8_t>(rail),engine_memory::EngineMemoryWritable))
+        return luaL_error(L,"Room rail array is not writable");
+    return 0;
+}
 #if !defined(__SWITCH__)
 void SetRepentogonRoomMutationNativeTestBindings(RepentogonRoomMutationNativeTestBindings value) noexcept {g_Host=value;}
 #endif

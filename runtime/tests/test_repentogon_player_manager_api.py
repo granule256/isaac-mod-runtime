@@ -15,49 +15,105 @@ DRIVER = PREFIX + r'''
 #include "runtime_constants.hpp"
 #include <algorithm>
 #include <vector>
-static std::vector<unsigned char> moduleBytes,ownerSlot,game,playerList,player;
+static std::vector<unsigned char> moduleBytes,ownerSlot,managerSlot,manager;
+static std::vector<unsigned char> game,playerList,player,backup;
+static std::vector<unsigned char> collectibles,trinkets;
+static std::vector<unsigned char> item5,item6,trinket7,trinket8;
 static bool Has(void* entity,std::uint32_t id,bool ignore){
- assert(entity==player.data());assert(id==5||id==6);assert(!ignore);return id==5;
+ (void)ignore;
+ if(entity!=player.data()&&entity!=backup.data())return false;
+ if(id==5)return entity==player.data();
+ if(id==6)return entity==backup.data();
+ return false;
 }
 static bool Trinket(void* entity,std::uint32_t id,bool ignore){
- assert(entity==player.data());assert(id==7||id==8);assert(ignore);return id==7;
+ (void)ignore;
+ if(entity!=player.data()&&entity!=backup.data())return false;
+ return id==7&&entity==backup.data();
+}
+static std::int32_t Multiplier(void* entity,std::uint32_t id){
+ if(entity==backup.data()&&id==7)return 2;
+ return 0;
 }
 int main(){
  const std::size_t moduleSize=std::max<std::size_t>(kEntityPlayerVtableOffset+16,
-   kGameOwnerGlobalSlotOffset+sizeof(std::uintptr_t));
+   std::max<std::size_t>(kGameOwnerGlobalSlotOffset+sizeof(std::uintptr_t),
+     kGameManagerGlobalSlotOffset+sizeof(std::uintptr_t)));
  moduleBytes.assign(moduleSize,0);
- ownerSlot.assign(8,0);game.assign(kGamePlayerArrayCapacityOffset+8,0);
- playerList.assign(8,0);player.assign(0x3000,0);
+ ownerSlot.assign(8,0);managerSlot.assign(8,0);
+ manager.assign(kManagerItemConfigOffset+0x100,0);
+ game.assign(kGamePlayerArrayCapacityOffset+8,0);
+ playerList.assign(8,0);player.assign(0x3000,0);backup.assign(0x3000,0);
+ collectibles.assign(8*sizeof(std::uintptr_t),0);
+ trinkets.assign(8*sizeof(std::uintptr_t),0);
+ item5.assign(0x100,0);item6.assign(0x100,0);
+ trinket7.assign(0x100,0);trinket8.assign(0x100,0);
  const auto base=reinterpret_cast<std::uintptr_t>(moduleBytes.data());
  const auto vptr=base+kEntityPlayerVtableOffset;
  std::memcpy(player.data(),&vptr,8);
+ std::memcpy(backup.data(),&vptr,8);
  const std::uint32_t playerType=kEntityTypePlayer;
  std::memcpy(player.data()+kEntityTypeOffset,&playerType,4);
+ std::memcpy(backup.data()+kEntityTypeOffset,&playerType,4);
  std::uint32_t playerVariant=0;std::memcpy(player.data()+kEntityVariantOffset,&playerVariant,4);
+ std::memcpy(backup.data()+kEntityVariantOffset,&playerVariant,4);
  const auto playerAddress=reinterpret_cast<std::uintptr_t>(player.data());
  std::memcpy(playerList.data(),&playerAddress,8);
+ const auto backupAddress=reinterpret_cast<std::uintptr_t>(backup.data());
+ std::memcpy(player.data()+0x2588,&backupAddress,sizeof(backupAddress));
  const auto begin=reinterpret_cast<std::uintptr_t>(playerList.data());
  std::memcpy(game.data()+kGamePlayerArrayBeginOffset,&begin,8);
  const auto end=begin+8;std::memcpy(game.data()+kGamePlayerArrayEndOffset,&end,8);
  std::memcpy(game.data()+kGamePlayerArrayCapacityOffset,&end,8);
+ const auto item5Address=reinterpret_cast<std::uintptr_t>(item5.data());
+ const auto item6Address=reinterpret_cast<std::uintptr_t>(item6.data());
+ std::memcpy(collectibles.data()+5*sizeof(std::uintptr_t),&item5Address,8);
+ std::memcpy(collectibles.data()+6*sizeof(std::uintptr_t),&item6Address,8);
+ const auto collectibleBegin=reinterpret_cast<std::uintptr_t>(collectibles.data());
+ const auto collectibleEnd=collectibleBegin+collectibles.size();
+ std::memcpy(manager.data()+kManagerItemConfigOffset+kItemConfigCollectibleBeginOffset,
+   &collectibleBegin,8);
+ std::memcpy(manager.data()+kManagerItemConfigOffset+kItemConfigCollectibleEndOffset,
+   &collectibleEnd,8);
+ const auto trinket7Address=reinterpret_cast<std::uintptr_t>(trinket7.data());
+ const auto trinket8Address=reinterpret_cast<std::uintptr_t>(trinket8.data());
+ std::memcpy(trinkets.data()+7*sizeof(std::uintptr_t),&trinket7Address,8);
+ std::memcpy(trinkets.data()+8*sizeof(std::uintptr_t),&trinket8Address,8);
+ const auto trinketBegin=reinterpret_cast<std::uintptr_t>(trinkets.data());
+ const auto trinketEnd=trinketBegin+trinkets.size();
+ std::memcpy(manager.data()+kManagerItemConfigOffset+kItemConfigTrinketBeginOffset,
+   &trinketBegin,8);
+ std::memcpy(manager.data()+kManagerItemConfigOffset+kItemConfigTrinketEndOffset,
+   &trinketEnd,8);
+ const std::uint64_t lazShared=0x80000000ULL;
+ std::memcpy(item6.data()+kItemConfigItemTagsOffset,&lazShared,8);
+ std::memcpy(trinket7.data()+kItemConfigItemTagsOffset,&lazShared,8);
  const auto gameAddress=reinterpret_cast<std::uintptr_t>(game.data());
  std::memcpy(ownerSlot.data(),&gameAddress,8);
+ const auto managerAddress=reinterpret_cast<std::uintptr_t>(manager.data());
+ std::memcpy(managerSlot.data(),&managerAddress,8);
  const auto ownerSlotAddress=reinterpret_cast<std::uintptr_t>(ownerSlot.data());
  std::memcpy(moduleBytes.data()+kGameOwnerGlobalSlotOffset,&ownerSlotAddress,
    sizeof(ownerSlotAddress));
+ const auto managerSlotAddress=reinterpret_cast<std::uintptr_t>(managerSlot.data());
+ std::memcpy(moduleBytes.data()+kGameManagerGlobalSlotOffset,&managerSlotAddress,
+   sizeof(managerSlotAddress));
  LuaRuntime::SetEngineModuleBase(base);LuaRuntime::SetGameBindings(
    ownerSlotAddress,0);LuaRuntime::ObserveGameThread();
  Files files(true);SetSessionSaveFilePort(&files);
  const repentogon::NativePort port{Ready,Ready};repentogon::SetNativePort(&port);
  SetEntityPlayerHasCollectibleHostImplementation(&Has);
  SetRepentogonPlayerManagerTrinketHost(&Trinket);
+ SetRepentogonPlayerManagerTrinketMultiplierHost(&Multiplier);
  const auto players=isaac::runtime::ResolveEnginePlayerArray();
  assert(players.readable&&players.count==1);
  const char* script=R"lua(
 assert(PlayerManager.AnyoneHasCollectible(5,false))
-assert(not PlayerManager.AnyoneHasCollectible(6,false))
+assert(PlayerManager.AnyoneHasCollectible(6,false)==true) -- backup with LazShared tag
 assert(PlayerManager.AnyoneHasTrinket(7,true))
+assert(PlayerManager.AnyoneHasTrinket(7,false)) -- backup multiplier
 assert(not PlayerManager.AnyoneHasTrinket(8,true))
+assert(not PlayerManager.AnyoneHasTrinket(8,false))
 assert(not pcall(function()PlayerManager.AnyoneHasCollectible(-1)end))
 assert(not pcall(function()PlayerManager.AnyoneHasCollectible(1,1)end))
 )lua";
@@ -68,6 +124,7 @@ assert(not pcall(function()PlayerManager.AnyoneHasCollectible(1,1)end))
  assert(LuaRuntime::ShutdownForModReload());
  repentogon::SetNativePort(nullptr);
  SetEntityPlayerHasCollectibleHostImplementation(nullptr);SetRepentogonPlayerManagerTrinketHost(nullptr);
+ SetRepentogonPlayerManagerTrinketMultiplierHost(nullptr);
  LuaRuntime::SetRuntimeExtensionInstaller(nullptr);SetSessionSaveFilePort(nullptr);
 }
 '''

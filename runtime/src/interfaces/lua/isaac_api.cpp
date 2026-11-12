@@ -13993,4 +13993,27 @@ bool EntityPlayerHasCollectibleForApi(
         HasCollectibleMethod(), player, collectibleId, ignoreModifiers);
 }
 
+std::uint64_t ItemConfigItemTagsForApi(bool trinket, std::uint32_t id) noexcept {
+    const auto config = ResolveItemConfig();
+    if (!config) return 0;
+    ItemVectorView view{};
+    if (!ReadItemVector(
+            config,
+            trinket ? kItemConfigTrinketBeginOffset : kItemConfigCollectibleBeginOffset,
+            trinket ? kItemConfigTrinketEndOffset : kItemConfigCollectibleEndOffset,
+            &view) ||
+        id >= view.count) {
+        return 0;
+    }
+    std::uintptr_t item = 0;
+    if (!ReadEngine(view.begin + static_cast<std::uintptr_t>(id) * sizeof(std::uintptr_t),
+                    &item) ||
+        !item) {
+        return 0;
+    }
+    std::uint64_t tags = 0;
+    if (!ReadEngine(item + kItemConfigItemTagsOffset, &tags)) return 0;
+    return tags;
+}
+
 } // namespace isaac::runtime

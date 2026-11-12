@@ -6787,6 +6787,13 @@ bool TakeCallbackError() {
     return g_CallbackError.exchange(false, std::memory_order_acq_rel);
 }
 
+void ReportCallbackError(lua_State* state) noexcept {
+    if (state != nullptr) {
+        CaptureLuaErrorTop(state);
+    }
+    g_CallbackError.store(true, std::memory_order_release);
+}
+
 #if defined(EXL_PERSISTENCE_TRACE) || defined(EXL_PERSISTENCE_EVENT_DIAGNOSTIC)
 u64 CallbackFailureDetail() {
     return g_CallbackFailureDetail.load(std::memory_order_acquire);

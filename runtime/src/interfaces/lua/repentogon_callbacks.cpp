@@ -16,6 +16,9 @@
 #include "interfaces/lua/repentogon_room_mutations.hpp"
 #include "interfaces/lua/repentogon_remaining_bulk_api.hpp"
 #include "interfaces/lua/repentogon_save_state_api.hpp"
+#include "interfaces/lua/repentogon_boc_api.hpp"
+#include "interfaces/lua/repentogon_console_api.hpp"
+#include "interfaces/lua/repentogon_timer_api.hpp"
 #include "application/callback/extended_callback_runtime.hpp"
 #include "lua_runtime.hpp"
 #include <array>
@@ -288,6 +291,22 @@ constexpr RepentogonApiBinding kApis[]={
       ApiMaturity::Experimental},RepentogonGridEntitiesSaveStateVectorGet},
     {{0x0E027031,ApiDomain::Isaac,"GridEntitiesSaveStateVector","__len",{},0,ThreadAffinity::ManagedCallback,
       ApiMaturity::Experimental},RepentogonGridEntitiesSaveStateVectorLen},
+    {{0x0E028000,ApiDomain::Isaac,"EntityPlayer","CalculateBagOfCraftingOutput",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonEntityPlayerCalculateBagOfCraftingOutput},
+    {{0x0E028001,ApiDomain::Isaac,"EntityPlayer","GetBagOfCraftingContent",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonEntityPlayerGetBagOfCraftingContent},
+    {{0x0E028002,ApiDomain::Isaac,"EntityPlayer","GetBagOfCraftingOutput",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonEntityPlayerGetBagOfCraftingOutput},
+    {{0x0E028003,ApiDomain::Isaac,"EntityPlayer","GetActiveItemDesc",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonEntityPlayerGetActiveItemDesc},
+    {{0x0E029000,ApiDomain::Isaac,"Console","PrintError",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonConsolePrintError},
+    {{0x0E029001,ApiDomain::Isaac,"Console","PrintWarning",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonConsolePrintWarning},
+    {{0x0E029002,ApiDomain::Isaac,"Console","GetHistory",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonConsoleGetHistory},
+    {{0x0E02A000,ApiDomain::Isaac,"Isaac","CreateTimer",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonIsaacCreateTimer},
     {{0x0E024000,ApiDomain::Isaac,"MenuManager","GetActiveMenu",{},0,ThreadAffinity::ManagedCallback,
       ApiMaturity::Experimental},RepentogonMenuManagerGetActiveMenu},
     {{0x0E024001,ApiDomain::Isaac,"MenuManager","IsActive",{},0,ThreadAffinity::ManagedCallback,
@@ -362,6 +381,8 @@ constexpr RepentogonApiBinding kApis[]={
       ApiMaturity::Experimental},RepentogonRoomRemoveGridEntityImmediate},
     {{0x04020011,ApiDomain::Room,"Room","SetBackdropType",{},0,ThreadAffinity::ManagedCallback,
       ApiMaturity::Experimental},RepentogonRoomSetBackdropType},
+    {{0x04020012,ApiDomain::Room,"Room","SetRail",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonRoomSetRail},
 };
 // A bounded read-only ID map addresses the cached states, not the ordinary ID array.
 constexpr auto MakeStateIndices() noexcept {
@@ -372,7 +393,7 @@ constexpr auto MakeStateIndices() noexcept {
 }
 constexpr auto kStateIndices=MakeStateIndices();
 std::array<ExtendedCallbackState*,111> g_States{};
-void Reset() noexcept {g_States.fill(nullptr);}
+void Reset() noexcept {g_States.fill(nullptr);ResetRepentogonTimerApi();}
 
 bool Ready() noexcept {
     return g_NativePort&&g_NativePort->ready&&g_NativePort->install&&g_NativePort->ready();
@@ -391,6 +412,9 @@ int Initialize(lua_State* state) {
     RegisterRepentogonMenuWorldApi(state);
     RegisterRepentogonRemainingBulkViews(state);
     RegisterRepentogonSaveStateViews(state);
+    RegisterRepentogonBocViews(state);
+    static_cast<void>(RegisterRepentogonConsoleApi(state));
+    static_cast<void>(RegisterRepentogonTimerApi(state));
     return 0;
 }
 }
