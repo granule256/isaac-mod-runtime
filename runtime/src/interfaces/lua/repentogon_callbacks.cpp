@@ -14,6 +14,7 @@
 #include "interfaces/lua/repentogon_sprite_api.hpp"
 #include "interfaces/lua/repentogon_menu_world_api.hpp"
 #include "interfaces/lua/repentogon_room_mutations.hpp"
+#include "interfaces/lua/repentogon_remaining_bulk_api.hpp"
 #include "application/callback/extended_callback_runtime.hpp"
 #include "lua_runtime.hpp"
 #include <array>
@@ -29,6 +30,7 @@ constexpr RepentogonCallbackBinding kCallbacks[]={
     {1020,"MC_HUD_UPDATE"},
     {1021,"MC_POST_HUD_UPDATE"},
     {1022,"MC_HUD_RENDER"},
+    {1023,"MC_MAIN_MENU_RENDER"},
     {1024,"MC_POST_HUD_RENDER"},
     {1026,"MC_PRE_UPDATE"},
     {1030,"MC_PRE_SFX_PLAY"},
@@ -136,7 +138,7 @@ constexpr RepentogonCallbackBinding kCallbacks[]={
     {1464,"MC_MENU_INPUT_ACTION"},
     {1470,"MC_POST_SAVESLOT_LOAD"},
 };
-static_assert(sizeof(kCallbacks)/sizeof(kCallbacks[0])==110);
+static_assert(sizeof(kCallbacks)/sizeof(kCallbacks[0])==111);
 constexpr RepentogonEnumBinding kAliases[]={{"ModCallbacks","MC_HUD_POST_UPDATE",1021}};
 constexpr RepentogonApiBinding kApis[]={
     {{0x07020001,ApiDomain::Rng,"RNG","SetSeed",{},0,ThreadAffinity::ManagedCallback,
@@ -249,6 +251,20 @@ constexpr RepentogonApiBinding kApis[]={
       ApiMaturity::Experimental},RepentogonEntityConfigPlayerGetExtraPortraitPath},
     {{0x0E023007,ApiDomain::Isaac,"EntityConfigPlayer","GetNameImagePath",{},0,ThreadAffinity::ManagedCallback,
       ApiMaturity::Experimental},RepentogonEntityConfigPlayerGetNameImagePath},
+    {{0x0E026000,ApiDomain::Isaac,"EntityPlayer","GetDamageModifier",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonEntityPlayerGetDamageModifier},
+    {{0x0E026001,ApiDomain::Isaac,"EntityPlayer","GetEdenDamage",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonEntityPlayerGetEdenDamage},
+    {{0x0E026002,ApiDomain::Isaac,"EntityPlayer","GetD8DamageModifier",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonEntityPlayerGetD8DamageModifier},
+    {{0x0E026003,ApiDomain::Isaac,"EntityPlayer","GetFlippedForm",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonEntityPlayerGetFlippedForm},
+    {{0x0E026004,ApiDomain::Isaac,"EntityPickup","IsBlind",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonEntityPickupIsBlind},
+    {{0x05010007,ApiDomain::ItemPool,"ItemPool","GetNumItemPools",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonItemPoolGetNumItemPools},
+    {{0x05010008,ApiDomain::ItemPool,"ItemPool","GetCollectiblesFromPool",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonItemPoolGetCollectiblesFromPool},
     {{0x0E024000,ApiDomain::Isaac,"MenuManager","GetActiveMenu",{},0,ThreadAffinity::ManagedCallback,
       ApiMaturity::Experimental},RepentogonMenuManagerGetActiveMenu},
     {{0x0E024001,ApiDomain::Isaac,"MenuManager","IsActive",{},0,ThreadAffinity::ManagedCallback,
@@ -328,11 +344,11 @@ constexpr RepentogonApiBinding kApis[]={
 constexpr auto MakeStateIndices() noexcept {
     std::array<std::uint8_t,1472-1000> indices{};
     for(auto& index:indices)index=255;
-    for(std::size_t i=0;i<110;++i)indices[kCallbacks[i].id-1000]=static_cast<std::uint8_t>(i);
+    for(std::size_t i=0;i<111;++i)indices[kCallbacks[i].id-1000]=static_cast<std::uint8_t>(i);
     return indices;
 }
 constexpr auto kStateIndices=MakeStateIndices();
-std::array<ExtendedCallbackState*,110> g_States{};
+std::array<ExtendedCallbackState*,111> g_States{};
 void Reset() noexcept {g_States.fill(nullptr);}
 
 bool Ready() noexcept {
@@ -350,6 +366,7 @@ int Initialize(lua_State* state) {
     RegisterRepentogonEntityConfigViews(state);
     RegisterRepentogonSpriteViews(state);
     RegisterRepentogonMenuWorldApi(state);
+    RegisterRepentogonRemainingBulkViews(state);
     return 0;
 }
 }
@@ -362,7 +379,7 @@ bool CallbackSpriteAlive(std::uintptr_t address) noexcept {
     return address&&HasSpriteValidator()&&g_NativePort->spriteAlive(address);
 }
 bool HasNativePort() noexcept { return g_NativePort!=nullptr; }
-constinit const RepentogonBatch kCallbackBatch{"callbacks",kApis,sizeof(kApis)/sizeof(kApis[0]),kAliases,1,kCallbacks,110,Initialize,Reset,Ready};
+constinit const RepentogonBatch kCallbackBatch{"callbacks",kApis,sizeof(kApis)/sizeof(kApis[0]),kAliases,1,kCallbacks,111,Initialize,Reset,Ready};
 const RepentogonBatch& CallbackBatch() noexcept {return kCallbackBatch;}
 const ExtendedCallbackState* FindCallbackState(std::uint32_t id) noexcept {
     if(id>=1000&&id<1472) {

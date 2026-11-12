@@ -148,6 +148,7 @@ static const RepentogonCallbackBinding expected[]={
 {1020,"MC_HUD_UPDATE"},
 {1021,"MC_POST_HUD_UPDATE"},
 {1022,"MC_HUD_RENDER"},
+{1023,"MC_MAIN_MENU_RENDER"},
 {1024,"MC_POST_HUD_RENDER"},
 {1026,"MC_PRE_UPDATE"},
 {1030,"MC_PRE_SFX_PLAY"},
@@ -422,16 +423,16 @@ local f;f=function()m:RemoveCallback(1400,f);calls=calls+1 end;m:AddCallback(140
     if(mode=="off"||mode=="none"){
         assert(!Listening(1400));assert(installCalls==0&&readyCalls==0);assert(ExtendedCallbackCount()==0);
     }else{
-        assert(installCalls==1&&readyCalls==1&&ExtendedCallbackCount()==110);
+        assert(installCalls==1&&readyCalls==1&&ExtendedCallbackCount()==111);
         unsigned type=20,variant=7,subtype=9,gridType=4;
         std::memcpy(entity+kEntityTypeOffset,&type,4);std::memcpy(entity+kEntityVariantOffset,&variant,4);
         std::memcpy(entity+kEntitySubTypeOffset,&subtype,4);std::memcpy(grid+kGridEntityTypeOffset,&gridType,4);
         Vector offset{10,20};Sound sound{5,0.5f,2,false,1,0};
         auto send=[&](unsigned id,EventKind kind=EventKind::Global){return Dispatch(Event{id,kind,kind==EventKind::Grid||kind==EventKind::GridRender?Address(grid):Address(entity),Address(collider),&offset,true,&sound});};
         if(mode=="catalog"){
-            assert(sizeof(expected)/sizeof(expected[0])==110);
+            assert(sizeof(expected)/sizeof(expected[0])==111);
             for(const auto& c:expected){assert(Listening(c.id));send(c.id);}
-            Check();assert(Number("calls")==110&&g_ExtendedCallbackEnabledCount==110);
+            Check();assert(Number("calls")==111&&g_ExtendedCallbackEnabledCount==111);
         }else if(mode=="render"){
             auto result=send(1080,EventKind::EntityRender);Check();assert(result.hasOffset&&result.offset.x==11&&result.offset.y==27);
         }else if(mode=="booleans"){

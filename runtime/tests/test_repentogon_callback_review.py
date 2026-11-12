@@ -54,7 +54,7 @@ m:AddCallback(1030,function()error('valid sound table must stop')end,5)
 '''
 CHECKS = r'''
         if(mode=="legacy_alias") {
-            send(1021);Check();assert(Number("calls")==1&&ExtendedCallbackCount()==110);
+            send(1021);Check();assert(Number("calls")==1&&ExtendedCallbackCount()==111);
         }else if(mode=="pre_true"||mode=="pre_false"||mode=="pre_nil") {
             const auto r=send(1026);assert(r.hasBoolean==(mode!="pre_nil"));
             if(r.hasBoolean)assert(r.boolean==(mode=="pre_true"));Check();
