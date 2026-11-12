@@ -20,6 +20,9 @@ int RepentogonEntityPickupGetCollectibleCycle(lua_State* state);
 int RepentogonEntityPickupRemoveCollectibleCycle(lua_State* state);
 int RepentogonEntityPickupGetFlipCollectible(lua_State* state);
 int RepentogonEntityPickupInitFlipState(lua_State* state);
+int RepentogonEntityPickupGetVarData(lua_State* state);
+int RepentogonEntityPickupSetVarData(lua_State* state);
+int RepentogonEntityPickupAddCollectibleCycle(lua_State* state);
 
 #if !defined(__SWITCH__)
 struct RepentogonEntityNativeTestBindings {

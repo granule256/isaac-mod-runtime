@@ -28,6 +28,8 @@ constexpr std::uintptr_t kEntityPickupCycleCountOffset=0x604;
 constexpr std::uintptr_t kEntityPickupCycleListOffset=0x5e4;
 constexpr std::uintptr_t kEntityPickupFlipStateOffset=0x610;
 constexpr std::uintptr_t kEntityPickupFlipSubtype=0x8;
+// handle_collision +0x5e0 -> QueueItem arg4; DropCollectible restores it from the active slot.
+constexpr std::uintptr_t kEntityPickupVarDataOffset=0x5e0;
 constexpr std::uint32_t kEntityTypeSlot=6;
 constexpr std::uint32_t kEntityPickupVariantCollectible=100;
 
@@ -144,6 +146,41 @@ int RepentogonEntityPickupGetCollectibleCycle(lua_State* state) {
     lua_createtable(state,static_cast<int>(count),0);
     for(std::uint32_t i=0;i<count;++i){lua_pushinteger(state,values[i]);lua_rawseti(state,-2,static_cast<lua_Integer>(i+1));}
     return 1;
+}
+
+int RepentogonEntityPickupGetVarData(lua_State* state) {
+    const auto pickup=Pickup(state);
+    lua_pushinteger(state,Read<std::int32_t>(state,pickup,kEntityPickupVarDataOffset,
+                                           "EntityPickup VarData"));
+    return 1;
+}
+
+int RepentogonEntityPickupSetVarData(lua_State* state) {
+    const auto pickup=Pickup(state);
+    const auto value=static_cast<std::int32_t>(luaL_checkinteger(state,2));
+    if(!engine_memory::WriteField(pickup,kEntityPickupVarDataOffset,value,
+                                  engine_memory::EngineMemoryWritable))
+        return luaL_error(state,"EntityPickup VarData is not writable");
+    return 0;
+}
+
+int RepentogonEntityPickupAddCollectibleCycle(lua_State* state) {
+    const auto pickup=Pickup(state);
+    const auto id=static_cast<std::int32_t>(luaL_checkinteger(state,2));
+    if(!CollectibleConfigExistsForApi(id))
+        return luaL_argerror(state,2,lua_pushfstring(state,"Invalid collectible ID %d",static_cast<int>(id)));
+    const auto count=Read<std::uint32_t>(state,pickup,kEntityPickupCycleCountOffset,
+                                       "EntityPickup cycle count");
+    if(count>=8){lua_pushboolean(state,0);return 1;}
+    const auto offset=kEntityPickupCycleListOffset+count*sizeof(std::int32_t);
+    // Check both writes before changing either field; publish count after the entry.
+    if(!engine_memory::EngineMemoryWritable(pickup+offset,sizeof(id))||
+       !engine_memory::EngineMemoryWritable(pickup+kEntityPickupCycleCountOffset,sizeof(count))||
+       !engine_memory::WriteField(pickup,offset,id,engine_memory::EngineMemoryWritable)||
+       !engine_memory::WriteField(pickup,kEntityPickupCycleCountOffset,count+1,
+                                  engine_memory::EngineMemoryWritable))
+        return luaL_error(state,"EntityPickup cycle list is not writable");
+    lua_pushboolean(state,1);return 1;
 }
 
 int RepentogonEntityPickupRemoveCollectibleCycle(lua_State* state) {

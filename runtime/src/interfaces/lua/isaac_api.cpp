@@ -13426,6 +13426,23 @@ void RegisterViewMetatables(lua_State* state) {
 
 } // namespace
 
+bool CollectibleConfigExistsForApi(std::int32_t id) noexcept {
+    if (!LuaRuntime::IsOnGameThread()) return false;
+    const auto config = ResolveItemConfig();
+    if (config == 0) return false;
+    std::uintptr_t item{};
+    if (id < 0) {
+        std::uintptr_t owner{};
+        return ReadProceduralItem(static_cast<std::uint32_t>(id), &item, &owner);
+    }
+    ItemVectorView view{};
+    return ReadItemVector(config, kItemConfigCollectibleBeginOffset,
+                          kItemConfigCollectibleEndOffset, &view) &&
+           static_cast<std::uint32_t>(id) < view.count &&
+           ReadEngine(view.begin + static_cast<std::size_t>(id) * sizeof(std::uintptr_t), &item) &&
+           item != 0;
+}
+
 bool ProceduralTargetItemBelongs(std::uintptr_t item) noexcept {
     if (!LuaRuntime::IsOnGameThread() ||
         item == 0 || item > UINTPTR_MAX - kItemConfigItemIdOffset) {

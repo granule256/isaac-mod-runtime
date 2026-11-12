@@ -220,6 +220,12 @@ constexpr RepentogonApiBinding kApis[]={
       ApiMaturity::Experimental},RepentogonEntityPickupGetFlipCollectible},
     {{0x0E020118,ApiDomain::Isaac,"EntityPickup","InitFlipState",{},0,ThreadAffinity::ManagedCallback,
       ApiMaturity::Experimental},RepentogonEntityPickupInitFlipState},
+    {{0x0E020119,ApiDomain::Isaac,"EntityPickup","GetVarData",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonEntityPickupGetVarData},
+    {{0x0E02011A,ApiDomain::Isaac,"EntityPickup","SetVarData",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonEntityPickupSetVarData},
+    {{0x0E02011B,ApiDomain::Isaac,"EntityPickup","AddCollectibleCycle",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonEntityPickupAddCollectibleCycle},
 };
 // A bounded read-only ID map addresses the cached states, not the ordinary ID array.
 constexpr auto MakeStateIndices() noexcept {

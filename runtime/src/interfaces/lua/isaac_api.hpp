@@ -248,6 +248,9 @@ struct PlayerLookupProbe {
 [[nodiscard]] std::uintptr_t PersistentGameDataObjectArgument(lua_State* state, int index) noexcept;
 [[nodiscard]] bool EntityPlayerHasCollectibleForApi(
     std::uintptr_t player, std::uint32_t collectibleId, bool ignoreModifiers) noexcept;
+// Same current ordinary/procedural ItemConfig lookup used by GetCollectible,
+// without allocating a Lua handle. The caller supplies the upstream int32 ID.
+[[nodiscard]] bool CollectibleConfigExistsForApi(std::int32_t id) noexcept;
 
 // 读一个实体的 `Type`/`Variant`（`Entity + 0x38` / `+0x3C`，两张布局都是
 // `confirmed` 的）。`EntityRef` 的替身缓冲区要用这两个值填 `+0x08`/`+0x00` 两格，
