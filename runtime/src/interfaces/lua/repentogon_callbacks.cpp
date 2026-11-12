@@ -15,6 +15,7 @@
 #include "interfaces/lua/repentogon_menu_world_api.hpp"
 #include "interfaces/lua/repentogon_room_mutations.hpp"
 #include "interfaces/lua/repentogon_remaining_bulk_api.hpp"
+#include "interfaces/lua/repentogon_save_state_api.hpp"
 #include "application/callback/extended_callback_runtime.hpp"
 #include "lua_runtime.hpp"
 #include <array>
@@ -265,6 +266,28 @@ constexpr RepentogonApiBinding kApis[]={
       ApiMaturity::Experimental},RepentogonItemPoolGetNumItemPools},
     {{0x05010008,ApiDomain::ItemPool,"ItemPool","GetCollectiblesFromPool",{},0,ThreadAffinity::ManagedCallback,
       ApiMaturity::Experimental},RepentogonItemPoolGetCollectiblesFromPool},
+    {{0x0E027000,ApiDomain::Isaac,"RoomDescriptor","GetEntitiesSaveState",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonRoomDescriptorGetEntitiesSaveState},
+    {{0x0E027001,ApiDomain::Isaac,"RoomDescriptor","GetDecoSaveState",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonRoomDescriptorGetDecoSaveState},
+    {{0x0E027002,ApiDomain::Isaac,"RoomDescriptor","GetGridEntitiesSaveState",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonRoomDescriptorGetGridEntitiesSaveState},
+    {{0x0E027010,ApiDomain::Isaac,"EntitiesSaveStateVector","Get",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonEntitiesSaveStateVectorGet},
+    {{0x0E027011,ApiDomain::Isaac,"EntitiesSaveStateVector","__len",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonEntitiesSaveStateVectorLen},
+    {{0x0E027020,ApiDomain::Isaac,"EntitiesSaveState","GetType",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonEntitiesSaveStateGetType},
+    {{0x0E027021,ApiDomain::Isaac,"EntitiesSaveState","GetVariant",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonEntitiesSaveStateGetVariant},
+    {{0x0E027022,ApiDomain::Isaac,"EntitiesSaveState","GetSubType",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonEntitiesSaveStateGetSubType},
+    {{0x0E027023,ApiDomain::Isaac,"EntitiesSaveState","GetI3",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonEntitiesSaveStateGetI3},
+    {{0x0E027030,ApiDomain::Isaac,"GridEntitiesSaveStateVector","Get",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonGridEntitiesSaveStateVectorGet},
+    {{0x0E027031,ApiDomain::Isaac,"GridEntitiesSaveStateVector","__len",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonGridEntitiesSaveStateVectorLen},
     {{0x0E024000,ApiDomain::Isaac,"MenuManager","GetActiveMenu",{},0,ThreadAffinity::ManagedCallback,
       ApiMaturity::Experimental},RepentogonMenuManagerGetActiveMenu},
     {{0x0E024001,ApiDomain::Isaac,"MenuManager","IsActive",{},0,ThreadAffinity::ManagedCallback,
@@ -367,6 +390,7 @@ int Initialize(lua_State* state) {
     RegisterRepentogonSpriteViews(state);
     RegisterRepentogonMenuWorldApi(state);
     RegisterRepentogonRemainingBulkViews(state);
+    RegisterRepentogonSaveStateViews(state);
     return 0;
 }
 }
