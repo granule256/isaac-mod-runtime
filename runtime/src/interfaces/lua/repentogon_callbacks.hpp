@@ -15,7 +15,7 @@ struct Sound {
 };
 enum class EventKind {
     Global, Entity, EntityRender, Grid, GridRender, Collision, Sound, IntegerPair, AddCollectible,
-    SaveSlot
+    SaveSlot, RoomDescriptor
 };
 struct Event {
     std::uint32_t id{};

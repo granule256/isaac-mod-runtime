@@ -4354,6 +4354,16 @@ int RoomDescriptorIndex(lua_State* state) {
         lua_pushnil(state);
         return 1;
     }
+    // Extension methods must remain discoverable even for a currently empty descriptor.
+    // Ordinary field reads avoid a method-table lookup on this hot path.
+    if(g_LuaApiExtension&&((key[0]=='G'&&key[1]=='e'&&key[2]=='t')||
+                          (key[0]=='S'&&key[1]=='e'&&key[2]=='t'))) {
+        luaL_getmetatable(state,LuaRuntime::kRoomDescriptorMetatable);
+        lua_getfield(state,-1,"__methods");
+        if(lua_istable(state,-1))lua_getfield(state,-1,key);
+        else lua_pushnil(state);
+        lua_remove(state,-2);lua_remove(state,-2);return 1;
+    }
     const std::uintptr_t descriptor = isaac::runtime::engine_memory::AddressOf(handle->descriptor);
     if(const int pushed=TryPushApi500DescriptorField(state,descriptor,key))return pushed;
     if(const int n=TryPushApi600WorldField(state,descriptor,"RoomDescriptor",key))return n;

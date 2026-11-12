@@ -1982,6 +1982,11 @@ void RegisterGameApi(lua_State* state) {
     lua_pushcfunction(state, isaac::runtime::RoomDescriptorIndex);
     lua_setfield(state, -2, "__index");
     lua_pushcfunction(state,isaac::runtime::RoomDescriptorNewIndex);lua_setfield(state,-2,"__newindex");
+    if(isaac::runtime::g_LuaApiExtension) {
+        lua_newtable(state);
+        static_cast<void>(isaac::runtime::AttachOwnerMethods(state,"RoomDescriptor",nullptr,0));
+        lua_setfield(state,-2,"__methods");
+    }
     lua_pop(state, 1);
 
     luaL_newmetatable(state, kRoomDescriptorListMetatable);
@@ -4085,10 +4090,13 @@ struct CallbackArgument {
         RngSnapshot,
         RngBorrowed,
         CollectibleRng,
+        Room,
+        RoomDescriptor,
     };
     Kind kind{Kind::None};
     std::int64_t number{0};
     std::uintptr_t entity{0};
+    std::uintptr_t auxiliary{0};
     float x{0.0F};
     float y{0.0F};
     std::array<std::uint8_t,16> rngSnapshot{};
@@ -4136,6 +4144,15 @@ struct CallbackArguments {
     void AddCallbackSprite(std::uintptr_t value) noexcept {
         if(count>=kMaximum)return;
         auto& argument=items[count++];argument.kind=CallbackArgument::Kind::CallbackSprite;argument.entity=value;
+    }
+    void AddRoom(std::uintptr_t value) noexcept {
+        if(count>=kMaximum)return;
+        auto& argument=items[count++];argument.kind=CallbackArgument::Kind::Room;argument.entity=value;
+    }
+    void AddRoomDescriptor(std::uintptr_t room, std::uintptr_t descriptor) noexcept {
+        if(count>=kMaximum)return;
+        auto& argument=items[count++];argument.kind=CallbackArgument::Kind::RoomDescriptor;
+        argument.entity=room;argument.auxiliary=descriptor;
     }
     void AddVector(float x, float y) noexcept {
         if (count >= kMaximum) {
@@ -4495,6 +4512,27 @@ private:
                         self->callbackSpriteScope=isaac::runtime::BeginCallbackSpriteScope(state);
                     isaac::runtime::PushCallbackSpriteHandle(state,argument.entity,self->callbackSpriteScope);
                     break;
+                case CallbackArgument::Kind::Room: {
+                    // Room::Init is called with Level+0x21550. RoomHandle deliberately
+                    // resolves that same current-room owner on every use instead of caching
+                    // a pre-init pointer.
+                    auto* room=static_cast<LuaRuntime::RoomHandle*>(
+                        lua_newuserdata(state,sizeof(LuaRuntime::RoomHandle)));
+                    room->reserved=0;
+                    luaL_getmetatable(state,LuaRuntime::kRoomMetatable);
+                    lua_setmetatable(state,-2);
+                    break;
+                }
+                case CallbackArgument::Kind::RoomDescriptor: {
+                    auto* descriptor=static_cast<LuaRuntime::RoomDescriptorHandle*>(
+                        lua_newuserdata(state,sizeof(LuaRuntime::RoomDescriptorHandle)));
+                    descriptor->descriptor=isaac::runtime::engine_memory::AsObject(argument.auxiliary);
+                    descriptor->level=isaac::runtime::engine_memory::AsObject(argument.entity);
+                    descriptor->moduleBase=EngineModuleBase();
+                    luaL_getmetatable(state,LuaRuntime::kRoomDescriptorMetatable);
+                    lua_setmetatable(state,-2);
+                    break;
+                }
                 case CallbackArgument::Kind::Vector:
                     // 渲染偏移（`Vector` userdata，与 `Room:GetRenderScrollOffset()` 给出的是同一种值类型）。
                     isaac::runtime::PushLuaVector(state, argument.x, argument.y);
@@ -4734,6 +4772,21 @@ void ParseRepentogonReturn(lua_State* state,void* opaque) {
     auto& context=*static_cast<RepentogonReturnContext*>(opaque);
     const auto& event=*context.event;
     const auto id=event.id;
+    if(id==1061) {
+        if(!lua_istable(state,-1))return;
+        if(lua_rawlen(state,-1)!=2)return;
+        // REPENTOGON ToInteger is luaL_checkinteger on each return-table slot.
+        lua_pushinteger(state,1);
+        lua_gettable(state,-2);
+        const auto target=static_cast<std::int32_t>(luaL_checkinteger(state,-1));lua_pop(state,1);
+        lua_pushinteger(state,2);
+        lua_gettable(state,-2);
+        const auto dimension=static_cast<std::int32_t>(luaL_checkinteger(state,-1));lua_pop(state,1);
+        context.result.hasIntegerPair=true;
+        context.result.first=target;
+        context.result.second=dimension;
+        return;
+    }
     if(id==1104) {
         if(!lua_istable(state,-1))return;
         lua_len(state,-1);const auto length=lua_tointeger(state,-1);lua_pop(state,1);
@@ -4820,6 +4873,27 @@ isaac::runtime::repentogon::Result DispatchRepentogonCallback(
             invoker.arguments.AddInteger(event.first);
             invoker.arguments.AddInteger(event.second);
             break;
+        case EventKind::RoomDescriptor: {
+            std::uintptr_t owner{};
+            std::uintptr_t level{};
+            const auto gameSlot=LuaRuntime::GameOwnerSlot();
+            if(!gameSlot||!engine_memory::ReadAt(gameSlot,&owner,
+                engine_memory::EngineMemoryReadable)||!owner||
+               !engine_memory::ReadAt(owner,&level,engine_memory::EngineMemoryReadable))
+                return {};
+            std::uintptr_t currentRoom{};
+            if(!level||!engine_memory::ReadField(level,kGameRoomPointerOffset,
+                &currentRoom,engine_memory::EngineMemoryReadable)||
+               currentRoom==0||currentRoom!=event.object)
+                return {};
+            if(!level||!event.object||!event.collider||
+               !engine_memory::EngineMemoryReadable(event.object,1)||
+               !engine_memory::EngineMemoryReadable(event.collider,0x18))
+                return {};
+            invoker.arguments.AddRoom(event.object);
+            invoker.arguments.AddRoomDescriptor(level,event.collider);
+            break;
+        }
         case EventKind::AddCollectible:
             filter=event.first;
             invoker.arguments.AddInteger(event.first);

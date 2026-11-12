@@ -10,6 +10,10 @@
 #include "interfaces/lua/api600_player.hpp"
 #include "interfaces/lua/api700_player.hpp"
 #include "interfaces/lua/repentogon_entity_api.hpp"
+#include "interfaces/lua/repentogon_entity_config_api.hpp"
+#include "interfaces/lua/repentogon_sprite_api.hpp"
+#include "interfaces/lua/repentogon_menu_world_api.hpp"
+#include "interfaces/lua/repentogon_room_mutations.hpp"
 #include "application/callback/extended_callback_runtime.hpp"
 #include "lua_runtime.hpp"
 #include <array>
@@ -30,6 +34,7 @@ constexpr RepentogonCallbackBinding kCallbacks[]={
     {1030,"MC_PRE_SFX_PLAY"},
     {1031,"MC_POST_SFX_PLAY"},
     {1060,"MC_PRE_LEVEL_INIT"},
+    {1061,"MC_PRE_CHANGE_ROOM"},
     {1080,"MC_PRE_FAMILIAR_RENDER"},
     {1081,"MC_PRE_NPC_RENDER"},
     {1082,"MC_PRE_PLAYER_RENDER"},
@@ -42,6 +47,7 @@ constexpr RepentogonCallbackBinding kCallbacks[]={
     {1089,"MC_PRE_SLOT_RENDER"},
     {1090,"MC_POST_SLOT_RENDER"},
     {1101,"MC_POST_GRID_ENTITY_SPAWN"},
+    {1102,"MC_POST_NIGHTMARE_SCENE_RENDER"},
     {1104,"MC_PRE_LEVEL_SELECT"},
     {1121,"MC_POST_SLOT_INIT"},
     {1122,"MC_POST_SLOT_UPDATE"},
@@ -55,6 +61,7 @@ constexpr RepentogonCallbackBinding kCallbacks[]={
     {1167,"MC_PRE_LASER_UPDATE"},
     {1168,"MC_PRE_EFFECT_UPDATE"},
     {1169,"MC_PRE_SLOT_UPDATE"},
+    {1200,"MC_PRE_NEW_ROOM"},
     {1210,"MC_POST_MODS_LOADED"},
     {1218,"MC_PRE_PAUSE_SCREEN_RENDER"},
     {1219,"MC_POST_PAUSE_SCREEN_RENDER"},
@@ -129,7 +136,7 @@ constexpr RepentogonCallbackBinding kCallbacks[]={
     {1464,"MC_MENU_INPUT_ACTION"},
     {1470,"MC_POST_SAVESLOT_LOAD"},
 };
-static_assert(sizeof(kCallbacks)/sizeof(kCallbacks[0])==107);
+static_assert(sizeof(kCallbacks)/sizeof(kCallbacks[0])==110);
 constexpr RepentogonEnumBinding kAliases[]={{"ModCallbacks","MC_HUD_POST_UPDATE",1021}};
 constexpr RepentogonApiBinding kApis[]={
     {{0x07020001,ApiDomain::Rng,"RNG","SetSeed",{},0,ThreadAffinity::ManagedCallback,
@@ -226,16 +233,106 @@ constexpr RepentogonApiBinding kApis[]={
       ApiMaturity::Experimental},RepentogonEntityPickupSetVarData},
     {{0x0E02011B,ApiDomain::Isaac,"EntityPickup","AddCollectibleCycle",{},0,ThreadAffinity::ManagedCallback,
       ApiMaturity::Experimental},RepentogonEntityPickupAddCollectibleCycle},
+    {{0x0E023000,ApiDomain::Isaac,"EntityConfig","GetEntity",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonEntityConfigGetEntity},
+    {{0x0E023001,ApiDomain::Isaac,"EntityConfig","GetPlayer",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonEntityConfigGetPlayer},
+    {{0x0E023002,ApiDomain::Isaac,"EntityConfigEntity","CanBeChampion",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonEntityConfigEntityCanBeChampion},
+    {{0x0E023003,ApiDomain::Isaac,"EntityConfigEntity","GetStageHP",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonEntityConfigEntityGetStageHP},
+    {{0x0E023004,ApiDomain::Isaac,"EntityConfigEntity","GetCollisionRadius",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonEntityConfigEntityGetCollisionRadius},
+    {{0x0E023005,ApiDomain::Isaac,"EntityConfigPlayer","GetPortraitPath",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonEntityConfigPlayerGetPortraitPath},
+    {{0x0E023006,ApiDomain::Isaac,"EntityConfigPlayer","GetExtraPortraitPath",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonEntityConfigPlayerGetExtraPortraitPath},
+    {{0x0E023007,ApiDomain::Isaac,"EntityConfigPlayer","GetNameImagePath",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonEntityConfigPlayerGetNameImagePath},
+    {{0x0E024000,ApiDomain::Isaac,"MenuManager","GetActiveMenu",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonMenuManagerGetActiveMenu},
+    {{0x0E024001,ApiDomain::Isaac,"MenuManager","IsActive",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonMenuManagerIsActive},
+    {{0x0E024002,ApiDomain::Isaac,"CollectionMenu","GetSelectedPage",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonCollectionMenuGetSelectedPage},
+    {{0x0E024003,ApiDomain::Isaac,"CollectionMenu","GetSelectedElement",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonCollectionMenuGetSelectedElement},
+    {{0x0E024004,ApiDomain::Isaac,"SaveMenu","GetDeletePopupSprite",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonSaveMenuGetDeletePopupSprite},
+    {{0x0E024005,ApiDomain::Isaac,"MainMenu","GetContinueWidgetSprite",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonMainMenuGetContinueWidgetSprite},
+    {{0x0E024006,ApiDomain::Isaac,"Isaac","WorldToMenuPosition",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonWorldToMenuPosition},
+    {{0x0E024007,ApiDomain::Isaac,"RoomTransition","IsRenderingBossIntro",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonRoomTransitionIsRenderingBossIntro},
+    {{0x0E024008,ApiDomain::Isaac,"RoomTransition","GetVersusScreenSprite",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonRoomTransitionGetVersusScreenSprite},
+    {{0x0E024009,ApiDomain::Isaac,"Ambush","GetCurrentWave",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonAmbushGetCurrentWave},
+    {{0x0E02400A,ApiDomain::Isaac,"NightmareScene","IsDogmaNightmare",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonNightmareSceneIsDogmaNightmare},
+    {{0x0E02400B,ApiDomain::Isaac,"RoomDescriptor","GetDimension",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonRoomDescriptorGetDimension},
+    {{0x0E02400C,ApiDomain::Isaac,"RoomDescriptor","GetTaintedKeeperCoinSpawns",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonRoomDescriptorGetTaintedKeeperCoinSpawns},
+    {{0x0E02400D,ApiDomain::Isaac,"RoomDescriptor","SetTaintedKeeperCoinSpawns",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonRoomDescriptorSetTaintedKeeperCoinSpawns},
+    {{0x0E025000,ApiDomain::Isaac,"Sprite","GetLayerFrameData",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonSpriteGetLayerFrameData},
+    {{0x0E025001,ApiDomain::Isaac,"Sprite","GetNullFrame",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonSpriteGetNullFrame},
+    {{0x0E025002,ApiDomain::Isaac,"Sprite","GetCurrentAnimationData",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonSpriteGetCurrentAnimationData},
+    {{0x0E025003,ApiDomain::Isaac,"Sprite","GetAnimationData",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonSpriteGetAnimationData},
+    {{0x0E025004,ApiDomain::Isaac,"Sprite","GetLayer",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonSpriteGetLayer},
+    {{0x0E025005,ApiDomain::Isaac,"AnimationFrame","GetStartFrame",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonAnimationFrameGetStartFrame},
+    {{0x0E025006,ApiDomain::Isaac,"AnimationFrame","GetPivot",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonAnimationFrameGetPivot},
+    {{0x0E025007,ApiDomain::Isaac,"AnimationFrame","GetWidth",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonAnimationFrameGetWidth},
+    {{0x0E025008,ApiDomain::Isaac,"NullFrame","GetPos",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonNullFrameGetPos},
+    {{0x0E025009,ApiDomain::Isaac,"NullFrame","GetScale",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonNullFrameGetScale},
+    {{0x0E02500A,ApiDomain::Isaac,"AnimationData","GetLength",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonAnimationDataGetLength},
+    {{0x0E02500B,ApiDomain::Isaac,"AnimationData","GetLayer",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonAnimationDataGetLayer},
+    {{0x0E02500C,ApiDomain::Isaac,"AnimationLayer","GetFrame",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonAnimationLayerGetFrame},
+    {{0x0E02500D,ApiDomain::Isaac,"LayerState","SetVisible",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonLayerStateSetVisible},
+    {{0x0E02500E,ApiDomain::Isaac,"LayerState","SetPos",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonLayerStateSetPos},
+    {{0x0E02500F,ApiDomain::Isaac,"LayerState","SetColor",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonLayerStateSetColor},
+    {{0x0E025010,ApiDomain::Isaac,"LayerState","GetBlendMode",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonLayerStateGetBlendMode},
+    {{0x0E025011,ApiDomain::Isaac,"BlendMode","Flag1",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonBlendModeGetFlag1},
+    {{0x0E025012,ApiDomain::Isaac,"BlendMode","Flag2",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonBlendModeGetFlag2},
+    {{0x0E025013,ApiDomain::Isaac,"BlendMode","Flag3",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonBlendModeGetFlag3},
+    {{0x0E025014,ApiDomain::Isaac,"BlendMode","Flag4",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonBlendModeGetFlag4},
+    {{0x04020010,ApiDomain::Room,"Room","RemoveGridEntityImmediate",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonRoomRemoveGridEntityImmediate},
+    {{0x04020011,ApiDomain::Room,"Room","SetBackdropType",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonRoomSetBackdropType},
 };
 // A bounded read-only ID map addresses the cached states, not the ordinary ID array.
 constexpr auto MakeStateIndices() noexcept {
     std::array<std::uint8_t,1472-1000> indices{};
     for(auto& index:indices)index=255;
-    for(std::size_t i=0;i<107;++i)indices[kCallbacks[i].id-1000]=static_cast<std::uint8_t>(i);
+    for(std::size_t i=0;i<110;++i)indices[kCallbacks[i].id-1000]=static_cast<std::uint8_t>(i);
     return indices;
 }
 constexpr auto kStateIndices=MakeStateIndices();
-std::array<ExtendedCallbackState*,107> g_States{};
+std::array<ExtendedCallbackState*,110> g_States{};
 void Reset() noexcept {g_States.fill(nullptr);}
 
 bool Ready() noexcept {
@@ -250,6 +347,9 @@ int Initialize(lua_State* state) {
         return luaL_error(state,"REPENTOGON callback hooks unavailable");
     RegisterProceduralItemApi(state);
     RegisterPlayerManagerApi(state);
+    RegisterRepentogonEntityConfigViews(state);
+    RegisterRepentogonSpriteViews(state);
+    RegisterRepentogonMenuWorldApi(state);
     return 0;
 }
 }
@@ -262,7 +362,7 @@ bool CallbackSpriteAlive(std::uintptr_t address) noexcept {
     return address&&HasSpriteValidator()&&g_NativePort->spriteAlive(address);
 }
 bool HasNativePort() noexcept { return g_NativePort!=nullptr; }
-constinit const RepentogonBatch kCallbackBatch{"callbacks",kApis,sizeof(kApis)/sizeof(kApis[0]),kAliases,1,kCallbacks,107,Initialize,Reset,Ready};
+constinit const RepentogonBatch kCallbackBatch{"callbacks",kApis,sizeof(kApis)/sizeof(kApis[0]),kAliases,1,kCallbacks,110,Initialize,Reset,Ready};
 const RepentogonBatch& CallbackBatch() noexcept {return kCallbackBatch;}
 const ExtendedCallbackState* FindCallbackState(std::uint32_t id) noexcept {
     if(id>=1000&&id<1472) {

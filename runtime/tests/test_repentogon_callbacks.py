@@ -102,6 +102,7 @@ extern "C" {
 #include <cstdio>
 #include <cstring>
 #include <string>
+#include <vector>
 using namespace isaac::runtime;
 using namespace isaac::runtime::repentogon;
 struct Files final : ISaveFilePort {
@@ -125,6 +126,8 @@ static bool Ready() noexcept {++readyCalls;return ready;}
 static bool Install() noexcept {++installCalls;return install;}
 static NativePort port{Ready,Install};
 alignas(16) static unsigned char entity[0x2000]{},collider[0x2000]{},grid[0x500]{};
+alignas(16) static unsigned char game[0x22000]{},room[0x8000]{},descriptor[0x100]{};
+static std::vector<unsigned char> module(0xab1000);
 static std::uintptr_t Address(void* p){return reinterpret_cast<std::uintptr_t>(p);}
 static void Check(){if(LuaRuntime::TakeCallbackError()){char text[2048]{};static_cast<void>(LuaRuntime::CopyLastLuaErrorText(text,sizeof(text)));std::fprintf(stderr,"%s\n",text);assert(false);}}
 static double Number(const char* key){double value{};assert(LuaRuntime::ReadLuaGlobalNumber(key,&value));return value;}
@@ -150,6 +153,7 @@ static const RepentogonCallbackBinding expected[]={
 {1030,"MC_PRE_SFX_PLAY"},
 {1031,"MC_POST_SFX_PLAY"},
 {1060,"MC_PRE_LEVEL_INIT"},
+{1061,"MC_PRE_CHANGE_ROOM"},
 {1080,"MC_PRE_FAMILIAR_RENDER"},
 {1081,"MC_PRE_NPC_RENDER"},
 {1082,"MC_PRE_PLAYER_RENDER"},
@@ -162,6 +166,7 @@ static const RepentogonCallbackBinding expected[]={
 {1089,"MC_PRE_SLOT_RENDER"},
 {1090,"MC_POST_SLOT_RENDER"},
 {1101,"MC_POST_GRID_ENTITY_SPAWN"},
+{1102,"MC_POST_NIGHTMARE_SCENE_RENDER"},
 {1104,"MC_PRE_LEVEL_SELECT"},
 {1121,"MC_POST_SLOT_INIT"},
 {1122,"MC_POST_SLOT_UPDATE"},
@@ -175,6 +180,7 @@ static const RepentogonCallbackBinding expected[]={
 {1167,"MC_PRE_LASER_UPDATE"},
 {1168,"MC_PRE_EFFECT_UPDATE"},
 {1169,"MC_PRE_SLOT_UPDATE"},
+{1200,"MC_PRE_NEW_ROOM"},
 {1210,"MC_POST_MODS_LOADED"},
 {1218,"MC_PRE_PAUSE_SCREEN_RENDER"},
 {1219,"MC_POST_PAUSE_SCREEN_RENDER"},
@@ -261,12 +267,14 @@ int main(int argc,char** argv){
     }
     Files files;if(mode=="off")files.value="isaac-repentogon 1\nenabled 0\n";
     SetSessionSaveFilePort(&files);LuaRuntime::ObserveGameThread();LuaRuntime::SetRuntimeExtensionInstaller(Extensions);
+    LuaRuntime::SetEngineModuleBase(Address(module.data()));
     SetNativePort(mode=="none"?nullptr:&port);
     ready=mode!="ready_fail";install=mode!="install_fail";
     std::string script="assert(REPENTOGON==nil);local m=RegisterMod('callback102',1);calls=0;order=''\n";
     if(mode=="off"||mode=="none"){
-        script+="assert(ModCallbacks.MC_PRE_GRID_ENTITY_DECORATION_UPDATE==nil)";
+        script+="assert(ModCallbacks.MC_PRE_GRID_ENTITY_DECORATION_UPDATE==nil);assert(EntityConfig==nil and MenuManager==nil and RoomTransition==nil and BlendMode==nil)";
     }else if(mode=="catalog"){
+        script+="assert(type(EntityConfig.GetEntity)=='function' and type(MenuManager.GetActiveMenu)=='function' and type(RoomTransition.GetVersusScreenSprite)=='function')\n";
         for(const auto& c:expected)script+="assert(ModCallbacks."+std::string(c.name)+"=="+std::to_string(c.id)+");m:AddCallback("+std::to_string(c.id)+",function()calls=calls+1 end)\n";
     }else if(mode=="render"){
         script+=R"lua(
@@ -330,6 +338,40 @@ m:AddCallback(1270,function(...)
     return false
 end)
 )lua";
+    }else if(mode=="bulk_callbacks"){
+        script+=R"lua(
+m:AddCallback(1061,function(_,target,dimension)
+ assert(target==5 and dimension==0)
+ calls=calls+1
+ return {'42',1.0}
+end)
+m:AddCallback(1200,function(_,roomValue,descriptorValue)
+ assert(type(roomValue)=='userdata' and type(descriptorValue)=='userdata')
+ assert(descriptorValue:GetDimension()==1)
+ assert(descriptorValue:GetTaintedKeeperCoinSpawns()==10)
+ calls=calls+1
+end)
+m:AddCallback(1102,function(...)
+ assert(select('#',...) == 1)
+ calls=calls+1
+end)
+)lua";
+    }else if(mode=="change_room_invalid"){
+        script+=R"lua(
+m:AddCallback(1061,function(_,target,dimension)
+ assert(target==5 and dimension==0)
+ calls=calls+1
+ return {42}
+end)
+)lua";
+    }else if(mode=="change_room_non_integer"){
+        script+=R"lua(
+m:AddCallback(1061,function(_,target,dimension)
+ assert(target==5 and dimension==0)
+ calls=calls+1
+ return {42.5,1}
+end)
+)lua";
     }else if(mode=="nested"){
         script+=R"lua(
 local once=true;local removed
@@ -380,16 +422,16 @@ local f;f=function()m:RemoveCallback(1400,f);calls=calls+1 end;m:AddCallback(140
     if(mode=="off"||mode=="none"){
         assert(!Listening(1400));assert(installCalls==0&&readyCalls==0);assert(ExtendedCallbackCount()==0);
     }else{
-        assert(installCalls==1&&readyCalls==1&&ExtendedCallbackCount()==107);
+        assert(installCalls==1&&readyCalls==1&&ExtendedCallbackCount()==110);
         unsigned type=20,variant=7,subtype=9,gridType=4;
         std::memcpy(entity+kEntityTypeOffset,&type,4);std::memcpy(entity+kEntityVariantOffset,&variant,4);
         std::memcpy(entity+kEntitySubTypeOffset,&subtype,4);std::memcpy(grid+kGridEntityTypeOffset,&gridType,4);
         Vector offset{10,20};Sound sound{5,0.5f,2,false,1,0};
         auto send=[&](unsigned id,EventKind kind=EventKind::Global){return Dispatch(Event{id,kind,kind==EventKind::Grid||kind==EventKind::GridRender?Address(grid):Address(entity),Address(collider),&offset,true,&sound});};
         if(mode=="catalog"){
-            assert(sizeof(expected)/sizeof(expected[0])==107);
+            assert(sizeof(expected)/sizeof(expected[0])==110);
             for(const auto& c:expected){assert(Listening(c.id));send(c.id);}
-            Check();assert(Number("calls")==107&&g_ExtendedCallbackEnabledCount==107);
+            Check();assert(Number("calls")==110&&g_ExtendedCallbackEnabledCount==110);
         }else if(mode=="render"){
             auto result=send(1080,EventKind::EntityRender);Check();assert(result.hasOffset&&result.offset.x==11&&result.offset.y==27);
         }else if(mode=="booleans"){
@@ -424,6 +466,53 @@ local f;f=function()m:RemoveCallback(1400,f);calls=calls+1 end;m:AddCallback(140
             result=Dispatch(boss);
             assert(!result.hasBoolean&&!result.hasOffset);
             Check();assert(Number("calls")==2);
+        }else if(mode=="bulk_callbacks"){
+            static std::uintptr_t gameOwner{};
+            gameOwner=Address(game);
+            LuaRuntime::SetGameBindings(Address(&gameOwner),0x2222);
+            const auto gameAddress=Address(game);
+            std::memcpy(game,&gameAddress,sizeof(gameAddress));
+            const auto roomAddress=Address(room);
+            std::memcpy(game+kGameRoomPointerOffset,&roomAddress,sizeof(roomAddress));
+            const std::int32_t gridIndex=77;
+            std::memcpy(descriptor,&gridIndex,sizeof(gridIndex));
+            const std::int32_t dimension=1;
+            std::memcpy(descriptor+0x0C,&dimension,sizeof(dimension));
+            const std::int16_t coins=10;
+            std::memcpy(descriptor+0x5E,&coins,sizeof(coins));
+            Event change{};
+            change.id=1061;change.kind=EventKind::IntegerPair;change.first=5;change.second=0;
+            auto result=Dispatch(change);
+            assert(result.hasIntegerPair&&result.first==42&&result.second==1);
+            Event roomInit{};
+            roomInit.id=1200;roomInit.kind=EventKind::RoomDescriptor;
+            roomInit.object=Address(room);roomInit.collider=Address(descriptor);
+            auto wrongRoom=roomInit;
+            wrongRoom.object=Address(entity);
+            result=Dispatch(wrongRoom);
+            Check();assert(Number("calls")==1);
+            result=Dispatch(roomInit);
+            assert(!result.hasBoolean&&!result.hasOffset&&!result.hasIntegerPair);
+            result=send(1102);
+            assert(!result.hasBoolean&&!result.hasOffset&&!result.hasIntegerPair);
+            Check();assert(Number("calls")==3);
+        }else if(mode=="change_room_invalid"){
+            Event change{};
+            change.id=1061;change.kind=EventKind::IntegerPair;change.first=5;change.second=0;
+            const auto result=Dispatch(change);
+            assert(!result.hasIntegerPair);
+            Check();assert(Number("calls")==1);
+        }else if(mode=="change_room_non_integer"){
+            Event change{};
+            change.id=1061;change.kind=EventKind::IntegerPair;change.first=5;change.second=0;
+            const auto result=Dispatch(change);
+            assert(!result.hasIntegerPair&&LuaRuntime::TakeCallbackError());
+            char text[2048]{};
+            static_cast<void>(LuaRuntime::CopyLastLuaErrorText(text,sizeof(text)));
+            assert(std::strstr(text,"number has no integer representation"));
+            LuaRuntime::LuaErrorHistoryEntryView errors[8]{};
+            const auto n=LuaRuntime::CopyLuaErrorHistory(errors,8);
+            assert(n==1&&errors[0].owner!=0&&errors[0].callbackId==1061);
         }else if(mode=="nested"){
             send(1020);Check();
         }else if(mode=="error"){
@@ -463,6 +552,7 @@ local f;f=function()m:RemoveCallback(1400,f);calls=calls+1 end;m:AddCallback(140
     assert(LuaRuntime::ShutdownForModReload());assert(!Listening(1400)&&g_ExtendedCallbackEnabledCount==0&&ExtendedCallbackCount()==0);
     assert(LuaRuntime::InitializeFromBuffer("assert(REPENTOGON==nil)",std::strlen("assert(REPENTOGON==nil)"),"@reload.lua")==LuaRuntime::LuaInitResult::Success);
     assert(LuaRuntime::ShutdownForModReload());SetNativePort(nullptr);SetSessionSaveFilePort(nullptr);
+    LuaRuntime::SetGameBindings(0,0);LuaRuntime::SetEngineModuleBase(0);
 }
 '''
 
@@ -488,7 +578,7 @@ class RepentogonCallbackTests(unittest.TestCase):
     def test_native_catalog_delivery_and_lifecycle(self):
         with tempfile.TemporaryDirectory(prefix='repentogon-native-') as tmp:
             binary=test_support.build_lua_harness(source_root=SOURCE,workdir=Path(tmp),harness_source=RUNTIME_DRIVER)
-            for mode in ('sprite_cleanup','off','none','ready_fail','install_fail','catalog','render','booleans','filter','sound','sound_error','level_boss','nested','error','pause','pause_error','bad_vector','remove_all','reset','empty'):
+            for mode in ('sprite_cleanup','off','none','ready_fail','install_fail','catalog','render','booleans','filter','sound','sound_error','level_boss','bulk_callbacks','change_room_invalid','change_room_non_integer','nested','error','pause','pause_error','bad_vector','remove_all','reset','empty'):
                 with self.subTest(mode=mode):
                     result=subprocess.run([str(binary),mode],capture_output=True,text=True)
                     self.assertEqual(result.returncode,0,result.stdout+result.stderr)
@@ -499,7 +589,7 @@ class RepentogonCallbackTests(unittest.TestCase):
 #include <cassert>
 using namespace isaac::runtime;
 int main(){
- g_ExtendedCallbacks=reinterpret_cast<ExtendedCallbackState*>(1);g_ExtendedCallbackCount=107;
+ g_ExtendedCallbacks=reinterpret_cast<ExtendedCallbackState*>(1);g_ExtendedCallbackCount=110;
  for(unsigned id=0;id<1000;++id)assert(FindExtendedCallback(id)==nullptr);
  g_ExtendedCallbackDelivery=false;g_ExtendedCallbackEnabledCount=100;
  assert(!ExtendedCallbackEnabled(1400));
