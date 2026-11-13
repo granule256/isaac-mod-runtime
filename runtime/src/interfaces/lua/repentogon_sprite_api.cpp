@@ -3,6 +3,8 @@
 #include "infrastructure/call/engine_call_access.hpp"
 #include "infrastructure/memory/engine_field_access.hpp"
 #include "interfaces/lua/class_metadata.hpp"
+#include "interfaces/lua/api100_strings.hpp"
+#include "program/xml_data_store.hpp"
 #include "interfaces/lua/color_api.hpp"
 #include "interfaces/lua/engine_color_mod.hpp"
 #include "interfaces/lua/owner_binding.hpp"
@@ -15,6 +17,7 @@
 #include <array>
 #include <cstdint>
 #include <cstring>
+#include <cstdlib>
 
 extern "C" {
 #include <lauxlib.h>
@@ -1034,6 +1037,39 @@ int RepentogonSpriteGetLayer(lua_State* state) {
         return luaL_error(state, "Sprite LayerState is not readable");
     }
     return PushLayerStateView(state, layer);
+}
+
+void ApplyRepentogonXmlLayerTints(lua_State* state,int spriteIndex,
+                                 const xml_data::XmlChildGroup& group) {
+    RequireGameThread(state);
+    void* sprite=ResolveSpriteAt(state,spriteIndex,"XML giant-book tint");
+    const auto count=ReadOrError<std::int32_t>(state,
+        engine_memory::AddressOf(sprite)+kAnim2LayerCountOffset,"Sprite layer count");
+    for (const auto& child:group.entries) {
+        const xml_data::XmlAttribute* name{};
+        float tint[4]{};
+        for (const auto& attribute:child.attributes) {
+            if (attribute.name=="name") name=&attribute;
+            for (unsigned c=0;c<4;++c) {
+                constexpr const char* channels[]={"r","g","b","a"};
+                if (attribute.name==channels[c]) tint[c]=std::strtol(attribute.value.c_str(),nullptr,10)/255.f;
+            }
+        }
+        if (!name) continue;
+        for (int i=count;i-->0;) {
+            const auto layer=engine_memory::AddressOf(GetLayerIntNative(state,sprite,i));
+            const auto data=ReadOrError<std::uintptr_t>(state,layer,"LayerState data");
+            if (!data) continue;
+            EngineStringView view{};
+            if (!ResolveEngineStringView(data+8,&view)) luaL_error(state,"LayerState name is unavailable");
+            if (view.size!=name->value.size() || (view.size &&
+                std::memcmp(engine_memory::AsObject(view.data),name->value.data(),view.size))) continue;
+            // Upstream modifies only tint: preserve colorize and additive shift.
+            auto color=ReadOrError<EngineColorMod>(state,layer+kLayerStateColorOffset,"LayerState color");
+            std::memcpy(color.tint,tint,sizeof(tint));
+            WriteOrError(state,layer+kLayerStateColorOffset,color,"LayerState color");
+        }
+    }
 }
 
 int RepentogonAnimationFrameGetStartFrame(lua_State* state) {

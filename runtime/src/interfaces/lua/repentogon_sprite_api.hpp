@@ -5,6 +5,8 @@ extern "C" {
 }
 
 namespace isaac::runtime {
+namespace xml_data {struct XmlChildGroup;}
+void ApplyRepentogonXmlLayerTints(lua_State*, int spriteIndex, const xml_data::XmlChildGroup&);
 
 int RepentogonSpriteGetLayerFrameData(lua_State* state);
 int RepentogonSpriteGetNullFrame(lua_State* state);

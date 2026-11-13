@@ -132,6 +132,8 @@ void FakeCtor(void* self) {
     // 批次 214：构造出来的 Sprite 立刻指向那块假 ANM2（脚本随后就会问层数与默认动画名）。
     *reinterpret_cast<std::uintptr_t*>(static_cast<unsigned char*>(self) + kSpriteAnm2Offset) =
         reinterpret_cast<std::uintptr_t>(g_fakeAnm2);
+    // Pinned native ANM2::GetLayer reads this+0xB0, not the animation-state data.
+    std::memcpy(static_cast<unsigned char*>(self) + 0xB0, &kFakeLayerCount, sizeof(kFakeLayerCount));
     // ANM2::AnmCache::Load2实际将声明的DefaultAnimation写入this+0x18。
     // 故意与动画表第一条Default不同；Custom Bossbar用数字字符串作为宽度。
     static constexpr char defaultName[] = "110";
@@ -507,7 +509,7 @@ int main() {
 
     // 批次 214：把假 `ANM2` 填好 —— 层数、动画表数组、动画个数，以及**第一条**动画的名字。
     // 第二条名字故意不同，用来证明 `GetDefaultAnimationName` 取的是第一条而不是随便一条。
-    *reinterpret_cast<std::uint32_t*>(g_fakeAnm2 + kAnim2LayerCountOffset) = kFakeLayerCount;
+    *reinterpret_cast<std::uint32_t*>(g_fakeAnm2 + kAnim2LayerCountOffset) = 999; // Decoy for the retired double dereference.
     *reinterpret_cast<std::uintptr_t*>(g_fakeAnm2 + kAnim2AnimationArrayOffset) =
         reinterpret_cast<std::uintptr_t>(g_fakeAnimations);
     *reinterpret_cast<std::uint32_t*>(g_fakeAnm2 + kAnim2AnimationCountOffset) = 2;
@@ -893,6 +895,9 @@ class LuaSpriteTests(unittest.TestCase):
 
     def test_sprite_object_size_and_alignment_come_from_the_stride_audit(self):
         constants = (SOURCE / "runtime_constants.hpp").read_text(encoding="utf-8")
+        private_guards = SOURCE / "notice_guard/private_engine_addresses.hpp"
+        if private_guards.exists():
+            constants += private_guards.read_text(encoding="utf-8")
         self.assertIn("inline constexpr std::size_t kSpriteObjectSize = 0x158;", constants)
         self.assertIn("inline constexpr std::size_t kSpriteObjectAlignment = 16;", constants)
         self.assertIn("inline constexpr std::size_t kSpriteLoadedFlagOffset = 0x149;", constants)

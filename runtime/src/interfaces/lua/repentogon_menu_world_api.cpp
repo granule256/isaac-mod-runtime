@@ -490,6 +490,8 @@ bool RepentogonMenuWorldSpriteAlive(std::uintptr_t sprite) noexcept {
         }
     }
     const auto game = TryCurrentGame();
+    if (game && game<=UINTPTR_MAX-0x25db0-0x1488 &&
+        (sprite==game+0x25db0+8 || sprite==game+0x25db0+0x1488)) return true;
     return game != 0 &&
            game <= UINTPTR_MAX - kGameRoomTransition -
                        kRoomTransitionVersusSprite &&

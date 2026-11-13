@@ -13,6 +13,7 @@
 #include "interfaces/lua/repentogon_entity_config_api.hpp"
 #include "interfaces/lua/repentogon_sprite_api.hpp"
 #include "interfaces/lua/repentogon_menu_world_api.hpp"
+#include "interfaces/lua/repentogon_item_overlay_api.hpp"
 #include "interfaces/lua/repentogon_room_mutations.hpp"
 #include "interfaces/lua/repentogon_remaining_bulk_api.hpp"
 #include "interfaces/lua/repentogon_save_state_api.hpp"
@@ -495,6 +496,18 @@ constexpr RepentogonApiBinding kApis[]={
       ApiMaturity::Experimental},RepentogonIsaacGetGiantBookIdByName},
     {{0x0E02C005,ApiDomain::Isaac,"Isaac","GetAchievementIdByName",{},0,ThreadAffinity::ManagedCallback,
       ApiMaturity::Experimental},RepentogonIsaacGetAchievementIdByName},
+    {{0x0E02C008,ApiDomain::Isaac,"ItemOverlay","Show",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonItemOverlayShow},
+    {{0x0E02C009,ApiDomain::Isaac,"ItemOverlay","GetSprite",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonItemOverlayGetSprite},
+    {{0x0E02C00A,ApiDomain::Isaac,"ItemOverlay","GetOverlayID",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonItemOverlayGetOverlayID},
+    {{0x0E02C00B,ApiDomain::Isaac,"ItemOverlay","GetDelay",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonItemOverlayGetDelay},
+    {{0x0E02C00C,ApiDomain::Isaac,"ItemOverlay","GetPlayer",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonItemOverlayGetPlayer},
+    {{0x0E02C00D,ApiDomain::Isaac,"ItemOverlay","GetMegaMushPlayerSprite",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonItemOverlayGetMegaMushPlayerSprite},
     {{0x0E02C000,ApiDomain::Isaac,"XMLData","GetEntityByTypeVarSub",{},0,ThreadAffinity::ManagedCallback,
       ApiMaturity::Experimental},RepentogonXmlDataGetEntityByTypeVarSub},
     {{0x0E02C001,ApiDomain::Isaac,"XMLData","GetEntryById",{},0,ThreadAffinity::ManagedCallback,
@@ -610,6 +623,7 @@ int Initialize(lua_State* state) {
     RegisterRepentogonEntityConfigViews(state);
     RegisterRepentogonSpriteViews(state);
     RegisterRepentogonMenuWorldApi(state);
+    RegisterRepentogonItemOverlayApi(state);
     RegisterRepentogonRemainingBulkViews(state);
     RegisterRepentogonSaveStateViews(state);
     RegisterRepentogonBocViews(state);

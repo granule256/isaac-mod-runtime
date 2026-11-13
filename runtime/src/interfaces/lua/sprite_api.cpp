@@ -1525,9 +1525,8 @@ int SpriteReset(lua_State* state) {
     return 0;
 }
 
-// `Sprite:GetLayerCount()` —— 引擎自己判 layer 越界时读的那一格（`ANM2+0xB0`）：
-// `ANM2::GetLayerFrame @private:kSpriteGetLayerFrameOffset` 就是 `ldr x9,[x19,#0x30]`（Sprite 里的 ANM2 指针）
-// 再 `ldr w9,[x9,#0xb0]` 与 layer 比较。没有 ANM2（没 Load 过）⇒ 0。
+// ANM2::GetLayer(int) @0xA04C reads the count directly from this+0xB0.
+// The current AnimationState at +0x30 is not the owner of the layer array.
 int SpriteGetLayerCount(lua_State* state) {
     void* sprite = nullptr;
     if (const int error = ResolveSprite(state, "Sprite:GetLayerCount", &sprite); error != 0) {
@@ -1537,10 +1536,8 @@ int SpriteGetLayerCount(lua_State* state) {
         return luaL_error(state, "Sprite:GetLayerCount accepts no arguments");
     }
     const std::uintptr_t base = engine_memory::AddressOf(sprite);
-    std::uintptr_t anm2 = 0;
     std::uint32_t layers = 0;
-    if (!ReadEngine(base + kSpriteAnm2Offset, &anm2) || anm2 == 0 ||
-        !ReadEngine(anm2 + kAnim2LayerCountOffset, &layers)) {
+    if (!ReadEngine(base + kAnim2LayerCountOffset, &layers)) {
         lua_pushinteger(state, 0);
         return 1;
     }
