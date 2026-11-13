@@ -290,7 +290,7 @@ int main(int argc,char** argv){
     const char* detection=(mode=="off"||mode=="none")?"assert(REPENTOGON==nil)":"assert(REPENTOGON and REPENTOGON.FullCompatibility==false)";
     std::string script=std::string(detection)+";local m=RegisterMod('callback102',1);calls=0;order=''\n";
     if(mode=="off"||mode=="none"){
-        script+="assert(ModCallbacks.MC_PRE_GRID_ENTITY_DECORATION_UPDATE==nil);assert(EntityConfig==nil and MenuManager==nil and RoomTransition==nil and BlendMode==nil and StbType==nil and MainMenuType==nil)";
+        script+="assert(ModCallbacks.MC_PRE_GRID_ENTITY_DECORATION_UPDATE==nil);assert(EntityConfig==nil and MenuManager==nil and RoomTransition==nil and BlendMode==nil and StbType==nil and MainMenuType==nil and Dimension==nil)";
     }else if(mode=="catalog"){
         script+="assert(type(EntityConfig.GetEntity)=='function' and type(MenuManager.GetActiveMenu)=='function' and type(RoomTransition.GetVersusScreenSprite)=='function')\n";
         script+=R"lua(
@@ -303,6 +303,8 @@ for i,name in ipairs({'DOWNPOUR','DROSS','MINES','ASHPIT','MAUSOLEUM','GEHENNA',
 local achievements={BLUE_MAP=134,STORE_UPGRADE_LV1=151,THERES_OPTIONS=135,STORE_UPGRADE_LV2=152,BLACK_CANDLE=136,STORE_UPGRADE_LV3=153,RED_CANDLE=137,STORE_UPGRADE_LV4=154,BLUE_CANDLE=59,STOP_WATCH=138,LUCKY_PENNIES=242,SPECIAL_HANGING_SHOPKEEPERS=243,WOODEN_NICKEL=244,CAIN_HOLDS_PAPERCLIP=245,EVERYTHING_IS_TERRIBLE_2=246,SPECIAL_SHOPKEEPERS=247,EVE_HOLDS_RAZOR_BLADE=248,GREEDIER=341,STORE_KEY=249,LOST_HOLDS_HOLY_MANTLE=250,GENEROSITY=275,KEEPER=251}
 for name,value in pairs(achievements) do assert(Achievement[name]==value, name) end
 assert(EventCounter.DONATION_MACHINE_COUNTER==20 and EventCounter.GREED_DONATION_MACHINE_COUNTER==115)
+assert(Dimension.CURRENT==-1 and Dimension.NORMAL==0)
+assert(Dimension.KNIFE_PUZZLE==1 and Dimension.MIRROR==1 and Dimension.MINESHAFT==1 and Dimension.DEATH_CERTIFICATE==2)
 )lua";
         for(const auto& c:expected)script+="assert(ModCallbacks."+std::string(c.name)+"=="+std::to_string(c.id)+");m:AddCallback("+std::to_string(c.id)+",function()calls=calls+1 end)\n";
     }else if(mode=="render"){
