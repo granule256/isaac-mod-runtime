@@ -7,9 +7,31 @@ import unittest
 
 
 COMMON = Path(__file__).resolve().parents[1] / 'misc/mk/common.mk'
+RUNTIME = COMMON.parents[2]
 
 
 class ConsoleExceptionBuildFlagsTests(unittest.TestCase):
+    def test_command_registry_does_not_import_local_static_guards(self):
+        source = r'''
+#include "domain/console/console_commands.hpp"
+std::size_t UseRegistry() {
+    using namespace isaac::runtime::console;
+    ResetConsoleCommands();
+    RegisterConsoleCommand("test", "description", "help", true, 0);
+    return ConsoleCommandCount();
+}
+'''
+        with tempfile.TemporaryDirectory(prefix='console-static-guard-') as folder:
+            path = Path(folder)/'test.cpp';path.write_text(source)
+            obj = Path(folder)/'test.o'
+            build = subprocess.run(['c++','-std=c++20','-O2','-fno-exceptions','-fno-rtti',
+                                    '-I'+str(RUNTIME/'src'),'-c',str(path),'-o',str(obj)],
+                                   capture_output=True,text=True)
+            self.assertEqual(build.returncode,0,build.stdout+build.stderr)
+            symbols = subprocess.run(['nm','-u',str(obj)],capture_output=True,text=True)
+            self.assertEqual(symbols.returncode,0,symbols.stderr)
+            self.assertNotIn('__cxa_guard_',symbols.stdout)
+
     def test_console_objects_override_the_default_without_changing_other_units(self):
         common = COMMON.read_text()
         objects = re.search(r'^CONSOLE_EXCEPTION_OBJECTS\s*:=.*$',common,re.M)

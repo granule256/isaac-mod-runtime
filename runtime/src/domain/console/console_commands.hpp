@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <new>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -70,8 +71,17 @@ struct ConsoleCommand {
 };
 
 inline std::vector<ConsoleCommand>& ConsoleCommands() {
-    static std::vector<ConsoleCommand> commands;
-    return commands;
+    // The game thread owns this registry. POD storage avoids __cxa_guard's
+    // pthread synchronization in the injected -nostartfiles module.
+    struct Storage {
+        alignas(std::vector<ConsoleCommand>) unsigned char bytes[sizeof(std::vector<ConsoleCommand>)]{};
+        std::vector<ConsoleCommand>* value{};
+    };
+    static Storage storage{};
+    if (!storage.value) {
+        storage.value = ::new (static_cast<void*>(storage.bytes)) std::vector<ConsoleCommand>();
+    }
+    return *storage.value;
 }
 
 inline void ResetConsoleCommands() noexcept {
