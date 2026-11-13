@@ -105,7 +105,20 @@ static void StartBossIntro(void* transition, std::uint32_t bossId1,
     ++startBossIntroCalls;
 }
 
+static int SetPauseState(lua_State* state) {
+    Put<std::int32_t>(game, 0x1AE128, static_cast<int>(luaL_checkinteger(state,1)));
+    return 0;
+}
+static std::int32_t CompletionCounterId(std::int32_t event, std::int32_t player) {
+    assert(event >= 0 && event <= 14 && player >= 0 && player <= 40);
+    return player == 40 ? 490 : player == 39 ? 634 : 100 + player + event;
+}
+static int ClearCompletionPort(lua_State*) {
+    isaac::runtime::SetRepentogonMenuWorldNativeTestBindings({});return 0;
+}
 static void Extensions(lua_State* state) noexcept {
+    lua_pushcfunction(state, SetPauseState);lua_setglobal(state, "_pause");
+    lua_pushcfunction(state, ClearCompletionPort);lua_setglobal(state, "_clearCompletionPort");
     assert(isaac::runtime::RegisterRepentogonMenuWorldApi(state) == 0);
 
     Bind(state, "MenuManager", "GetActiveMenu",
@@ -193,6 +206,13 @@ int main() {
     std::memcpy(moduleBytes.data() + 0x4984c4, startBossIntroGuard,
                 sizeof(startBossIntroGuard));
 
+    const unsigned char completionGuard[] = {
+        0x3f,0xa0,0x00,0x71,0x6d,0x00,0x00,0x54,
+        0xe0,0x03,0x1f,0x2a,0xc0,0x03,0x5f,0xd6};
+    std::memcpy(moduleBytes.data()+0x439844,completionGuard,16);
+    Put<std::uint32_t>(manager,0x18+0x2a8+(100+21+12)*4,6);
+    Put<std::uint32_t>(manager,0x18+0x2a8+(100+0+7)*4,1);
+    Put<std::uint32_t>(manager,0x18+0x2a8+490*4,2);
     LuaRuntime::SetEngineModuleBase(Address(moduleBytes));
     LuaRuntime::SetGameBindings(
         Address(moduleBytes) + kGameOwnerGlobalSlotOffset, 0);
@@ -203,10 +223,27 @@ int main() {
         Ready, Ready, isaac::runtime::RepentogonMenuWorldSpriteAlive};
     isaac::runtime::repentogon::SetNativePort(&port);
     isaac::runtime::SetRepentogonMenuWorldNativeTestBindings(
-        {RenderingBossIntro, StartBossIntro});
+        {RenderingBossIntro, StartBossIntro, CompletionCounterId});
     LuaRuntime::SetRuntimeExtensionInstaller(Extensions);
 
     constexpr const char* script = R"lua(
+assert(type(Isaac.GetCompletionMark) == 'function', 'missing completion marks')
+assert(type(Game().IsPauseMenuOpen) == 'function', 'missing pause-menu state')
+assert(not Game():IsPauseMenuOpen())
+_pause(1);assert(Game():IsPauseMenuOpen())
+_pause(2);assert(Game():IsPauseMenuOpen())
+_pause(0);assert(not Game():IsPauseMenuOpen())
+assert(not pcall(function() Game().IsPauseMenuOpen({}) end))
+assert(Isaac.GetCompletionMark(21,12)==2, 'offline mark must exclude online bits')
+assert(Isaac.GetCompletionMark(0,11)==1, 'Greedier shares the offline event value')
+assert(Isaac.GetCompletionMark(40,12)==2, 'native counter490 is valid')
+assert(not pcall(Isaac.GetCompletionMark,39,12))
+assert(Isaac.GetCompletionMark(1,12)==0)
+assert(not pcall(Isaac.GetCompletionMark,41,12))
+assert(not pcall(Isaac.GetCompletionMark,-1,12))
+assert(not pcall(Isaac.GetCompletionMark,0,8))
+assert(type(NightmareScene.GetBackgroundSprite) == 'function', 'missing nightmare background')
+assert(type(NightmareScene.GetBackgroundSprite()) == 'userdata')
 assert(type(NightmareScene.GetProgressBarSprite()) == 'userdata')
 assert(type(MenuManager) == 'table')
 assert(MenuManager.IsActive())
@@ -251,6 +288,8 @@ assert(roomDesc:GetTaintedKeeperCoinSpawns() == 7)
 roomDesc:SetTaintedKeeperCoinSpawns(-1)
 assert(roomDesc:GetTaintedKeeperCoinSpawns() == -1)
 assert(not pcall(function() roomDesc:GetDimension(1) end))
+_clearCompletionPort()
+assert(not pcall(Isaac.GetCompletionMark,0,12))
 )lua";
 
     const auto result = LuaRuntime::InitializeFromBuffer(

@@ -22,6 +22,9 @@ int RepentogonRoomTransitionStartBossIntro(lua_State* state);
 int RepentogonAmbushGetCurrentWave(lua_State* state);
 int RepentogonNightmareSceneIsDogmaNightmare(lua_State* state);
 int RepentogonNightmareSceneGetProgressBarSprite(lua_State* state);
+int RepentogonNightmareSceneGetBackgroundSprite(lua_State* state);
+int RepentogonGameIsPauseMenuOpen(lua_State* state);
+int RepentogonIsaacGetCompletionMark(lua_State* state);
 
 int RepentogonRoomDescriptorGetDimension(lua_State* state);
 int RepentogonRoomDescriptorGetTaintedKeeperCoinSpawns(lua_State* state);
@@ -36,6 +39,7 @@ int RegisterRepentogonMenuWorldApi(lua_State* state);
 struct RepentogonMenuWorldNativeTestBindings {
     bool (*isRenderingBossIntro)(const void*){};
     void (*startBossIntro)(void*, std::uint32_t, std::uint32_t){};
+    std::int32_t (*completionCounterId)(std::int32_t, std::int32_t){};
 };
 void SetRepentogonMenuWorldNativeTestBindings(
     RepentogonMenuWorldNativeTestBindings bindings) noexcept;

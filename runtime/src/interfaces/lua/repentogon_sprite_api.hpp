@@ -16,7 +16,10 @@ int RepentogonSpriteGetLayer(lua_State* state);
 
 int RepentogonAnimationFrameGetStartFrame(lua_State* state);
 int RepentogonAnimationFrameGetPivot(lua_State* state);
+int RepentogonAnimationFrameGetPos(lua_State* state);
 int RepentogonAnimationFrameGetWidth(lua_State* state);
+int RepentogonAnimationFrameIsVisible(lua_State* state);
+int RepentogonAnimationFrameGetColor(lua_State* state);
 
 int RepentogonNullFrameGetPos(lua_State* state);
 int RepentogonNullFrameGetScale(lua_State* state);
@@ -28,7 +31,11 @@ int RepentogonAnimationLayerGetFrame(lua_State* state);
 
 int RepentogonLayerStateSetVisible(lua_State* state);
 int RepentogonLayerStateSetPos(lua_State* state);
+int RepentogonLayerStateSetSize(lua_State* state);
+int RepentogonLayerStateSetCropOffset(lua_State* state);
 int RepentogonLayerStateSetColor(lua_State* state);
+int RepentogonLayerStateGetSpritesheetPath(lua_State* state);
+int RepentogonLayerStateGetDefaultSpritesheetPath(lua_State* state);
 int RepentogonLayerStateGetBlendMode(lua_State* state);
 
 int RepentogonBlendModeGetFlag1(lua_State* state);

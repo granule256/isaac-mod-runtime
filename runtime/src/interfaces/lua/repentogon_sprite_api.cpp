@@ -56,12 +56,18 @@ constexpr std::uintptr_t kAnimationLayerFrameCountOffset = 0x10;
 
 constexpr std::size_t kAnimationFrameStride = 0x6c;
 constexpr std::uintptr_t kAnimationFrameWidthOffset = 0x08;
+constexpr std::uintptr_t kAnimationFramePosOffset = 0x10;
 constexpr std::uintptr_t kAnimationFramePivotOffset = 0x20;
+constexpr std::uintptr_t kAnimationFrameVisibleOffset = 0x2c;
+constexpr std::uintptr_t kAnimationFrameColorOffset = 0x30;
 constexpr std::uintptr_t kAnimationFrameStartOffset = 0x64;
 constexpr std::uintptr_t kAnimationFrameEndOffset = 0x68;
 // AnmCache::read_frames_binary @0x15E40 uses a 0x6c stride and writes the
 // duration-derived start/end at +0x64/+0x68. AnimationLayer::GetDestQuad
-// @0x9790 reads width/height from frame+0x8/+0xc and pivot from frame+0x20.
+// @0x9790 reads width/height from frame+0x8/+0xc, position from frame+0x10,
+// and pivot from frame+0x20.
+// AnimationLayer::RenderFrame @0x87DC rejects frame+0x2c == 0 and consumes the
+// frame ColorMod at +0x30 in the same 0x6c-byte record.
 
 constexpr std::size_t kNullFrameReadableSize = 0x54;
 constexpr std::size_t kNullFrameStride = 0x54;
@@ -79,15 +85,24 @@ constexpr std::uintptr_t kNullLayerCountOffset = 0x10;
 // bounded record scan to capture that inner array; later getters validate it O(1).
 
 constexpr std::size_t kLayerStateReadableSize = 0xb0;
+constexpr std::uintptr_t kLayerDataDefaultSpritesheetPathOffset = 0x20;
+constexpr std::uintptr_t kLayerStateSpritesheetPathOffset = 0x10;
+constexpr std::uintptr_t kLayerStateSizeOffset = 0x3c;
 constexpr std::uintptr_t kLayerStatePosOffset = 0x48;
 constexpr std::uintptr_t kLayerStateColorOffset = 0x50;
 constexpr std::uintptr_t kLayerStateVisibleOffset = 0x7c;
 constexpr std::uintptr_t kLayerStateBlendModeOffset = 0x80;
+constexpr std::uintptr_t kLayerStateCropOffsetOffset = 0x94;
 // LayerState::LayerState @0x722C constructs position at +0x48, ColorMod at
 // +0x50, BlendMode at +0x80, crop offset at +0x94, and the smart pointer ending
 // at +0xb0. AnimationLayer::RenderFrame @0x87DC walks 0xb0-byte LayerStates
 // from ANM2+0xa8, then reads visibility +0x7c, color +0x50, and blend +0x80.
 // AnimationLayer::GetDestQuad @0x9790 adds LayerState position at +0x48.
+// LayerState::LayerState @0x722C zeroes the libc++ string at +0x10, then
+// constructs the size vector at +0x3c. Copy constructor @0x7404 copies both;
+// ReplaceSpritesheet writes the replacement path into the same string.
+// The same constructor builds crop offset at +0x94. Reset @0x7284 copies the
+// LayerData default spritesheet string from LayerData+0x20.
 
 // Switch BlendMode constructors/copy/equality operate on exactly four words
 // (0x10 bytes). BlendMode(eBlendMode 0) writes {1,0,1,0} and mode 1 writes
@@ -902,6 +917,75 @@ void RegisterBlendMode(lua_State* state) {
     lua_pop(state, 1);
 }
 
+// PC's Sprite global is both callable and the writable class method table.
+// The base runtime registers it as a bare constructor function, which makes
+// `Sprite.Render = ...` fail and leaves userdata dispatch on a private table.
+// Promote that function into a class table and make __methods point at it, so
+// native userdata and assignments such as portraits.lua's method wrappers see
+// the same function values.
+void PromoteSpriteClassTable(lua_State* state) {
+    const int top = lua_gettop(state);
+    luaL_getmetatable(state, LuaRuntime::kSpriteMetatable);
+    if (!lua_istable(state, -1)) {
+        lua_settop(state, top);
+        luaL_error(state, "Sprite metatable must exist before REPENTOGON registration");
+    }
+    const int metatable = lua_gettop(state);
+
+    lua_getglobal(state, "Sprite");
+    if (lua_isnil(state, -1)) {
+        lua_pop(state, 1);
+        lua_pushcfunction(state, CreateSpriteHandle);
+        lua_setglobal(state, "Sprite");
+        lua_getglobal(state, "Sprite");
+    }
+    const int global = lua_gettop(state);
+    int classTable = global;
+    if (lua_isfunction(state, global)) {
+        const int constructor = global;
+        lua_newtable(state);
+        classTable = lua_gettop(state);
+
+        lua_getfield(state, metatable, "__methods");
+        if (lua_istable(state, -1)) {
+            CopyClassMethods(state, classTable, -1);
+        }
+        lua_pop(state, 1);
+
+        lua_newtable(state);
+        lua_pushvalue(state, constructor);
+        lua_setfield(state, -2, "__call");
+        lua_pushvalue(state, metatable);
+        lua_setfield(state, -2, "__class");
+        lua_setmetatable(state, classTable);
+
+        lua_pushvalue(state, classTable);
+        lua_setglobal(state, "Sprite");
+    } else if (!lua_istable(state, global)) {
+        lua_settop(state, top);
+        luaL_error(state, "Sprite global must be a constructor or class table");
+    }
+
+    lua_pushvalue(state, classTable);
+    lua_setfield(state, metatable, "__methods");
+    lua_pushliteral(state, "Sprite");
+    lua_setfield(state, metatable, "__type");
+    lua_pushvalue(state, metatable);
+    lua_setfield(state, metatable, "__class");
+
+    if (lua_getmetatable(state, classTable)) {
+        lua_pushvalue(state, metatable);
+        lua_setfield(state, -2, "__class");
+        lua_pop(state, 1);
+    } else {
+        lua_newtable(state);
+        lua_pushvalue(state, metatable);
+        lua_setfield(state, -2, "__class");
+        lua_setmetatable(state, classTable);
+    }
+    lua_settop(state, top);
+}
+
 } // namespace
 
 int RepentogonSpriteGetLayerFrameData(lua_State* state) {
@@ -1089,12 +1173,42 @@ int RepentogonAnimationFrameGetPivot(lua_State* state) {
     return 1;
 }
 
+int RepentogonAnimationFrameGetPos(lua_State* state) {
+    RequireGameThread(state);
+    void* frame = ResolveAnimationFrameView(state, 1);
+    const auto pos = ReadOrError<LuaRuntime::VectorHandle>(
+        state, engine_memory::AddressOf(frame) + kAnimationFramePosOffset,
+        "AnimationFrame position");
+    PushLuaVector(state, pos.x, pos.y);
+    return 1;
+}
+
 int RepentogonAnimationFrameGetWidth(lua_State* state) {
     RequireGameThread(state);
     void* frame = ResolveAnimationFrameView(state, 1);
     lua_pushnumber(state, ReadOrError<float>(
         state, engine_memory::AddressOf(frame) + kAnimationFrameWidthOffset,
         "AnimationFrame width"));
+    return 1;
+}
+
+int RepentogonAnimationFrameIsVisible(lua_State* state) {
+    RequireGameThread(state);
+    void* frame = ResolveAnimationFrameView(state, 1);
+    const auto visible = ReadOrError<std::uint8_t>(
+        state, engine_memory::AddressOf(frame) + kAnimationFrameVisibleOffset,
+        "AnimationFrame visibility");
+    lua_pushboolean(state, visible != 0);
+    return 1;
+}
+
+int RepentogonAnimationFrameGetColor(lua_State* state) {
+    RequireGameThread(state);
+    void* frame = ResolveAnimationFrameView(state, 1);
+    const auto color = ReadOrError<EngineColorMod>(
+        state, engine_memory::AddressOf(frame) + kAnimationFrameColorOffset,
+        "AnimationFrame color");
+    PushLuaColorFromEngineColorMod(state, color);
     return 1;
 }
 
@@ -1209,6 +1323,66 @@ int RepentogonLayerStateSetPos(lua_State* state) {
     return 0;
 }
 
+int RepentogonLayerStateGetSpritesheetPath(lua_State* state) {
+    RequireGameThread(state);
+    void* layer = ResolveLayerStateView(state, 1);
+    EngineStringView view{};
+    if (!ResolveEngineStringView(
+            engine_memory::AddressOf(layer) + kLayerStateSpritesheetPathOffset,
+            &view)) {
+        return luaL_error(state, "LayerState spritesheet path is unavailable");
+    }
+    if (view.size == 0) {
+        lua_pushliteral(state, "");
+        return 1;
+    }
+    lua_pushlstring(state,
+                    static_cast<const char*>(engine_memory::AsObject(view.data)),
+                    view.size);
+    return 1;
+}
+
+int RepentogonLayerStateGetDefaultSpritesheetPath(lua_State* state) {
+    RequireGameThread(state);
+    void* layer = ResolveLayerStateView(state, 1);
+    const auto layerData = ReadOrError<std::uintptr_t>(
+        state, engine_memory::AddressOf(layer), "LayerState layer data");
+    if (layerData == 0) {
+        return luaL_error(state, "LayerState default spritesheet path is unavailable");
+    }
+    EngineStringView view{};
+    if (!ResolveEngineStringView(
+            layerData + kLayerDataDefaultSpritesheetPathOffset, &view)) {
+        return luaL_error(state, "LayerState default spritesheet path is unavailable");
+    }
+    if (view.size == 0) {
+        lua_pushliteral(state, "");
+        return 1;
+    }
+    lua_pushlstring(state,
+                    static_cast<const char*>(engine_memory::AsObject(view.data)),
+                    view.size);
+    return 1;
+}
+
+int RepentogonLayerStateSetSize(lua_State* state) {
+    RequireGameThread(state);
+    void* layer = ResolveLayerStateView(state, 1);
+    const auto* size = RequireVectorArgument(state, 2);
+    WriteOrError(state, engine_memory::AddressOf(layer) + kLayerStateSizeOffset,
+                 *size, "LayerState size");
+    return 0;
+}
+
+int RepentogonLayerStateSetCropOffset(lua_State* state) {
+    RequireGameThread(state);
+    void* layer = ResolveLayerStateView(state, 1);
+    const auto* offset = RequireVectorArgument(state, 2);
+    WriteOrError(state, engine_memory::AddressOf(layer) + kLayerStateCropOffsetOffset,
+                 *offset, "LayerState crop offset");
+    return 0;
+}
+
 int RepentogonLayerStateSetColor(lua_State* state) {
     RequireGameThread(state);
     void* layer = ResolveLayerStateView(state, 1);
@@ -1258,6 +1432,7 @@ int RegisterRepentogonSpriteViews(lua_State* state) {
     RegisterMethodClass(state, "LayerState", kLayerStateMetatable, "LayerState");
     RegisterBlendMode(state);
 
+    PromoteSpriteClassTable(state);
     static_cast<void>(AttachMethodsToMetatable(
         state, LuaRuntime::kSpriteMetatable, "Sprite"));
     return 0;

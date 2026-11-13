@@ -449,7 +449,7 @@ struct CategoryState {
 };
 
 struct Store {
-    CategoryState categories[5];
+    CategoryState categories[6];
 };
 
 Store* g_store = nullptr;
@@ -467,6 +467,8 @@ int CategoryIndex(XmlNodeType type) noexcept {
             return 3;
         case XmlNodeType::Achievement:
             return 4;
+        case XmlNodeType::Player:
+            return 5;
         default:
             return -1;
     }
@@ -476,6 +478,8 @@ XmlNodeType NodeTypeFor(XmlDataFileKind kind) noexcept {
     switch (kind) {
         case XmlDataFileKind::Entities:
             return XmlNodeType::Entity;
+        case XmlDataFileKind::Players:
+            return XmlNodeType::Player;
         case XmlDataFileKind::Challenges:
             return XmlNodeType::Challenge;
         case XmlDataFileKind::Backdrops:
@@ -492,6 +496,8 @@ const char* ExpectedRoot(XmlNodeType type) noexcept {
     switch (type) {
         case XmlNodeType::Entity:
             return "entities";
+        case XmlNodeType::Player:
+            return "players";
         case XmlNodeType::Challenge:
             return "challenges";
         case XmlNodeType::Backdrop:
@@ -511,20 +517,42 @@ void ApplySource(XmlRecord* record, const char* sourceId) {
     SetAttribute(record, "sourceid", id);
 }
 
-void TranslateEntityName(XmlRecord* record, const XmlNameTranslator& translator) {
-    if (record == nullptr || translator.translate == nullptr) return;
-    const XmlAttribute* name = FindAttribute(*record, "name");
-    if (name == nullptr || name->value.empty() || name->value.front() != '#') return;
+void TranslateAttribute(XmlRecord* record, const char* attribute, const char* category,
+                        const char* untranslated_attribute,
+                        const XmlNameTranslator& translator) {
+    if (record == nullptr || attribute == nullptr || category == nullptr ||
+        untranslated_attribute == nullptr || translator.translate == nullptr) {
+        return;
+    }
+    const XmlAttribute* value = FindAttribute(*record, attribute);
+    if (value == nullptr || value->value.empty() || value->value.front() != '#') return;
     char translated[4096]{};
     std::size_t length = 0;
-    if (!translator.translate(translator.context, "Entities", name->value.c_str() + 1,
+    if (!translator.translate(translator.context, category, value->value.c_str() + 1,
                               translated, sizeof(translated), &length) ||
         length == 0 || length >= sizeof(translated)) {
         return;
     }
     translated[length] = '\0';
-    SetAttribute(record, "untranslatedname", name->value);
-    SetAttribute(record, "name", std::string(translated, length));
+    SetAttribute(record, untranslated_attribute, value->value);
+    SetAttribute(record, attribute, std::string(translated, length));
+}
+
+void TranslateEntityName(XmlRecord* record, const XmlNameTranslator& translator) {
+    TranslateAttribute(record, "name", "Entities", "untranslatedname", translator);
+}
+
+void ProcessPlayerAttributes(XmlRecord* record, const XmlNameTranslator& translator) {
+    if (record == nullptr) return;
+    if (FindAttribute(*record, "achievement") == nullptr) {
+        const XmlAttribute* hidden = FindAttribute(*record, "hideachievement");
+        if (hidden != nullptr) SetAttribute(record, "achievement", hidden->value);
+    }
+    TranslateAttribute(record, "name", "Players", "untranslatedname", translator);
+    TranslateAttribute(record, "description", "Players", "untranslateddescription",
+                       translator);
+    TranslateAttribute(record, "birthright", "Players", "untranslatedbirthright",
+                       translator);
 }
 
 void ProcessBackdropName(XmlRecord* record) {
@@ -642,8 +670,10 @@ bool AddRecord(XmlDataFileKind kind, XmlRecord record, bool isContent,
         TranslateEntityName(&record, translator);
         AddEntity(&g_store->categories[CategoryIndex(type)], std::move(record), isContent);
     } else if (type == XmlNodeType::Challenge || type == XmlNodeType::Backdrop ||
-               type == XmlNodeType::GiantBook || type == XmlNodeType::Achievement) {
+               type == XmlNodeType::GiantBook || type == XmlNodeType::Achievement ||
+               type == XmlNodeType::Player) {
         ApplySource(&record, sourceId);
+        if (type == XmlNodeType::Player) ProcessPlayerAttributes(&record, translator);
         if (type == XmlNodeType::Backdrop) ProcessBackdropName(&record);
         if (type == XmlNodeType::GiantBook && !FindAttribute(record, "name")) {
             const auto* gfx = FindAttribute(record, "gfx");
@@ -657,6 +687,11 @@ bool AddRecord(XmlDataFileKind kind, XmlRecord record, bool isContent,
             }
         }
         auto& category = g_store->categories[CategoryIndex(type)];
+        if (type == XmlNodeType::Player && isContent) {
+            // The engine always reserves native player slots 0..40 before
+            // appending mod players, even if the base XML read failed.
+            category.maxId = std::max(category.maxId, kFirstCustomPlayerId - 1);
+        }
         if (type == XmlNodeType::Achievement) {
             // The Switch XML omits newer native rows. Never allocate mod IDs in
             // that gap; reserve the full upstream native range independently.
@@ -730,7 +765,8 @@ bool IngestXmlDataFile(XmlDataFileKind kind, const char* source_id, bool is_cont
 
     for (XmlRecord& record : document.records) {
         if (type == XmlNodeType::Entity || type == XmlNodeType::Backdrop ||
-            type == XmlNodeType::GiantBook || type == XmlNodeType::Achievement) {
+            type == XmlNodeType::GiantBook || type == XmlNodeType::Achievement ||
+            type == XmlNodeType::Player) {
             MergeMissingAttributes(&record.attributes, document.rootAttributes);
         }
         if (!AddRecord(kind, std::move(record), is_content, source_id, translator)) {

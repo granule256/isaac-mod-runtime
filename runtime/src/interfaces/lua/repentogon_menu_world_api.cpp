@@ -46,6 +46,16 @@ constexpr std::uintptr_t kGameAmbush = 0x26FAA8;
 constexpr std::uintptr_t kAmbushCurrentWave = 0x3C;
 // LoadConfig @ 0x42813c parses progressAnm2, loaded into this ANM2 @ 0x4285f0.
 constexpr std::uintptr_t kNightmareProgressBarSprite = 0x2E8;
+// NightmareScene::Render +0x84 forms this ANM2 and reads its animation state.
+constexpr std::uintptr_t kNightmareBackgroundSprite = 0x38;
+// Game::Render forms this PauseScreen; Show/Update write its leading state.
+constexpr std::uintptr_t kGamePauseScreen = 0x1AE128;
+constexpr std::uintptr_t kCompletionCounterId = 0x439844;
+constexpr std::array<std::uint8_t, 16> kCompletionCounterIdGuard = {
+    0x3f,0xa0,0x00,0x71,0x6d,0x00,0x00,0x54,
+    0xe0,0x03,0x1f,0x2a,0xc0,0x03,0x5f,0xd6,
+};
+api100_native::Cache g_CompletionCounterIdCache{};
 
 constexpr std::uintptr_t kRoomDescriptorDimension = 0x0C;
 constexpr std::uintptr_t kRoomDescriptorTaintedKeeperCoinSpawns = 0x5E;
@@ -388,6 +398,57 @@ int RepentogonNightmareSceneIsDogmaNightmare(lua_State* state) {
     return 1;
 }
 
+int RepentogonNightmareSceneGetBackgroundSprite(lua_State* state) {
+    RequireGameThread(state, "NightmareScene.GetBackgroundSprite");
+    RequireNoArguments(state, "NightmareScene.GetBackgroundSprite");
+    const auto manager = RequireManager(state);
+    PushSceneSprite(state, manager + kManagerNightmareSceneOffset +
+                        kNightmareBackgroundSprite,
+                    "NightmareScene.GetBackgroundSprite");
+    return 1;
+}
+
+int RepentogonGameIsPauseMenuOpen(lua_State* state) {
+    RequireGameThread(state, "Game:IsPauseMenuOpen");
+    luaL_checkudata(state, 1, LuaRuntime::kGameMetatable);
+    if (lua_gettop(state) != 1)
+        return luaL_error(state, "Game:IsPauseMenuOpen accepts no arguments");
+    lua_pushboolean(state, ReadField<std::int32_t>(state, RequireGame(state),
+        kGamePauseScreen, "PauseScreen state is unavailable") != 0);
+    return 1;
+}
+
+int RepentogonIsaacGetCompletionMark(lua_State* state) {
+    RequireGameThread(state, "Isaac.GetCompletionMark");
+    const auto player = luaL_checkinteger(state, 1);
+    const auto mark = luaL_checkinteger(state, 2);
+    if (player < 0 || player > 40)
+        return luaL_error(state, "Custom-player completion tracking is unavailable");
+    if (mark < 0 || mark > 14 || mark == 8 || mark == 10)
+        return luaL_error(state, "Unsupported CompletionType");
+    // Greedier is stored in the hard Greed mark in the native NS profile.
+    const auto event = static_cast<std::int32_t>(mark == 11 ? 7 : mark);
+    std::uintptr_t host{};
+#if !defined(__SWITCH__)
+    if (!g_TestBindings.completionCounterId)
+        return luaL_error(state, "Completion counter host binding is unavailable");
+    host = engine_call::AddressOfFunction(g_TestBindings.completionCounterId);
+#endif
+    using CounterId = std::int32_t (*)(std::int32_t, std::int32_t);
+    const auto counterId = engine_call::AsFunction<CounterId>(
+        api100_native::Resolve(state, {kCompletionCounterId,
+            kCompletionCounterIdGuard.data()}, g_CompletionCounterIdCache, host))(
+                event, static_cast<std::int32_t>(player));
+    if (counterId < 0 || counterId > 522)
+        return luaL_error(state, "Completion event counter is invalid");
+    // CompletionWidget::Update reads Manager+0x18 (PGD), then +0x2a8+id*4.
+    const auto value = ReadField<std::uint32_t>(state, RequireManager(state),
+        0x18 + 0x2a8 + static_cast<std::uintptr_t>(counterId) * 4,
+        "Completion event counter is unavailable") & 3U;
+    lua_pushinteger(state, value);
+    return 1;
+}
+
 int RepentogonNightmareSceneGetProgressBarSprite(lua_State* state) {
     RequireGameThread(state, "NightmareScene.GetProgressBarSprite");
     const auto manager = RequireManager(state);
@@ -472,8 +533,9 @@ bool RepentogonMenuWorldSpriteAlive(std::uintptr_t sprite) noexcept {
     if (manager && manager<=UINTPTR_MAX-0x2d338-0x40 &&
         sprite==manager+0x2d338+0x40) return true;
     if (manager != 0 && manager <= UINTPTR_MAX - kManagerNightmareSceneOffset -
-        kNightmareProgressBarSprite && sprite == manager + kManagerNightmareSceneOffset +
-        kNightmareProgressBarSprite) {
+        kNightmareProgressBarSprite &&
+        (sprite == manager + kManagerNightmareSceneOffset + kNightmareProgressBarSprite ||
+         sprite == manager + kManagerNightmareSceneOffset + kNightmareBackgroundSprite)) {
         return true;
     }
     const auto menu = TryReadSingleton(kMenuManagerSlot);

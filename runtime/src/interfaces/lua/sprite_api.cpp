@@ -1,4 +1,5 @@
 #include "interfaces/lua/repentogon_callbacks.hpp"
+#include "interfaces/lua/repentogon_environment.hpp"
 #include "interfaces/lua/api700_grid.hpp"
 #include "interfaces/lua/api600_bindings.hpp"
 #include "interfaces/lua/api200_bindings.hpp"
@@ -760,7 +761,8 @@ int SpriteLoadGraphics(lua_State* state) {
     return 0;
 }
 
-// PC: `void ReplaceSpritesheet(int LayerId, string PngFilename)`；引擎侧
+// PC/REPENTOGON: `void ReplaceSpritesheet(int LayerId, string PngFilename,
+// bool LoadGraphics = false)`；引擎侧
 // `ReplaceSpritesheet(int, std::string const&)`（w1 = 层号、x2 = 字符串对象）。
 int SpriteReplaceSpritesheet(lua_State* state) {
     void* sprite = nullptr;
@@ -775,6 +777,8 @@ int SpriteReplaceSpritesheet(lua_State* state) {
     if (method == 0) {
         return luaL_error(state, "Sprite:ReplaceSpritesheet native binding is unavailable");
     }
+    const bool loadGraphics =
+        RepentogonEnvironmentActive() && lua_toboolean(state, 4) != 0;
     // `allowEmpty = true`：空串表示"清掉这一层的图集替换"，是 EID 的正常用法（见上面
     // `BuildNativeString` 的注释与真机报告 `01789225234`）。
     const char* fileName = lua_tostring(state, 3);
@@ -803,6 +807,15 @@ int SpriteReplaceSpritesheet(lua_State* state) {
     }
     method(sprite, static_cast<int>(lua_tointeger(state, 2)),
            nativeString);
+    if (loadGraphics) {
+        const LuaRuntime::SpriteLoadGraphicsFn load =
+            LuaRuntime::SpriteLoadGraphicsThunk();
+        if (load == 0) {
+            return luaL_error(
+                state, "Sprite:ReplaceSpritesheet LoadGraphics binding is unavailable");
+        }
+        load(sprite);
+    }
     return 0;
 }
 
@@ -1351,8 +1364,31 @@ int CreateSpriteHandle(lua_State* state) {
     if (LuaRuntime::ClosingForModReload()) {
         return luaL_error(state, "Sprite cannot allocate native resources during mod reload shutdown");
     }
-    if (lua_gettop(state) != 0) {
+    const bool repentogon = RepentogonEnvironmentActive();
+    int firstArgument = 1;
+    if (repentogon && lua_gettop(state) >= 1 && lua_istable(state, 1)) {
+        lua_getglobal(state, "Sprite");
+        const bool classCall = lua_istable(state, -1) && lua_rawequal(state, 1, -1);
+        lua_pop(state, 1);
+        if (classCall) {
+            firstArgument = 2;
+        }
+    }
+    const int argumentCount = lua_gettop(state) - (firstArgument - 1);
+    if (!repentogon && argumentCount != 0) {
         return luaL_error(state, "Sprite accepts no arguments");
+    }
+    if (argumentCount < 0 || argumentCount > 2) {
+        return luaL_error(state, "Sprite accepts an optional ANM2 path and LoadGraphics flag");
+    }
+    const char* path = nullptr;
+    bool loadGraphics = true;
+    if (argumentCount >= 1) {
+        luaL_checktype(state, firstArgument, LUA_TSTRING);
+        path = lua_tostring(state, firstArgument);
+        if (argumentCount == 2 && !lua_isnil(state, firstArgument + 1)) {
+            loadGraphics = lua_toboolean(state, firstArgument + 1) != 0;
+        }
     }
     const LuaRuntime::SpriteCtorFn ctor = LuaRuntime::SpriteCtorThunk();
     const LuaRuntime::SpriteDestructorFn destructorMethod = LuaRuntime::SpriteDestructorThunk();
@@ -1386,7 +1422,30 @@ int CreateSpriteHandle(lua_State* state) {
     handle->source = kSpriteSourceRuntimeOwned;
     luaL_getmetatable(state, kSpriteMetatable);
     lua_setmetatable(state, -2);
-    return 1;
+
+    if (path == nullptr) {
+        return 1;
+    }
+    const LuaRuntime::SpriteLoadFn load = LuaRuntime::SpriteLoadThunk();
+    if (load == 0 || LuaRuntime::LibcxxStringAssignThunk() == 0) {
+        return luaL_error(state, "Sprite path constructor native bindings are unavailable");
+    }
+    bool loaded = false;
+    const std::size_t pathLength = std::strlen(path);
+    if (pathLength != 0 && pathLength + 1 <= kStringPathCapacity) {
+        void* nativeString = BuildNativeString(path, false);
+        if (nativeString == nullptr) {
+            return luaL_error(state, "Sprite path constructor could not build a native path");
+        }
+        load(handle->sprite, nativeString, loadGraphics);
+        std::uint8_t loadedFlag = 0;
+        loaded = ReadEngine(engine_memory::AddressOf(handle->sprite) +
+                                kSpriteLoadedFlagOffset,
+                            &loadedFlag) &&
+                 loadedFlag != 0;
+    }
+    lua_pushboolean(state, loaded ? 1 : 0);
+    return 2;
 }
 
 // PC 的 `Sprite:GetAnimation()`：**纯读**，不调引擎。

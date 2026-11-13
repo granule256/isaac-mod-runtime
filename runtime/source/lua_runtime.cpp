@@ -93,6 +93,7 @@ extern "C" char __fake_heap[];
 #include "interfaces/lua/input_action_map.hpp"
 #include "interfaces/lua/mod_menu_api.hpp"
 #include "interfaces/lua/isaac_api.hpp"
+#include "interfaces/lua/repentogon_character_menu_api.hpp"
 #include "interfaces/lua/mod_api.hpp"
 #include "interfaces/lua/callback_table_api.hpp"
 #include "interfaces/lua/mod_lifecycle_api.hpp"
@@ -4857,7 +4858,7 @@ void ParseRepentogonReturn(lua_State* state,void* opaque) {
     }
     const bool entityRender=id>=1080&&id<=1089;
     const bool gridPre=id>=1400&&id<=1462&&(id&1)==0;
-    const bool pre=entityRender||gridPre||(id>=1160&&id<=1169)||id==1026||id==1030||id==1218||id==1201;
+    const bool pre=entityRender||gridPre||(id>=1160&&id<=1169)||id==1026||id==1030||id==1218||id==1201||id==1216;
     if(!pre)return;
     if(lua_isboolean(state,-1)) {
         context.result.hasBoolean=true;context.result.boolean=lua_toboolean(state,-1)!=0;
@@ -5001,6 +5002,29 @@ isaac::runtime::repentogon::Result DispatchRepentogonCallback(
             } else if(event.id==1218||event.id==1219) {
                 invoker.arguments.AddCallbackSprite(event.object);
                 invoker.arguments.AddCallbackSprite(event.collider);
+            } else if(event.id==1216||event.id==1217) {
+                repentogon::Vector renderPos{};
+                repentogon::Vector renderScale{};
+                if(!event.object||!event.collider||!event.offset||
+                   !engine_memory::ReadAt(event.collider,&renderPos,
+                       engine_memory::EngineMemoryReadable)||
+                   !engine_memory::ReadAt(engine_memory::AddressOf(event.offset),
+                       &renderScale,engine_memory::EngineMemoryReadable))return {};
+                invoker.arguments.AddCallbackSprite(event.object);
+                invoker.arguments.AddVector(renderPos.x,renderPos.y);
+                invoker.arguments.AddVector(renderScale.x,renderScale.y);
+                invoker.arguments.AddInteger(event.first);
+            } else if(event.id==1333) {
+                repentogon::Vector renderPos{};
+                if(!event.object||!event.collider||
+                   !engine_memory::ReadAt(event.collider,&renderPos,
+                       engine_memory::EngineMemoryReadable))return {};
+                filter=event.first;
+                invoker.arguments.AddInteger(event.first);
+                invoker.arguments.AddVector(renderPos.x,renderPos.y);
+                invoker.arguments.AddCallbackSprite(event.object);
+            } else if(event.id==1271) {
+                filter=event.first;
             }
             break;
     }
@@ -5014,13 +5038,17 @@ isaac::runtime::repentogon::Result DispatchRepentogonCallback(
     RepentogonReturnContext context{&event};
     invoker.extendedReturn=ParseRepentogonReturn;invoker.extendedContext=&context;
     CallbackDispatcher dispatcher{g_CallbackRegistry,invoker};
+    const bool menuRenderMaskScope=event.id==1023;
+    if(menuRenderMaskScope)BeginRepentogonMainMenuRenderInputMaskScope();
     static_cast<void>(dispatcher.DispatchFiltered(event.id,ThreadAffinity::Any,filter));
+    if(menuRenderMaskScope)EndRepentogonMainMenuRenderInputMaskScope();
     if(invoker.batchFailed)return {};
     if(context.soundChanged)*event.sound=context.sound;
     return context.result;
 }
 
 void NoteGameStarted(bool isSave) noexcept {
+    isaac::runtime::ClearRepentogonMenuInputMask();
     isaac::runtime::BeginWorldContentRun();
     g_HasManagedUpdate = false;
     g_LastManagedUpdate = {};
@@ -7584,6 +7612,7 @@ bool ShutdownForModReload() noexcept {
     isaac::runtime::ResetEntityLifetimeState();
     g_CallbackRegistry.Reset();
     isaac::runtime::ResetCallbackRuntimeState();
+    isaac::runtime::ClearRepentogonMenuInputMask();
     ResetCallbackRegistrationCensus();
     g_ModRegistered = false;
     g_ModRegisteredCount.store(0,std::memory_order_relaxed);

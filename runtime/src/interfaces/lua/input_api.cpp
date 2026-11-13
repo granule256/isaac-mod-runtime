@@ -1,4 +1,5 @@
 #include "domain/console/console_panel_state.hpp"
+#include "interfaces/lua/character_menu_keyboard_bridge.hpp"
 #include "interfaces/lua/input_api.hpp"
 
 // `IsActionTriggered` 的上升沿判定（纯逻辑，见该头文件顶部的证据与差别说明）。
@@ -485,7 +486,8 @@ void CheckInputQueryArguments(lua_State* state, const char* apiName) {
 //   的跳板）、`w1 = button`、`w2 = deviceId`（`0xFFFFFFFF` = 任意设备）、`x3 = 可空的 out 指针`；
 //   `GetButtonValue` 的返回值走 **s0**。我们一律传 `out = nullptr`（PC 的 Lua 侧不暴露它）。
 //
-// 键盘码一律答 false / 0.0，绝不透传：引擎按 `button & 31` 取位，`KEY_SPACE(32)` 会撞上
+// 除 CHARACTER 菜单的窄桥接外，键盘码答 false / 0.0，绝不透传给引擎：
+//   引擎按 `button & 31` 取位，`KEY_SPACE(32)` 会撞上
 //   "方向左"、`KEY_R(82)` 撞到位 18（没人写）—— 透传等于"按一次空格就误报左方向键按下"
 //   （模组自己都知道这个坑：InputHelper 写 `IsButtonTriggered(key) and not
 //   IsButtonTriggered(key % 32)`）。Switch 引擎里**确实没有键盘设备**（`KAGE::Input` 的类全列
@@ -528,7 +530,8 @@ InputButtonArguments CheckInputButtonArguments(lua_State* state, const char* api
 }
 
 // 这个按键号是不是"手柄按键"？只有 0..17 有真值来源（见 `kKageControllerButtonMaximum`）。
-// 键盘码（`Keyboard.KEY_*` 是 GLFW 键码，>= 32）与一切越界值都答"没有"。
+// 键盘码（`Keyboard.KEY_*` 是 GLFW 键码，>= 32）与一切越界值都答"没有"；
+// CHARACTER 菜单的四个显式桥接键在调用这里之前已经处理。
 bool IsControllerButtonCode(lua_Integer code) noexcept {
     return code >= 0 && static_cast<std::uint64_t>(code) <= kKageControllerButtonMaximum;
 }
@@ -676,11 +679,66 @@ bool ResolveButtonQuery(std::uintptr_t* manager, std::uintptr_t* method,
     return true;
 }
 
+// The bridge is intentionally state-free: a PC keyboard identity is projected
+// onto one real controller button only while the native Character menu is
+// active. The actual held/edge state still comes from g_ButtonEdge.
+bool CharacterMenuKeyboardBridgeButton(lua_Integer keyboard, lua_Integer controller,
+                                       std::uint32_t* button) noexcept {
+    const auto mapping =
+        character_menu_keyboard_bridge::MapKeyboardIdentity(keyboard, controller);
+    if (!mapping.mapped || button == nullptr) return false;
+
+    const std::uintptr_t base = LuaRuntime::EngineModuleBase();
+    std::uintptr_t managerSlot = 0;
+    std::uintptr_t manager = 0;
+    std::uintptr_t menuSlot = 0;
+    std::uintptr_t menu = 0;
+    std::uint32_t scene = 0;
+    std::int32_t activeMenu = 0;
+    const bool active =
+        base != 0 &&
+        isaac::runtime::engine_memory::ReadField(
+            base, kGameManagerGlobalSlotOffset, &managerSlot,
+            isaac::runtime::engine_memory::EngineMemoryReadable) &&
+        managerSlot != 0 &&
+        isaac::runtime::engine_memory::ReadAt(
+            managerSlot, &manager,
+            isaac::runtime::engine_memory::EngineMemoryReadable) &&
+        manager != 0 &&
+        isaac::runtime::engine_memory::ReadField(
+            manager, kManagerRenderSceneOffset, &scene,
+            isaac::runtime::engine_memory::EngineMemoryReadable) &&
+        isaac::runtime::engine_memory::ReadField(
+            base, character_menu_keyboard_bridge::kMenuManagerGlobalSlotOffset, &menuSlot,
+            isaac::runtime::engine_memory::EngineMemoryReadable) &&
+        menuSlot != 0 &&
+        isaac::runtime::engine_memory::ReadAt(
+            menuSlot, &menu,
+            isaac::runtime::engine_memory::EngineMemoryReadable) &&
+        menu != 0 &&
+        isaac::runtime::engine_memory::ReadField(
+            menu, character_menu_keyboard_bridge::kMenuManagerActiveMenuOffset, &activeMenu,
+            isaac::runtime::engine_memory::EngineMemoryReadable) &&
+        character_menu_keyboard_bridge::IsCharacterMenuContext(scene, activeMenu);
+    if (!active) return false;
+    *button = mapping.controller_button;
+    return true;
+}
+
 int InputIsButtonTriggered(lua_State* state) {
     const auto arguments = CheckInputButtonArguments(state, "Input.IsButtonTriggered");
     if (console::ConsoleCapturesInput()) { lua_pushboolean(state, 0); return 1; }
     const lua_Integer code = arguments.code;
-    // 键盘码 / 越界：**没有真值来源**（见上面那段），答 false 且不查引擎。
+    std::uint32_t bridgeButton = 0;
+    if (CharacterMenuKeyboardBridgeButton(code, arguments.controller, &bridgeButton)) {
+        RefreshInputSnapshot();
+        const std::uint32_t frame = CurrentInputFrame();
+        const bool triggered =
+            g_ButtonEdge.Triggered(bridgeButton, kNsAnyInputDevice, frame);
+        lua_pushboolean(state, triggered ? 1 : 0);
+        return 1;
+    }
+    // 非桥接键盘码 / 越界：**没有真值来源**（见上面那段），答 false 且不查引擎。
     if (!IsControllerButtonCode(code)) {
         lua_pushboolean(state, 0);
         return 1;
@@ -742,6 +800,28 @@ int InputIsButtonPressed(lua_State* state) {
     const auto arguments = CheckInputButtonArguments(state, "Input.IsButtonPressed");
     if (console::ConsoleCapturesInput()) { lua_pushboolean(state, 0); return 1; }
     const lua_Integer code = arguments.code;
+    std::uint32_t bridgeButton = 0;
+    if (CharacterMenuKeyboardBridgeButton(code, arguments.controller, &bridgeButton)) {
+        RefreshInputSnapshot();
+        const std::uint32_t frame = CurrentInputFrame();
+        bool pressed = false;
+        if (g_ButtonEdge.HasFrame(bridgeButton, kNsAnyInputDevice, frame)) {
+            pressed = g_ButtonEdge.Pressed(bridgeButton, kNsAnyInputDevice, frame);
+        } else {
+            std::uintptr_t buttonManager = 0;
+            std::uintptr_t buttonMethod = 0;
+            if (ResolveButtonQuery(
+                    &buttonManager, &buttonMethod,
+                    LuaRuntime::InputIsButtonPressedThunk()) &&
+                LuaRuntime::ValidateInputIsButtonPressedBinding(buttonMethod)) {
+                pressed = engine_call::AsFunction<ButtonBoolFn>(buttonMethod)(
+                    isaac::runtime::engine_memory::AsObject(buttonManager),
+                    bridgeButton, kNsAnyInputDevice, nullptr);
+            }
+        }
+        lua_pushboolean(state, pressed ? 1 : 0);
+        return 1;
+    }
     if (!IsControllerButtonCode(code)) {
         lua_pushboolean(state, 0);
         return 1;

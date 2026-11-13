@@ -13,6 +13,8 @@
 #include "interfaces/lua/repentogon_entity_config_api.hpp"
 #include "interfaces/lua/repentogon_sprite_api.hpp"
 #include "interfaces/lua/repentogon_menu_world_api.hpp"
+#include "interfaces/lua/repentogon_character_menu_api.hpp"
+#include "interfaces/lua/repentogon_color_modifier_api.hpp"
 #include "interfaces/lua/repentogon_item_overlay_api.hpp"
 #include "interfaces/lua/repentogon_room_mutations.hpp"
 #include "interfaces/lua/repentogon_remaining_bulk_api.hpp"
@@ -168,9 +170,13 @@ constexpr RepentogonCallbackBinding kCallbacks[]={
     {1258,"MC_POST_FIRE_SWORD"},
     {1259,"MC_POST_FIRE_TECH_LASER"},
     {1260,"MC_POST_FIRE_TECH_X_LASER"},
+    {1216,"MC_PRE_COMPLETION_MARKS_RENDER"},
+    {1217,"MC_POST_COMPLETION_MARKS_RENDER"},
+    {1333,"MC_PRE_RENDER_CUSTOM_CHARACTER_MENU"},
+    {1271,"MC_POST_ROOM_TRANSITION_UPDATE"},
 };
 constexpr auto kCallbackCount=sizeof(kCallbacks)/sizeof(kCallbacks[0]);
-static_assert(kCallbackCount==132);
+static_assert(kCallbackCount==136);
 constexpr RepentogonEnumBinding kEnums[]={
     {"ModCallbacks","MC_HUD_POST_UPDATE",1021},
     {"StbType","SPECIAL_ROOMS",0},
@@ -304,8 +310,61 @@ constexpr RepentogonEnumBinding kEnums[]={
     {"Achievement","KEEPER",251},
     {"EventCounter","DONATION_MACHINE_COUNTER",20},
     {"EventCounter","GREED_DONATION_MACHINE_COUNTER",115},
+    {"Achievement","ISAAC_HOLDS_THE_D6",29},
+    {"Achievement","KEEPER_HOLDS_A_PENNY",191},
+    {"Achievement","KEEPER_HOLDS_WOODEN_NICKEL",236},
+    {"Achievement","KEEPER_HOLDS_STORE_KEY",237},
+    {"Achievement","LAZARUS_BLEEDS_MORE",331},
+    {"Achievement","MAGDALENE_HOLDS_A_PILL",332},
+    {"Achievement","SAMMSON_FEELS_HEALTHY",334},
+    {"EventCounter","EDEN_TOKENS",21},
+    {"EventCounter","STREAK_COUNTER",22},
+    {"EventCounter","NEGATIVE_STREAK_COUNTER",113},
+    {"CharacterMenuStatus","SEED",1},
+    {"CharacterMenuStatus","RANDOM_SELECTION",2},
+    {"CompletionType","DELIRIUM",12},
 };
 constexpr RepentogonApiBinding kApis[]={
+    {{0x0E025019,ApiDomain::Isaac,"AnimationFrame","GetPos",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonAnimationFrameGetPos},
+    {{0x0E02501A,ApiDomain::Isaac,"LayerState","SetCropOffset",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonLayerStateSetCropOffset},
+    {{0x0E02501B,ApiDomain::Isaac,"LayerState","GetDefaultSpritesheetPath",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonLayerStateGetDefaultSpritesheetPath},
+    {{0x0E025017,ApiDomain::Isaac,"AnimationFrame","IsVisible",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonAnimationFrameIsVisible},
+    {{0x0E025018,ApiDomain::Isaac,"AnimationFrame","GetColor",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonAnimationFrameGetColor},
+    {{0x0E025016,ApiDomain::Isaac,"LayerState","SetSize",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonLayerStateSetSize},
+    {{0x0E025015,ApiDomain::Isaac,"LayerState","GetSpritesheetPath",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonLayerStateGetSpritesheetPath},
+    {{0x0E024100,ApiDomain::Isaac,"CharacterMenu","GetActiveStatus",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonCharacterMenuGetActiveStatus},
+    {{0x0E024101,ApiDomain::Isaac,"CharacterMenu","GetDifficulty",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonCharacterMenuGetDifficulty},
+    {{0x0E024102,ApiDomain::Isaac,"CharacterMenu","GetIsCharacterUnlocked",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonCharacterMenuGetIsCharacterUnlocked},
+    {{0x0E024103,ApiDomain::Isaac,"CharacterMenu","GetPageSwapWidgetSprite",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonCharacterMenuGetPageSwapWidgetSprite},
+    {{0x0E024104,ApiDomain::Isaac,"CharacterMenu","GetSelectedCharacterID",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonCharacterMenuGetSelectedCharacterID},
+    {{0x0E024105,ApiDomain::Isaac,"CharacterMenu","GetSelectedCharacterMenu",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonCharacterMenuGetSelectedCharacterMenu},
+    {{0x0E024106,ApiDomain::Isaac,"CharacterMenu","GetSelectedCharacterPlayerType",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonCharacterMenuGetSelectedCharacterPlayerType},
+    {{0x0E024107,ApiDomain::Isaac,"CharacterMenu","GetPlayerTypeFromCharacterMenuID",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonCharacterMenuGetPlayerTypeFromCharacterMenuID},
+    {{0x0E024108,ApiDomain::Isaac,"MenuManager","SetInputMask",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonMenuManagerSetInputMask},
+    {{0x0E024109,ApiDomain::Isaac,"MenuManager","SetColorModifier",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonMenuManagerSetColorModifier},
+    {{0x02020001,ApiDomain::Game,"Game","IsPauseMenuOpen",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonGameIsPauseMenuOpen},
+    {{0x0E024020,ApiDomain::Isaac,"NightmareScene","GetBackgroundSprite",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonNightmareSceneGetBackgroundSprite},
+    {{0x0E024021,ApiDomain::Isaac,"Isaac","GetCompletionMark",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonIsaacGetCompletionMark},
     {{0x07020001,ApiDomain::Rng,"RNG","SetSeed",{},0,ThreadAffinity::ManagedCallback,
       ApiMaturity::Experimental},RepentogonRngSetSeed,nullptr,nullptr,true},
     {{0x03020001,ApiDomain::Level,"Level","GetDimension",{},0,ThreadAffinity::ManagedCallback,
@@ -608,7 +667,7 @@ constexpr auto MakeStateIndices() noexcept {
 }
 constexpr auto kStateIndices=MakeStateIndices();
 std::array<ExtendedCallbackState*,kCallbackCount> g_States{};
-void Reset() noexcept {g_States.fill(nullptr);ResetRepentogonTimerApi();ResetRepentogonGameStateData();ResetRepentogonAchievementState();}
+void Reset() noexcept {g_States.fill(nullptr);ResetRepentogonTimerApi();ResetRepentogonGameStateData();ResetRepentogonAchievementState();ClearRepentogonMenuInputMask();}
 
 bool Ready() noexcept {
     return g_NativePort&&g_NativePort->ready&&g_NativePort->install&&g_NativePort->ready();
@@ -625,6 +684,8 @@ int Initialize(lua_State* state) {
     RegisterRepentogonEntityConfigViews(state);
     RegisterRepentogonSpriteViews(state);
     RegisterRepentogonMenuWorldApi(state);
+    RegisterRepentogonColorModifierApi(state);
+    RegisterRepentogonCharacterMenuApi(state);
     RegisterRepentogonItemOverlayApi(state);
     RegisterRepentogonRemainingBulkViews(state);
     RegisterRepentogonSaveStateViews(state);

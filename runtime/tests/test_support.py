@@ -73,6 +73,8 @@ def layered_lua_runtime_sources(source_root: Path) -> list[Path]:
         unit_root / "interfaces" / "lua" / "repentogon_entity_config_api.cpp",
         unit_root / "interfaces" / "lua" / "repentogon_sprite_api.cpp",
         unit_root / "interfaces" / "lua" / "repentogon_menu_world_api.cpp",
+        unit_root / "interfaces" / "lua" / "repentogon_character_menu_api.cpp",
+        unit_root / "interfaces" / "lua" / "repentogon_color_modifier_api.cpp",
         unit_root / "interfaces" / "lua" / "repentogon_item_overlay_api.cpp",
         unit_root / "interfaces" / "lua" / "repentogon_room_mutations.cpp",
         unit_root / "interfaces" / "lua" / "repentogon_remaining_bulk_api.cpp",

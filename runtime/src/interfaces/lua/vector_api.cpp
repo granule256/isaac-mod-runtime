@@ -5,6 +5,7 @@
 #include "interfaces/lua/isaac_api.hpp"
 #include "infrastructure/memory/engine_field_access.hpp"
 #include "interfaces/lua/vector_api.hpp"
+#include "interfaces/lua/repentogon_environment.hpp"
 
 #include "interfaces/lua/owner_binding.hpp"
 
@@ -405,10 +406,20 @@ int VectorMul(lua_State* state) {
 
 int VectorDiv(lua_State* state) {
     VectorHandle* left = CheckVector(state, 1);
-    if (!lua_isnumber(state, 2)) {
+    const bool extended = RepentogonEnvironmentActive();
+    if (extended && lua_type(state, 2) == LUA_TUSERDATA) {
+        const VectorHandle* right = CheckVector(state, 2);
+        if (right->x == 0 || right->y == 0)
+            return luaL_error(state, "Divide by zero");
+        PushVector(state, left->x / right->x, left->y / right->y);
+        return 1;
+    }
+    if (!lua_isnumber(state, 2) ||
+        (extended && lua_type(state, 2) != LUA_TNUMBER)) {
         return luaL_error(state, "Vector / expects a number");
     }
     const float divisor = static_cast<float>(lua_tonumber(state, 2));
+    if (extended && divisor == 0) return luaL_error(state, "Divide by zero");
     PushVector(state, left->x / divisor, left->y / divisor);
     return 1;
 }
