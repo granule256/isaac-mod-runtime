@@ -64,6 +64,7 @@ def layered_lua_runtime_sources(source_root: Path) -> list[Path]:
         unit_root / "interfaces" / "lua" / "repentogon_world_api.cpp",
         unit_root / "interfaces" / "lua" / "repentogon_runtime_api.cpp",
         unit_root / "interfaces" / "lua" / "repentogon_persistent_api.cpp",
+        unit_root / "interfaces" / "lua" / "repentogon_achievement_notification.cpp",
         unit_root / "interfaces" / "lua" / "repentogon_player_api.cpp",
         unit_root / "interfaces" / "lua" / "repentogon_player_manager_api.cpp",
         unit_root / "interfaces" / "lua" / "repentogon_entity_api.cpp",

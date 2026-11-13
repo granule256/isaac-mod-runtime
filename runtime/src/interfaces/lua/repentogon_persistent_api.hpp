@@ -10,6 +10,9 @@ int RepentogonPersistentGameDataGetEventCounter(lua_State* state);
 int RepentogonPersistentGameDataIsItemInCollection(lua_State* state);
 int RepentogonPersistentGameDataUnlocked(lua_State* state);
 int RepentogonPersistentGameDataTryUnlock(lua_State* state);
+// Partial API: force-unlocks custom IDs only. Valid native IDs raise an
+// explicit native-force-unavailable error instead of returning a false success.
+int RepentogonPersistentGameDataUnlock(lua_State* state);
 void ResetRepentogonAchievementState() noexcept;
 #if !defined(__SWITCH__)
 struct RepentogonAchievementNativeTestBindings {

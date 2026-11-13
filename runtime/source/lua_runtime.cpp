@@ -74,6 +74,7 @@ extern "C" char __fake_heap[];
 // `MC_INPUT_ACTION` 要给 `entity` 实参，用 `ResolveEnginePlayerAt(0)`
 // （与 `Isaac.GetPlayer(0)` **同一条**解析链，见 `isaac_api.hpp` 的声明处）。
 #include "interfaces/lua/isaac_api.hpp"
+#include "interfaces/lua/repentogon_achievement_notification.hpp"
 #include "infrastructure/call/engine_call_access.hpp"
 #include "infrastructure/memory/engine_memory_guard.hpp"
 #include "application/callback/callback_dispatcher.hpp"
@@ -5890,11 +5891,33 @@ bool PrepareRoomEventsForRender() {
     return ready;
 }
 
+namespace {
+int PumpAchievementNotificationsProtected(lua_State* state) {
+    if (isaac::runtime::PumpRepentogonAchievementNotifications(state)<0) return lua_error(state);
+    return 0;
+}
+void PumpAchievementNotificationsForRender() {
+    if (!isaac::runtime::HasPendingRepentogonAchievementNotifications()) return;
+    const ManagedEngineDispatchScope dispatchScope;
+    const int top=lua_gettop(g_LuaState);
+    if (!lua_checkstack(g_LuaState,1)) return;
+    lua_pushcfunction(g_LuaState,PumpAchievementNotificationsProtected);
+    if (lua_pcall(g_LuaState,0,0,0)!=LUA_OK) {
+        CaptureLuaErrorTop(g_LuaState);
+        g_CallbackError.store(true,std::memory_order_release);
+    }
+    lua_settop(g_LuaState,top);
+}
+}
+
 void DispatchPostRender(uintptr_t manager) {
     if (!IsReady() || manager == 0 || g_LuaState == nullptr ||
         !isaac::runtime::ShouldDispatchManagedCallbacks()) {
         return;
     }
+    // Native achievement UI keeps advancing while gameplay is paused. Do not
+    // make its queue depend on an author's POST_RENDER subscription.
+    PumpAchievementNotificationsForRender();
     // 入场判据从"有人登记每帧渲染回调"放宽成"每帧渲染回调或实体渲染族里有人登记"（2026-09-18）：
     // 两条路径共用同一个渲染时机、同一个派发窗口，分成两段只会让每帧多两次窗口进出。
     //

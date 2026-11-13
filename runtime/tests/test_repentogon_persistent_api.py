@@ -108,7 +108,7 @@ assert(not p:Unlocked(id) and not p:Unlocked(99999))
 assert(p:TryUnlock(id) and p:Unlocked(id))
 assert(not p:TryUnlock(id) and not p:TryUnlock(99999))
 assert(not p:TryUnlock(0) and not p:TryUnlock(-1) and not p:TryUnlock(638))
-assert(not pcall(function()p:TryUnlock(643)end) and not p:Unlocked(643))
+assert(p:TryUnlock(643) and p:Unlocked(643))
 '''
         begin = driver.index(' const char* script=R"lua(')
         end = driver.index(')lua";', begin) + len(')lua";')

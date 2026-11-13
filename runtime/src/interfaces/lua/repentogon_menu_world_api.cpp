@@ -469,6 +469,8 @@ bool RepentogonMenuWorldSpriteAlive(std::uintptr_t sprite) noexcept {
         return false;
     }
     const auto manager = TryReadSingleton(kGameManagerGlobalSlotOffset);
+    if (manager && manager<=UINTPTR_MAX-0x2d338-0x40 &&
+        sprite==manager+0x2d338+0x40) return true;
     if (manager != 0 && manager <= UINTPTR_MAX - kManagerNightmareSceneOffset -
         kNightmareProgressBarSprite && sprite == manager + kManagerNightmareSceneOffset +
         kNightmareProgressBarSprite) {

@@ -508,6 +508,8 @@ constexpr RepentogonApiBinding kApis[]={
       ApiMaturity::Experimental},RepentogonItemOverlayGetPlayer},
     {{0x0E02C00D,ApiDomain::Isaac,"ItemOverlay","GetMegaMushPlayerSprite",{},0,ThreadAffinity::ManagedCallback,
       ApiMaturity::Experimental},RepentogonItemOverlayGetMegaMushPlayerSprite},
+    {{0x0E02C00E,ApiDomain::Isaac,"PersistentGameData","Unlock",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonPersistentGameDataUnlock},
     {{0x0E02C000,ApiDomain::Isaac,"XMLData","GetEntityByTypeVarSub",{},0,ThreadAffinity::ManagedCallback,
       ApiMaturity::Experimental},RepentogonXmlDataGetEntityByTypeVarSub},
     {{0x0E02C001,ApiDomain::Isaac,"XMLData","GetEntryById",{},0,ThreadAffinity::ManagedCallback,
