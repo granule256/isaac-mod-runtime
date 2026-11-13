@@ -13,4 +13,6 @@ void ClearEntityLifetimeData(std::uintptr_t entity) noexcept;
 void ReinitializeEntityLifetime(std::uintptr_t entity) noexcept;
 void RetireEntityLifetime(std::uintptr_t entity) noexcept;
 void ResetEntityLifetimeState() noexcept;
+void SetPickupRerollOverride(lua_State*, std::uintptr_t entity, std::int8_t value);
+bool TryPickupRerollOverride(std::uintptr_t entity, bool* result) noexcept;
 }

@@ -23,11 +23,13 @@ int RepentogonEntityPickupInitFlipState(lua_State* state);
 int RepentogonEntityPickupGetVarData(lua_State* state);
 int RepentogonEntityPickupSetVarData(lua_State* state);
 int RepentogonEntityPickupAddCollectibleCycle(lua_State* state);
+int RepentogonEntityPickupGetCanRerollOverride(lua_State* state);
+int RepentogonEntityPickupSetCanRerollOverride(lua_State* state);
+int RepentogonEntityPickupClearCanRerollOverride(lua_State* state);
 
 #if !defined(__SWITCH__)
 struct RepentogonEntityNativeTestBindings {
     void* (*giveMinecart)(void*,const RepentogonEntityVector&,const RepentogonEntityVector&){};
-    void (*initFlipState)(void*){};
 };
 void SetRepentogonEntityNativeTestBindings(RepentogonEntityNativeTestBindings) noexcept;
 #endif

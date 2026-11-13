@@ -5,6 +5,7 @@
 #include "interfaces/lua/api700_player.hpp"
 #include "interfaces/lua/api700_bindings.hpp"
 #include "interfaces/lua/api500_world.hpp"
+#include "interfaces/lua/repentogon_generator_api.hpp"
 #include "interfaces/lua/api200_bindings.hpp"
 #include "application/shader/shader_pipeline.hpp"
 #include "interfaces/lua/class_metadata.hpp"
@@ -43,6 +44,7 @@ extern "C" {
 #include "program/setting.hpp"
 
 #include <cstdarg>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <ctime>
@@ -76,6 +78,7 @@ extern "C" char __fake_heap[];
 #include "infrastructure/memory/engine_memory_guard.hpp"
 #include "application/callback/callback_dispatcher.hpp"
 #include "application/callback/callback_registry.hpp"
+#include "damage_context.hpp"
 #include "domain/callback/callback_descriptor.hpp"
 #include "interfaces/lua/api_catalog.hpp"
 #include "interfaces/lua/json_api.hpp"
@@ -4092,6 +4095,7 @@ struct CallbackArgument {
         CollectibleRng,
         Room,
         RoomDescriptor,
+        LevelGenerator, LevelGeneratorRoom, BossPool, RoomConfig,
     };
     Kind kind{Kind::None};
     std::int64_t number{0};
@@ -4153,6 +4157,10 @@ struct CallbackArguments {
         if(count>=kMaximum)return;
         auto& argument=items[count++];argument.kind=CallbackArgument::Kind::RoomDescriptor;
         argument.entity=room;argument.auxiliary=descriptor;
+    }
+    void AddNativeView(CallbackArgument::Kind kind,std::uintptr_t value) noexcept {
+        if(count>=kMaximum)return;
+        auto& argument=items[count++];argument.kind=kind;argument.entity=value;
     }
     void AddVector(float x, float y) noexcept {
         if (count >= kMaximum) {
@@ -4533,6 +4541,17 @@ private:
                     lua_setmetatable(state,-2);
                     break;
                 }
+                case CallbackArgument::Kind::LevelGenerator:
+                    isaac::runtime::PushRepentogonLevelGeneratorHandle(state,
+                        isaac::runtime::engine_memory::AsObject(argument.entity));break;
+                case CallbackArgument::Kind::LevelGeneratorRoom:
+                    isaac::runtime::PushRepentogonLevelGeneratorRoomHandle(state,nullptr,
+                        isaac::runtime::engine_memory::AsObject(argument.entity));break;
+                case CallbackArgument::Kind::BossPool:
+                    isaac::runtime::PushRepentogonBossPoolPoolHandle(state,
+                        isaac::runtime::engine_memory::AsObject(argument.entity));break;
+                case CallbackArgument::Kind::RoomConfig:
+                    isaac::runtime::PushApi500RoomConfig(state,argument.entity,0);break;
                 case CallbackArgument::Kind::Vector:
                     // 渲染偏移（`Vector` userdata，与 `Room:GetRenderScrollOffset()` 给出的是同一种值类型）。
                     isaac::runtime::PushLuaVector(state, argument.x, argument.y);
@@ -4681,7 +4700,10 @@ private:
             if ((descriptor.id == isaac::runtime::kCallbackPreEntitySpawn ||
                  descriptor.id == isaac::runtime::kCallbackPreRoomEntitySpawn ||
                  descriptor.id == isaac::runtime::kCallbackUseItem ||
-                 descriptor.id == isaac::runtime::kCallbackPostPickupSelection) && lua_istable(g_LuaState, -1)) {
+                 descriptor.id == isaac::runtime::kCallbackPostPickupSelection ||
+                 (descriptor.id == isaac::runtime::kCallbackEntityTakeDmg &&
+                  isaac::runtime::g_ExtendedCallbackDelivery)) &&
+                lua_istable(g_LuaState, -1)) {
                 result->hasTable = true;
                 if (tableStackIndex != 0) {
                     lua_copy(g_LuaState, -1, tableStackIndex);
@@ -4772,6 +4794,25 @@ void ParseRepentogonReturn(lua_State* state,void* opaque) {
     auto& context=*static_cast<RepentogonReturnContext*>(opaque);
     const auto& event=*context.event;
     const auto id=event.id;
+    if(id==1137) {
+        std::uintptr_t object{};
+        if(isaac::runtime::ResolveApi500RoomConfig(state,-1,&object)) {
+            context.result.hasObject=true;context.result.object=object;
+        }
+        return;
+    }
+    if(id==1280) {
+        if(lua_isinteger(state,-1)) {
+            context.result.hasIntegerPair=true;
+            context.result.first=static_cast<std::int32_t>(lua_tointeger(state,-1));
+        }
+        return;
+    }
+    if(id==1133) {
+        context.result.hasNumber=true;
+        context.result.number=static_cast<float>(lua_tonumber(state,-1));
+        return;
+    }
     if(id==1061) {
         if(!lua_istable(state,-1))return;
         if(lua_rawlen(state,-1)!=2)return;
@@ -4801,7 +4842,7 @@ void ParseRepentogonReturn(lua_State* state,void* opaque) {
     }
     const bool entityRender=id>=1080&&id<=1089;
     const bool gridPre=id>=1400&&id<=1462&&(id&1)==0;
-    const bool pre=entityRender||gridPre||(id>=1160&&id<=1169)||id==1026||id==1030||id==1218;
+    const bool pre=entityRender||gridPre||(id>=1160&&id<=1169)||id==1026||id==1030||id==1218||id==1201;
     if(!pre)return;
     if(lua_isboolean(state,-1)) {
         context.result.hasBoolean=true;context.result.boolean=lua_toboolean(state,-1)!=0;
@@ -4838,6 +4879,31 @@ isaac::runtime::repentogon::Result DispatchRepentogonCallback(
     LuaCallbackInvoker invoker{0,false,false};
     auto filter=CallbackRegistry::kNoCallbackFilter;
     switch(event.kind) {
+        case EventKind::CollectibleRemoved:
+            filter=event.first;
+            invoker.arguments.AddEntity(event.object);
+            invoker.arguments.AddInteger(event.first);
+            invoker.arguments.AddBoolean(event.low);
+            invoker.arguments.AddBoolean(event.second!=0);
+            break;
+        case EventKind::LevelGenerator:
+            invoker.arguments.AddNativeView(CallbackArgument::Kind::LevelGenerator,event.object);
+            break;
+        case EventKind::LevelGeneratorRoom:
+            invoker.arguments.AddNativeView(CallbackArgument::Kind::LevelGeneratorRoom,event.object);
+            invoker.arguments.AddNativeView(CallbackArgument::Kind::RoomConfig,event.collider);
+            invoker.arguments.AddInteger(event.first);
+            break;
+        case EventKind::BossPool:
+            filter=event.first;
+            invoker.arguments.AddInteger(event.first);
+            invoker.arguments.AddNativeView(CallbackArgument::Kind::BossPool,event.object);
+            invoker.arguments.AddInteger(event.second);
+            invoker.arguments.AddInteger(event.third);
+            break;
+        case EventKind::Number:
+            invoker.arguments.AddFloat(event.number);
+            break;
         case EventKind::Entity:
         case EventKind::EntityRender:
         case EventKind::Collision: {
@@ -4909,7 +4975,9 @@ isaac::runtime::repentogon::Result DispatchRepentogonCallback(
             invoker.arguments.AddInteger(event.second);
             break;
         case EventKind::Global:
-            if(event.id==1218||event.id==1219) {
+            if(event.id>=1300&&event.id<=1303) {
+                invoker.arguments.AddInteger(event.first);
+            } else if(event.id==1218||event.id==1219) {
                 invoker.arguments.AddCallbackSprite(event.object);
                 invoker.arguments.AddCallbackSprite(event.collider);
             }
@@ -6201,32 +6269,291 @@ void DispatchPreRoomEntitySpawn(std::int32_t entityType, std::int32_t variant,
 // 已知偏离：我们的派发器**不短路**（PC 会停在第一个非 nil），所以"一个返回 true、另一个返回
 // false"时我们按"照常受伤"处理；这与项目里 `MC_INPUT_ACTION` 那处已知偏离同源。
 // 2026-10-09更正上方历史偏离：受伤现在首个非nil短路；Input PC文档明确继续执行，不能类比。
-bool DispatchEntityTakeDamage(std::uintptr_t entity, float amount, std::uint64_t damageFlags,
-                              std::uintptr_t sourceRef, std::int32_t countdownFrames,
-                              std::int32_t entityType) {
+namespace {
+
+struct EntityTakeDamageDispatchContext {
+    isaac::runtime::damage::Values* values{};
+    bool extended{};
+    bool cancelled{};
+};
+
+constexpr std::uint64_t kDamageFireFlag = 1ULL << 1;
+constexpr std::uint64_t kDamageCountdownFlag = 1ULL << 6;
+constexpr std::uint64_t kDamageFakeFlag = 1ULL << 21;
+constexpr std::uintptr_t kEntityFireDamageCountdownOffset = 0x278;
+constexpr std::uintptr_t kEntityDamageCountdownOffset = 0x27C;
+
+int CollectEntityTakeDamage(lua_State* state) {
+    static_assert(std::is_trivially_destructible_v<EntityTakeDamageDispatchContext>);
+    static_assert(std::is_trivially_destructible_v<isaac::runtime::CallbackDispatcher>);
+    static_assert(std::is_trivially_destructible_v<isaac::runtime::CallbackDispatchOutcome>);
+    auto& context = *static_cast<EntityTakeDamageDispatchContext*>(lua_touserdata(state, 1));
+    auto& values = *context.values;
+
+    LuaCallbackInvoker invoker{0, false, false};
+    invoker.arguments.AddEntity(values.entity);
+    if (values.player) {
+        invoker.arguments.AddInteger(values.playerDamage);
+    } else {
+        invoker.arguments.AddFloat(values.amount);
+    }
+    invoker.arguments.AddInteger(static_cast<std::int64_t>(values.damageFlags));
+    invoker.arguments.AddReference(values.sourceRef);
+    invoker.arguments.AddInteger(values.countdown);
+    if (context.extended) {
+        if (values.extraSourceRef != 0) {
+            invoker.arguments.AddReference(values.extraSourceRef);
+        } else {
+            invoker.arguments.AddNil();
+        }
+        lua_pushnil(state);  // Root the last returned override table at stack slot 2.
+        invoker.tableStackIndex = 2;
+    }
+
+    const auto originalDamageFlags = values.damageFlags;
+    isaac::runtime::CallbackDispatcher dispatcher{g_CallbackRegistry, invoker};
+    const auto outcome = dispatcher.DispatchModifying(
+        isaac::runtime::kCallbackEntityTakeDmg, isaac::runtime::ThreadAffinity::Any,
+        static_cast<std::int64_t>(values.entityType));
+    invoker.tableStackIndex = 0;
+    context.cancelled = outcome.anyNonNil && !outcome.anyTruthy;
+    if (!context.extended || !outcome.hasTable) {
+        if (values.player) values.amount = static_cast<float>(values.playerDamage);
+        return 0;
+    }
+
+    g_ErrorContextOwner = invoker.tableOwner;
+    // Upstream reads the returned table with lua_next: only raw entries count;
+    // __index must not run and a missing field must remain missing.
+    lua_pushnil(state);
+    while (lua_next(state, 2) != 0) {
+        if (lua_type(state, -2) == LUA_TSTRING) {
+            const char* key = lua_tostring(state, -2);
+            if (std::strcmp(key, "Damage") == 0) {
+                if (lua_isnumber(state, -1)) {
+                    const auto number = static_cast<float>(lua_tonumber(state, -1));
+                    if (std::isfinite(number)) {
+                        values.amount = number < 0.0F ? 0.0F : number;
+                        if (values.player) {
+                            values.playerDamage =
+                                static_cast<std::int32_t>(std::lround(values.amount));
+                        }
+                    }
+                }
+            } else if (std::strcmp(key, "DamageFlags") == 0) {
+                if (lua_isinteger(state, -1)) {
+                    values.damageFlags =
+                        static_cast<std::uint64_t>(lua_tointeger(state, -1));
+                }
+            } else if (std::strcmp(key, "DamageCountdown") == 0) {
+                if (lua_isnumber(state, -1)) {
+                    values.countdown =
+                        static_cast<std::int32_t>(lua_tonumber(state, -1));
+                }
+            }
+        }
+        lua_pop(state, 1);
+    }
+
+    const auto flagsAdded = values.damageFlags & ~originalDamageFlags;
+    if (values.player && (flagsAdded & kDamageFakeFlag) != 0) {
+        // Player TakeDamage consumes the integer heart count after the pre callback.
+        values.playerDamage = 0;
+    } else if (!values.player) {
+        // NS Entity::TakeDamage @0x5DCA4 checks these fields after the native
+        // callback boundary: +0x278 = fire damage countdown, +0x27C = damage
+        // countdown. The direct checks are 0x5DDD0..0x5DDF8.
+        if ((flagsAdded & kDamageFireFlag) != 0) {
+            std::int32_t current{};
+            if (!isaac::runtime::engine_memory::ReadField(
+                    values.entity, kEntityFireDamageCountdownOffset, &current,
+                    isaac::runtime::engine_memory::EngineMemoryReadable)) {
+                context.cancelled = true;
+                return 0;
+            }
+            if (current > 0) {
+                context.cancelled = true;
+                return 0;
+            }
+            const std::int32_t ten = 10;
+            if (!isaac::runtime::engine_memory::WriteField(
+                    values.entity, kEntityFireDamageCountdownOffset, ten,
+                    isaac::runtime::engine_memory::EngineMemoryWritable)) {
+                context.cancelled = true;
+                return 0;
+            }
+        }
+        if ((flagsAdded & kDamageCountdownFlag) != 0) {
+            std::int32_t current{};
+            if (!isaac::runtime::engine_memory::ReadField(
+                    values.entity, kEntityDamageCountdownOffset, &current,
+                    isaac::runtime::engine_memory::EngineMemoryReadable)) {
+                context.cancelled = true;
+                return 0;
+            }
+            if (current > 0) {
+                context.cancelled = true;
+                return 0;
+            }
+        }
+        if ((values.damageFlags & kDamageCountdownFlag) != 0 &&
+            !isaac::runtime::engine_memory::WriteField(
+                values.entity, kEntityDamageCountdownOffset, values.countdown,
+                isaac::runtime::engine_memory::EngineMemoryWritable)) {
+            context.cancelled = true;
+            return 0;
+        }
+    }
+    // The native player path consumes the rounded heart count, not the float
+    // returned in Damage. Keep the post callback on that same value.
+    if (values.player) values.amount = static_cast<float>(values.playerDamage);
+    return 0;
+}
+
+}  // namespace
+
+bool DispatchEntityTakeDamageValues(isaac::runtime::damage::Values& values) {
     if (!IsReady() || g_LuaState == nullptr ||
-        !isaac::runtime::ShouldDispatchManagedCallbacks()) {
+        !isaac::runtime::ShouldDispatchManagedCallbacks() ||
+        !isaac::runtime::BuiltinCallbackEnabled(isaac::runtime::kCallbackEntityTakeDmg)) {
         return false;
     }
-    if (!isaac::runtime::BuiltinCallbackEnabled(isaac::runtime::kCallbackEntityTakeDmg)) {
+    if (values.extraSourceOverflow || values.extraSourceUnreadable) {
+        // A real ExtraSource could not be represented. Canceling is visible and
+        // cannot falsely tell the Mod that no ExtraSource existed.
+        char error[192]{};
+        if (values.extraSourceOverflow) {
+            std::snprintf(
+                error, sizeof(error),
+                "MC_ENTITY_TAKE_DMG ExtraSource capacity exhausted "
+                "(inline=%zu spill=%zu source=%#lx entity=%#lx)",
+                isaac::runtime::damage::kExtraSourceInlineCapacity,
+                isaac::runtime::damage::kExtraSourceSpillCapacity,
+                static_cast<unsigned long>(values.extraSourceOverflowSource),
+                static_cast<unsigned long>(values.entity));
+        } else {
+            std::snprintf(
+                error, sizeof(error),
+                "MC_ENTITY_TAKE_DMG ExtraSource snapshot is unreadable "
+                "(source=%#lx entity=%#lx)",
+                static_cast<unsigned long>(values.extraSourceOverflowSource),
+                static_cast<unsigned long>(values.entity));
+        }
+        LuaRuntime::RecordLuaErrorText(error, std::strlen(error));
+        g_CallbackError.store(true, std::memory_order_release);
+        return true;
+    }
+    if (!lua_checkstack(g_LuaState, 4)) {
+        g_CallbackError.store(true, std::memory_order_release);
         return false;
     }
     const ManagedEngineDispatchScope dispatchScope;
+    const auto original = values;
+    EntityTakeDamageDispatchContext context{
+        &values, isaac::runtime::g_ExtendedCallbackDelivery&&!values.legacyArguments, false};
+    const int top = lua_gettop(g_LuaState);
+    const auto previousOwner = g_ErrorContextOwner;
+    const auto previousId = g_ErrorContextCallbackId;
+    g_ErrorContextCallbackId = isaac::runtime::kCallbackEntityTakeDmg;
+    lua_pushcfunction(g_LuaState, CollectEntityTakeDamage);
+    lua_pushlightuserdata(g_LuaState, &context);
+    const int status = lua_pcallk(g_LuaState, 1, 0, 0, 0, nullptr);
+    if (status != LUA_OK) {
+        CaptureLuaErrorTop(g_LuaState);
+        lua_pop(g_LuaState, 1);
+        g_CallbackError.store(true, std::memory_order_release);
+        context.cancelled = false;
+        values = original;
+    }
+    lua_settop(g_LuaState, top);
+    g_ErrorContextOwner = previousOwner;
+    g_ErrorContextCallbackId = previousId;
+    return context.cancelled;
+}
+
+bool DispatchEntityTakeDamage(std::uintptr_t entity, float amount, std::uint64_t damageFlags,
+                              std::uintptr_t sourceRef, std::int32_t countdownFrames,
+                              std::int32_t entityType) {
+    isaac::runtime::damage::Values values{};
+    values.entity = entity;
+    values.amount = amount;
+    values.playerDamage =
+        entityType == 1 ? static_cast<std::int32_t>(std::lround(amount)) : 0;
+    values.damageFlags = damageFlags;
+    values.sourceRef = sourceRef;
+    values.countdown = countdownFrames;
+    values.entityType = entityType;
+    values.player = entityType == 1;
+    if (sourceRef == 0) {
+        values.sourceReadable = true;
+    } else if (isaac::runtime::engine_memory::EngineMemoryReadable(
+                   sourceRef, 2 * sizeof(std::uint32_t))) {
+        auto* source = isaac::runtime::engine_memory::AsObject(sourceRef);
+        std::memcpy(&values.sourceType, source, sizeof(values.sourceType));
+        std::memcpy(&values.sourceVariant,
+                    static_cast<const std::uint8_t*>(source) +
+                        sizeof(values.sourceType),
+                    sizeof(values.sourceVariant));
+        values.sourceReadable = true;
+    }
+    std::array<std::uint8_t, 0x40> extraSourceStorage{};
+    bool extraSourceOverflow = false;
+    const auto extraSource =
+        isaac::runtime::damage::FindExtraSource(sourceRef, &extraSourceOverflow);
+    values.extraSourceOverflow = extraSourceOverflow;
+    values.extraSourceOverflowSource = extraSourceOverflow ? sourceRef : 0;
+    if (extraSource != 0 &&
+        isaac::runtime::damage::BuildEntityReference(
+            extraSource, extraSourceStorage.data())) {
+        values.extraSourceRef =
+            isaac::runtime::engine_memory::AddressOf(extraSourceStorage.data());
+        values.extraSourceReadable = true;
+    }
+    return DispatchEntityTakeDamageValues(values);
+}
+
+bool DispatchLegacyEntityTakeDamage(std::uintptr_t entity,float amount,
+    std::uint64_t flags,std::uintptr_t source,std::int32_t countdown,std::int32_t type) {
+    isaac::runtime::damage::Values values{};
+    values.entity=entity;values.amount=amount;values.damageFlags=flags;
+    values.sourceRef=source;values.countdown=countdown;values.entityType=type;
+    values.legacyArguments=true;
+    return DispatchEntityTakeDamageValues(values);
+}
+
+void DispatchPostEntityTakeDamageValues(
+    const isaac::runtime::damage::Values& values) {
+    if (!IsReady() || g_LuaState == nullptr ||
+        !isaac::runtime::ShouldDispatchManagedCallbacks() ||
+        !isaac::runtime::BuiltinCallbackEnabled(1006) ||
+        values.extraSourceOverflow || values.extraSourceUnreadable ||
+        isaac::runtime::damage::IsWhitefireSource(values)) {
+        return;
+    }
+    if (!lua_checkstack(g_LuaState, 4)) {
+        g_CallbackError.store(true, std::memory_order_release);
+        return;
+    }
+    const ManagedEngineDispatchScope dispatchScope;
     LuaCallbackInvoker invoker{0, false, false};
-    // PC 签名：`(Entity, Amount [float], DamageFlags [int], Source [EntityRef], CountdownFrames [int])`。
-    invoker.arguments.AddEntity(entity);
-    invoker.arguments.AddFloat(amount);
-    invoker.arguments.AddInteger(static_cast<std::int64_t>(damageFlags));
-    invoker.arguments.AddReference(sourceRef);
-    invoker.arguments.AddInteger(static_cast<std::int64_t>(countdownFrames));
+    invoker.arguments.AddEntity(values.entity);
+    if (values.player) {
+        invoker.arguments.AddInteger(values.playerDamage);
+    } else {
+        invoker.arguments.AddFloat(values.amount);
+    }
+    invoker.arguments.AddInteger(static_cast<std::int64_t>(values.damageFlags));
+    invoker.arguments.AddReference(values.sourceRef);
+    invoker.arguments.AddInteger(values.countdown);
+    if (values.extraSourceRef != 0) {
+        invoker.arguments.AddReference(values.extraSourceRef);
+    } else {
+        invoker.arguments.AddNil();
+    }
     isaac::runtime::CallbackDispatcher dispatcher{g_CallbackRegistry, invoker};
-    // 过滤值 = 实体的 `EntityType`（PC 给这条回调的可选实参类型就是 `EntityType`；
-    // 语料里 Trinity 的五个处理器全带 `EntityType.ENTITY_PLAYER` ⇒ 过滤必须真给）。
-    const isaac::runtime::CallbackDispatchOutcome outcome =
-        dispatcher.DispatchModifying(isaac::runtime::kCallbackEntityTakeDmg,
-                                     isaac::runtime::ThreadAffinity::Any,
-                                     static_cast<std::int64_t>(entityType));
-    return outcome.anyNonNil && !outcome.anyTruthy;
+    static_cast<void>(dispatcher.DispatchFiltered(
+        1006, isaac::runtime::ThreadAffinity::Any,
+        static_cast<std::int64_t>(values.entityType)));
 }
 
 // `MC_EVALUATE_CACHE`(8)。过滤器 = 本次要重算的那个 CacheFlag 位。
@@ -7281,11 +7608,21 @@ bool ClosingForModReload() noexcept {
 }
 
 #include "console_callback_hook.hpp"
+#include "interfaces/lua/console_autocomplete.hpp"
 #include "infrastructure/console/console_bridge.hpp"
 #include "infrastructure/console/console_clear.hpp"
 namespace LuaRuntime {
 namespace {
 const isaac::runtime::ConsoleCommandView* s_ActiveConsoleCommand{};
+struct ConsoleAutocompleteRequest {
+    const char* command{};
+    std::size_t commandLength{};
+    const char* parameters{};
+    std::size_t parameterLength{};
+    ConsoleAutocompleteVisitor visitor{};
+    void* user{};
+    bool delivered{};
+};
 bool ConsoleTokenEquals(const char* text,std::size_t length,const char* wanted) noexcept {
     return length==std::strlen(wanted) && std::memcmp(text,wanted,length)==0;
 }
@@ -7323,6 +7660,49 @@ int ReloadConsoleMod(lua_State* state){
     return 0;
 }
 #endif
+int ConsoleAutocompleteProtected(lua_State* state) {
+    auto* request=static_cast<ConsoleAutocompleteRequest*>(lua_touserdata(state,1));
+    if(!request||!request->visitor)return luaL_error(state,"invalid console autocomplete request");
+    isaac::runtime::PushCallbackRunner(state);
+    if(!lua_isfunction(state,-1))return luaL_error(state,"console callback runner is unavailable");
+    lua_pushinteger(state,kConsoleAutocompleteCallbackId);
+    lua_pushlstring(state,request->command,request->commandLength);
+    lua_pushlstring(state,request->command,request->commandLength);
+    lua_pushlstring(state,request->parameters,request->parameterLength);
+    lua_call(state,4,1);
+    if(!lua_istable(state,-1))return 0;
+    const int table=lua_gettop(state);
+    const auto count=static_cast<lua_Integer>(lua_rawlen(state,table));
+    for(lua_Integer index=1;index<=count;++index) {
+        lua_geti(state,table,index);
+        const char* text{};
+        std::size_t textLength{};
+        const char* description{};
+        std::size_t descriptionLength{};
+        if(lua_istable(state,-1)) {
+            const int entry=lua_gettop(state);
+            lua_geti(state,entry,1);
+            if(lua_isstring(state,-1))text=lua_tolstring(state,-1,&textLength);
+            if(text&&lua_rawlen(state,entry)==2) {
+                lua_geti(state,entry,2);
+                if(lua_isstring(state,-1))
+                    description=lua_tolstring(state,-1,&descriptionLength);
+            }
+        } else if(lua_isstring(state,-1)) {
+            text=lua_tolstring(state,-1,&textLength);
+        }
+        if(text&&textLength&&!request->visitor(request->user,text,textLength,
+                                                description?description:"",
+                                                descriptionLength)) {
+            request->delivered=true;
+            lua_settop(state,table-1);
+            return 0;
+        }
+        if(text&&textLength)request->delivered=true;
+        lua_settop(state,table);
+    }
+    return 0;
+}
 int ExecuteCommandCallbackProtected(lua_State* state) {
     const auto* view=static_cast<const isaac::runtime::ConsoleCommandView*>(lua_touserdata(state,1));
     const char* token{};std::size_t length{};
@@ -7421,6 +7801,42 @@ void DispatchExecuteCommand(const isaac::runtime::ConsoleCommandView& view) noex
     s_ActiveConsoleCommand=previousCommand;
     g_ErrorContextOwner=previousOwner;g_ErrorContextCallbackId=previousId;
     if(!previousGuard)isaac::runtime::EngineGuardLeaveDispatch();
+}
+bool DispatchConsoleAutocomplete(
+    const char* command, std::size_t commandLength,
+    const char* parameters, std::size_t parameterLength,
+    ConsoleAutocompleteVisitor visitor, void* user) noexcept {
+    if(!isaac::runtime::repentogon::Listening(kConsoleAutocompleteCallbackId) ||
+       !IsOnGameThread()||!IsReady()||!g_LuaState||!command||!parameters||!visitor)
+        return false;
+    if(!lua_checkstack(g_LuaState,8)) {
+        g_CallbackError.store(true,std::memory_order_release);
+        return false;
+    }
+    ConsoleAutocompleteRequest request{
+        command,commandLength,parameters,parameterLength,visitor,user,false};
+    const int top=lua_gettop(g_LuaState);
+    const auto previousOwner=g_ErrorContextOwner;
+    const auto previousId=g_ErrorContextCallbackId;
+    g_ErrorContextCallbackId=kConsoleAutocompleteCallbackId;
+    const bool previousGuard=
+        isaac::runtime::EngineGuardDispatchActive().load(std::memory_order_acquire)!=0;
+    isaac::runtime::EngineGuardEnterDispatch();
+    const auto previousScope=
+        g_InManagedCallbackDispatch.load(std::memory_order_acquire);
+    g_InManagedCallbackDispatch.store(true,std::memory_order_release);
+    lua_pushcfunction(g_LuaState,ConsoleAutocompleteProtected);
+    lua_pushlightuserdata(g_LuaState,&request);
+    if(lua_pcall(g_LuaState,1,0,0)!=LUA_OK) {
+        CaptureLuaErrorTop(g_LuaState);
+        g_CallbackError.store(true,std::memory_order_release);
+    }
+    lua_settop(g_LuaState,top);
+    g_InManagedCallbackDispatch.store(previousScope,std::memory_order_release);
+    g_ErrorContextOwner=previousOwner;
+    g_ErrorContextCallbackId=previousId;
+    if(!previousGuard)isaac::runtime::EngineGuardLeaveDispatch();
+    return request.delivered;
 }
 }
 

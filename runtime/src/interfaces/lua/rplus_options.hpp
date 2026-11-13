@@ -12,6 +12,16 @@ Status FlushRuntimeOptions() noexcept;
 void ClearRuntimeOptions() noexcept;
 int TryPushRuntimeOption(lua_State*,const char* name);
 bool TryWriteRuntimeOption(lua_State*,const char* name);
-struct RuntimeOptionStats {std::int32_t mode,persisted;bool ready,dirty;std::uint64_t reads,writes;StatusCode lastStatus;};
+bool RuntimeOptionStatHudPlanetarium() noexcept;
+void SetRuntimeOptionStatHudPlanetarium(bool) noexcept;
+std::int32_t RuntimeOptionConsoleAutofillLimit() noexcept;
+void SetRuntimeOptionConsoleAutofillLimit(std::int32_t) noexcept;
+struct RuntimeOptionStats {
+ std::int32_t mode,persisted;
+ std::int32_t autofillLimit,persistedAutofillLimit;
+ bool statHud,persistedStatHud,ready,dirty;
+ std::uint64_t reads,writes;
+ StatusCode lastStatus;
+};
 RuntimeOptionStats RuntimeOptionStatsSnapshot() noexcept;
 }

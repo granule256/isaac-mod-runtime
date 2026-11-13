@@ -145,6 +145,7 @@ static void Extensions(lua_State* state) noexcept {
 }
 static const RepentogonCallbackBinding expected[]={
 {1005,"MC_POST_ADD_COLLECTIBLE"},
+    {1006,"MC_POST_ENTITY_TAKE_DMG"},
 {1020,"MC_HUD_UPDATE"},
 {1021,"MC_POST_HUD_UPDATE"},
 {1022,"MC_HUD_RENDER"},
@@ -166,11 +167,16 @@ static const RepentogonCallbackBinding expected[]={
 {1088,"MC_PRE_BOMB_RENDER"},
 {1089,"MC_PRE_SLOT_RENDER"},
 {1090,"MC_POST_SLOT_RENDER"},
-{1101,"MC_POST_GRID_ENTITY_SPAWN"},
+{1095,"MC_POST_TRIGGER_COLLECTIBLE_REMOVED"},
+    {1099,"MC_POST_LEVEL_LAYOUT_GENERATED"},
+    {1101,"MC_POST_GRID_ENTITY_SPAWN"},
 {1102,"MC_POST_NIGHTMARE_SCENE_RENDER"},
 {1104,"MC_PRE_LEVEL_SELECT"},
+{1120,"MC_CONSOLE_AUTOCOMPLETE"},
 {1121,"MC_POST_SLOT_INIT"},
 {1122,"MC_POST_SLOT_UPDATE"},
+{1133,"MC_POST_DEVIL_CALCULATE"},
+    {1137,"MC_PRE_LEVEL_PLACE_ROOM"},
 {1160,"MC_PRE_PLAYER_UPDATE"},
 {1161,"MC_PRE_TEAR_UPDATE"},
 {1162,"MC_PRE_FAMILIAR_UPDATE"},
@@ -182,6 +188,7 @@ static const RepentogonCallbackBinding expected[]={
 {1168,"MC_PRE_EFFECT_UPDATE"},
 {1169,"MC_PRE_SLOT_UPDATE"},
 {1200,"MC_PRE_NEW_ROOM"},
+{1201,"MC_PRE_MEGA_SATAN_ENDING"},
 {1210,"MC_POST_MODS_LOADED"},
 {1218,"MC_PRE_PAUSE_SCREEN_RENDER"},
 {1219,"MC_POST_PAUSE_SCREEN_RENDER"},
@@ -191,6 +198,15 @@ static const RepentogonCallbackBinding expected[]={
 {1237,"MC_POST_BOMB_COLLISION"},
 {1239,"MC_POST_PICKUP_COLLISION"},
 {1270,"MC_POST_BOSS_INTRO_SHOW"},
+{1280,"MC_PRE_BOSS_SELECT"},
+    {1300,"MC_POST_GLOWING_HOURGLASS_SAVE"},
+{1301,"MC_POST_GLOWING_HOURGLASS_LOAD"},
+{1302,"MC_PRE_GLOWING_HOURGLASS_SAVE"},
+{1303,"MC_PRE_GLOWING_HOURGLASS_LOAD"},
+{1309,"MC_PRE_GAME_STATE_SAVE"},
+{1310,"MC_POST_GAME_STATE_SAVE"},
+{1311,"MC_PRE_GAME_STATE_RESTORE"},
+{1312,"MC_POST_GAME_STATE_RESTORE"},
 {1400,"MC_PRE_GRID_ENTITY_DECORATION_UPDATE"},
 {1401,"MC_POST_GRID_ENTITY_DECORATION_UPDATE"},
 {1402,"MC_PRE_GRID_ENTITY_DOOR_UPDATE"},
@@ -339,6 +355,29 @@ m:AddCallback(1270,function(...)
     return false
 end)
 )lua";
+    }else if(mode=="remaining_phases"){
+        script+=R"lua(
+m:AddCallback(1133,function(_,chance)
+ assert(chance==0.375 or chance==0.5);calls=calls+1
+ if chance==0.375 then return '0.75' end
+end)
+m:AddCallback(1201,function(...)assert(select('#',...)==1);calls=calls+1;return true end)
+m:AddCallback(1099,function(_,g)assert(#g:GetAllRooms()==0);calls=calls+1 end)
+m:AddCallback(1137,function(_,slot,cfg,seed)
+ assert(slot:Shape()==0 and type(cfg)=='userdata' and seed==-1)
+ calls=calls+1;return cfg
+end)
+m:AddCallback(1280,function(_,boss,pool,stage,stageType)
+ assert(boss==12 and pool:GetWeight()==0 and stage==7 and stageType==1)
+ calls=calls+1;return 38
+end,12)
+m:AddCallback(1280,function()error('wrong boss filter')end,3)
+m:AddCallback(1095,function(_,player,item,removeForm,wispOrInnate)
+ assert(player and item==42 and removeForm==false and wispOrInnate==true)
+ calls=calls+1
+end,42)
+m:AddCallback(1095,function()error('wrong removed collectible filter')end,99)
+)lua";
     }else if(mode=="bulk_callbacks"){
         script+=R"lua(
 m:AddCallback(1061,function(_,target,dimension)
@@ -423,16 +462,16 @@ local f;f=function()m:RemoveCallback(1400,f);calls=calls+1 end;m:AddCallback(140
     if(mode=="off"||mode=="none"){
         assert(!Listening(1400));assert(installCalls==0&&readyCalls==0);assert(ExtendedCallbackCount()==0);
     }else{
-        assert(installCalls==1&&readyCalls==1&&ExtendedCallbackCount()==111);
+        assert(installCalls==1&&readyCalls==1&&ExtendedCallbackCount()==127);
         unsigned type=20,variant=7,subtype=9,gridType=4;
         std::memcpy(entity+kEntityTypeOffset,&type,4);std::memcpy(entity+kEntityVariantOffset,&variant,4);
         std::memcpy(entity+kEntitySubTypeOffset,&subtype,4);std::memcpy(grid+kGridEntityTypeOffset,&gridType,4);
         Vector offset{10,20};Sound sound{5,0.5f,2,false,1,0};
         auto send=[&](unsigned id,EventKind kind=EventKind::Global){return Dispatch(Event{id,kind,kind==EventKind::Grid||kind==EventKind::GridRender?Address(grid):Address(entity),Address(collider),&offset,true,&sound});};
         if(mode=="catalog"){
-            assert(sizeof(expected)/sizeof(expected[0])==111);
+            assert(sizeof(expected)/sizeof(expected[0])==127);
             for(const auto& c:expected){assert(Listening(c.id));send(c.id);}
-            Check();assert(Number("calls")==111&&g_ExtendedCallbackEnabledCount==111);
+            Check();assert(Number("calls")==127&&g_ExtendedCallbackEnabledCount==127);
         }else if(mode=="render"){
             auto result=send(1080,EventKind::EntityRender);Check();assert(result.hasOffset&&result.offset.x==11&&result.offset.y==27);
         }else if(mode=="booleans"){
@@ -467,6 +506,22 @@ local f;f=function()m:RemoveCallback(1400,f);calls=calls+1 end;m:AddCallback(140
             result=Dispatch(boss);
             assert(!result.hasBoolean&&!result.hasOffset);
             Check();assert(Number("calls")==2);
+        }else if(mode=="remaining_phases"){
+            Event event{};event.id=1133;event.kind=EventKind::Number;event.number=.375f;
+            auto result=Dispatch(event);Check();assert(result.hasNumber&&result.number==.75f);
+            event.number=.5f;result=Dispatch(event);Check();assert(result.hasNumber&&result.number==0);
+            result=Dispatch({1201});Check();assert(result.hasBoolean&&result.boolean);
+            event={};event.id=1099;event.kind=EventKind::LevelGenerator;event.object=Address(room);
+            Dispatch(event);Check();
+            event={};event.id=1137;event.kind=EventKind::LevelGeneratorRoom;
+            event.object=Address(room);event.collider=Address(collider);event.first=-1;
+            result=Dispatch(event);Check();assert(result.hasObject&&result.object==Address(collider));
+            event={};event.id=1280;event.kind=EventKind::BossPool;event.object=Address(room);
+            event.first=12;event.second=7;event.third=1;
+            result=Dispatch(event);Check();assert(result.hasIntegerPair&&result.first==38);
+            event={};event.id=1095;event.kind=EventKind::CollectibleRemoved;
+            event.object=Address(entity);event.first=42;event.low=false;event.second=1;
+            Dispatch(event);Check();assert(Number("calls")==7);
         }else if(mode=="bulk_callbacks"){
             static std::uintptr_t gameOwner{};
             gameOwner=Address(game);
@@ -579,7 +634,7 @@ class RepentogonCallbackTests(unittest.TestCase):
     def test_native_catalog_delivery_and_lifecycle(self):
         with tempfile.TemporaryDirectory(prefix='repentogon-native-') as tmp:
             binary=test_support.build_lua_harness(source_root=SOURCE,workdir=Path(tmp),harness_source=RUNTIME_DRIVER)
-            for mode in ('sprite_cleanup','off','none','ready_fail','install_fail','catalog','render','booleans','filter','sound','sound_error','level_boss','bulk_callbacks','change_room_invalid','change_room_non_integer','nested','error','pause','pause_error','bad_vector','remove_all','reset','empty'):
+            for mode in ('sprite_cleanup','off','none','ready_fail','install_fail','catalog','render','booleans','filter','sound','sound_error','level_boss','bulk_callbacks','remaining_phases','change_room_invalid','change_room_non_integer','nested','error','pause','pause_error','bad_vector','remove_all','reset','empty'):
                 with self.subTest(mode=mode):
                     result=subprocess.run([str(binary),mode],capture_output=True,text=True)
                     self.assertEqual(result.returncode,0,result.stdout+result.stderr)

@@ -3,8 +3,10 @@ from __future__ import annotations
 import struct
 try:
     from . import build_patches
+    from . import extra_source_cold
 except ImportError:
     import build_patches
+    import extra_source_cold
 
 BUILD_ID=bytes.fromhex('91C73FDD575061318D68886316AFEAC72388B2AB')+bytes(12)
 SITES=((0x2857A8,0x68CF40,0x394002A8),(0x3E0C88,0x68CDC0,0xF9400309),(0x269D50,0x68CDE0,0x7100A29F),(0x269D08,0x68CD00,0xB85FC3B4))
@@ -14,6 +16,8 @@ PROJECTILE_INIT_TAIL_SITE=(0x31F2D8,0x68CE20,0xA9424FF4)
 USE_ITEM_BOUNDARY_SITES=((0x30A19C,0x68CE60,0xB9595B69),(0x30C728,0x68CE80,0xB9595B69),
  (0x317318,0x68CEA0,0xB9595B69),(0x31A80C,0x68CEC0,0xB94056E8),(0x31A92C,0x68CEE0,0xB94056E8))
 CONSOLE_BRANCH_SITES=((0x41878,0x68CD40,0x54002761),(0x41898,0x68CD80,0x35002660))
+STAT_HUD_BRANCH_SITES=((0x3AF298,0x68CF60,0x60C704,0x54FFFF40),
+                      (0x3AF558,0x68CF78,0x60C724,0x54FFFF43))
 
 def branch(source:int,target:int)->int:
     delta=target-source
@@ -40,6 +44,32 @@ def projectile_tail_gate(source:int,gate:int,original:int)->bytes:
     return struct.pack('<8IQ',0x10000110,0xC8DFFE10,0xB4000070,(0xAA1303E0 if (source,gate,original)==PROJECTILE_INIT_TAIL_SITE else 0xAA1C03E0),
                        0xD63F0200,original,branch(gate+24,source+4),0xD503201F,0)
 
+def stat_hud_conditional_records(nro:bytes)->list[tuple[int,bytes]]:
+    if len(nro)<0x68CF90 or nro[0x40:0x60]!=BUILD_ID:
+        raise ValueError('StatHUD NRO identity mismatch')
+    records=[]
+    for source,gate,fallback,original in STAT_HUD_BRANCH_SITES:
+        if nro[source:source+4]!=struct.pack('<I',original):
+            raise ValueError('StatHUD original condition mismatch')
+        if nro[gate:gate+24]!=bytes(24) or nro[fallback:fallback+12]!=bytes(12):
+            raise ValueError('StatHUD cold gate is not empty')
+        # LDR/CBZ/BR preserve NZCV. A null pointer replays the original
+        # condition in a separate island, including when the extension is off.
+        delta=fallback-(gate+4)
+        if delta&3 or not -(1<<20)<=delta<(1<<20):
+            raise ValueError('StatHUD null continuation outside CBZ range')
+        cbz=0xB4000010|(((delta//4)&0x7FFFF)<<5)
+        image=struct.pack('<4IQ',0x58000090,cbz,0xD61F0200,0xD503201F,0)
+        displacement=(original>>5)&0x7FFFF
+        if displacement&(1<<18):displacement-=1<<19
+        target=source+displacement*4
+        inverse=0x54000040|((original&15)^1)
+        replay=struct.pack('<3I',inverse,branch(fallback+4,target),
+                           branch(fallback+8,source+4))
+        records.extend(((source,struct.pack('<I',branch(source,gate))),
+                        (gate,image),(fallback,replay)))
+    return records
+
 def build_static_callback_patch(nro:bytes)->bytes:
     if len(nro)<0x68CCA0 or nro[0x40:0x60]!=BUILD_ID:raise ValueError('固定NRO身份不符')
     records=[]
@@ -58,4 +88,6 @@ def build_static_callback_patch(nro:bytes)->bytes:
         if nro[gate:gate+40]!=bytes(40):raise ValueError('弹幕完成中继不是完整空区')
         records.extend(((source,struct.pack('<I',branch(source,gate))),
                         (gate,projectile_tail_gate(source,gate,original))))
+    records.extend(stat_hud_conditional_records(nro))
+    records.extend(extra_source_cold.cold_records(nro))
     return build_patches.encode_ips(records)

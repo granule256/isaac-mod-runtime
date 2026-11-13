@@ -90,16 +90,16 @@ static void Gateway(std::uintptr_t address){
 int main(int argc,char**argv){
  assert(argc==2);const std::string scene=argv[1];std::uintptr_t gateway{};
  if(scene=="capacity"){
-  std::uintptr_t gateways[32]{};
-  for(unsigned i=0;i<32;++i){
-   // Cold/Absolute/Literal三种实际发布路径共享同一个32条计数和紧密cursor。
+  std::uintptr_t gateways[64]{};
+  for(unsigned i=0;i<64;++i){
+   // Cold/Absolute/Literal三种实际发布路径共享同一个64条计数和紧密cursor。
    const unsigned kind=i%3==0?3:i%3==1?0:2;
    assert(Install(i,kind,&gateway)==InternalHookFailure::None);
    Gateway(gateway);gateways[i]=gateway;
   }
-  for(unsigned i=0;i<32;++i)assert(gateways[i]==fakeArena+i*32);
-  assert(Install(32,3,&gateway)==InternalHookFailure::ArenaExhausted);
-  assert(Install(33,0,&gateway)==InternalHookFailure::ArenaExhausted);
+  for(unsigned i=0;i<64;++i)assert(gateways[i]==fakeArena+i*32);
+  assert(Install(64,3,&gateway)==InternalHookFailure::ArenaExhausted);
+  assert(Install(65,0,&gateway)==InternalHookFailure::ArenaExhausted);
  }else if(scene=="mixed_page"){
   const unsigned kinds[]={0,1,3,2,1,0};
   const unsigned offsets[]={0,0x1000,0x1020,0x1040,0x2000,0x2020};

@@ -8,5 +8,6 @@ int RegisterRepentogonConsoleApi(lua_State* state);
 int RepentogonConsolePrintError(lua_State* state);
 int RepentogonConsolePrintWarning(lua_State* state);
 int RepentogonConsoleGetHistory(lua_State* state);
+int RepentogonConsoleRegisterCommand(lua_State* state);
 
 }

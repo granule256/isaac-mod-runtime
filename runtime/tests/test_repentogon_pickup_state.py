@@ -155,7 +155,13 @@ class PickupStateTests(unittest.TestCase):
     def test_live_fields_cycle_bounds_and_extension_scope(self):
         with tempfile.TemporaryDirectory(prefix='pickup-state-') as folder:
             binary = test_support.build_lua_harness(
-                source_root=SOURCE, workdir=Path(folder), harness_source=DRIVER)
+                source_root=SOURCE,
+                workdir=Path(folder),
+                harness_source=DRIVER,
+                extra_sources=() if (SOURCE.parent / 'src/interfaces/lua/pickup_flip_api.cpp')
+                in test_support.layered_lua_runtime_sources(SOURCE) else
+                (SOURCE.parent / 'src/interfaces/lua/pickup_flip_api.cpp',),
+            )
             for mode in ('enabled', 'disabled'):
                 with self.subTest(mode=mode):
                     result = subprocess.run([str(binary), mode], capture_output=True, text=True)

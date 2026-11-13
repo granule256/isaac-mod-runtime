@@ -1770,6 +1770,8 @@ constexpr LuaApiDescriptor kDefaultApis[] = {
      ThreadAffinity::ManagedCallback, ApiMaturity::HostVerified},
     {MakeId(ApiDomain::Global, 2, 0x000C), ApiDomain::Global, "Options", "FoundHUD", kV1, 0,
      ThreadAffinity::Any, ApiMaturity::Experimental},
+    {MakeId(ApiDomain::Global, 2, 0x000D), ApiDomain::Global, "Options", "StatHUDPlanetarium", kV1, 0,
+     ThreadAffinity::ManagedCallback, ApiMaturity::Experimental},
 
     // 最小 `debug` 库：只有一个 `debug.getinfo`，因为 EID 的
     // `GetCurrentModPath`（`main.lua:148`）用 `debug.getinfo(fn).source` 直接取真实 mod 路径

@@ -11,6 +11,7 @@ from .test_repentogon_in_game import PREFIX
 SOURCE = Path(__file__).resolve().parents[1] / "source"
 DRIVER = PREFIX + r'''
 #include "interfaces/lua/repentogon_boc_api.hpp"
+#include "interfaces/lua/entity_lifetime.hpp"
 #include "interfaces/lua/isaac_api.hpp"
 #include "infrastructure/call/engine_call_access.hpp"
 #include "lua_object_handles.hpp"
@@ -42,6 +43,10 @@ static void Put(std::size_t offset, T value) {
     std::memcpy(player.data() + offset, &value, sizeof(value));
 }
 
+static int Retire(lua_State*) {
+    RetireEntityLifetime(reinterpret_cast<std::uintptr_t>(player.data()));
+    return 0;
+}
 static int Mutate(lua_State*) {
     Put<std::int32_t>(0x197c, 19);
     return 0;
@@ -53,6 +58,8 @@ static void Extensions(lua_State* state) noexcept {
     lua_setglobal(state, "player");
     lua_pushcfunction(state, Mutate);
     lua_setglobal(state, "_mutate");
+    lua_pushcfunction(state, Retire);
+    lua_setglobal(state, "_retire");
 }
 
 int main() {
@@ -108,8 +115,8 @@ assert(not pcall(function() player:GetBagOfCraftingContent(1) end))
 assert(not pcall(function() player:GetBagOfCraftingOutput(1) end))
 
 local desc = player:GetActiveItemDesc()
-assert(desc.Item == 105 and desc.Charge == 2 and desc.SubCharge == 3)
-assert(desc.BatteryCharge == 4 and desc.TimedRechargeCooldown == 5)
+assert(desc.Item == 105 and desc.Charge == 2 and desc.SubCharge == 4)
+assert(desc.BatteryCharge == 3 and desc.TimedRechargeCooldown == 5)
 assert(desc.PartialCharge == 0.5 and desc.VarData == 6)
 assert(desc.Unknown == nil)
 desc.VarData = 12
@@ -124,6 +131,9 @@ assert(not pcall(function() player:GetActiveItemDesc(-1) end))
 
 _mutate()
 assert(desc.VarData == 19)
+_retire()
+assert(not pcall(function() return desc.VarData end))
+assert(not pcall(function() desc.VarData = 77 end))
 )lua";
     if (LuaRuntime::InitializeFromBuffer(script, std::strlen(script),
                                          "@boc-api.lua") !=

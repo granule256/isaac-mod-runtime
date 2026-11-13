@@ -4,6 +4,10 @@
 
 namespace isaac::runtime::relay {
 
+// The ordinary boundaries plus extension/ExtraSource sites exceed 32 bindings.
+// Gateways remain packed in the existing arena; no extra executable pages.
+inline constexpr std::size_t kInternalBindingCapacity=64;
+
 // 只管理安装期位置；已提交位置即使发布失败也不回收。
 class InternalGatewayAllocator final {
 public:
@@ -21,7 +25,7 @@ public:
     InternalGatewayAllocator& operator=(InternalGatewayAllocator&&) = delete;
 
     Allocation Plan(bool pageAligned) const noexcept {
-        if (count_ >= 32) return {};
+        if (count_ >= kInternalBindingCapacity) return {};
         const std::size_t offset = pageAligned ? (cursor_ + 0xfff) & ~std::size_t{0xfff} : cursor_;
         if (offset > 0x10000 - 32) return {};
         return {count_, offset, offset + 32, true};

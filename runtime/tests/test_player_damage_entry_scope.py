@@ -9,6 +9,7 @@ from .test_player_damage_internal_hook import SOURCE, UNITS
 
 PREFIX=r'''
 #include "player_damage_internal_hook.hpp"
+#include "application/callback/extended_callback_runtime.hpp"
 #include "infrastructure/memory/engine_field_access.hpp"
 #include <array>
 #include <cassert>
@@ -17,6 +18,7 @@ static bool inNative{}, reachesBoundary{}, cancel{};
 static unsigned originalCalls{}, dispatchCalls{}, replays{};
 std::uint64_t FakeNative(void*,float,std::uint64_t,const void*,std::int32_t);
 namespace LuaRuntime {
+void DispatchPostEntityTakeDamageValues(const isaac::runtime::damage::Values&) {}
 bool DispatchEntityTakeDamage(std::uintptr_t player,float hearts,std::uint64_t flags,
     std::uintptr_t source,std::int32_t countdown,std::int32_t type) {
     assert(inNative && "player callback must not run at function entry");
@@ -27,7 +29,7 @@ bool DispatchEntityTakeDamage(std::uintptr_t player,float hearts,std::uint64_t f
 }
 }
 namespace isaac::runtime {
-enum class HookId {EntityPlayerTakeDamage};
+enum class HookId {EntityPlayerTakeDamage,EntityTakeDamage};
 template<class Fn>Fn Original(HookId){return &FakeNative;}
 bool ReadEntityIdentity(std::uintptr_t,std::uint32_t*t,std::uint32_t*v){*t=1;*v=0;return true;}
 }
@@ -71,6 +73,8 @@ class PlayerDamageEntryScopeTests(unittest.TestCase):
     def test_actual_entry_only_preserves_native_call_context(self):
         path=SOURCE/'hook_manager.cpp'
         if not path.is_file():
+            path=SOURCE.parents[2]/'private/runtime/source/hook_manager.cpp'
+        if not path.is_file():
             self.skipTest('entry wrapper requires the assembled private hook adapter')
         text=path.read_text()
         common='template<class Fn>\n'+function(text,'std::uint64_t RunEntityTakeDamageRelay(')
@@ -80,6 +84,7 @@ class PlayerDamageEntryScopeTests(unittest.TestCase):
             driver.write_text(PREFIX+common+'\n'+wrapper+'\n'+MAIN)
             result=subprocess.run(['c++','-std=c++20','-Wall','-Wextra','-Werror',
                 '-I'+str(SOURCE),'-I'+str(UNITS),str(driver),str(SOURCE/'player_damage_internal_hook.cpp'),
+                str(SOURCE/'damage_context.cpp'),
                 '-o',str(work/'entry')],capture_output=True,text=True)
             self.assertEqual(result.returncode,0,result.stdout+result.stderr)
             result=subprocess.run([str(work/'entry')],capture_output=True,text=True)

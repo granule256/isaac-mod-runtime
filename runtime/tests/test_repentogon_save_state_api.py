@@ -28,9 +28,21 @@ static std::vector<unsigned char> game;
 static std::vector<unsigned char> gridElements;
 static std::vector<unsigned char> entityElements;
 static std::vector<unsigned char> decoElements;
+static std::uintptr_t entityBeginAddress;
+static unsigned clearCalls;
 
 static std::uintptr_t Address(const std::vector<unsigned char>& bytes) {
     return reinterpret_cast<std::uintptr_t>(bytes.data());
+}
+
+static int CorruptAssignGuard(lua_State*) {
+    module[0x360fdc] ^= 1;
+    return 0;
+}
+
+static int RestoreAssignGuard(lua_State*) {
+    module[0x360fdc] ^= 1;
+    return 0;
 }
 
 template <class T>
@@ -47,10 +59,26 @@ static void Extensions(lua_State* state) noexcept {
     luaL_getmetatable(state, LuaRuntime::kRoomDescriptorMetatable);
     lua_setmetatable(state, -2);
     lua_setglobal(state, "desc");
+    lua_pushcfunction(state, CorruptAssignGuard);
+    lua_setglobal(state, "_corruptAssignGuard");
+    lua_pushcfunction(state, RestoreAssignGuard);
+    lua_setglobal(state, "_restoreAssignGuard");
+}
+
+static void HostAssign(void* vector, const void* first, const void* last) {
+    assert(vector != nullptr);
+    assert(first == last);
+    if (clearCalls == 0) {
+        assert(first == reinterpret_cast<const void*>(entityBeginAddress));
+    } else {
+        assert(first == nullptr);
+    }
+    std::memset(vector, 0, 0x18);
+    ++clearCalls;
 }
 
 int main() {
-    module.assign(0x100, 0);
+    module.assign(0x361000, 0);
     descriptor.assign(0x100, 0);
     game.assign(0x100, 0);
     gridElements.assign(2 * 0x20, 0);
@@ -69,6 +97,7 @@ int main() {
     gridElements[0x18] = 1;
 
     const auto entityBegin = Address(entityElements);
+    entityBeginAddress = entityBegin;
     Put(descriptor, 0x90, entityBegin);
     Put(descriptor, 0x98, entityBegin + entityElements.size());
     Put(descriptor, 0xa0, entityBegin + entityElements.size());
@@ -85,6 +114,12 @@ int main() {
 
     LuaRuntime::SetEngineModuleBase(Address(module));
     LuaRuntime::ObserveGameThread();
+    const unsigned char assignGuard[] = {
+        0xfd, 0x7b, 0xba, 0xa9, 0xfc, 0x6f, 0x01, 0xa9,
+        0xfd, 0x03, 0x00, 0x91, 0xfa, 0x67, 0x02, 0xa9,
+    };
+    std::memcpy(module.data() + 0x360fdc, assignGuard, sizeof(assignGuard));
+    SetRepentogonSaveStateNativeTestBindings({HostAssign});
     Files files(true);
     SetSessionSaveFilePort(&files);
     const repentogon::NativePort port{Ready, Ready};
@@ -95,17 +130,32 @@ int main() {
 local entities = desc:GetEntitiesSaveState()
 assert(#entities == 2)
 local entity = entities:Get(0)
+local deco = desc:GetDecoSaveState()
+_corruptAssignGuard()
+local guardOk, guardErr = pcall(function() deco:Clear() end)
+assert(not guardOk and string.find(guardErr, 'guard'))
+_restoreAssignGuard()
+assert(#deco == 1 and deco:Get(0):GetType() == 100)
 assert(entity:GetType() == 20)
 assert(entity:GetVariant() == 3)
 assert(entity:GetSubType() == 8)
 assert(entity:GetI3() == 42)
-local deco = desc:GetDecoSaveState()
-assert(#deco == 1 and deco:Get(0):GetType() == 100)
+assert(select('#', entities:Clear()) == 0)
+assert(#entities == 0)
+local stale, staleErr = pcall(function() return entity:GetType() end)
+assert(not stale and string.find(staleErr, 'no longer available'))
+assert(not pcall(function() entities:Get(0) end))
+assert(select('#', entities:Clear()) == 0 and #entities == 0)
 local grid = desc:GetGridEntitiesSaveState()
 assert(#grid == 2)
+assert(type(grid.Clear) == 'function')
 local gridDesc = grid:Get(0)
 assert(gridDesc.Initialized and gridDesc.SpawnCount == 9 and gridDesc.State == 2)
 assert(gridDesc.Type == 4 and gridDesc.Variant == 7 and gridDesc.VarData == 11)
+assert(select('#', grid:Clear()) == 0)
+assert(#grid == 2)
+assert(gridDesc.Initialized and gridDesc.SpawnCount == 9 and gridDesc.State == 2)
+assert(gridDesc.Type == 0 and gridDesc.Variant == 7 and gridDesc.VarData == 11)
 gridDesc.Initialized = false
 gridDesc.SpawnCount = 0
 gridDesc.State = 0
@@ -126,6 +176,7 @@ assert(not pcall(function() grid:Get(2) end))
         return 1;
     }
     assert(LuaRuntime::ShutdownForModReload());
+    assert(clearCalls == 2);
     LuaRuntime::SetRuntimeExtensionInstaller(nullptr);
     repentogon::SetNativePort(nullptr);
     SetSessionSaveFilePort(nullptr);

@@ -1,10 +1,13 @@
 #include "interfaces/lua/repentogon_save_state_api.hpp"
 
+#include "interfaces/lua/api100_native.hpp"
+#include "infrastructure/call/engine_call_access.hpp"
 #include "interfaces/lua/owner_binding.hpp"
 #include "infrastructure/memory/engine_field_access.hpp"
 #include "lua_object_handles.hpp"
 #include "lua_runtime.hpp"
 
+#include <array>
 #include <cstdint>
 #include <cstring>
 #include <type_traits>
@@ -36,6 +39,23 @@ constexpr char kEntityVectorMetatable[] = "IsaacRuntime.EntitiesSaveStateVector"
 constexpr char kGridVectorMetatable[] = "IsaacRuntime.GridEntitiesSaveStateVector";
 constexpr char kEntityStateMetatable[] = "IsaacRuntime.EntitiesSaveState";
 constexpr char kGridDescMetatable[] = "IsaacRuntime.GridEntityDescSaveState";
+
+// `std::vector<EntitySaveState>::assign(first, last)` on the pinned NRO.
+// The empty self-range is std::vector's own destroy-all path: its inline
+// EntitySaveState teardown decrements both SmartPointer references; any
+// reallocation remains on the game's native allocator path. This build has no
+// ESSM hijack listener subsystem, so there is no reachable ClearStates Lua
+// callback lifecycle to invoke before the native teardown.
+constexpr std::uintptr_t kEntitySaveStateVectorAssignOffset = 0x360fdc;
+constexpr std::array<std::uint8_t, 16> kEntitySaveStateVectorAssignGuard = {
+    0xfd, 0x7b, 0xba, 0xa9, 0xfc, 0x6f, 0x01, 0xa9,
+    0xfd, 0x03, 0x00, 0x91, 0xfa, 0x67, 0x02, 0xa9,
+};
+api100_native::Cache g_EntitySaveStateAssignCache{};
+
+#if !defined(__SWITCH__)
+void (*g_EntitySaveStateAssignHost)(void*, const void*, const void*){};
+#endif
 
 enum class VectorKind : std::uint32_t { Entity = 1, Grid = 2 };
 
@@ -142,11 +162,20 @@ std::uintptr_t LiveVectorElement(lua_State* state, Handle* handle,
     const auto stride = std::is_same_v<Handle, GridDescHandle>
                             ? kGridEntityDescStride
                             : kEntitySaveStateStride;
-    const auto view = ReadVector(state, vector, stride, name);
-    if (handle->index >= (view.end - view.begin) / view.stride) {
+    const auto begin = Read<std::uintptr_t>(state, vector, 0, name);
+    const auto end = Read<std::uintptr_t>(state, vector, sizeof(std::uintptr_t),
+                                          name);
+    if (begin == 0 && end == 0) {
         luaL_error(state, "%s is no longer available", name);
     }
-    const auto element = view.begin + handle->index * view.stride;
+    if (!begin || end < begin || (end - begin) % stride != 0 ||
+        (end - begin) / stride > 0x10000) {
+        luaL_error(state, "%s vector is invalid", name);
+    }
+    if (handle->index >= (end - begin) / stride) {
+        luaL_error(state, "%s is no longer available", name);
+    }
+    const auto element = begin + handle->index * stride;
     if (element != engine_memory::AddressOf(handle->element)) {
         luaL_error(state, "%s is no longer available", name);
     }
@@ -158,7 +187,7 @@ int EntityVectorIndex(lua_State* state) {
     if (!std::strcmp(key, "Get")) {
         lua_pushcfunction(state, RepentogonEntitiesSaveStateVectorGet);
     } else if (!std::strcmp(key, "Clear")) {
-        lua_pushnil(state);
+        lua_pushcfunction(state, RepentogonEntitiesSaveStateVectorClear);
     } else {
         luaL_getmetatable(state, kEntityVectorMetatable);
         lua_getfield(state, -1, key);
@@ -171,6 +200,8 @@ int GridVectorIndex(lua_State* state) {
     const auto* key = luaL_checkstring(state, 2);
     if (!std::strcmp(key, "Get")) {
         lua_pushcfunction(state, RepentogonGridEntitiesSaveStateVectorGet);
+    } else if (!std::strcmp(key, "Clear")) {
+        lua_pushcfunction(state, RepentogonGridEntitiesSaveStateVectorClear);
     } else {
         luaL_getmetatable(state, kGridVectorMetatable);
         lua_getfield(state, -1, key);
@@ -362,11 +393,78 @@ int RepentogonEntitiesSaveStateVectorLen(lua_State* state) {
     auto* handle = static_cast<VectorHandle*>(luaL_checkudata(
         state, 1, kEntityVectorMetatable));
     const auto vector = engine_memory::AddressOf(handle->vector);
-    const auto view = ReadVector(state, vector, kEntitySaveStateStride,
-                                 "EntitiesSaveStateVector");
+    const auto begin = Read<std::uintptr_t>(state, vector, 0,
+                                            "EntitiesSaveStateVector begin");
+    const auto end = Read<std::uintptr_t>(state, vector, sizeof(std::uintptr_t),
+                                          "EntitiesSaveStateVector end");
+    if (begin == 0 && end == 0) {
+        lua_pushinteger(state, 0);
+        return 1;
+    }
+    if (!begin || end < begin || (end - begin) % kEntitySaveStateStride != 0 ||
+        (end - begin) / kEntitySaveStateStride > 0x10000) {
+        return luaL_error(state, "EntitiesSaveStateVector vector is invalid");
+    }
     lua_pushinteger(state, static_cast<lua_Integer>(
-                               (view.end - view.begin) / view.stride));
+                               (end - begin) / kEntitySaveStateStride));
     return 1;
+}
+
+int RepentogonEntitiesSaveStateVectorClear(lua_State* state) {
+    if (lua_rawlen(state, 1) != sizeof(VectorHandle)) {
+        return luaL_error(state, "EntitiesSaveStateVector reference is invalid");
+    }
+    auto* handle = static_cast<VectorHandle*>(luaL_checkudata(
+        state, 1, kEntityVectorMetatable));
+    if (!LuaRuntime::IsOnGameThread()) {
+        return luaL_error(state, "REPENTOGON save-state access requires the game thread");
+    }
+    if (!handle || !handle->vector ||
+        handle->kind != static_cast<std::uint32_t>(VectorKind::Entity)) {
+        return luaL_error(state, "EntitiesSaveStateVector is no longer available");
+    }
+    const auto vector = engine_memory::AddressOf(handle->vector);
+    if (!engine_memory::EngineMemoryWritable(vector, 0x18)) {
+        return luaL_error(state, "EntitiesSaveStateVector is not writable");
+    }
+    const auto begin = Read<std::uintptr_t>(state, vector, 0,
+                                            "EntitiesSaveStateVector begin");
+    const auto end = Read<std::uintptr_t>(state, vector, sizeof(std::uintptr_t),
+                                          "EntitiesSaveStateVector end");
+    const auto capacity = Read<std::uintptr_t>(
+        state, vector, 2 * sizeof(std::uintptr_t),
+        "EntitiesSaveStateVector capacity");
+    if (begin == 0 && end == 0) {
+        if (capacity != 0) {
+            return luaL_error(state, "EntitiesSaveStateVector is invalid");
+        }
+    } else if (!begin || !end || end < begin || capacity < end ||
+               (begin & (alignof(std::uintptr_t) - 1)) != 0 ||
+               (end - begin) % kEntitySaveStateStride != 0 ||
+               (capacity - begin) % kEntitySaveStateStride != 0 ||
+               (end - begin) / kEntitySaveStateStride > 0x10000 ||
+               (capacity - begin) / kEntitySaveStateStride > 0x10000 ||
+               (end != begin &&
+                !engine_memory::EngineMemoryWritable(begin, end - begin))) {
+        return luaL_error(state, "EntitiesSaveStateVector is invalid");
+    }
+    std::uintptr_t host{};
+#if !defined(__SWITCH__)
+    if (!g_EntitySaveStateAssignHost) {
+        return luaL_error(state,
+                          "EntitiesSaveStateVector clear host binding is unavailable");
+    }
+    host = engine_call::AddressOfFunction(g_EntitySaveStateAssignHost);
+#endif
+    using Assign = void (*)(void*, const void*, const void*);
+    const auto assign = engine_call::AsFunction<Assign>(
+        api100_native::Resolve(state,
+                               {kEntitySaveStateVectorAssignOffset,
+                                kEntitySaveStateVectorAssignGuard.data()},
+                               g_EntitySaveStateAssignCache, host));
+    const auto first = engine_memory::AsObject(begin);
+    assign(engine_memory::AsObject(vector), first, first);
+    return 0;
 }
 
 int RepentogonEntitiesSaveStateGetType(lua_State* state) {
@@ -438,5 +536,46 @@ int RepentogonGridEntitiesSaveStateVectorLen(lua_State* state) {
                                (view.end - view.begin) / view.stride));
     return 1;
 }
+
+int RepentogonGridEntitiesSaveStateVectorClear(lua_State* state) {
+    if (lua_rawlen(state, 1) != sizeof(VectorHandle)) {
+        return luaL_error(state, "GridEntitiesSaveStateVector reference is invalid");
+    }
+    auto* handle = static_cast<VectorHandle*>(luaL_checkudata(
+        state, 1, kGridVectorMetatable));
+    if (!LuaRuntime::IsOnGameThread()) {
+        return luaL_error(state, "REPENTOGON save-state access requires the game thread");
+    }
+    if (!handle || !handle->vector ||
+        handle->kind != static_cast<std::uint32_t>(VectorKind::Grid)) {
+        return luaL_error(state, "GridEntitiesSaveStateVector is no longer available");
+    }
+    const auto vector = engine_memory::AddressOf(handle->vector);
+    const auto begin = Read<std::uintptr_t>(state, vector, 0,
+                                            "GridEntitiesSaveStateVector begin");
+    const auto end = Read<std::uintptr_t>(state, vector, sizeof(std::uintptr_t),
+                                          "GridEntitiesSaveStateVector end");
+    if (begin == 0 && end == 0) {
+        return 0;
+    }
+    if (!begin || end < begin || (end - begin) % kGridEntityDescStride != 0 ||
+        (end - begin) / kGridEntityDescStride > 0x10000 ||
+        (end != begin &&
+         !engine_memory::EngineMemoryWritable(begin, end - begin))) {
+        return luaL_error(state, "GridEntitiesSaveStateVector is invalid");
+    }
+    for (auto element = begin; element != end; element += kGridEntityDescStride) {
+        Write<std::int32_t>(state, element, kGridDescType, 0,
+                            "GridEntityDesc Type");
+    }
+    return 0;
+}
+
+#if !defined(__SWITCH__)
+void SetRepentogonSaveStateNativeTestBindings(
+    RepentogonSaveStateNativeTestBindings bindings) noexcept {
+    g_EntitySaveStateAssignHost = bindings.entityAssign;
+}
+#endif
 
 }

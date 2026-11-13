@@ -34,6 +34,7 @@ namespace {
 
 constexpr std::uintptr_t kMenuManagerSlot = 0xAAD1B0;
 constexpr std::uintptr_t kGameRoomTransition = 0x25810;
+constexpr std::uintptr_t kGameStartingRoomIndex = 0x21514;
 constexpr std::uintptr_t kGameAmbush = 0x26FAA8;
 constexpr std::uintptr_t kMenuSavePage = 0x7D8;
 constexpr std::uintptr_t kMenuSaveDeletePopup = 0x6E0;
@@ -81,11 +82,27 @@ static std::vector<unsigned char> menuManager;
 static std::vector<unsigned char> room;
 static std::vector<unsigned char> descriptor;
 static bool renderingBossIntro = true;
+static unsigned startBossIntroCalls;
+static std::uint32_t lastBossId1;
+static std::uint32_t lastBossId2;
 
 static bool RenderingBossIntro(const void* transition) {
     assert(reinterpret_cast<std::uintptr_t>(transition) ==
            Address(game) + kGameRoomTransition);
     return renderingBossIntro;
+}
+
+static void StartBossIntro(void* transition, std::uint32_t bossId1,
+                           std::uint32_t bossId2) {
+    assert(reinterpret_cast<std::uintptr_t>(transition) ==
+           Address(game) + kGameRoomTransition);
+    assert(Read<std::int32_t>(game, kGameRoomTransition + 0x14) == 17);
+    if (startBossIntroCalls == 0) {
+        assert(bossId1 == 42 && bossId2 == 0);
+    }
+    lastBossId1 = bossId1;
+    lastBossId2 = bossId2;
+    ++startBossIntroCalls;
 }
 
 static void Extensions(lua_State* state) noexcept {
@@ -105,6 +122,8 @@ static void Extensions(lua_State* state) noexcept {
          isaac::runtime::RepentogonMainMenuGetContinueWidgetSprite);
     Bind(state, "RoomTransition", "IsRenderingBossIntro",
          isaac::runtime::RepentogonRoomTransitionIsRenderingBossIntro);
+    Bind(state, "RoomTransition", "StartBossIntro",
+         isaac::runtime::RepentogonRoomTransitionStartBossIntro);
     Bind(state, "RoomTransition", "GetVersusScreenSprite",
          isaac::runtime::RepentogonRoomTransitionGetVersusScreenSprite);
     Bind(state, "Ambush", "GetCurrentWave",
@@ -163,9 +182,16 @@ int main() {
     Put<std::int32_t>(menuManager, kMenuCollectionPage + 0x04, 2);
     Put<std::int32_t>(menuManager, kMenuCollectionPage + 0x10, 11);
     Put<std::uint32_t>(game, kGameRoomTransition, 2);
+    Put<std::uint32_t>(game, kGameStartingRoomIndex, 17);
     Put<std::uint8_t>(game, kGameRoomTransition + 0x3E8, 1);
     Put<std::int32_t>(game, kGameAmbush + 0x3C, 5);
     Put<std::uint8_t>(manager, kManagerNightmareSceneOffset + 0x5E8, 1);
+    const unsigned char startBossIntroGuard[] = {
+        0xff, 0x03, 0x03, 0xd1, 0xe8, 0x2b, 0x00, 0xfd,
+        0xfd, 0x7b, 0x06, 0xa9, 0xfd, 0x83, 0x01, 0x91,
+    };
+    std::memcpy(moduleBytes.data() + 0x4984c4, startBossIntroGuard,
+                sizeof(startBossIntroGuard));
 
     LuaRuntime::SetEngineModuleBase(Address(moduleBytes));
     LuaRuntime::SetGameBindings(
@@ -177,7 +203,7 @@ int main() {
         Ready, Ready, isaac::runtime::RepentogonMenuWorldSpriteAlive};
     isaac::runtime::repentogon::SetNativePort(&port);
     isaac::runtime::SetRepentogonMenuWorldNativeTestBindings(
-        {RenderingBossIntro});
+        {RenderingBossIntro, StartBossIntro});
     LuaRuntime::SetRuntimeExtensionInstaller(Extensions);
 
     constexpr const char* script = R"lua(
@@ -205,7 +231,10 @@ assert(type(RoomTransition.GetVersusScreenSprite()) == 'userdata')
 assert(not pcall(function() SaveMenu:GetDeletePopupSprite() end))
 
 assert(RoomTransition.IsRenderingBossIntro())
-assert(RoomTransition.StartBossIntro==nil)
+RoomTransition.StartBossIntro(42)
+assert(select('#', RoomTransition.StartBossIntro(7, 9)) == 0)
+assert(not pcall(function() RoomTransition.StartBossIntro() end))
+assert(not pcall(function() RoomTransition.StartBossIntro({}) end))
 assert(not pcall(function() RoomTransition:IsRenderingBossIntro() end))
 
 assert(Ambush.GetCurrentWave() == 5)
@@ -231,6 +260,7 @@ assert(not pcall(function() roomDesc:GetDimension(1) end))
         return 1;
     }
     assert(Read<std::int16_t>(descriptor, 0x5E) == -1);
+    assert(startBossIntroCalls == 2 && lastBossId1 == 7 && lastBossId2 == 9);
     Put<std::int32_t>(descriptor, 0x0C, -1);
     const char* reset_dimension = "assert(roomDesc:GetDimension()==-1, 'reset Dimension must remain signed')";
     if (LuaRuntime::InitializeFromBuffer(reset_dimension, std::strlen(reset_dimension),

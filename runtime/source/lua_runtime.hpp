@@ -1,6 +1,7 @@
 #pragma once
 
 #include "interfaces/lua/repentogon_callbacks.hpp"
+#include "interfaces/lua/console_autocomplete.hpp"
 #include "raw_engine_input.hpp"
 #include "entity_init_hook.hpp"
 #include "domain/callback/use_item_result.hpp"
@@ -15,6 +16,7 @@
 // 再逐个发布到原子槽；调用点用的是同一份类型，于是"声明的签名"与"调用的签名"不可能漂移。
 #include "lua_runtime_state.hpp"
 namespace isaac::runtime { struct ConsoleCommandView; }
+namespace isaac::runtime::damage { struct Values; }
 
 #if !defined(EXL_DIAGNOSTIC_STAGE) || EXL_DIAGNOSTIC_STAGE == 13
 #include "game_file_reader.hpp"
@@ -392,6 +394,15 @@ struct RoomEntitySpawnOverride {
 [[nodiscard]] bool DispatchEntityTakeDamage(std::uintptr_t entity, float amount,
                                             std::uint64_t damageFlags, std::uintptr_t sourceRef,
                                             std::int32_t countdownFrames, std::int32_t entityType);
+// Extended callback 11 path. Mutates the values which the native bridge will write
+// back at its accepted boundary; true means cancel the damage.
+[[nodiscard]] bool DispatchEntityTakeDamageValues(isaac::runtime::damage::Values& values);
+// Pickup/Slot retain their pre-existing entry callback without suppressing any
+// nested extension delivery while that callback is running.
+[[nodiscard]] bool DispatchLegacyEntityTakeDamage(std::uintptr_t,float,std::uint64_t,
+    std::uintptr_t,std::int32_t,std::int32_t);
+// Extended callback 1006, called only after the original TakeDamage succeeded.
+void DispatchPostEntityTakeDamageValues(const isaac::runtime::damage::Values& values);
 // `MC_EVALUATE_CACHE`(8)。过滤器 = 本次要重算的那个 CacheFlag 位；
 // 调用点把 `Entity_Player + 0x1958` 掩码逐位拆开、一位调一次（入口不带 CacheFlag 实参）。
 void DispatchEvaluateCache(std::uintptr_t player, std::int32_t cacheFlag);

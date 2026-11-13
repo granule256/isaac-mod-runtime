@@ -35,6 +35,7 @@
 #include "interfaces/lua/lua_integer_argument.hpp"
 #include "interfaces/lua/owner_binding.hpp"
 #include "interfaces/lua/object_identity_registry.hpp"
+#include "interfaces/lua/repentogon_room_mutations.hpp"
 
 #include "game_observer.hpp"
 #include "lua_object_handles.hpp"
@@ -324,6 +325,9 @@ constexpr LuaHandlerBinding kGridEntityDoorHandlers[] = {
 };
 
 constexpr LuaHandlerBinding kRoomHandlers[] = {
+    // Custom backdrop IDs need the original requested value even though the
+    // native Backdrop stores the referenced base ID.
+    {0x0401002D, &RepentogonRoomGetBackdropType},
     // 三个返回 Vector 的 Room 方法（域内序号 0x1B/0x1C/0x1D）。
     {0x0401001B, &RoomGetCenterPos},
     {0x0401001C, &RoomGetGridPosition},
@@ -4864,6 +4868,8 @@ constexpr FieldApiRow kRoomFieldApis[] = {
     //   `tools/generate_doc_enum_tables.py` 的 `TABLES`）—— 模组拿返回值直接与
     //   `BackdropType.BASEMENT` 一类比较/建表，少了表这一半它们仍然用不上（与的
     //   `RenderMode` + `Room:GetRenderMode()` 是同一件事的两半）。
+    // 自定义 backdrop 由上面的手写 handler 优先接管；本行保留为无自定义
+    // 覆盖时的字段逻辑和既有接线门禁基准。
     {0x0401002D, kRoomBackdropTypeOffset, 0x00, FieldKind::U32, FieldMissing::Zero,
      FieldReceipt::Room, 0xFF},
     // 0x002E `Room:SetClear(boolean Clear)`—— PC 契约 `Room.md:772`：

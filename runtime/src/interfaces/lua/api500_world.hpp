@@ -6,6 +6,7 @@ int TryPushApi500GridField(lua_State*,std::uintptr_t,const char*);
 int Api500GridNewIndex(lua_State*);
 bool PushApi500GridDesc(lua_State*,std::uintptr_t);
 void PushApi500RoomConfig(lua_State*,std::uintptr_t data,std::uintptr_t descriptor);
+[[nodiscard]] bool ResolveApi500RoomConfig(lua_State*,int,std::uintptr_t*) noexcept;
 int Api500PushRoomSpawns(lua_State*,std::uintptr_t data);
 int TryPushApi500DescriptorField(lua_State*,std::uintptr_t,const char*);
 bool TryWriteApi500DescriptorField(lua_State*,std::uintptr_t,const char*);

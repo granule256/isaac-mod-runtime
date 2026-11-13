@@ -1,8 +1,10 @@
 #include "interfaces/lua/repentogon_entity_api.hpp"
+#include "interfaces/lua/entity_lifetime.hpp"
 
 #include "infrastructure/call/engine_call_access.hpp"
 #include "interfaces/lua/api100_native.hpp"
 #include "interfaces/lua/isaac_api.hpp"
+#include "interfaces/lua/pickup_flip_api.hpp"
 #include "interfaces/lua/vector_api.hpp"
 #include "lua_object_handles.hpp"
 #include "lua_runtime.hpp"
@@ -20,7 +22,6 @@ namespace isaac::runtime {
 namespace {
 #if defined(__SWITCH__)
 constexpr std::uint8_t kGiveMinecartGuard[]={0xff,0x03,0x01,0xd1,0xfd,0x7b,0x01,0xa9,0xfd,0x43,0x00,0x91,0xf6,0x57,0x02,0xa9};
-constexpr std::uint8_t kInitFlipStateGuard[]={0xff,0x43,0x01,0xd1,0xfd,0x7b,0x01,0xa9,0xfd,0x43,0x00,0x91,0xf7,0x13,0x00,0xf9};
 #endif
 constexpr std::uintptr_t kEntityMinecartHandleOffset=0x3c8;
 constexpr std::uintptr_t kEntitySlotPrizeCollectibleOffset=0x570;
@@ -205,6 +206,26 @@ int RepentogonEntityPickupGetFlipCollectible(lua_State* state) {
     return 1;
 }
 
+int RepentogonEntityPickupGetCanRerollOverride(lua_State* state) {
+    const auto pickup=Pickup(state);
+    bool value{};
+    if (TryPickupRerollOverride(pickup,&value)) lua_pushboolean(state,value);
+    else lua_pushnil(state);
+    return 1;
+}
+
+int RepentogonEntityPickupSetCanRerollOverride(lua_State* state) {
+    const auto pickup=Pickup(state);
+    if (lua_isnil(state,2)) return luaL_argerror(state,2,"non-nil value expected");
+    SetPickupRerollOverride(state,pickup,lua_toboolean(state,2)?2:1);
+    return 0;
+}
+
+int RepentogonEntityPickupClearCanRerollOverride(lua_State* state) {
+    SetPickupRerollOverride(state,Pickup(state),0);
+    return 0;
+}
+
 int RepentogonEntityPickupInitFlipState(lua_State* state) {
     const auto pickup=Pickup(state);
     const auto arguments=lua_gettop(state);
@@ -212,21 +233,16 @@ int RepentogonEntityPickupInitFlipState(lua_State* state) {
     const auto collectible=arguments>=2&&!lua_isnil(state,2)
         ?static_cast<std::int32_t>(luaL_checkinteger(state,2)):0;
     const bool setupGraphics=arguments<3||lua_isnil(state,3)||lua_toboolean(state,3)!=0;
-    static_cast<void>(setupGraphics);
-#if defined(__SWITCH__)
-    Guard(state,0x26b6c8,kInitFlipStateGuard,"EntityPickup:InitFlipState");
-    using Fn=void(*)(void*);
-    engine_call::AsFunction<Fn>(LuaRuntime::EngineModuleBase()+0x26b6c8)(engine_memory::AsObject(pickup));
-#else
-    if(!g_Tests.initFlipState)return luaL_error(state,"EntityPickup:InitFlipState host binding is unavailable");
-    g_Tests.initFlipState(engine_memory::AsObject(pickup));
-#endif
-    if(collectible!=0) {
-        const auto save=Read<std::uintptr_t>(state,pickup,kEntityPickupFlipStateOffset,
-                                             "EntityPickup flip state");
-        if(save&&!engine_memory::WriteField(save,kEntityPickupFlipSubtype,collectible,
-                                            engine_memory::EngineMemoryWritable))
-            return luaL_error(state,"EntityPickup flip state is not writable");
+    switch(pickup_flip::InitializeFlipState(engine_memory::AsObject(pickup),collectible,setupGraphics)) {
+        case pickup_flip::InitResult::Success:
+        case pickup_flip::InitResult::Ineligible:
+            return 0;
+        case pickup_flip::InitResult::RoomUnavailable:
+            return luaL_error(state,"EntityPickup:InitFlipState requires a current Room");
+        case pickup_flip::InitResult::AllocationFailed:
+            return luaL_error(state,"EntityPickup:InitFlipState could not allocate save state");
+        case pickup_flip::InitResult::BindingUnavailable:
+            return luaL_error(state,"EntityPickup:InitFlipState native binding is unavailable");
     }
     return 0;
 }

@@ -377,7 +377,10 @@ inline constexpr std::uint8_t kSpriteSourceEngineGridEntity = 2;
 struct EntityLifetimeToken {
     std::uintptr_t entity{};
     bool alive{};
+    std::int8_t pickupRerollOverride{}; // 0 unset, 1 false, 2 true.
+    std::uint32_t pickupRerollEpoch{};
 };
+static_assert(sizeof(EntityLifetimeToken)==16);
 struct EntityHandle {
     void* entity;
     EntityLifetimeToken* lifetime{}; // userdata的uservalue强持token，D2退役后拒绝地址复用。

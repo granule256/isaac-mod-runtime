@@ -5,6 +5,7 @@
 #include "interfaces/lua/owner_binding.hpp"
 #include "interfaces/lua/remaining_api.hpp"
 #include "interfaces/lua/repentogon_callbacks.hpp"
+#include "interfaces/lua/api100_native.hpp"
 #include "interfaces/lua/sprite_api.hpp"
 #include "interfaces/lua/vector_api.hpp"
 #include "lua_object_handles.hpp"
@@ -38,7 +39,9 @@ constexpr std::uintptr_t kMenuCollectionSelectedElement = 0x10;
 
 constexpr std::uintptr_t kGameRoomTransition = 0x25810;
 constexpr std::uintptr_t kRoomTransitionVersusSprite = 0x48;
+constexpr std::uintptr_t kRoomTransitionRoomIndex = 0x14;
 constexpr std::uintptr_t kRoomTransitionBossIntroFlag = 0x3E8;
+constexpr std::uintptr_t kGameStartingRoomIndex = 0x21514;
 constexpr std::uintptr_t kGameAmbush = 0x26FAA8;
 constexpr std::uintptr_t kAmbushCurrentWave = 0x3C;
 
@@ -47,6 +50,13 @@ constexpr std::uintptr_t kRoomDescriptorTaintedKeeperCoinSpawns = 0x5E;
 
 constexpr std::int32_t kMinimumMainMenu = 1;
 constexpr std::int32_t kMaximumMainMenu = 22;
+
+constexpr std::uintptr_t kStartBossIntroOffset = 0x4984c4;
+constexpr std::array<std::uint8_t, 16> kStartBossIntroGuard = {
+    0xff, 0x03, 0x03, 0xd1, 0xe8, 0x2b, 0x00, 0xfd,
+    0xfd, 0x7b, 0x06, 0xa9, 0xfd, 0x83, 0x01, 0x91,
+};
+api100_native::Cache g_StartBossIntroCache{};
 
 #if defined(__SWITCH__)
 constexpr std::array<std::uint8_t, 16> kIsRenderingBossIntroGuard = {
@@ -308,6 +318,40 @@ int RepentogonRoomTransitionIsRenderingBossIntro(lua_State* state) {
             engine_memory::AsObject(transition)));
 #endif
     return 1;
+}
+
+int RepentogonRoomTransitionStartBossIntro(lua_State* state) {
+    RequireGameThread(state, "RoomTransition.StartBossIntro");
+    const auto bossId1 = static_cast<std::uint32_t>(
+        luaL_checkinteger(state, 1));
+    const auto bossId2 = static_cast<std::uint32_t>(
+        luaL_optinteger(state, 2, 0));
+    const auto transition = RequireRoomTransition(state);
+    const auto game = RequireGame(state);
+    const auto startingRoom = ReadField<std::uint32_t>(
+        state, game, kGameStartingRoomIndex,
+        "Game starting room index is unavailable");
+    if (!engine_memory::WriteField(
+            transition, kRoomTransitionRoomIndex, startingRoom,
+            engine_memory::EngineMemoryWritable)) {
+        return luaL_error(state, "RoomTransition room index is not writable");
+    }
+    std::uintptr_t host{};
+#if !defined(__SWITCH__)
+    if (!g_TestBindings.startBossIntro) {
+        return luaL_error(state,
+                          "RoomTransition.StartBossIntro host binding is unavailable");
+    }
+    host = engine_call::AddressOfFunction(g_TestBindings.startBossIntro);
+#endif
+    using StartBossIntro = void (*)(void*, std::uint32_t, std::uint32_t);
+    const auto start = engine_call::AsFunction<StartBossIntro>(
+        api100_native::Resolve(state,
+                               {kStartBossIntroOffset,
+                                kStartBossIntroGuard.data()},
+                               g_StartBossIntroCache, host));
+    start(engine_memory::AsObject(transition), bossId1, bossId2);
+    return 0;
 }
 
 int RepentogonRoomTransitionGetVersusScreenSprite(lua_State* state) {

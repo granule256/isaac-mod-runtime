@@ -17,7 +17,7 @@ static_assert(!std::is_move_constructible_v<InternalGatewayAllocator>);
 static_assert(!std::is_move_assignable_v<InternalGatewayAllocator>);
 int main() {
     InternalGatewayAllocator packed;
-    for (std::size_t i=0;i<32;++i) {
+    for (std::size_t i=0;i<64;++i) {
         const auto a=packed.Plan(false);
         const auto repeated=packed.Plan(false);
         assert(a.valid && a.index==i && a.offset==i*32 && a.end==(i+1)*32);
@@ -25,9 +25,9 @@ int main() {
         assert(packed.count()==i && packed.used()==i*32);
         assert(packed.Commit(a));
     }
-    assert(packed.count()==32 && packed.used()==1024);
+    assert(packed.count()==64 && packed.used()==2048);
     assert(!packed.Plan(false).valid && !packed.Plan(true).valid);
-    assert(!packed.Commit(packed.Plan(false)) && packed.count()==32 && packed.used()==1024);
+    assert(!packed.Commit(packed.Plan(false)) && packed.count()==64 && packed.used()==2048);
 
     InternalGatewayAllocator mixed;
     const auto first=mixed.Plan(false);

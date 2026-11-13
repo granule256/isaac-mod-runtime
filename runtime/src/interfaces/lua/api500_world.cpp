@@ -72,7 +72,6 @@ api100_native::Cache g_Caches[9]{};
 constexpr char kDescMeta[]="IsaacRuntime.GridEntityDesc";
 constexpr char kRoomMeta[]="IsaacRuntime.RoomConfigRoom";
 constexpr char kDoorSetMeta[]="IsaacRuntime.DoorSetValue";
-constexpr char kModeMeta[]="IsaacRuntime.RoomConfigModeValue";
 constexpr char kDoorVariantMeta[]="IsaacRuntime.GridEntityDoorVariant";
 api100_native::Cache g_AllowedDoorsLayout{};
 void AllowedDoorsGuard(lua_State* L) {
@@ -418,7 +417,7 @@ std::uintptr_t LiveRoom(lua_State* L,int index=1) {
 }
 int RoomIndex(lua_State* L) {
     const auto* name=lua_tostring(L,2);
-    if(name && name[0]=='M' && !std::strcmp(name,"Mode")){Guard(L,Group::RoomConfig);PushOpaqueScalarValue(L,kModeMeta,"RoomConfigMode",Read<std::int32_t>(L,LiveRoom(L),4));return 1;}
+    if(name && name[0]=='M' && !std::strcmp(name,"Mode")){Guard(L,Group::RoomConfig);lua_pushinteger(L,Read<std::int32_t>(L,LiveRoom(L),4));return 1;}
     if(name&&!std::strcmp(name,"Doors")){Guard(L,Group::RoomConfig);lua_pushinteger(L,Read<std::uint32_t>(L,LiveRoom(L),0x40));return 1;}
     if(name&&!std::strcmp(name,"Spawns"))return Api500PushRoomSpawns(L,LiveRoom(L));
     const auto* field=Find(name,Group::RoomConfig);
@@ -507,6 +506,13 @@ void PushApi500RoomConfig(lua_State* L,std::uintptr_t p,std::uintptr_t owner) {
     *view={p,LuaRuntime::EngineModuleBase(),set?set:owner};
     lua_pushvalue(L,1);lua_setuservalue(L,-2);
     Metatable(L,kRoomMeta,"RoomConfigRoom",RoomIndex,ReadOnly);
+}
+bool ResolveApi500RoomConfig(lua_State* L,int index,std::uintptr_t* object) noexcept {
+    if(!L||!object)return false;
+    const auto p=TryRoom(L,lua_absindex(L,index));
+    if(!p)return false;
+    *object=p;
+    return true;
 }
 int TryPushApi500DescriptorField(lua_State* L,std::uintptr_t p,const char* name) {
     if(IsAllowedDoors(name)) {

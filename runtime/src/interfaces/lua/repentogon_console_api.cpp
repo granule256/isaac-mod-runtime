@@ -1,11 +1,13 @@
 #include "interfaces/lua/repentogon_console_api.hpp"
 
+#include "domain/console/console_commands.hpp"
 #include "infrastructure/console/console_panel.hpp"
 #include "interfaces/lua/owner_binding.hpp"
 #include "lua_runtime.hpp"
 
 #include <cstring>
 #include <string>
+#include <string_view>
 
 extern "C" {
 #include <lauxlib.h>
@@ -79,10 +81,46 @@ int RepentogonConsoleGetHistory(lua_State* state) {
     return 1;
 }
 
+int RepentogonConsoleRegisterCommand(lua_State* state) {
+    RequireGameThread(state, "Console.RegisterCommand");
+    const auto text = [state](int index, const char* name) {
+        const char* value = luaL_checkstring(state, index);
+        if (!value) {
+            luaL_error(state, "%s expects a string", name);
+        }
+        return std::string_view(value, std::strlen(value));
+    };
+    const auto name = text(1, "Console.RegisterCommand");
+    const auto description = text(2, "Console.RegisterCommand");
+    const auto help = text(3, "Console.RegisterCommand");
+    const bool showOnMenu = lua_gettop(state) >= 4 && lua_toboolean(state, 4) != 0;
+    const auto autocomplete = static_cast<std::uint32_t>(
+        luaL_optnumber(state, 5, static_cast<lua_Number>(
+            console::ConsoleAutocompleteType::None)));
+    switch (console::RegisterConsoleCommand(name, description, help, showOnMenu,
+                                            autocomplete)) {
+        case console::ConsoleCommandRegistration::Added:
+        case console::ConsoleCommandRegistration::Duplicate:
+            return 0;
+    }
+    return 0;
+}
+
 int RegisterRepentogonConsoleApi(lua_State* state) {
+    console::ResetConsoleCommands();
     lua_newtable(state);
     static_cast<void>(AttachOwnerMethods(state, "Console", nullptr, 0));
     lua_setglobal(state, "Console");
+    lua_newtable(state);
+    constexpr const char* names[] = {
+        "NONE", "ENTITY", "GOTO", "STAGE", "GRID", "DEBUG_FLAG", "ITEM",
+        "CHALLENGE", "COMBO", "CUTSCENE", "MACRO", "SFX", "CURSE", "METRO",
+        "DELIRIOUS", "PLAYER", "ACHIEVEMENT", "MODFOLDER", "CUSTOM", "EFFECT"};
+    for(std::size_t index=0;index<sizeof(names)/sizeof(names[0]);++index) {
+        lua_pushinteger(state,static_cast<lua_Integer>(index));
+        lua_setfield(state,-2,names[index]);
+    }
+    lua_setglobal(state, "AutocompleteType");
     return 0;
 }
 

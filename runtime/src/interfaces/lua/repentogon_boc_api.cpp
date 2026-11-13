@@ -1,6 +1,7 @@
 #include "interfaces/lua/repentogon_boc_api.hpp"
 
 #include "interfaces/lua/isaac_api.hpp"
+#include "interfaces/lua/entity_lifetime.hpp"
 #include "interfaces/lua/owner_binding.hpp"
 #include "infrastructure/call/engine_call_access.hpp"
 #include "infrastructure/memory/engine_field_access.hpp"
@@ -23,8 +24,8 @@ constexpr std::uintptr_t kBagContentOffset = 0x2690;
 constexpr std::uintptr_t kBagOutputOffset = 0x2698;
 constexpr std::uintptr_t kActiveDescItem = 0x00;
 constexpr std::uintptr_t kActiveDescCharge = 0x04;
-constexpr std::uintptr_t kActiveDescSubCharge = 0x08;
-constexpr std::uintptr_t kActiveDescBatteryCharge = 0x0c;
+constexpr std::uintptr_t kActiveDescSubCharge = 0x0c;
+constexpr std::uintptr_t kActiveDescBatteryCharge = 0x08;
 constexpr std::uintptr_t kActiveDescTimedCooldown = 0x10;
 constexpr std::uintptr_t kActiveDescPartialCharge = 0x14;
 constexpr std::uintptr_t kActiveDescVarData = 0x18;
@@ -39,6 +40,8 @@ constexpr char kActiveItemDescMetatable[] = "IsaacRuntime.ActiveItemDesc";
 
 struct ActiveItemDescHandle {
     void* player;
+    LuaRuntime::EntityLifetimeToken* lifetime;
+    std::uintptr_t moduleBase;
     std::uint32_t slot;
     std::uint32_t reserved;
 };
@@ -102,13 +105,30 @@ std::uintptr_t ActiveSlot(lua_State* state) {
     return static_cast<std::uintptr_t>(slot);
 }
 
+ActiveItemDescHandle* ActiveDesc(lua_State* state) {
+    if (!LuaRuntime::IsOnGameThread())
+        luaL_error(state,"ActiveItemDesc access requires the game thread");
+    auto* handle=static_cast<ActiveItemDescHandle*>(
+        luaL_checkudata(state,1,kActiveItemDescMetatable));
+    if (lua_rawlen(state,1)!=sizeof(*handle))
+        luaL_error(state,"invalid ActiveItemDesc reference");
+    const auto base=LuaRuntime::EngineModuleBase();
+    std::uintptr_t vtable{};
+    std::uint32_t type{};
+    if (!handle->player || handle->slot>=4 || handle->moduleBase!=base ||
+        !EntityLifetimeAlive(handle->lifetime) ||
+        !engine_memory::ReadField(engine_memory::AddressOf(handle->player),0,&vtable,
+                                  engine_memory::EngineMemoryReadable) ||
+        vtable!=base+kEntityPlayerVtableOffset ||
+        !engine_memory::ReadField(engine_memory::AddressOf(handle->player),
+                                  kEntityTypeOffset,&type,engine_memory::EngineMemoryReadable) ||
+        type!=kEntityTypePlayer)
+        luaL_error(state,"ActiveItemDesc owner is no longer available");
+    return handle;
+}
+
 int ActiveDescIndex(lua_State* state) {
-    auto* handle = static_cast<ActiveItemDescHandle*>(
-        luaL_checkudata(state, 1, kActiveItemDescMetatable));
-    if (!handle || !handle->player || handle->slot >= 4 ||
-        !IsLiveEntityPointer(engine_memory::AddressOf(handle->player))) {
-        return luaL_error(state, "ActiveItemDesc owner is no longer available");
-    }
+    auto* handle = ActiveDesc(state);
     const auto base = engine_memory::AddressOf(handle->player) +
                       kEntityPlayerActiveItemOffset +
                       static_cast<std::uintptr_t>(handle->slot) *
@@ -149,12 +169,7 @@ int ActiveDescIndex(lua_State* state) {
 }
 
 int ActiveDescNewIndex(lua_State* state) {
-    auto* handle = static_cast<ActiveItemDescHandle*>(
-        luaL_checkudata(state, 1, kActiveItemDescMetatable));
-    if (!handle || !handle->player || handle->slot >= 4 ||
-        !IsLiveEntityPointer(engine_memory::AddressOf(handle->player))) {
-        return luaL_error(state, "ActiveItemDesc owner is no longer available");
-    }
+    auto* handle = ActiveDesc(state);
     const auto base = engine_memory::AddressOf(handle->player) +
                       kEntityPlayerActiveItemOffset +
                       static_cast<std::uintptr_t>(handle->slot) *
@@ -198,10 +213,7 @@ int ActiveDescNewIndex(lua_State* state) {
 
 void RegisterRepentogonBocViews(lua_State* state) {
     if (!state) return;
-    luaL_getmetatable(state, kActiveItemDescMetatable);
-    if (!lua_istable(state, -1)) {
-        luaL_newmetatable(state, kActiveItemDescMetatable);
-    }
+    luaL_newmetatable(state, kActiveItemDescMetatable);
     lua_pushcfunction(state, ActiveDescIndex);
     lua_setfield(state, -2, "__index");
     lua_pushcfunction(state, ActiveDescNewIndex);
@@ -246,16 +258,23 @@ int RepentogonEntityPlayerGetBagOfCraftingOutput(lua_State* state) {
 int RepentogonEntityPlayerGetActiveItemDesc(lua_State* state) {
     const auto player = Player(state);
     const auto slot = ActiveSlot(state);
+    auto* lifetime=PushEntityLifetimeToken(state,player);
+    const auto tokenIndex=lua_gettop(state);
     auto* handle = static_cast<ActiveItemDescHandle*>(
         lua_newuserdata(state, sizeof(ActiveItemDescHandle)));
-    *handle = {engine_memory::AsObject(player),
+    *handle = {engine_memory::AsObject(player),lifetime,LuaRuntime::EngineModuleBase(),
                static_cast<std::uint32_t>(slot), 0};
+    lua_pushvalue(state,tokenIndex);
+    lua_setuservalue(state,-2);
     luaL_getmetatable(state, kActiveItemDescMetatable);
     lua_setmetatable(state, -2);
+    lua_remove(state,tokenIndex);
     return 1;
 }
 
 int RepentogonEntityPlayerCalculateBagOfCraftingOutput(lua_State* state) {
+    if (!LuaRuntime::IsOnGameThread())
+        return luaL_error(state,"CalculateBagOfCraftingOutput requires the game thread");
     if (!lua_istable(state, 1)) return luaL_argerror(state, 1, "expected a table");
     if (lua_rawlen(state, 1) != 8) {
         return luaL_error(state, "CalculateBagOfCraftingOutput expects exactly 8 pickups");

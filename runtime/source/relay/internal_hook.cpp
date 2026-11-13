@@ -13,7 +13,7 @@ namespace isaac::runtime::relay {
 namespace {
 // 安装期固定空间分配；只有Page8要求页首，其他gateway紧密排列。
 JIT_CREATE(InternalHookArena, 0x10000);
-constexpr std::size_t kInternalCapacity = 32;
+constexpr std::size_t kInternalCapacity = kInternalBindingCapacity;
 static_assert(kInternalGatewayBytes == 32);
 InternalHookBinding s_Bindings[kInternalCapacity]{};
 InternalGatewayAllocator s_Allocator;
@@ -186,5 +186,143 @@ InternalHookFailure TryInstallConsoleConditionalHook(const InternalHookBinding& 
     std::uintptr_t current{};std::memcpy(&current,engine_memory::AsObject(site.gate+32),8);
     if(current)return Failure::VeneerNotEmpty;
     return PublishColdBinding(binding,site.gate+32);
+}
+
+InternalHookFailure TryInstallStatHudColdHook(const InternalHookBinding& binding,
+    const ColdInternalHookSite& site,std::uintptr_t fallback) {
+    using Failure=InternalHookFailure;
+    std::uint8_t gate[24]{},replay[12]{};
+    if(!ValidInternalBinding(binding)||!BuildStatHudColdImages(site,fallback,gate,replay)||
+       binding.resumeCount!=(site.original==0x54FFFF40U?2U:3U)||
+       binding.resumes[0]!=site.source+4||binding.resumes[1]!=site.source-24||
+       (binding.resumeCount==3&&binding.resumes[2]!=site.source+16)||
+       site.gate%0x1000+24>0x1000||fallback%0x1000+12>0x1000)
+        return Failure::InvalidPlan;
+    std::uint32_t jump{};
+    if(!BuildInternalBranch(&jump,site.source,site.gate))return Failure::InvalidPlan;
+    if(!engine_memory::EngineMemoryReadable(site.source,4)||
+       !engine_memory::EngineMemoryReadable(site.gate,24)||
+       !engine_memory::EngineMemoryReadable(fallback,12)||
+       std::memcmp(engine_memory::AsObject(site.source),&jump,4)||
+       std::memcmp(engine_memory::AsObject(site.gate),gate,16)||
+       std::memcmp(engine_memory::AsObject(fallback),replay,12))return Failure::GuardMismatch;
+    std::uintptr_t slot{};
+    std::memcpy(&slot,engine_memory::AsObject(site.gate+16),sizeof(slot));
+    if(slot)return Failure::VeneerNotEmpty;
+    return PublishColdBinding(binding,site.gate+16);
+}
+
+namespace {
+bool ColdIndirectImagesMatch(const ColdIndirectHookSite& site,
+                             std::uint32_t* sourceBranch) {
+    if (sourceBranch == nullptr) return false;
+    std::uint8_t gate[kColdIndirectGateBytes]{};
+    std::uint8_t fallback[kColdIndirectFallbackBytes]{};
+    if (!BuildColdIndirectImages(site, gate, fallback) ||
+        !BuildInternalBranch(sourceBranch, site.source, site.gate)) {
+        return false;
+    }
+    return engine_memory::EngineMemoryReadable(site.source, 4) &&
+           engine_memory::EngineMemoryReadable(site.gate, sizeof(gate)) &&
+           engine_memory::EngineMemoryReadable(site.slot,
+                                                kColdIndirectSlotBytes) &&
+           engine_memory::EngineMemoryReadable(site.fallback,
+                                                sizeof(fallback)) &&
+           std::memcmp(engine_memory::AsObject(site.source), sourceBranch, 4) == 0 &&
+           std::memcmp(engine_memory::AsObject(site.gate), gate, sizeof(gate)) == 0 &&
+           std::memcmp(engine_memory::AsObject(site.fallback), fallback,
+                       sizeof(fallback)) == 0;
+}
+
+bool ColdIndirectSiteMatches(const ColdIndirectHookSite& site,
+                             std::uint32_t* sourceBranch,
+                             std::uintptr_t* slotValue) {
+    if (slotValue == nullptr ||
+        !ColdIndirectImagesMatch(site, sourceBranch)) {
+        return false;
+    }
+    std::memcpy(slotValue, engine_memory::AsObject(site.slot),
+                sizeof(*slotValue));
+    return true;
+}
+}  // namespace
+
+InternalHookFailure TryInstallColdIndirectHook(
+    const InternalHookBinding& binding,
+    const ColdIndirectHookSite& site) {
+    using Failure = InternalHookFailure;
+    if (!ValidInternalBinding(binding) ||
+        binding.scratch != InternalScratchPolicy::ProvedDeadX16 ||
+        binding.resumeCount != 1 ||
+        binding.resumes[0] != site.source + 4) {
+        return Failure::InvalidPlan;
+    }
+    std::uint8_t gate[kColdIndirectGateBytes]{};
+    std::uint8_t fallback[kColdIndirectFallbackBytes]{};
+    if (!BuildColdIndirectImages(site, gate, fallback)) {
+        return Failure::InvalidPlan;
+    }
+    std::uint32_t sourceBranch{};
+    std::uintptr_t slot{};
+    if (!ColdIndirectSiteMatches(site, &sourceBranch, &slot)) {
+        const bool readable =
+            engine_memory::EngineMemoryReadable(site.source, 4) &&
+            engine_memory::EngineMemoryReadable(site.gate, sizeof(gate)) &&
+            engine_memory::EngineMemoryReadable(site.slot,
+                                                kColdIndirectSlotBytes) &&
+            engine_memory::EngineMemoryReadable(site.fallback,
+                                                sizeof(fallback));
+        return readable ? Failure::GuardMismatch : Failure::InvalidPlan;
+    }
+    if (slot != 0) return Failure::VeneerNotEmpty;
+    return PublishColdBinding(binding, site.slot);
+}
+
+InternalHookFailure ColdIndirectReady(
+    const ColdIndirectHookSite& site,
+    std::uintptr_t expectedGateway) {
+    using Failure = InternalHookFailure;
+    std::uint32_t sourceBranch{};
+    std::uintptr_t slot{};
+    if (!ColdIndirectSiteMatches(site, &sourceBranch, &slot)) {
+        const bool readable =
+            engine_memory::EngineMemoryReadable(site.source, 4) &&
+            engine_memory::EngineMemoryReadable(site.gate,
+                                                kColdIndirectGateBytes) &&
+            engine_memory::EngineMemoryReadable(site.slot,
+                                                kColdIndirectSlotBytes) &&
+            engine_memory::EngineMemoryReadable(site.fallback,
+                                                kColdIndirectFallbackBytes);
+        return readable ? Failure::GuardMismatch : Failure::InvalidPlan;
+    }
+    if (expectedGateway == 0) {
+        return slot == 0 ? Failure::None : Failure::VeneerNotEmpty;
+    }
+    if (slot != expectedGateway ||
+        !engine_memory::EngineMemoryReadable(expectedGateway,
+                                             kInternalGatewayBytes)) {
+        return Failure::GuardMismatch;
+    }
+    return Failure::None;
+}
+
+InternalHookFailure RollbackColdIndirectHook(
+    const ColdIndirectHookSite& site,
+    std::uintptr_t expectedGateway) {
+    using Failure = InternalHookFailure;
+    if (expectedGateway == 0) return Failure::InvalidPlan;
+    const auto ready = ColdIndirectReady(site, expectedGateway);
+    if (ready != Failure::None) return ready;
+    exl::util::RwPages pages(site.slot, kColdIndirectSlotBytes);
+    auto* slot = static_cast<std::uintptr_t*>(engine_memory::AsObject(pages.GetRw()));
+    auto expected = expectedGateway;
+    if (!__atomic_compare_exchange_n(slot, &expected, 0, false,
+                                     __ATOMIC_RELEASE, __ATOMIC_RELAXED)) {
+        return Failure::RollbackFailed;
+    }
+    pages.Flush();
+    std::uintptr_t current{};
+    std::memcpy(&current, engine_memory::AsObject(site.slot), sizeof(current));
+    return current == 0 ? Failure::None : Failure::WriteVerifyFailed;
 }
 } // namespace isaac::runtime::relay

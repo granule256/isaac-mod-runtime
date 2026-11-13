@@ -34,7 +34,9 @@ static_assert(!std::is_copy_constructible_v<PlayerDamageCallScope>);
 static_assert(!std::is_move_constructible_v<PlayerDamageCallScope>);
 static unsigned dispatched{},replayed{},depth{};
 static bool cancel{},nativeResult{},nest{};
-static std::uintptr_t expectedPlayer=0x12345678,expectedSource=0x87654320,nativePlayer{};
+static std::uintptr_t expectedPlayer=0x12345678,nativePlayer{};
+alignas(16) static std::array<unsigned char,0x40> sourceStorage{};
+static std::uintptr_t expectedSource=reinterpret_cast<std::uintptr_t>(sourceStorage.data());
 static std::int32_t expectedCountdown=17;
 static PlayerDamageNativeBindings native{};
 static bool Replay(void* p){++replayed;nativePlayer=reinterpret_cast<std::uintptr_t>(p);return nativeResult;}
@@ -107,6 +109,8 @@ using namespace isaac::runtime;
 static std::uintptr_t base{};static unsigned installs{};static bool fail{};
 namespace LuaRuntime {
 bool DispatchEntityTakeDamage(std::uintptr_t,float,std::uint64_t,std::uintptr_t,std::int32_t,std::int32_t){return false;}
+bool DispatchEntityTakeDamageValues(isaac::runtime::damage::Values&){return false;}
+void DispatchPostEntityTakeDamageValues(const isaac::runtime::damage::Values&){}
 }
 namespace isaac::runtime::relay {
 InternalHookFailure TryInstallInternalHook(const InternalHookBinding& b,const InternalHookSite& s,std::uintptr_t v){
@@ -117,6 +121,8 @@ InternalHookFailure TryInstallInternalHook(const InternalHookBinding& b,const In
  const auto& n=*static_cast<const PlayerDamageNativeBindings*>(b.user);
  assert(reinterpret_cast<std::uintptr_t>(n.tryEndAstralProjection)==base+0x6785d0);
  assert(n.dispatch==LuaRuntime::DispatchEntityTakeDamage);
+ assert(n.dispatchPreValues==LuaRuntime::DispatchEntityTakeDamageValues);
+ assert(n.dispatchPostValues==LuaRuntime::DispatchPostEntityTakeDamageValues);
  if(fail)return InternalHookFailure::WriteVerifyFailed;
  std::uint32_t branch{};assert(BuildInternalBranch(&branch,s.target,v));
  std::memcpy(reinterpret_cast<void*>(s.target),&branch,4);
@@ -167,7 +173,13 @@ class PlayerDamageInternalHookTests(unittest.TestCase):
         (folder / "driver.cpp").write_text(driver)
         if shim:
             (folder / "lua_runtime.hpp").write_text(
-                "#pragma once\n#include <cstdint>\nnamespace LuaRuntime { bool DispatchEntityTakeDamage(std::uintptr_t,float,std::uint64_t,std::uintptr_t,std::int32_t,std::int32_t); }\n"
+                "#pragma once\n#include <cstdint>\n"
+                "namespace isaac::runtime::damage { struct Values; }\n"
+                "namespace LuaRuntime {\n"
+                "bool DispatchEntityTakeDamage(std::uintptr_t,float,std::uint64_t,std::uintptr_t,std::int32_t,std::int32_t);\n"
+                "bool DispatchEntityTakeDamageValues(isaac::runtime::damage::Values&);\n"
+                "void DispatchPostEntityTakeDamageValues(const isaac::runtime::damage::Values&);\n"
+                "}\n"
             )
         binary = folder / "driver"
         result = subprocess.run(
@@ -182,7 +194,9 @@ class PlayerDamageInternalHookTests(unittest.TestCase):
         if not HEADER.exists():
             self.skipTest("等待玩家中段桥")
         with tempfile.TemporaryDirectory(prefix="isaac-player-damage-") as folder:
-            binary = self.build(folder, HELPER_DRIVER, [SOURCE / "player_damage_internal_hook.cpp"])
+            binary = self.build(folder, HELPER_DRIVER,
+                                [SOURCE / "player_damage_internal_hook.cpp",
+                                 SOURCE / "damage_context.cpp"])
             result = subprocess.run([str(binary)], capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
@@ -191,7 +205,9 @@ class PlayerDamageInternalHookTests(unittest.TestCase):
             self.skipTest("等待玩家中段安装器")
         self.assertTrue(NRO is not None and NRO.is_file(), "缺少固定NS原件，不能伪造函数指纹")
         with tempfile.TemporaryDirectory(prefix="isaac-player-damage-install-") as folder:
-            binary = self.build(folder, INSTALLER_DRIVER, [INSTALLER, SOURCE / "player_damage_internal_hook.cpp"], shim=True)
+            binary = self.build(folder, INSTALLER_DRIVER,
+                                [INSTALLER, SOURCE / "player_damage_internal_hook.cpp",
+                                 SOURCE / "damage_context.cpp"], shim=True)
             for scene in ["guards", "failure", "normal"]:
                 with self.subTest(scene=scene):
                     result = subprocess.run([str(binary), str(NRO), scene], capture_output=True, text=True)

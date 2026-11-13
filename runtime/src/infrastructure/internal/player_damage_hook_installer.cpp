@@ -29,6 +29,8 @@ bool TryInstallPlayerDamageBoundary(const HookTarget& target) noexcept {
     static PlayerDamageNativeBindings native{};
     native.tryEndAstralProjection = engine_call::AsFunction<bool (*)(void*)>(target.base + layout::kAstralPlt);
     native.dispatch = LuaRuntime::DispatchEntityTakeDamage;
+    native.dispatchPreValues = LuaRuntime::DispatchEntityTakeDamageValues;
+    native.dispatchPostValues = LuaRuntime::DispatchPostEntityTakeDamageValues;
     relay::InternalHookBinding binding{};
     binding.callback = PlayerDamageInternalCallback;
     binding.user = &native;

@@ -19,6 +19,11 @@
 #include "interfaces/lua/repentogon_boc_api.hpp"
 #include "interfaces/lua/repentogon_console_api.hpp"
 #include "interfaces/lua/repentogon_timer_api.hpp"
+#include "interfaces/lua/repentogon_room_config_api.hpp"
+#include "interfaces/lua/repentogon_xml_data_api.hpp"
+#include "interfaces/lua/repentogon_game_state_data.hpp"
+#include "interfaces/lua/repentogon_room_placement_api.hpp"
+#include "interfaces/lua/repentogon_generator_api.hpp"
 #include "application/callback/extended_callback_runtime.hpp"
 #include "lua_runtime.hpp"
 #include <array>
@@ -31,6 +36,7 @@ namespace {
 const NativePort* g_NativePort{};
 constexpr RepentogonCallbackBinding kCallbacks[]={
     {1005,"MC_POST_ADD_COLLECTIBLE"},
+    {1006,"MC_POST_ENTITY_TAKE_DMG"},
     {1020,"MC_HUD_UPDATE"},
     {1021,"MC_POST_HUD_UPDATE"},
     {1022,"MC_HUD_RENDER"},
@@ -52,11 +58,16 @@ constexpr RepentogonCallbackBinding kCallbacks[]={
     {1088,"MC_PRE_BOMB_RENDER"},
     {1089,"MC_PRE_SLOT_RENDER"},
     {1090,"MC_POST_SLOT_RENDER"},
+    {1095,"MC_POST_TRIGGER_COLLECTIBLE_REMOVED"},
+    {1099,"MC_POST_LEVEL_LAYOUT_GENERATED"},
     {1101,"MC_POST_GRID_ENTITY_SPAWN"},
     {1102,"MC_POST_NIGHTMARE_SCENE_RENDER"},
     {1104,"MC_PRE_LEVEL_SELECT"},
+    {1120,"MC_CONSOLE_AUTOCOMPLETE"},
     {1121,"MC_POST_SLOT_INIT"},
     {1122,"MC_POST_SLOT_UPDATE"},
+    {1133,"MC_POST_DEVIL_CALCULATE"},
+    {1137,"MC_PRE_LEVEL_PLACE_ROOM"},
     {1160,"MC_PRE_PLAYER_UPDATE"},
     {1161,"MC_PRE_TEAR_UPDATE"},
     {1162,"MC_PRE_FAMILIAR_UPDATE"},
@@ -68,6 +79,7 @@ constexpr RepentogonCallbackBinding kCallbacks[]={
     {1168,"MC_PRE_EFFECT_UPDATE"},
     {1169,"MC_PRE_SLOT_UPDATE"},
     {1200,"MC_PRE_NEW_ROOM"},
+    {1201,"MC_PRE_MEGA_SATAN_ENDING"},
     {1210,"MC_POST_MODS_LOADED"},
     {1218,"MC_PRE_PAUSE_SCREEN_RENDER"},
     {1219,"MC_POST_PAUSE_SCREEN_RENDER"},
@@ -77,6 +89,15 @@ constexpr RepentogonCallbackBinding kCallbacks[]={
     {1237,"MC_POST_BOMB_COLLISION"},
     {1239,"MC_POST_PICKUP_COLLISION"},
     {1270,"MC_POST_BOSS_INTRO_SHOW"},
+    {1280,"MC_PRE_BOSS_SELECT"},
+    {1300,"MC_POST_GLOWING_HOURGLASS_SAVE"},
+    {1301,"MC_POST_GLOWING_HOURGLASS_LOAD"},
+    {1302,"MC_PRE_GLOWING_HOURGLASS_SAVE"},
+    {1303,"MC_PRE_GLOWING_HOURGLASS_LOAD"},
+    {1309,"MC_PRE_GAME_STATE_SAVE"},
+    {1310,"MC_POST_GAME_STATE_SAVE"},
+    {1311,"MC_PRE_GAME_STATE_RESTORE"},
+    {1312,"MC_POST_GAME_STATE_RESTORE"},
     {1400,"MC_PRE_GRID_ENTITY_DECORATION_UPDATE"},
     {1401,"MC_POST_GRID_ENTITY_DECORATION_UPDATE"},
     {1402,"MC_PRE_GRID_ENTITY_DOOR_UPDATE"},
@@ -142,7 +163,8 @@ constexpr RepentogonCallbackBinding kCallbacks[]={
     {1464,"MC_MENU_INPUT_ACTION"},
     {1470,"MC_POST_SAVESLOT_LOAD"},
 };
-static_assert(sizeof(kCallbacks)/sizeof(kCallbacks[0])==111);
+constexpr auto kCallbackCount=sizeof(kCallbacks)/sizeof(kCallbacks[0]);
+static_assert(kCallbackCount==127);
 constexpr RepentogonEnumBinding kAliases[]={{"ModCallbacks","MC_HUD_POST_UPDATE",1021}};
 constexpr RepentogonApiBinding kApis[]={
     {{0x07020001,ApiDomain::Rng,"RNG","SetSeed",{},0,ThreadAffinity::ManagedCallback,
@@ -151,6 +173,10 @@ constexpr RepentogonApiBinding kApis[]={
       ApiMaturity::Experimental},RepentogonLevelGetDimension},
     {{0x03020002,ApiDomain::Level,"Level","SetStage",{},0,ThreadAffinity::ManagedCallback,
       ApiMaturity::Experimental},RepentogonLevelSetStage,nullptr,nullptr,true},
+    {{0x03020003,ApiDomain::Level,"Level","TryPlaceRoom",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonLevelTryPlaceRoom},
+    {{0x03020004,ApiDomain::Level,"Level","TryPlaceRoomAtDoor",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonLevelTryPlaceRoomAtDoor},
     {{0x0E020001,ApiDomain::Isaac,"GridEntity","ToTrapDoor",{},0,ThreadAffinity::ManagedCallback,
       ApiMaturity::Experimental},RepentogonGridToTrapDoor},
     {{0x0E020002,ApiDomain::Isaac,"Isaac","IsInGame",{},0,ThreadAffinity::ManagedCallback,
@@ -239,6 +265,12 @@ constexpr RepentogonApiBinding kApis[]={
       ApiMaturity::Experimental},RepentogonEntityPickupSetVarData},
     {{0x0E02011B,ApiDomain::Isaac,"EntityPickup","AddCollectibleCycle",{},0,ThreadAffinity::ManagedCallback,
       ApiMaturity::Experimental},RepentogonEntityPickupAddCollectibleCycle},
+    {{0x0E02011C,ApiDomain::Isaac,"EntityPickup","GetCanRerollOverride",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonEntityPickupGetCanRerollOverride},
+    {{0x0E02011D,ApiDomain::Isaac,"EntityPickup","SetCanRerollOverride",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonEntityPickupSetCanRerollOverride},
+    {{0x0E02011E,ApiDomain::Isaac,"EntityPickup","ClearCanRerollOverride",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonEntityPickupClearCanRerollOverride},
     {{0x0E023000,ApiDomain::Isaac,"EntityConfig","GetEntity",{},0,ThreadAffinity::ManagedCallback,
       ApiMaturity::Experimental},RepentogonEntityConfigGetEntity},
     {{0x0E023001,ApiDomain::Isaac,"EntityConfig","GetPlayer",{},0,ThreadAffinity::ManagedCallback,
@@ -279,6 +311,8 @@ constexpr RepentogonApiBinding kApis[]={
       ApiMaturity::Experimental},RepentogonEntitiesSaveStateVectorGet},
     {{0x0E027011,ApiDomain::Isaac,"EntitiesSaveStateVector","__len",{},0,ThreadAffinity::ManagedCallback,
       ApiMaturity::Experimental},RepentogonEntitiesSaveStateVectorLen},
+    {{0x0E027012,ApiDomain::Isaac,"EntitiesSaveStateVector","Clear",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonEntitiesSaveStateVectorClear},
     {{0x0E027020,ApiDomain::Isaac,"EntitiesSaveState","GetType",{},0,ThreadAffinity::ManagedCallback,
       ApiMaturity::Experimental},RepentogonEntitiesSaveStateGetType},
     {{0x0E027021,ApiDomain::Isaac,"EntitiesSaveState","GetVariant",{},0,ThreadAffinity::ManagedCallback,
@@ -305,8 +339,24 @@ constexpr RepentogonApiBinding kApis[]={
       ApiMaturity::Experimental},RepentogonConsolePrintWarning},
     {{0x0E029002,ApiDomain::Isaac,"Console","GetHistory",{},0,ThreadAffinity::ManagedCallback,
       ApiMaturity::Experimental},RepentogonConsoleGetHistory},
+    {{0x0E029003,ApiDomain::Isaac,"Console","RegisterCommand",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonConsoleRegisterCommand},
     {{0x0E02A000,ApiDomain::Isaac,"Isaac","CreateTimer",{},0,ThreadAffinity::ManagedCallback,
       ApiMaturity::Experimental},RepentogonIsaacCreateTimer},
+    {{0x0E02D000,ApiDomain::Isaac,"SaveStateManager","GetGameData",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonSaveStateManagerGetGameData},
+    {{0x0E02D001,ApiDomain::Isaac,"SaveStateManager","ClearGameData",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonSaveStateManagerClearGameData},
+    {{0x0E02B000,ApiDomain::Isaac,"RoomConfig","GetRoomByStageTypeAndVariant",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonRoomConfigGetRoomByStageTypeAndVariant},
+    {{0x0E02C000,ApiDomain::Isaac,"XMLData","GetEntityByTypeVarSub",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonXmlDataGetEntityByTypeVarSub},
+    {{0x0E02C001,ApiDomain::Isaac,"XMLData","GetEntryById",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonXmlDataGetEntryById},
+    {{0x0E02C002,ApiDomain::Isaac,"XMLData","GetEntryByOrder",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonXmlDataGetEntryByOrder},
+    {{0x0E02C003,ApiDomain::Isaac,"XMLData","GetNumEntries",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonXmlDataGetNumEntries},
     {{0x0E024000,ApiDomain::Isaac,"MenuManager","GetActiveMenu",{},0,ThreadAffinity::ManagedCallback,
       ApiMaturity::Experimental},RepentogonMenuManagerGetActiveMenu},
     {{0x0E024001,ApiDomain::Isaac,"MenuManager","IsActive",{},0,ThreadAffinity::ManagedCallback,
@@ -325,6 +375,8 @@ constexpr RepentogonApiBinding kApis[]={
       ApiMaturity::Experimental},RepentogonRoomTransitionIsRenderingBossIntro},
     {{0x0E024008,ApiDomain::Isaac,"RoomTransition","GetVersusScreenSprite",{},0,ThreadAffinity::ManagedCallback,
       ApiMaturity::Experimental},RepentogonRoomTransitionGetVersusScreenSprite},
+    {{0x0E02400E,ApiDomain::Isaac,"RoomTransition","StartBossIntro",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonRoomTransitionStartBossIntro},
     {{0x0E024009,ApiDomain::Isaac,"Ambush","GetCurrentWave",{},0,ThreadAffinity::ManagedCallback,
       ApiMaturity::Experimental},RepentogonAmbushGetCurrentWave},
     {{0x0E02400A,ApiDomain::Isaac,"NightmareScene","IsDogmaNightmare",{},0,ThreadAffinity::ManagedCallback,
@@ -388,12 +440,12 @@ constexpr RepentogonApiBinding kApis[]={
 constexpr auto MakeStateIndices() noexcept {
     std::array<std::uint8_t,1472-1000> indices{};
     for(auto& index:indices)index=255;
-    for(std::size_t i=0;i<111;++i)indices[kCallbacks[i].id-1000]=static_cast<std::uint8_t>(i);
+    for(std::size_t i=0;i<kCallbackCount;++i)indices[kCallbacks[i].id-1000]=static_cast<std::uint8_t>(i);
     return indices;
 }
 constexpr auto kStateIndices=MakeStateIndices();
-std::array<ExtendedCallbackState*,111> g_States{};
-void Reset() noexcept {g_States.fill(nullptr);ResetRepentogonTimerApi();}
+std::array<ExtendedCallbackState*,kCallbackCount> g_States{};
+void Reset() noexcept {g_States.fill(nullptr);ResetRepentogonTimerApi();ResetRepentogonGameStateData();}
 
 bool Ready() noexcept {
     return g_NativePort&&g_NativePort->ready&&g_NativePort->install&&g_NativePort->ready();
@@ -415,6 +467,11 @@ int Initialize(lua_State* state) {
     RegisterRepentogonBocViews(state);
     static_cast<void>(RegisterRepentogonConsoleApi(state));
     static_cast<void>(RegisterRepentogonTimerApi(state));
+    static_cast<void>(RegisterRepentogonRoomConfigApi(state));
+    static_cast<void>(RegisterRepentogonXmlDataApi(state));
+    static_cast<void>(RegisterRepentogonGameStateData(state));
+    static_cast<void>(RegisterRepentogonRoomPlacementApi(state));
+    RegisterRepentogonGeneratorViews(state);
     return 0;
 }
 }
@@ -427,7 +484,7 @@ bool CallbackSpriteAlive(std::uintptr_t address) noexcept {
     return address&&HasSpriteValidator()&&g_NativePort->spriteAlive(address);
 }
 bool HasNativePort() noexcept { return g_NativePort!=nullptr; }
-constinit const RepentogonBatch kCallbackBatch{"callbacks",kApis,sizeof(kApis)/sizeof(kApis[0]),kAliases,1,kCallbacks,111,Initialize,Reset,Ready};
+constinit const RepentogonBatch kCallbackBatch{"callbacks",kApis,sizeof(kApis)/sizeof(kApis[0]),kAliases,1,kCallbacks,kCallbackCount,Initialize,Reset,Ready};
 const RepentogonBatch& CallbackBatch() noexcept {return kCallbackBatch;}
 const ExtendedCallbackState* FindCallbackState(std::uint32_t id) noexcept {
     if(id>=1000&&id<1472) {

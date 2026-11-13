@@ -135,10 +135,152 @@ struct ColdInternalHookSite {
     std::uintptr_t source{}, gate{};
     std::uint32_t original{};
 };
+constexpr bool BuildStatHudColdImages(const ColdInternalHookSite& site,
+    std::uintptr_t fallback,std::uint8_t* gate,std::uint8_t* replay) {
+    if(!gate||!replay||site.source<24||!site.gate||!fallback||
+       (site.source&3)||(site.gate&7)||(fallback&3)||
+       site.source>UINTPTR_MAX-16||site.gate>UINTPTR_MAX-24||fallback>UINTPTR_MAX-12||
+       (site.original!=0x54FFFF40U&&site.original!=0x54FFFF43U))return false;
+    const auto from=site.gate+4;
+    std::int64_t delta{};
+    if(fallback>=from){if(fallback-from>0xFFFFC)return false;delta=fallback-from;}
+    else {if(from-fallback>0x100000)return false;delta=-static_cast<std::int64_t>(from-fallback);}
+    std::uint32_t taken{},fallthrough{};
+    if(!BuildInternalBranch(&taken,fallback+4,site.source-24)||
+       !BuildInternalBranch(&fallthrough,fallback+8,site.source+4))return false;
+    StoreLittleEndianWord(gate,0x58000090U);
+    StoreLittleEndianWord(gate+4,0xB4000010U|((static_cast<std::uint32_t>(delta/4)&0x7FFFFU)<<5));
+    StoreLittleEndianWord(gate+8,EncodeBr(16));
+    StoreLittleEndianWord(gate+12,0xD503201FU);
+    StoreLittleEndianDoubleWord(gate+16,0);
+    StoreLittleEndianWord(replay,0x54000040U|((site.original&15U)^1U));
+    StoreLittleEndianWord(replay+4,taken);
+    StoreLittleEndianWord(replay+8,fallthrough);
+    return true;
+}
+InternalHookFailure TryInstallStatHudColdHook(const InternalHookBinding&,
+    const ColdInternalHookSite&,std::uintptr_t fallback);
 InternalHookFailure TryInstallPreinstalledInternalHook(const InternalHookBinding&,
                                                       const ColdInternalHookSite&);
 // 两条Console未知命令条件分支。加载前已拆成反条件+B+B，只发布gate+32槽。
 InternalHookFailure TryInstallConsoleConditionalHook(const InternalHookBinding&,
                                                      const ColdInternalHookSite&);
+
+// Indirect cold gate for a dynamic `blr xN` call site.
+//
+// The preinstalled source word is `B gate`; the gate pointer slot is zero until
+// runtime publication. With a null slot, fallback sets x30 to source+4 and
+// branches through the original BLR register, exactly preserving the original
+// call's return address and target. The gate may only use x16 because the
+// caller must prove x16 dead at the site.
+inline constexpr std::size_t kColdIndirectGateBytes = 12;
+inline constexpr std::size_t kColdIndirectSlotBytes = 8;
+inline constexpr std::size_t kColdIndirectFallbackBytes = 8;
+struct ColdIndirectHookSite {
+    std::uintptr_t source{}, gate{}, slot{}, fallback{};
+    std::uint32_t original{};
+    std::uint32_t targetRegister{};
+};
+
+constexpr bool BuildColdIndirectImages(const ColdIndirectHookSite& site,
+                                       std::uint8_t* gate,
+                                       std::uint8_t* fallback) {
+    if (gate == nullptr || fallback == nullptr || site.source == 0 ||
+        site.gate == 0 || site.slot == 0 || site.fallback == 0 ||
+        (site.source & 3) != 0 || (site.gate & 3) != 0 ||
+        (site.slot & 7) != 0 || (site.fallback & 3) != 0 ||
+        site.source > UINTPTR_MAX - 4 ||
+        site.gate > UINTPTR_MAX - kColdIndirectGateBytes ||
+        site.slot > UINTPTR_MAX - kColdIndirectSlotBytes ||
+        site.fallback > UINTPTR_MAX - kColdIndirectFallbackBytes) {
+        return false;
+    }
+    if (site.targetRegister > 30 || site.targetRegister == 16 ||
+        site.targetRegister == 30 ||
+        site.original !=
+            (0xD63F0000U | (site.targetRegister << 5))) {
+        return false;
+    }
+
+    const auto ranges = [&site](std::size_t index, std::uintptr_t* begin,
+                                std::uintptr_t* end) {
+        switch (index) {
+            case 0: *begin = site.source; *end = site.source + 4; return true;
+            case 1: *begin = site.gate; *end = site.gate + kColdIndirectGateBytes; return true;
+            case 2: *begin = site.slot; *end = site.slot + kColdIndirectSlotBytes; return true;
+            case 3: *begin = site.fallback; *end = site.fallback + kColdIndirectFallbackBytes; return true;
+            default: return false;
+        }
+    };
+    std::uintptr_t begins[4]{}, ends[4]{};
+    for (std::size_t i = 0; i < 4; ++i) {
+        if (!ranges(i, &begins[i], &ends[i])) return false;
+    }
+    for (std::size_t i = 1; i < 4; ++i) {
+        const auto begin = begins[i];
+        const auto end = ends[i];
+        std::size_t j = i;
+        while (j > 0 && begins[j - 1] > begin) {
+            begins[j] = begins[j - 1];
+            ends[j] = ends[j - 1];
+            --j;
+        }
+        begins[j] = begin;
+        ends[j] = end;
+    }
+    for (std::size_t i = 1; i < 4; ++i) {
+        if (ends[i - 1] > begins[i]) return false;
+    }
+
+    const auto signed_delta = [](std::uintptr_t from, std::uintptr_t to,
+                                 std::int64_t* delta) {
+        if (delta == nullptr || ((from | to) & 3) != 0) return false;
+        if (to >= from) {
+            if (to - from > 0xFFFFCU) return false;
+            *delta = static_cast<std::int64_t>(to - from);
+        } else {
+            if (from - to > 0x100000U) return false;
+            *delta = -static_cast<std::int64_t>(from - to);
+        }
+        return true;
+    };
+    std::int64_t slotDelta{}, fallbackDelta{}, resumeDelta{};
+    if (!signed_delta(site.gate, site.slot, &slotDelta) ||
+        !signed_delta(site.gate + 4, site.fallback, &fallbackDelta) ||
+        !signed_delta(site.fallback, site.source + 4, &resumeDelta)) {
+        return false;
+    }
+    std::uint32_t sourceBranch{};
+    if (!BuildInternalBranch(&sourceBranch, site.source, site.gate)) {
+        return false;
+    }
+
+    StoreLittleEndianWord(
+        gate, EncodeLdrLiteral(16, static_cast<std::int32_t>(slotDelta)));
+    StoreLittleEndianWord(
+        gate + 4, EncodeCbz(16, static_cast<std::int32_t>(fallbackDelta)));
+    StoreLittleEndianWord(gate + 8, EncodeBr(16));
+    StoreLittleEndianWord(
+        fallback, EncodeAdr(30, static_cast<std::int32_t>(resumeDelta)));
+    StoreLittleEndianWord(fallback + 4, EncodeBr(site.targetRegister));
+    return true;
+}
+constexpr bool BuildColdIndirectImages(const ColdIndirectHookSite& site,
+                                       std::uint8_t* gate, std::uint8_t* slot,
+                                       std::uint8_t* fallback) {
+    if (slot == nullptr ||
+        !BuildColdIndirectImages(site, gate, fallback)) {
+        return false;
+    }
+    for (std::size_t i = 0; i < kColdIndirectSlotBytes; ++i) slot[i] = 0;
+    return true;
+}
+
+InternalHookFailure TryInstallColdIndirectHook(
+    const InternalHookBinding&, const ColdIndirectHookSite&);
+InternalHookFailure ColdIndirectReady(const ColdIndirectHookSite&,
+                                      std::uintptr_t expectedGateway);
+InternalHookFailure RollbackColdIndirectHook(const ColdIndirectHookSite&,
+                                             std::uintptr_t expectedGateway);
 
 } // namespace isaac::runtime::relay

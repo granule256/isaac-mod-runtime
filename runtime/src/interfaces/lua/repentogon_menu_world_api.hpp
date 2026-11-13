@@ -17,6 +17,7 @@ int RepentogonWorldToMenuPosition(lua_State* state);
 
 int RepentogonRoomTransitionIsRenderingBossIntro(lua_State* state);
 int RepentogonRoomTransitionGetVersusScreenSprite(lua_State* state);
+int RepentogonRoomTransitionStartBossIntro(lua_State* state);
 
 int RepentogonAmbushGetCurrentWave(lua_State* state);
 int RepentogonNightmareSceneIsDogmaNightmare(lua_State* state);
@@ -33,6 +34,7 @@ int RegisterRepentogonMenuWorldApi(lua_State* state);
 #if !defined(__SWITCH__)
 struct RepentogonMenuWorldNativeTestBindings {
     bool (*isRenderingBossIntro)(const void*){};
+    void (*startBossIntro)(void*, std::uint32_t, std::uint32_t){};
 };
 void SetRepentogonMenuWorldNativeTestBindings(
     RepentogonMenuWorldNativeTestBindings bindings) noexcept;

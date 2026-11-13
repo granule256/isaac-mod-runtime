@@ -15,7 +15,7 @@ struct Sound {
 };
 enum class EventKind {
     Global, Entity, EntityRender, Grid, GridRender, Collision, Sound, IntegerPair, AddCollectible,
-    SaveSlot, RoomDescriptor
+    SaveSlot, RoomDescriptor, Number, LevelGenerator, LevelGeneratorRoom, BossPool, CollectibleRemoved
 };
 struct Event {
     std::uint32_t id{};
@@ -25,10 +25,13 @@ struct Event {
     bool low{};
     Sound* sound{};
     std::int32_t first{}, second{}, third{}, fourth{};
+    float number{};
 };
 struct Result {
     bool hasBoolean{}, boolean{}, hasOffset{}; Vector offset{};
     bool hasIntegerPair{};std::int32_t first{},second{};
+    bool hasNumber{};float number{};
+    bool hasObject{};std::uintptr_t object{};
 };
 Result Dispatch(const Event&) noexcept;
 const ExtendedCallbackState* FindCallbackState(std::uint32_t id) noexcept;

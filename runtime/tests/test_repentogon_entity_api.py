@@ -9,11 +9,13 @@ from .test_repentogon_in_game import PREFIX
 SOURCE = Path(__file__).resolve().parents[1] / 'source'
 DRIVER = PREFIX + r'''
 #include "interfaces/lua/isaac_api.hpp"
+#include "interfaces/lua/pickup_flip_api.hpp"
 #include "interfaces/lua/repentogon_entity_api.hpp"
 #include "lua_object_handles.hpp"
 #include "runtime_constants.hpp"
+#include <cstdlib>
 #include <vector>
-static std::vector<unsigned char> moduleBytes,entity,minecart,slot,pickup,flipState;
+static std::vector<unsigned char> moduleBytes,game,room,animation,entity,minecart,slot,pickup,flipState;
 static unsigned calls;
 static std::uintptr_t Address(const std::vector<unsigned char>& bytes){return reinterpret_cast<std::uintptr_t>(bytes.data());}
 static void SetIdentity(std::vector<unsigned char>& bytes,std::uintptr_t vtable,std::uint32_t type,std::uint32_t variant){
@@ -24,30 +26,60 @@ static void* Give(void* self,const RepentogonEntityVector& position,const Repent
  const auto value=Address(minecart);std::memcpy(static_cast<unsigned char*>(self)+0x3c8,&value,sizeof(value));
  return minecart.data();
 }
-static void InitFlip(void* self){
- assert(self==pickup.data());++calls;const auto value=Address(flipState);
- std::memcpy(static_cast<unsigned char*>(self)+0x610,&value,sizeof(value));
- const std::int32_t nativeSubtype=321;std::memcpy(flipState.data()+8,&nativeSubtype,sizeof(nativeSubtype));
+static bool CanReroll(const void* self){return self==pickup.data();}
+static void* Allocate(std::size_t size){return std::calloc(1,size);}
+static void Deallocate(void* value){std::free(value);}
+static void Mutex(void*){}
+static std::uint32_t NextSeed(std::uint32_t){return 123;}
+static std::int32_t Seeded(void*,std::uint32_t){return 321;}
+static void SetFlip(void* self,const isaac::runtime::pickup_flip::SaveStatePointer& value){
+ assert(self==pickup.data());++calls;
+ std::memcpy(static_cast<unsigned char*>(self)+0x610,&value.saveState,sizeof(value.saveState));
+ std::memcpy(static_cast<unsigned char*>(self)+0x618,&value.reference,sizeof(value.reference));
 }
+static bool Decrement(void*){return true;}
+static void Reset(void*){}
+static void Copy(void*,const void*){}
+static void Swap(void*,void*){}
+static void Destroy(void*){}
+static void Setup(void*,std::uint32_t,std::int32_t,std::uint32_t,bool){}
+static void Load(void*){}
+static void Play(void*,const char*,bool){}
+static void Update(void*){}
 static void Extensions(lua_State* state) noexcept{
  isaac::runtime::PushEntityCallbackArgument(state,Address(entity));lua_setglobal(state,"entity");
  isaac::runtime::PushEntityCallbackArgument(state,Address(slot));lua_setglobal(state,"slot");
  isaac::runtime::PushEntityCallbackArgument(state,Address(pickup));lua_setglobal(state,"pickup");
 }
 int main(){
- moduleBytes.assign(0x26b6c8+16,0);entity.assign(0x4000,0);minecart.assign(0x4000,0);slot.assign(0x4000,0);pickup.assign(0x4000,0);flipState.assign(0x100,0);
+ moduleBytes.assign(kGameOwnerGlobalSlotOffset+sizeof(std::uintptr_t),0);
+ game.assign(0x22000,0);room.assign(0x100,0);animation.assign(0x150,0);
+ entity.assign(0x4000,0);minecart.assign(0x4000,0);slot.assign(0x4000,0);pickup.assign(0x4000,0);flipState.assign(0x100,0);
  const auto base=Address(moduleBytes);
+ const auto gameAddress=Address(game);const auto roomAddress=Address(room);
+ std::memcpy(moduleBytes.data()+kGameOwnerGlobalSlotOffset,&gameAddress,sizeof(gameAddress));
+ std::memcpy(game.data()+kGameRoomPointerOffset,&roomAddress,sizeof(roomAddress));
  SetIdentity(entity,base+kEntityNpcVtableOffset,20,1);SetIdentity(minecart,base+kEntityNpcVtableOffset,20,965);SetIdentity(slot,base+kEntitySlotVtableOffset,6,1);SetIdentity(pickup,base+kEntityPickupVtableOffset,5,100);
+ const std::uint32_t initSeed=1234;std::memcpy(pickup.data()+kEntityInitSeedOffset,&initSeed,sizeof(initSeed));
+ const auto animationAddress=Address(animation);std::memcpy(pickup.data()+kEntitySpriteOffset+kAnim2AnimationArrayOffset,&animationAddress,sizeof(animationAddress));
+ const std::uint32_t animationCount=1;std::memcpy(pickup.data()+kEntitySpriteOffset+kAnim2AnimationCountOffset,&animationCount,sizeof(animationCount));
+ animation[0]=8;std::memcpy(animation.data()+1,"Idle",4);
  const unsigned char giveGuard[]={0xff,0x03,0x01,0xd1,0xfd,0x7b,0x01,0xa9,0xfd,0x43,0x00,0x91,0xf6,0x57,0x02,0xa9};
- const unsigned char initGuard[]={0xff,0x43,0x01,0xd1,0xfd,0x7b,0x01,0xa9,0xfd,0x43,0x00,0x91,0xf7,0x13,0x00,0xf9};
- std::memcpy(moduleBytes.data()+0x6745c,giveGuard,16);std::memcpy(moduleBytes.data()+0x26b6c8,initGuard,16);
+ std::memcpy(moduleBytes.data()+0x6745c,giveGuard,16);
  const std::uintptr_t minecartPointer=Address(minecart);std::memcpy(entity.data()+0x3c8,&minecartPointer,sizeof(minecartPointer));
  const std::int32_t prize=123;std::memcpy(slot.data()+0x570,&prize,sizeof(prize));
  const std::uint32_t count=3,list[]={10,11,12};std::memcpy(pickup.data()+0x604,&count,sizeof(count));std::memcpy(pickup.data()+0x5e4,list,sizeof(list));
  const std::int32_t subtype=321;std::memcpy(flipState.data()+8,&subtype,sizeof(subtype));const std::uintptr_t flipPointer=Address(flipState);std::memcpy(pickup.data()+0x610,&flipPointer,sizeof(flipPointer));
  LuaRuntime::SetEngineModuleBase(base);LuaRuntime::ObserveGameThread();
  Files files(true);SetSessionSaveFilePort(&files);const repentogon::NativePort port{Ready,Ready};repentogon::SetNativePort(&port);
- SetRepentogonEntityNativeTestBindings({Give,InitFlip});
+ SetRepentogonEntityNativeTestBindings({Give});
+ isaac::runtime::pickup_flip::NativeBindings flip{};
+ flip.canReroll=CanReroll;flip.allocate=Allocate;flip.deallocate=Deallocate;
+ flip.mutexCtor=Mutex;flip.mutexInit=Mutex;flip.nextSeed=NextSeed;flip.seededCollectible=Seeded;
+ flip.setFlipState=SetFlip;flip.decrementReference=Decrement;flip.resetAnm2=Reset;
+ flip.copyAnm2=Copy;flip.swapAnm2=Swap;flip.destroyAnm2=Destroy;
+ flip.setupCollectibleGraphics=Setup;flip.loadGraphics=Load;flip.play=Play;flip.update=Update;
+ isaac::runtime::pickup_flip::SetNativeTestBindings(flip);
  LuaRuntime::SetRuntimeExtensionInstaller(Extensions);
  const char* script=R"lua(
 local car=entity:GiveMinecart(Vector(3,4),Vector(5,6));assert(car and car.Type==20 and car.Variant==965)
@@ -72,14 +104,18 @@ assert(not pcall(function()pickup:InitFlipState(1,true,2)end))
  }
  if(calls!=4){std::fprintf(stderr,"native calls=%u\n",calls);return 1;}
  assert(LuaRuntime::ShutdownForModReload());
- SetRepentogonEntityNativeTestBindings({});repentogon::SetNativePort(nullptr);SetSessionSaveFilePort(nullptr);LuaRuntime::SetRuntimeExtensionInstaller(nullptr);
+ isaac::runtime::pickup_flip::SetNativeTestBindings({});SetRepentogonEntityNativeTestBindings({});
+ repentogon::SetNativePort(nullptr);SetSessionSaveFilePort(nullptr);LuaRuntime::SetRuntimeExtensionInstaller(nullptr);
 }
 '''
 
 class RepentogonEntityApiTests(unittest.TestCase):
     def test_minecart_slot_and_pickup_cycle(self):
         with tempfile.TemporaryDirectory(prefix='repentogon-entity-') as folder:
-            binary=test_support.build_lua_harness(source_root=SOURCE,workdir=Path(folder),harness_source=DRIVER)
+            flip_source=SOURCE.parent/'src/interfaces/lua/pickup_flip_api.cpp'
+            extra=() if flip_source in test_support.layered_lua_runtime_sources(SOURCE) else (flip_source,)
+            binary=test_support.build_lua_harness(source_root=SOURCE,workdir=Path(folder),
+                                                    harness_source=DRIVER,extra_sources=extra)
             result=subprocess.run([str(binary)],capture_output=True,text=True)
             self.assertEqual(result.returncode,0,result.stdout+result.stderr)
 
