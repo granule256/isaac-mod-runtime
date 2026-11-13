@@ -8970,6 +8970,13 @@ constexpr EngineCallShapeRow kEngineCallShapes[] = {
     {0, {EngineArgKind::Int, EngineArgKind::Int, EngineArgKind::Int, EngineArgKind::Int,
          EngineArgKind::Int, EngineArgKind::Int, EngineArgKind::Int, EngineArgKind::Int},
      EngineReturnKind::Void, FieldReceipt::Entity, IntArgumentGuard::None, 0, {0, 1, 0}},
+    // 40 VoidIntIntOpt1：`void(this, i32, [i32])`；仅尾部 slot 可省，
+    // 省略或显式 nil 都补 SLOT_PRIMARY = 0。
+    {2, {EngineArgKind::Int, EngineArgKind::IntDefaultZero,
+         EngineArgKind::Int, EngineArgKind::Int,
+         EngineArgKind::Int, EngineArgKind::Int, EngineArgKind::Int, EngineArgKind::Int},
+     EngineReturnKind::Void, FieldReceipt::EntityPlayer, IntArgumentGuard::None, 1,
+     {0, 0, 0}},
 };
 
 // 跳板浮点槽的两侧转换（契约见 `engine_call_trampoline.hpp`）。
@@ -9282,6 +9289,16 @@ int EngineMethodHandler(lua_State* state) {
                     integers[integerCount++]=0;break;
                 }
                 [[fallthrough]];
+            case EngineArgKind::IntDefaultZero:
+                if (lua_isnoneornil(state, stackIndex)) {
+                    if (integerCount >= 8) {
+                        argumentsValid = false;
+                        break;
+                    }
+                    integers[integerCount++] = 0;
+                    break;
+                }
+                [[fallthrough]];
             case EngineArgKind::Int: {
                 if (!isaac::runtime::IsIntegerArgument(state, stackIndex) || integerCount >= 8) {
                     argumentsValid = false;
@@ -9377,6 +9394,7 @@ int EngineMethodHandler(lua_State* state) {
             case EngineArgKind::Vector2Ref:
             case EngineArgKind::Handle:
             case EngineArgKind::IntOrZero:
+            case EngineArgKind::IntDefaultZero:
             case EngineArgKind::Bool:
             case EngineArgKind::Int:
             default:
@@ -12520,7 +12538,7 @@ constexpr EngineMethodRow kEntityPlayerEngineRows[] = {
     // ---- `EntityPlayer:SetActiveCharge`（void SetActiveCharge ( int Charge, [ActiveSlot](enums/ActiveSlot.md) ActiveSlot = ActiveSlot.SLOT_PRIMARY )）
     // 符号 `_ZN15IsaacRepentance13Entity_Player15SetActiveChargeEii`；形状按符号参数表取（见 `runtime_constants.hpp` 的段）。
     {0x0E010075, kEntityPlayerSetActiveChargeOffset, kEntityPlayerSetActiveChargeEntryWord, FieldReceipt::EntityPlayer,
-     EngineCallShape::Void2, 2, 0xFF},
+     EngineCallShape::VoidIntIntOpt1, 2, 0xFF},
     // ---- `EntityPlayer:SetCard`（void SetCard ( int SlotId, [Card](enums/Card.md) ID )）
     // 符号 `_ZN15IsaacRepentance13Entity_Player7SetCardEiNS_5eCardE`；形状按符号参数表取（见 `runtime_constants.hpp` 的段）。
     {0x0E010076, kEntityPlayerSetCardOffset, kEntityPlayerSetCardEntryWord, FieldReceipt::EntityPlayer,

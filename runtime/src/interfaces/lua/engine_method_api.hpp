@@ -280,6 +280,11 @@ enum class EngineCallShape : std::uint8_t {
     VoidIntBoolDefaultTrueOpt1 = 38,
     // PC void(this) binding reads only its receiver and ignores trailing Lua values.
     Void0IgnoreExtra = 39,
+    // 40 `void(this, i32, [i32])` ——
+    // `EntityPlayer:SetActiveCharge(int Charge, ActiveSlot slot = SLOT_PRIMARY)`.
+    // The first argument stays required; only the slot is optional. Omitted or
+    // explicit nil uses zero, matching luaL_optinteger's default.
+    VoidIntIntOpt1 = 40,
 };
 
 // 参数校验语义：形状用它声明"某个整数参数在调进去之前必须先验一遍"。
@@ -332,6 +337,9 @@ enum class EngineArgKind : std::uint8_t {
     Seed = 6, // 字符串走原生String2Seed；数字直接保留原整数ABI。
     IntOrZero = 7, // PC脚本 value or 0：nil/false为0，其余保持整数校验。
     BoolDefaultTrue = 8, // PC脚本 value ~= false：只有布尔false为假，nil/省略为真。
+    // 省略或显式 nil 时补 0；其他值仍按普通 Integer 校验。
+    // 只供明确采用 luaL_optinteger 语义的形状使用，不改变既有可选参数。
+    IntDefaultZero = 9,
 };
 
 // 返回值怎么解释（跳板把 `x0` 与 `d0` 都回填，这里只说读哪一个）。

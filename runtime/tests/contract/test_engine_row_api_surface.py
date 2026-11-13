@@ -73,7 +73,7 @@ DATA_ROW_SURFACE: dict[str, str] = {
     "EntityPlayer:HasPlayerForm": "Bool1",
     "EntityPlayer:NeedsCharge": "Bool1",
     "EntityPlayer:Revive": "Void0",
-    "EntityPlayer:SetActiveCharge": "Void2",
+    "EntityPlayer:SetActiveCharge": "VoidIntIntOpt1",
     "EntityPlayer:SetCard": "Void2",
     "EntityPlayer:SetShootingCooldown": "Void1",
     "EntityPlayer:TryRemoveNullCostume": "VoidNullId1",
