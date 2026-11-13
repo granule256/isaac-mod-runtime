@@ -1827,7 +1827,10 @@ bool ValidateMusicMethod(uintptr_t address, const u8* expected, std::size_t expe
     // 地址是**别处算好的**（Lua 侧传进来的方法地址 / 调用点传来的入口）⇒ 形状是
     // `VerifyEntryBytes`（核对已算好的地址），而不是 `ResolveEntryAddress`（基址 + 偏移）。
     // 注入的判定比层里那份通用可读**更严**：只认模块映像的代码段（见 `IsEngineModuleCodeReadable`）。
-    return VerifyEntryBytes(address, expected, expectedLength, &IsEngineModuleCodeReadable);
+    // Original entries remain module-code-only. The registered verifier owns
+    // the exact relay and fallback, which may live in a different mapping.
+    return VerifyEntryBytes(address, expected, expectedLength, &IsEngineModuleCodeReadable,
+                            &isaac::runtime::engine_memory::EngineMemoryReadable);
 #else
     // 宿主构建没有 `svcQueryMemory`：宿主门禁会把**进程内的真函数**（例如 `&SetSeed`）当引擎方法
     // 传进来，其机器码与设备端常量必然不同 ⇒ 原实现把"问内核 + 逐字节比对"整段包在 `__SWITCH__`

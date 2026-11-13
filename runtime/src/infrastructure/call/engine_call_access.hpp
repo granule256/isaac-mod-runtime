@@ -178,16 +178,19 @@ template <typename T>
 // —— 调用方据此拒绝，绝不跳一个没核对过的地址。
 [[nodiscard]] inline bool VerifyEntryBytes(std::uintptr_t address, const std::uint8_t* expected,
                                            std::size_t expectedSize,
-                                           ReadableCheck readable) noexcept {
+                                           ReadableCheck readable,
+                                           ReadableCheck installedReadable = nullptr) noexcept {
     if (address == 0 || expected == nullptr || expectedSize == 0 || readable == nullptr ||
         address > UINTPTR_MAX - expectedSize) {
         return false;
     }
     if (!readable(address, expectedSize)) {
-        return false;
+        return installedReadable &&
+            VerifyInstalledEntry(address,expected,expectedSize,installedReadable);
     }
     return BytesMatchAt(address, expected, expectedSize) ||
-        VerifyInstalledEntry(address,expected,expectedSize,readable);
+        VerifyInstalledEntry(address,expected,expectedSize,
+                             installedReadable ? installedReadable : readable);
 }
 
 // 全仓唯一一处"整数地址 → 带签名的引擎函数指针"的转换。

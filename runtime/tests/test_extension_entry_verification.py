@@ -10,11 +10,12 @@ DRIVER = r'''
 using namespace isaac::runtime;
 static std::array<std::uint8_t,16> original{}, hooked{};
 static std::uintptr_t site{};
-static unsigned checks{};
+static unsigned checks{};static bool needArena{};static std::array<std::uint8_t,16> arena{};
 static bool Readable(std::uintptr_t p,std::size_t n) {return p==site&&n==16;}
+static bool General(std::uintptr_t p,std::size_t n){return n==16&&(p==site||p==engine_memory::AddressOf(arena.data()));}
 static bool Verify(std::uintptr_t p,const std::uint8_t* expected,std::size_t n,engine_call::ReadableCheck read) noexcept {
  ++checks;
- return p==site&&n==16&&read(p,n)&&std::memcmp(expected,original.data(),16)==0&&std::memcmp(engine_memory::AsObject(p),hooked.data(),16)==0;
+ return p==site&&n==16&&read(p,n)&&(!needArena||read(engine_memory::AddressOf(arena.data()),n))&&std::memcmp(expected,original.data(),16)==0&&std::memcmp(engine_memory::AsObject(p),hooked.data(),16)==0;
 }
 int main() {
  original.fill(1);hooked.fill(2);
@@ -32,6 +33,13 @@ int main() {
  assert(engine_call::VerifyEntryBytes(site,original.data(),16,Readable));assert(checks==before);
  engine_call::SetInstalledEntryVerifier(nullptr);image=hooked;
  assert(!engine_call::VerifyEntryBytes(site,original.data(),16,Readable));
+ needArena=true;engine_call::SetInstalledEntryVerifier(Verify);
+ assert(!engine_call::VerifyEntryBytes(site,original.data(),16,Readable));
+ assert(engine_call::VerifyEntryBytes(site,original.data(),16,Readable,General));
+ engine_call::SetInstalledEntryVerifier(nullptr);
+ assert(!engine_call::VerifyEntryBytes(site,original.data(),16,Readable,General));
+ image=original;
+ assert(!engine_call::VerifyEntryBytes(site,original.data(),16,+[](std::uintptr_t,std::size_t){return false;},General));
 }
 '''
 class ExtensionEntryTests(unittest.TestCase):
