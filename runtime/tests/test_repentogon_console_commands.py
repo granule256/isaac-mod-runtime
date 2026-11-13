@@ -223,7 +223,7 @@ static void Fill(void*) {
 }
 static bool Autocomplete(const char* command, std::size_t commandLength,
                          const char*, std::size_t,
-                         LuaRuntime::ConsoleAutocompleteVisitor visitor, void* user) {
+                         console::AutocompleteVisitor visitor, void* user) {
     const std::string name(command,commandLength);
     if(name=="weaken") {
         for(int index=1;index<=8;++index) {

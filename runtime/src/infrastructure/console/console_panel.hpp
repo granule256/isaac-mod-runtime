@@ -3,7 +3,7 @@
 #include "domain/console/console_commands.hpp"
 #include "infrastructure/console/console_bridge.hpp"
 #include "infrastructure/console/console_panel_guards.hpp"
-#include "interfaces/lua/console_autocomplete.hpp"
+#include "ports/console_autocomplete_port.hpp"
 
 #include <algorithm>
 #include <array>
@@ -16,9 +16,6 @@
 #include <string_view>
 #include <vector>
 
-namespace LuaRuntime {
-bool IsOnGameThread() noexcept;
-}
 namespace isaac::runtime::console {
 using ConsoleHistoryVisitor=void(*)(void*,const char*,std::size_t);
 #if !defined(__SWITCH__)
@@ -27,7 +24,7 @@ struct ConsolePanelHostBindings {
     bool (*printError)(const char*,std::size_t){};
     bool (*visitHistory)(ConsoleHistoryVisitor,void*){};
     bool (*dispatchAutocomplete)(const char*,std::size_t,const char*,std::size_t,
-                                 LuaRuntime::ConsoleAutocompleteVisitor,void*){};
+                                 AutocompleteVisitor,void*){};
 };
 inline ConsolePanelHostBindings& ConsolePanelTestBindings() noexcept {
     static ConsolePanelHostBindings bindings{};
@@ -275,18 +272,15 @@ inline bool CollectPanelAutocomplete(void* user,const char* text,std::size_t tex
 inline bool DispatchPanelAutocomplete(const char* command,std::size_t commandLength,
                                       const char* parameters,
                                       std::size_t parameterLength,
-                                      LuaRuntime::ConsoleAutocompleteVisitor visitor,
+                                      AutocompleteVisitor visitor,
                                       void* user) noexcept {
 #if !defined(__SWITCH__)
     if(const auto& bindings=ConsolePanelTestBindings();bindings.dispatchAutocomplete)
         return bindings.dispatchAutocomplete(command,commandLength,parameters,
                                              parameterLength,visitor,user);
-    return false;
-#else
-    if(!LuaRuntime::IsOnGameThread()) return false;
-    return LuaRuntime::DispatchConsoleAutocomplete(command,commandLength,parameters,
-                                                   parameterLength,visitor,user);
 #endif
+    return DispatchAutocomplete(command,commandLength,parameters,
+                                parameterLength,visitor,user);
 }
 inline bool RefreshPanelCompletions(const PanelNativeEntries& ui,
                                     const char* input) noexcept {

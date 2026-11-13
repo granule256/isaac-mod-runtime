@@ -1,5 +1,7 @@
 #pragma once
 
+#include "ports/console_autocomplete_port.hpp"
+
 #include <cstddef>
 #include <cstdint>
 
@@ -7,9 +9,7 @@ namespace LuaRuntime {
 
 inline constexpr std::uint32_t kConsoleAutocompleteCallbackId = 1120;
 
-using ConsoleAutocompleteVisitor = bool (*)(
-    void* user, const char* text, std::size_t textLength,
-    const char* description, std::size_t descriptionLength);
+using ConsoleAutocompleteVisitor = isaac::runtime::console::AutocompleteVisitor;
 
 [[nodiscard]] bool DispatchConsoleAutocomplete(
     const char* command, std::size_t commandLength,

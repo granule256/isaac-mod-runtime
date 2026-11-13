@@ -9,6 +9,10 @@ def code(path):
  return re.sub(r'/\*.*?\*/|//[^\n]*','',text,flags=re.S)
 
 class ArchitectureBoundaryTests(unittest.TestCase):
+ def test_console_panel_depends_on_completion_port_not_lua_vm(self):
+  text=code(ROOT/'runtime/src/infrastructure/console/console_panel.hpp')
+  self.assertNotRegex(text,r'interfaces/lua/|LuaRuntime::')
+  self.assertIn('ports/console_autocomplete_port.hpp',text)
  def test_pc_core_and_native_world_do_not_know_mod_private_tables(self):
   paths=[ROOT/'runtime/source/lua_runtime.cpp',ROOT/'runtime/src/interfaces/lua/api200_game.cpp',ROOT/'runtime/src/interfaces/lua/compatibility_adapter_runtime.cpp']
   paths+=list((ROOT/'runtime/src/domain/world').glob('*.hpp'))

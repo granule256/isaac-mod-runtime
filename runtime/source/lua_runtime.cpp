@@ -2451,6 +2451,7 @@ int PrepareRuntime(lua_State* state) {
 #endif
     RegisterModApi(state);
     isaac::runtime::CompleteRepentogonEnvironment(state);
+    isaac::runtime::console::SetAutocompleteDispatch(&DispatchConsoleAutocomplete);
     lua_newtable(state);
     lua_pushcfunction(state,GetConsoleControls);lua_setfield(state,-2,"GetControls");
     lua_pushcfunction(state,SetConsoleControls);lua_setfield(state,-2,"SetControls");
@@ -2489,6 +2490,7 @@ LuaInitResult ResetAfterFailure(lua_State* state, LuaInitResult result) {
     }
     isaac::runtime::ResetEntityLifetimeState();
     isaac::runtime::ResetCompatibilityAdapters(state);
+    isaac::runtime::console::SetAutocompleteDispatch(nullptr);
     isaac::runtime::SuspendRepentogonEnvironment(state);
     lua_close(state);
     isaac::runtime::EndRepentogonEnvironment(state);
@@ -7532,6 +7534,7 @@ bool ShutdownForModReload() noexcept {
     // lua_close负责完整运行Font/Sprite和其它userdata终结器；绑定仍须有效。
     isaac::runtime::ResetEntityLifetimeState();
     isaac::runtime::ResetCompatibilityAdapters(state);
+    isaac::runtime::console::SetAutocompleteDispatch(nullptr);
     isaac::runtime::SuspendRepentogonEnvironment(state);
     lua_close(state);
     isaac::runtime::EndRepentogonEnvironment(state);
