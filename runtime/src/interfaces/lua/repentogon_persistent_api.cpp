@@ -4,6 +4,11 @@
 #include "interfaces/lua/lua_integer_argument.hpp"
 #include "infrastructure/memory/engine_field_access.hpp"
 #include "lua_runtime.hpp"
+#include "application/repentogon/achievement_state.hpp"
+#include "interfaces/lua/api100_native.hpp"
+#include "infrastructure/call/engine_call_access.hpp"
+#include "program/xml_data_store.hpp"
+#include "runtime_constants.hpp"
 
 #include <cstdint>
 
@@ -17,6 +22,19 @@ constexpr std::uint32_t kPersistentGameDataCounterOffset = 0x2a8;
 constexpr std::uint32_t kPersistentGameDataCollectionOffset = 0xa68;
 constexpr std::uint32_t kEventCounterMax = 522;
 constexpr std::uint32_t kCollectibleMax = 732;
+AchievementState g_Achievements;
+api100_native::Cache g_UnlockedEntry{}, g_TryUnlockEntry{};
+#if !defined(__SWITCH__)
+RepentogonAchievementNativeTestBindings g_AchievementNativeTest{};
+#endif
+constexpr std::uint8_t kTryUnlockGuard[16] = {
+    0xfd,0x7b,0xbd,0xa9,0xf5,0x0b,0x00,0xf9,
+    0xfd,0x03,0x00,0x91,0xf4,0x4f,0x02,0xa9};
+
+const char* Attribute(const xml_data::XmlRecord& record, const char* key) noexcept {
+    const auto* value = record.FindAttribute(key);
+    return value ? value->value.c_str() : "";
+}
 
 std::uintptr_t PersistentObject(lua_State* state) {
     if (!LuaRuntime::IsOnGameThread())
@@ -25,6 +43,88 @@ std::uintptr_t PersistentObject(lua_State* state) {
     if (object == 0) luaL_error(state, "PersistentGameData is no longer available");
     return object;
 }
+}
+
+void ResetRepentogonAchievementState() noexcept { g_Achievements.Reset(); }
+#if !defined(__SWITCH__)
+void SetRepentogonAchievementNativeTestBindings(RepentogonAchievementNativeTestBindings value) noexcept {
+    g_AchievementNativeTest = value;
+    g_UnlockedEntry = {};
+    g_TryUnlockEntry = {};
+}
+#endif
+
+int RepentogonPersistentGameDataUnlocked(lua_State* state) {
+    const auto object = PersistentObject(state);
+    const int id = static_cast<int>(luaL_checkinteger(state, 2));
+    if (id < xml_data::kFirstCustomAchievementId) {
+        const auto entry = api100_native::Resolve(state,
+            {kPersistentGameDataUnlockedOffset, kPersistentGameDataUnlockedExpectedBytes.data()},
+            g_UnlockedEntry
+#if !defined(__SWITCH__)
+            , g_AchievementNativeTest.unlocked
+#endif
+        );
+        const auto call = engine_call::AsFunction<bool (*)(std::uintptr_t, int)>(entry);
+        lua_pushboolean(state, call(object, id));
+        return 1;
+    }
+    const auto* record = xml_data::FindEntryById(xml_data::XmlNodeType::Achievement, id);
+    bool unlocked{};
+    if (record) {
+        const auto status = g_Achievements.Unlocked(SessionSaveFilePort(),
+            Attribute(*record, "name"), Attribute(*record, "sourceid"), &unlocked);
+        if (!status.ok()) return luaL_error(state, "Custom achievement state read failed (%d)",
+                                            static_cast<int>(status.code()));
+    }
+    lua_pushboolean(state, unlocked);
+    return 1;
+}
+
+int RepentogonPersistentGameDataTryUnlock(lua_State* state) {
+    const auto object = PersistentObject(state);
+    const int id = static_cast<int>(luaL_checkinteger(state, 2));
+    if (id <= 0 || (id > 637 && id < xml_data::kFirstCustomAchievementId)) {
+        lua_pushboolean(state, false);
+        return 1;
+    }
+    if (id < xml_data::kFirstCustomAchievementId) {
+        const auto entry = api100_native::Resolve(state, {0x4393d0, kTryUnlockGuard}, g_TryUnlockEntry
+#if !defined(__SWITCH__)
+            , g_AchievementNativeTest.tryUnlock
+#endif
+        );
+        const auto call = engine_call::AsFunction<bool (*)(std::uintptr_t, int)>(entry);
+        lua_pushboolean(state, call(object, id));
+        return 1;
+    }
+    const auto* record = xml_data::FindEntryById(xml_data::XmlNodeType::Achievement, id);
+    std::uint8_t readonly{};
+    if (!engine_memory::ReadField(object, 1, &readonly, engine_memory::EngineMemoryReadable))
+        return luaL_error(state, "PersistentGameData readonly flag is unavailable");
+    if (!record || readonly) {
+        lua_pushboolean(state, false);
+        return 1;
+    }
+    bool unlocked{};
+    auto status = g_Achievements.Unlocked(SessionSaveFilePort(),
+        Attribute(*record, "name"), Attribute(*record, "sourceid"), &unlocked);
+    if (!status.ok()) return luaL_error(state, "Custom achievement state read failed (%d)",
+                                        static_cast<int>(status.code()));
+    if (unlocked) { lua_pushboolean(state, false); return 1; }
+    const bool skipPopup = lua_isboolean(state, 3) && lua_toboolean(state, 3);
+    const auto* hidden = record->FindAttribute("hidden");
+    // Do not claim a visible unlock succeeded while its overlay is unavailable.
+    // Hidden records and the upstream explicit no-popup path need no overlay.
+    if (!skipPopup && (!hidden || hidden->value == "false"))
+        return luaL_error(state, "Custom achievement notification overlay is unavailable");
+    bool changed{};
+    status = g_Achievements.Unlock(SessionSaveFilePort(), Attribute(*record, "name"),
+                                   Attribute(*record, "sourceid"), &changed);
+    if (!status.ok()) return luaL_error(state, "Custom achievement state write failed (%d)",
+                                        static_cast<int>(status.code()));
+    lua_pushboolean(state, changed);
+    return 1;
 }
 
 int RepentogonPersistentGameDataGetEventCounter(lua_State* state) {

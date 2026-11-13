@@ -449,7 +449,7 @@ struct CategoryState {
 };
 
 struct Store {
-    CategoryState categories[4];
+    CategoryState categories[5];
 };
 
 Store* g_store = nullptr;
@@ -465,6 +465,8 @@ int CategoryIndex(XmlNodeType type) noexcept {
             return 2;
         case XmlNodeType::GiantBook:
             return 3;
+        case XmlNodeType::Achievement:
+            return 4;
         default:
             return -1;
     }
@@ -480,6 +482,8 @@ XmlNodeType NodeTypeFor(XmlDataFileKind kind) noexcept {
             return XmlNodeType::Backdrop;
         case XmlDataFileKind::GiantBooks:
             return XmlNodeType::GiantBook;
+        case XmlDataFileKind::Achievements:
+            return XmlNodeType::Achievement;
     }
     return XmlNodeType::Mod;
 }
@@ -494,6 +498,8 @@ const char* ExpectedRoot(XmlNodeType type) noexcept {
             return "backdrops";
         case XmlNodeType::GiantBook:
             return "giantbook";
+        case XmlNodeType::Achievement:
+            return "achievements";
         default:
             return nullptr;
     }
@@ -636,7 +642,7 @@ bool AddRecord(XmlDataFileKind kind, XmlRecord record, bool isContent,
         TranslateEntityName(&record, translator);
         AddEntity(&g_store->categories[CategoryIndex(type)], std::move(record), isContent);
     } else if (type == XmlNodeType::Challenge || type == XmlNodeType::Backdrop ||
-               type == XmlNodeType::GiantBook) {
+               type == XmlNodeType::GiantBook || type == XmlNodeType::Achievement) {
         ApplySource(&record, sourceId);
         if (type == XmlNodeType::Backdrop) ProcessBackdropName(&record);
         if (type == XmlNodeType::GiantBook && !FindAttribute(record, "name")) {
@@ -651,8 +657,23 @@ bool AddRecord(XmlDataFileKind kind, XmlRecord record, bool isContent,
             }
         }
         auto& category = g_store->categories[CategoryIndex(type)];
+        if (type == XmlNodeType::Achievement) {
+            // The Switch XML omits newer native rows. Never allocate mod IDs in
+            // that gap; reserve the full upstream native range independently.
+            if (isContent) category.maxId = std::max(category.maxId, kFirstCustomAchievementId - 1);
+            const auto* name = FindAttribute(record, "name");
+            if (!name) {
+                const auto* text = FindAttribute(record, "text");
+                SetAttribute(&record, "name", text ? text->value : "");
+            }
+            name = FindAttribute(record, "name");
+            if (name->value.empty()) {
+                const auto* steam = FindAttribute(record, "steam_name");
+                if (steam) SetAttribute(&record, "name", steam->value);
+            }
+        }
         const int id = AddChallengeOrBackdrop(&category, std::move(record), isContent, type);
-        if (type == XmlNodeType::GiantBook) {
+        if (type == XmlNodeType::GiantBook || type == XmlNodeType::Achievement) {
             const auto* name = category.records[category.byId.find(id)->second].FindAttribute("name");
             if (name) category.byName[name->value] = id;
         }
@@ -709,7 +730,7 @@ bool IngestXmlDataFile(XmlDataFileKind kind, const char* source_id, bool is_cont
 
     for (XmlRecord& record : document.records) {
         if (type == XmlNodeType::Entity || type == XmlNodeType::Backdrop ||
-            type == XmlNodeType::GiantBook) {
+            type == XmlNodeType::GiantBook || type == XmlNodeType::Achievement) {
             MergeMissingAttributes(&record.attributes, document.rootAttributes);
         }
         if (!AddRecord(kind, std::move(record), is_content, source_id, translator)) {
@@ -752,6 +773,14 @@ const XmlRecord* FindGiantBookByName(const char* name) noexcept {
     const auto found = category.byName.find(name);
     return found == category.byName.end() ? nullptr :
         FindEntryById(XmlNodeType::GiantBook, found->second);
+}
+
+const XmlRecord* FindAchievementByName(const char* name) noexcept {
+    if (!g_store || !name) return nullptr;
+    const auto& category = g_store->categories[4];
+    const auto found = category.byName.find(name);
+    return found == category.byName.end() ? nullptr :
+        FindEntryById(XmlNodeType::Achievement, found->second);
 }
 
 const XmlRecord* FindEntryByOrder(XmlNodeType type, int order) noexcept {

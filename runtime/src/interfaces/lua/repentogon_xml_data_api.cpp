@@ -95,6 +95,12 @@ int RepentogonIsaacGetGiantBookIdByName(lua_State* state) {
     return 1;
 }
 
+int RepentogonIsaacGetAchievementIdByName(lua_State* state) {
+    const auto* record = xml_data::FindAchievementByName(luaL_checkstring(state, 1));
+    lua_pushinteger(state, record ? record->id : -1);
+    return 1;
+}
+
 int RegisterRepentogonXmlDataApi(lua_State* state) noexcept {
     if (state == nullptr) return 0;
 

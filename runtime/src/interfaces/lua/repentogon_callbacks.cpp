@@ -323,6 +323,10 @@ constexpr RepentogonApiBinding kApis[]={
       ApiMaturity::Experimental},RepentogonPersistentGameDataGetEventCounter},
     {{0x0E020004,ApiDomain::Isaac,"PersistentGameData","IsItemInCollection",{},0,ThreadAffinity::ManagedCallback,
       ApiMaturity::Experimental},RepentogonPersistentGameDataIsItemInCollection},
+    {{0x0E02C006,ApiDomain::Isaac,"PersistentGameData","Unlocked",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonPersistentGameDataUnlocked,nullptr,nullptr,true},
+    {{0x0E02C007,ApiDomain::Isaac,"PersistentGameData","TryUnlock",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonPersistentGameDataTryUnlock},
     {{0x0E020005,ApiDomain::Isaac,"EntityPlayer","GetHealthType",{},0,ThreadAffinity::ManagedCallback,
       ApiMaturity::Experimental},RepentogonEntityPlayerGetHealthType},
     {{0x0E020006,ApiDomain::Isaac,"EntityPlayer","GetMarkedTarget",{},0,ThreadAffinity::ManagedCallback,
@@ -489,6 +493,8 @@ constexpr RepentogonApiBinding kApis[]={
       ApiMaturity::Experimental},RepentogonRoomConfigGetRoomByStageTypeAndVariant},
     {{0x0E02C004,ApiDomain::Isaac,"Isaac","GetGiantBookIdByName",{},0,ThreadAffinity::ManagedCallback,
       ApiMaturity::Experimental},RepentogonIsaacGetGiantBookIdByName},
+    {{0x0E02C005,ApiDomain::Isaac,"Isaac","GetAchievementIdByName",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonIsaacGetAchievementIdByName},
     {{0x0E02C000,ApiDomain::Isaac,"XMLData","GetEntityByTypeVarSub",{},0,ThreadAffinity::ManagedCallback,
       ApiMaturity::Experimental},RepentogonXmlDataGetEntityByTypeVarSub},
     {{0x0E02C001,ApiDomain::Isaac,"XMLData","GetEntryById",{},0,ThreadAffinity::ManagedCallback,
@@ -587,7 +593,7 @@ constexpr auto MakeStateIndices() noexcept {
 }
 constexpr auto kStateIndices=MakeStateIndices();
 std::array<ExtendedCallbackState*,kCallbackCount> g_States{};
-void Reset() noexcept {g_States.fill(nullptr);ResetRepentogonTimerApi();ResetRepentogonGameStateData();}
+void Reset() noexcept {g_States.fill(nullptr);ResetRepentogonTimerApi();ResetRepentogonGameStateData();ResetRepentogonAchievementState();}
 
 bool Ready() noexcept {
     return g_NativePort&&g_NativePort->ready&&g_NativePort->install&&g_NativePort->ready();

@@ -315,6 +315,43 @@ def _build_lua(work: Path) -> Path:
 
 
 class RepentogonXmlDataTests(unittest.TestCase):
+    def test_achievement_content_reserves_native_ids_and_keeps_metadata(self):
+        driver = r'''
+#include "program/xml_data_store.hpp"
+#include <cassert>
+#include <cstring>
+using namespace isaac::runtime::xml_data;
+int main(){
+ const auto kind=static_cast<XmlDataFileKind>(26);
+ ResetXmlDataStore();
+ const char* base="<achievements><achievement id='403' text='Native'/></achievements>";
+ const char* mod="<achievements gfxroot='gfx/mod/'><achievement name='First' id='1'/><achievement text='Second'><condition conditiontype='event' conditionvalue='1'/></achievement><achievement name='' steam_name='Third'/></achievements>";
+ assert(IngestXmlDataFile(kind,"BaseGame",false,base,std::strlen(base)));
+ assert(IngestXmlDataFile(kind,"ModA",true,mod,std::strlen(mod)));
+ assert(CountEntries(XmlNodeType::Achievement)==4);
+ const auto* first=FindEntryById(XmlNodeType::Achievement,641);
+ assert(first&&first->FindAttribute("name")->value=="First");
+ assert(first->FindAttribute("relativeid")->value=="1");
+ assert(first->FindAttribute("sourceid")->value=="ModA");
+ assert(first->FindAttribute("gfxroot")->value=="gfx/mod/");
+ assert(FindEntryById(XmlNodeType::Achievement,642)->FindAttribute("name")->value=="Second");
+ assert(FindEntryById(XmlNodeType::Achievement,642)->FindChildren("condition")->entries.size()==1);
+ assert(FindEntryById(XmlNodeType::Achievement,643)->FindAttribute("name")->value=="Third");
+ assert(!FindEntryById(XmlNodeType::Achievement,404));
+ ResetXmlDataStore();
+ assert(IngestXmlDataFile(kind,"ModA",true,mod,std::strlen(mod)));
+ assert(FindEntryById(XmlNodeType::Achievement,641));
+}
+'''
+        with tempfile.TemporaryDirectory(prefix="xml-achievements-") as folder:
+            folder = Path(folder)
+            source = folder / "driver.cpp"
+            source.write_text(driver)
+            binary = folder / "test"
+            _run(["c++", "-std=c++17", "-Wall", "-Wextra", "-Werror", "-I", str(SOURCE),
+                  str(source), str(SOURCE / "program/xml_data_store.cpp"), "-o", str(binary)])
+            _run([str(binary)])
+
     def test_store_parses_contract_and_rejects_bad_input(self):
         with tempfile.TemporaryDirectory(prefix="isaac-xml-store-") as temporary:
             binary = _build_store(Path(temporary))

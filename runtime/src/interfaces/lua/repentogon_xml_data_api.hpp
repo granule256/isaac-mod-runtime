@@ -13,5 +13,6 @@ int RepentogonXmlDataGetEntryById(lua_State* state);
 int RepentogonXmlDataGetEntryByOrder(lua_State* state);
 int RepentogonXmlDataGetNumEntries(lua_State* state);
 int RepentogonIsaacGetGiantBookIdByName(lua_State* state);
+int RepentogonIsaacGetAchievementIdByName(lua_State* state);
 
 }  // namespace isaac::runtime
