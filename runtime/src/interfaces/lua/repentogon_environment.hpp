@@ -44,8 +44,8 @@ struct RepentogonBatch {
 struct RepentogonCatalog {
     const RepentogonBatch* batches{};
     std::size_t count{};
-    // Publish PC identity only when this complete compatibility baseline exists.
-    // A null baseline permits internal restoration without advertising REPENTOGON.
+    // Optional mod detection, published only after successful initialization.
+    // Use 0.0.0 when no released upstream minimum is guaranteed; null omits it.
     const char* identityVersion{};
 };
 

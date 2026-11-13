@@ -90,7 +90,7 @@ int main(int argc,char** argv){
  const repentogon::NativePort port{Ready,Ready};repentogon::SetNativePort(&port);
  LuaRuntime::SetRuntimeExtensionInstaller(Extensions);
  const char* script=enabled?R"lua(
-assert(REPENTOGON==nil)
+assert(REPENTOGON and REPENTOGON.FullCompatibility==false)
 assert(type(pickup.AddCollectibleCycle)=='function','missing AddCollectibleCycle')
 assert(type(pickup.GetVarData)=='function','missing GetVarData')
 assert(type(pickup.SetVarData)=='function','missing SetVarData')

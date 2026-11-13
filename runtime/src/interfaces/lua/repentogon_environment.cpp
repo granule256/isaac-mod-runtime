@@ -179,9 +179,9 @@ void ReapplyOwnerBindings(lua_State* state) {
 }
 
 const RepentogonCatalog& DefaultRepentogonCatalog() noexcept {
-    // Add independently restored batches here. Infrastructure alone must not
-    // advertise an upstream version or send existing Mods into unsupported code.
-    static constexpr RepentogonCatalog catalog{&repentogon::kCallbackBatch,1,nullptr};
+    // Detection enables author branches, but no released upstream minimum is
+    // claimed until the remaining compatibility gaps have been recovered.
+    static constexpr RepentogonCatalog catalog{&repentogon::kCallbackBatch,1,"0.0.0"};
     static constexpr RepentogonCatalog empty{};
     return repentogon::HasNativePort()?catalog:empty;
 }
@@ -273,9 +273,13 @@ void CompleteRepentogonEnvironment(lua_State* state) {
     }
     if(g_Catalog->identityVersion) {
         lua_newtable(state);
+        lua_pushboolean(state,1);lua_setfield(state,-2,"Real");
         lua_pushliteral(state,"REPENTOGON");lua_setfield(state,-2,"Name");
         lua_pushstring(state,g_Catalog->identityVersion);lua_setfield(state,-2,"Version");
         lua_pushstring(state,g_Catalog->identityVersion);lua_pushcclosure(state,MeetsVersion,1);lua_setfield(state,-2,"MeetsVersion");
+        lua_pushliteral(state,"isaac-switch-runtime");lua_setfield(state,-2,"Implementation");
+        lua_pushboolean(state,0);lua_setfield(state,-2,"FullCompatibility");
+        lua_newtable(state);lua_newtable(state);lua_setfield(state,-2,"Misc");lua_setfield(state,-2,"Extras");
         lua_setglobal(state,"REPENTOGON");
     }
     g_Building=false;g_Active=true;g_ExtendedCallbackDelivery=true;

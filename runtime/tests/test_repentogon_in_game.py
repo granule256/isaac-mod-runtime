@@ -32,7 +32,7 @@ int main(){
  const repentogon::NativePort port{Ready,Ready};repentogon::SetNativePort(&port);
  LuaRuntime::SetRuntimeExtensionInstaller(Extensions);
  const char* script=R"lua(
-assert(REPENTOGON==nil)
+assert(REPENTOGON and REPENTOGON.FullCompatibility==false)
 _scene(2);assert(Isaac.IsInGame(),'gameplay scene must be true even at script load')
 _scene(1);assert(not Isaac.IsInGame())
 _scene(5);assert(not Isaac.IsInGame())

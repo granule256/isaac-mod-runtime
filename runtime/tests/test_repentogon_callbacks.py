@@ -287,7 +287,8 @@ int main(int argc,char** argv){
     LuaRuntime::SetEngineModuleBase(Address(module.data()));
     SetNativePort(mode=="none"?nullptr:&port);
     ready=mode!="ready_fail";install=mode!="install_fail";
-    std::string script="assert(REPENTOGON==nil);local m=RegisterMod('callback102',1);calls=0;order=''\n";
+    const char* detection=(mode=="off"||mode=="none")?"assert(REPENTOGON==nil)":"assert(REPENTOGON and REPENTOGON.FullCompatibility==false)";
+    std::string script=std::string(detection)+";local m=RegisterMod('callback102',1);calls=0;order=''\n";
     if(mode=="off"||mode=="none"){
         script+="assert(ModCallbacks.MC_PRE_GRID_ENTITY_DECORATION_UPDATE==nil);assert(EntityConfig==nil and MenuManager==nil and RoomTransition==nil and BlendMode==nil)";
     }else if(mode=="catalog"){
@@ -606,7 +607,7 @@ local f;f=function()m:RemoveCallback(1400,f);calls=calls+1 end;m:AddCallback(140
         }
     }
     assert(LuaRuntime::ShutdownForModReload());assert(!Listening(1400)&&g_ExtendedCallbackEnabledCount==0&&ExtendedCallbackCount()==0);
-    assert(LuaRuntime::InitializeFromBuffer("assert(REPENTOGON==nil)",std::strlen("assert(REPENTOGON==nil)"),"@reload.lua")==LuaRuntime::LuaInitResult::Success);
+    assert(LuaRuntime::InitializeFromBuffer(detection,std::strlen(detection),"@reload.lua")==LuaRuntime::LuaInitResult::Success);
     assert(LuaRuntime::ShutdownForModReload());SetNativePort(nullptr);SetSessionSaveFilePort(nullptr);
     LuaRuntime::SetGameBindings(0,0);LuaRuntime::SetEngineModuleBase(0);
 }

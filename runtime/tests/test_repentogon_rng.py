@@ -40,7 +40,7 @@ int main(int argc,char**argv){
  const repentogon::NativePort port{Ready,Ready};repentogon::SetNativePort(&port);
  LuaRuntime::SetRngBindings(reinterpret_cast<std::uintptr_t>(&SetSeed),0);
  const char* script=enabled?R"lua(
-assert(REPENTOGON==nil) -- A partial batch must not advertise a complete baseline.
+assert(REPENTOGON and REPENTOGON.FullCompatibility==false)
 local r=RNG()
 r:SetSeed(123);assert(r:GetSeed()==123)
 r:SetSeed(456,nil);assert(r:GetSeed()==456)
