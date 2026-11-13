@@ -165,7 +165,81 @@ constexpr RepentogonCallbackBinding kCallbacks[]={
 };
 constexpr auto kCallbackCount=sizeof(kCallbacks)/sizeof(kCallbacks[0]);
 static_assert(kCallbackCount==127);
-constexpr RepentogonEnumBinding kAliases[]={{"ModCallbacks","MC_HUD_POST_UPDATE",1021}};
+constexpr RepentogonEnumBinding kEnums[]={
+    {"ModCallbacks","MC_HUD_POST_UPDATE",1021},
+    {"StbType","SPECIAL_ROOMS",0},
+    {"StbType","BASEMENT",1},
+    {"StbType","CELLAR",2},
+    {"StbType","BURNING_BASEMENT",3},
+    {"StbType","CAVES",4},
+    {"StbType","CATACOMBS",5},
+    {"StbType","FLOODED_CAVES",6},
+    {"StbType","DEPTHS",7},
+    {"StbType","NECROPOLIS",8},
+    {"StbType","DANK_DEPTHS",9},
+    {"StbType","WOMB",10},
+    {"StbType","UTERO",11},
+    {"StbType","SCARRED_WOMB",12},
+    {"StbType","BLUE_WOMB",13},
+    {"StbType","SHEOL",14},
+    {"StbType","CATHEDRAL",15},
+    {"StbType","DARK_ROOM",16},
+    {"StbType","CHEST",17},
+    {"StbType","THE_VOID",26},
+    {"StbType","VOID",26},
+    {"StbType","DOWNPOUR",27},
+    {"StbType","DROSS",28},
+    {"StbType","MINES",29},
+    {"StbType","ASHPIT",30},
+    {"StbType","MAUSOLEUM",31},
+    {"StbType","GEHENNA",32},
+    {"StbType","CORPSE",33},
+    {"StbType","MORTIS",34},
+    {"StbType","HOME",35},
+    {"StbType","ASCENT",36},
+    {"MainMenuType","TITLE",1},
+    {"MainMenuType","SAVES",2},
+    {"MainMenuType","GAME",3},
+    {"MainMenuType","DAILYRUN",4},
+    {"MainMenuType","CHARACTER",5},
+    {"MainMenuType","SPECIALSEEDS",6},
+    {"MainMenuType","CHALLENGE",7},
+    {"MainMenuType","COLLECTION",8},
+    {"MainMenuType","STATS",9},
+    {"MainMenuType","OPTIONS",10},
+    {"MainMenuType","CONTROLS",11},
+    {"MainMenuType","KEYCONFIG",12},
+    {"MainMenuType","ENDINGS",13},
+    {"MainMenuType","BESTIARY",14},
+    {"MainMenuType","MODCHALLENGES",15},
+    {"MainMenuType","MODS",16},
+    {"MainMenuType","SEED",17},
+    // Donation-machine constants consumed by EID's REPENTOGON branch.
+    {"Achievement","BLUE_MAP",134},
+    {"Achievement","STORE_UPGRADE_LV1",151},
+    {"Achievement","THERES_OPTIONS",135},
+    {"Achievement","STORE_UPGRADE_LV2",152},
+    {"Achievement","BLACK_CANDLE",136},
+    {"Achievement","STORE_UPGRADE_LV3",153},
+    {"Achievement","RED_CANDLE",137},
+    {"Achievement","STORE_UPGRADE_LV4",154},
+    {"Achievement","BLUE_CANDLE",59},
+    {"Achievement","STOP_WATCH",138},
+    {"Achievement","LUCKY_PENNIES",242},
+    {"Achievement","SPECIAL_HANGING_SHOPKEEPERS",243},
+    {"Achievement","WOODEN_NICKEL",244},
+    {"Achievement","CAIN_HOLDS_PAPERCLIP",245},
+    {"Achievement","EVERYTHING_IS_TERRIBLE_2",246},
+    {"Achievement","SPECIAL_SHOPKEEPERS",247},
+    {"Achievement","EVE_HOLDS_RAZOR_BLADE",248},
+    {"Achievement","GREEDIER",341},
+    {"Achievement","STORE_KEY",249},
+    {"Achievement","LOST_HOLDS_HOLY_MANTLE",250},
+    {"Achievement","GENEROSITY",275},
+    {"Achievement","KEEPER",251},
+    {"EventCounter","DONATION_MACHINE_COUNTER",20},
+    {"EventCounter","GREED_DONATION_MACHINE_COUNTER",115},
+};
 constexpr RepentogonApiBinding kApis[]={
     {{0x07020001,ApiDomain::Rng,"RNG","SetSeed",{},0,ThreadAffinity::ManagedCallback,
       ApiMaturity::Experimental},RepentogonRngSetSeed,nullptr,nullptr,true},
@@ -484,7 +558,7 @@ bool CallbackSpriteAlive(std::uintptr_t address) noexcept {
     return address&&HasSpriteValidator()&&g_NativePort->spriteAlive(address);
 }
 bool HasNativePort() noexcept { return g_NativePort!=nullptr; }
-constinit const RepentogonBatch kCallbackBatch{"callbacks",kApis,sizeof(kApis)/sizeof(kApis[0]),kAliases,1,kCallbacks,kCallbackCount,Initialize,Reset,Ready};
+constinit const RepentogonBatch kCallbackBatch{"callbacks",kApis,sizeof(kApis)/sizeof(kApis[0]),kEnums,sizeof(kEnums)/sizeof(kEnums[0]),kCallbacks,kCallbackCount,Initialize,Reset,Ready};
 const RepentogonBatch& CallbackBatch() noexcept {return kCallbackBatch;}
 const ExtendedCallbackState* FindCallbackState(std::uint32_t id) noexcept {
     if(id>=1000&&id<1472) {

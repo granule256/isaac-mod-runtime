@@ -103,7 +103,7 @@ static void Extensions(lua_State* state) noexcept {
 
 int main() {
     module.assign(0xaac698 + 0x100, 0);
-    game.assign(0x242c0 + 0x400, 0);
+    game.assign(0x242c0 + 0x900, 0);
     player.assign(0x2700, 0);
     backup.assign(0x2700, 0);
     pickup.assign(0x800, 0);
@@ -128,8 +128,19 @@ int main() {
     const auto pool = Address(game) + 0x242c0;
     const auto begin = Address(poolItems);
     const auto end = begin + poolItems.size();
-    std::memcpy(reinterpret_cast<void*>(pool + 0x08), &begin, sizeof(begin));
-    std::memcpy(reinterpret_cast<void*>(pool + 0x10), &end, sizeof(end));
+    // GetPool @ 0x3c5580 returns this + 8 + type * 0x48;
+    // pick_collectible @ 0x3c5d54 reads that Pool's vector at +8/+16.
+    const float totalWeight = 123.5f;
+    std::memcpy(reinterpret_cast<void*>(pool + 0x08), &totalWeight, sizeof(totalWeight));
+    std::memcpy(reinterpret_cast<void*>(pool + 0x10), &begin, sizeof(begin));
+    std::memcpy(reinterpret_cast<void*>(pool + 0x18), &end, sizeof(end));
+    std::memcpy(reinterpret_cast<void*>(pool + 30 * 0x48 + 0x10), &begin, sizeof(begin));
+    std::memcpy(reinterpret_cast<void*>(pool + 30 * 0x48 + 0x18), &end, sizeof(end));
+    // Pool 2 is malformed (half-null); pool 3 has a non-element-sized range.
+    std::memcpy(reinterpret_cast<void*>(pool + 2 * 0x48 + 0x18), &end, sizeof(end));
+    const auto unalignedEnd = begin + 1;
+    std::memcpy(reinterpret_cast<void*>(pool + 3 * 0x48 + 0x10), &begin, sizeof(begin));
+    std::memcpy(reinterpret_cast<void*>(pool + 3 * 0x48 + 0x18), &unalignedEnd, sizeof(unalignedEnd));
 
     std::int32_t itemId = 42;
     float initialWeight = 1.5f;
@@ -182,6 +193,12 @@ local items = pool:GetCollectiblesFromPool(0)
 assert(#items == 2 and items[1].itemID == 42)
 assert(items[1].initialWeight == 1.5 and items[1].weight == 0.75)
 assert(items[1].decreaseBy == 0.25 and items[1].removeOn == -1 and items[1].isUnlocked)
+assert(pool:GetCollectiblesFromPool(30)[1].itemID == 42)
+assert(#pool:GetCollectiblesFromPool(1) == 0, 'constructor-empty vector is valid')
+assert(not pcall(function() pool:GetCollectiblesFromPool(2) end))
+assert(not pcall(function() pool:GetCollectiblesFromPool(3) end))
+items[1].itemID = -1
+assert(pool:GetCollectiblesFromPool(0)[1].itemID == 42, 'result is an independent snapshot')
 assert(not pcall(function() player:GetDamageModifier(1) end))
 assert(not pcall(function() pool:GetCollectiblesFromPool(31) end))
 )lua";

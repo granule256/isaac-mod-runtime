@@ -210,7 +210,8 @@ int main() {
 assert(type(MenuManager) == 'table')
 assert(MenuManager.IsActive())
 assert(MenuManager.GetActiveMenu() == 8)
-assert(not pcall(function() MenuManager:GetActiveMenu() end))
+assert(MenuManager:GetActiveMenu() == 8)
+assert(MenuManager.GetActiveMenu('ignored', 42) == 8)
 
 local pos = Isaac.WorldToMenuPosition(8, Vector(3, 4))
 assert(pos.X == 132 and pos.Y == 199, tostring(pos.X) .. ',' .. tostring(pos.Y))

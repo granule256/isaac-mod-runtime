@@ -195,7 +195,7 @@ void CreateGlobalOwnerTable(lua_State* state, const char* owner) {
 
 int RepentogonMenuManagerGetActiveMenu(lua_State* state) {
     RequireGameThread(state, "MenuManager.GetActiveMenu");
-    RequireNoArguments(state, "MenuManager.GetActiveMenu");
+    // Upstream ignores the argument stack, including a colon-call's self.
     const auto menu = RequireMenuManager(state);
     lua_pushinteger(
         state,

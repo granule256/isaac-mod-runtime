@@ -24,8 +24,10 @@ constexpr std::uintptr_t kPlayerEdenDamageOffset = 0x1938;
 constexpr std::uintptr_t kPlayerD8DamageModifierOffset = 0x1db4;
 constexpr std::uintptr_t kPlayerBackupPlayerOffset = 0x2588;
 constexpr std::uintptr_t kItemPoolPoolStride = 0x48;
-constexpr std::uintptr_t kItemPoolPoolListBeginOffset = 0x08;
-constexpr std::uintptr_t kItemPoolPoolListEndOffset = 0x10;
+// GetPool @ 0x3c5580 returns this + 8 + type * 0x48 (total weight).
+// pick_collectible @ 0x3c5d54 reads its vector at +8/+16.
+constexpr std::uintptr_t kItemPoolPoolListBeginOffset = 0x10;
+constexpr std::uintptr_t kItemPoolPoolListEndOffset = 0x18;
 constexpr std::size_t kItemPoolPoolItemStride = 0x18;
 constexpr std::int32_t kItemPoolCount = 31;
 
@@ -151,7 +153,9 @@ void PushItemPoolTable(lua_State* state, std::uintptr_t itemPool) {
                                           kItemPoolPoolListEndOffset -
                                               kItemPoolPoolListBeginOffset,
                                           "ItemPool pool list end");
-    if (!begin || end < begin || (end - begin) % kItemPoolPoolItemStride != 0) {
+    if ((begin == 0) != (end == 0) || end < begin ||
+        (begin != 0 && begin % alignof(std::uint32_t) != 0) ||
+        (end - begin) % kItemPoolPoolItemStride != 0) {
         luaL_error(state, "ItemPool pool list is invalid");
     }
     const auto count = (end - begin) / kItemPoolPoolItemStride;
