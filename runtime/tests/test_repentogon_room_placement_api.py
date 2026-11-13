@@ -52,6 +52,9 @@ unsigned visibilityCalls;
 unsigned setRoomTypesCalls;
 unsigned playAnimationCalls;
 unsigned removeEntityCalls;
+bool blockAllLocations;
+
+int BlockPlacements(lua_State*) { blockAllLocations = true; return 0; }
 
 template <class T>
 void Put(std::vector<std::uint8_t>& bytes, std::size_t offset, T value) {
@@ -74,7 +77,7 @@ std::uintptr_t Address(const std::vector<std::uint8_t>& bytes) {
 const void* HostGetRoomByIdx(const void* level, std::int32_t index,
                              std::int32_t) {
     assert(level == game.data());
-    if (index == 84) return game.data() + 0x18;
+    if (index == 84 || blockAllLocations) return game.data() + 0x18;
     return nullptr;
 }
 
@@ -228,6 +231,8 @@ void PushDescriptor(lua_State* state, std::uintptr_t descriptor) {
 }
 
 void Extensions(lua_State* state) noexcept {
+    lua_pushcfunction(state, BlockPlacements);
+    lua_setglobal(state, "_blockPlacements");
     assert(RegisterRepentogonRoomPlacementApi(state) == 0);
     luaL_getmetatable(state, LuaRuntime::kLevelMetatable);
     assert(lua_istable(state, -1));
@@ -366,6 +371,11 @@ assert(byDoor and byDoor.GridIndex == 83)
 assert(byDoor.DisplayFlags == 5)
 assert(level:TryPlaceRoom(config, 169, 0, 1) == false)
 assert(level:TryPlaceRoomAtDoor(config, existing, 99, 1) == false)
+_blockPlacements()
+local failed = table.pack(level:TryPlaceRoom(config, 70, 0, 1, true, true, true))
+assert(failed.n == 1 and failed[1] == nil, 'placement failure must return one nil')
+failed = table.pack(level:TryPlaceRoomAtDoor(config, existing, 0, 1, true, true))
+assert(failed.n == 1 and failed[1] == nil)
 )lua";
     const auto result = LuaRuntime::InitializeFromBuffer(
         script, std::strlen(script), "@room-placement.lua");

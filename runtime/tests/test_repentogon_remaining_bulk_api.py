@@ -32,6 +32,7 @@ static std::vector<unsigned char> player;
 static std::vector<unsigned char> backup;
 static std::vector<unsigned char> pickup;
 static std::vector<unsigned char> poolItems;
+static std::vector<unsigned char> pickupLayers;
 
 static std::uintptr_t Address(const std::vector<unsigned char>& bytes) {
     return reinterpret_cast<std::uintptr_t>(bytes.data());
@@ -56,6 +57,31 @@ static int Mutate(lua_State* state) {
     return 0;
 }
 
+static int SetBlindSheet(lua_State* state) {
+    static constexpr char question[] = "gfx/Items/Collectibles/questionmark.png";
+    static constexpr char different[] = "gfx/items/collectibles/questionmark.png";
+    const auto mode = luaL_checkinteger(state, 1);
+    const auto path = mode == 2 ? different : question;
+    std::uintptr_t words[3]{1, sizeof(question) - 1,
+        reinterpret_cast<std::uintptr_t>(path)};
+    if (mode == 3) std::memset(words, 0, sizeof(words));
+    if (mode == 4) {
+        std::memset(words, 0, sizeof(words));
+        auto* bytes = reinterpret_cast<unsigned char*>(words);
+        bytes[0] = 14;
+        std::memcpy(bytes + 1, "foo.png", 7);
+    }
+    if (mode == 7) words[2] = 0;
+    Put(pickupLayers, 0xb0 + 0x10, words, sizeof(words));
+    const auto layers = mode == 5 ? 0 : Address(pickupLayers);
+    const std::int32_t count = mode == 5 ? 0 : mode == 6 ? 1 : 2;
+    Put(pickup, kEntitySpriteOffset + 0xa8, &layers, sizeof(layers));
+    Put(pickup, kEntitySpriteOffset + 0xb0, &count, sizeof(count));
+    const std::uint32_t variant = mode == 8 ? 20 : 100;
+    Put(pickup, kEntityVariantOffset, &variant, sizeof(variant));
+    return 0;
+}
+
 static void Extensions(lua_State* state) noexcept {
     RegisterRepentogonRemainingBulkViews(state);
     PushEntityCallbackArgument(state, Address(player));
@@ -71,6 +97,8 @@ static void Extensions(lua_State* state) noexcept {
     lua_setglobal(state, "pool");
     lua_pushcfunction(state, Mutate);
     lua_setglobal(state, "mutate");
+    lua_pushcfunction(state, SetBlindSheet);
+    lua_setglobal(state, "_blindSheet");
 }
 
 int main() {
@@ -80,6 +108,7 @@ int main() {
     backup.assign(0x2700, 0);
     pickup.assign(0x800, 0);
     poolItems.assign(2 * 0x18, 0);
+    pickupLayers.assign(2 * 0xb0, 0);
 
     const auto base = Address(module);
     SetIdentity(player, base + kEntityPlayerVtableOffset, kEntityTypePlayer);
@@ -134,6 +163,20 @@ assert(type(flipped) == 'userdata' and flipped.Type == 1)
 assert(pickup:IsBlind())
 mutate(0)
 assert(not pickup:IsBlind())
+_blindSheet(1)
+assert(pickup:IsBlind(false), 'questionmark layer is blind when not forced-only')
+assert(not pickup:IsBlind() and not pickup:IsBlind(true) and not pickup:IsBlind(nil))
+for _,mode in ipairs({2,3,4,5,6}) do
+    _blindSheet(mode)
+    assert(not pickup:IsBlind(false))
+end
+_blindSheet(7)
+assert(not pcall(function() pickup:IsBlind(false) end))
+assert(not pickup:IsBlind(), 'forced-only must not inspect the Sprite')
+mutate(1)
+assert(pickup:IsBlind(false) and pickup:IsBlind())
+_blindSheet(8)
+assert(not pickup:IsBlind(false) and not pickup:IsBlind())
 assert(pool:GetNumItemPools() == 31)
 local items = pool:GetCollectiblesFromPool(0)
 assert(#items == 2 and items[1].itemID == 42)

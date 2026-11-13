@@ -51,6 +51,15 @@ static void Put(std::vector<unsigned char>& bytes, std::size_t offset, T value) 
     std::memcpy(bytes.data() + offset, &value, sizeof(value));
 }
 
+static int SetGridVector(lua_State* state) {
+    const auto mode = luaL_checkinteger(state, 1);
+    const auto begin = mode == 0 || mode == 2 ? 0 : Address(gridElements);
+    const auto end = mode == 2 ? 0x20 : mode == 3 ? begin + 1 : begin;
+    Put(descriptor, 0x78, static_cast<std::uintptr_t>(begin));
+    Put(descriptor, 0x80, static_cast<std::uintptr_t>(end));
+    return 0;
+}
+
 static void Extensions(lua_State* state) noexcept {
     RegisterRepentogonSaveStateViews(state);
     auto* handle = static_cast<LuaRuntime::RoomDescriptorHandle*>(
@@ -63,6 +72,8 @@ static void Extensions(lua_State* state) noexcept {
     lua_setglobal(state, "_corruptAssignGuard");
     lua_pushcfunction(state, RestoreAssignGuard);
     lua_setglobal(state, "_restoreAssignGuard");
+    lua_pushcfunction(state, SetGridVector);
+    lua_setglobal(state, "_setGridVector");
 }
 
 static void HostAssign(void* vector, const void* first, const void* last) {
@@ -166,6 +177,16 @@ assert(not gridDesc.Initialized and gridDesc.SpawnCount == 0 and gridDesc.State 
 assert(gridDesc.Type == 0 and gridDesc.Variant == 0 and gridDesc.VarData == 0)
 assert(not pcall(function() entities:Get(2) end))
 assert(not pcall(function() grid:Get(2) end))
+for _, mode in ipairs({0, 1}) do
+    _setGridVector(mode)
+    assert(#grid == 0, 'a valid empty vector has length zero')
+    assert(select('#', grid:Clear()) == 0)
+    assert(not pcall(function() grid:Get(0) end))
+end
+for _, mode in ipairs({2, 3}) do
+    _setGridVector(mode)
+    assert(not pcall(function() return #grid end))
+end
 )lua";
     if (LuaRuntime::InitializeFromBuffer(script, std::strlen(script),
                                          "@save-state-api.lua") !=

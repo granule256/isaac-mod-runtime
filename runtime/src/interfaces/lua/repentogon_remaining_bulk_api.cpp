@@ -8,7 +8,9 @@
 #include "lua_runtime.hpp"
 #include "runtime_constants.hpp"
 
+#include <array>
 #include <cstdint>
+#include <cstring>
 
 extern "C" {
 #include <lauxlib.h>
@@ -100,6 +102,35 @@ T Read(lua_State* state, std::uintptr_t object, std::uintptr_t offset,
         luaL_error(state, "%s is not readable", name);
     }
     return value;
+}
+
+bool HasQuestionmarkSheet(lua_State* state, std::uintptr_t pickup) {
+    constexpr char expected[] = "gfx/Items/Collectibles/questionmark.png";
+    const auto sprite = pickup + kEntitySpriteOffset;
+    const auto count = Read<std::int32_t>(state, sprite, kAnim2LayerCountOffset,
+                                          "Pickup Sprite layer count");
+    if (count < 0) luaL_error(state, "Pickup Sprite layer count is invalid");
+    if (count < 2) return false;
+    const auto layers = Read<std::uintptr_t>(state, sprite, 0xa8,
+                                              "Pickup Sprite layer states");
+    // ANM2::GetLayer uses a 0xb0 stride; LayerState::Reset copies the
+    // spritesheet path into its native libc++ string at +0x10.
+    if (!layers || layers > UINTPTR_MAX - 0xb0 - 0x10) {
+        luaL_error(state, "Pickup Sprite layer states are unavailable");
+    }
+    const auto path = layers + 0xb0 + 0x10;
+    const auto words = Read<std::array<std::uintptr_t, 3>>(
+        state, path, 0, "Pickup spritesheet path");
+    const bool isLong = (words[0] & kLibcxxStringLongFlag) != 0;
+    const auto length = isLong ? words[1] : (words[0] & 0xffU) >> 1;
+    if (!isLong && length >= sizeof(words)) {
+        luaL_error(state, "Pickup spritesheet string is invalid");
+    }
+    if (length != sizeof(expected) - 1) return false;
+    const auto data = isLong ? words[2] : path + kLibcxxStringShortDataOffset;
+    const auto text = Read<std::array<char, sizeof(expected) - 1>>(
+        state, data, 0, "Pickup spritesheet bytes");
+    return std::memcmp(text.data(), expected, text.size()) == 0;
 }
 
 void PushItemPoolTable(lua_State* state, std::uintptr_t itemPool) {
@@ -247,7 +278,8 @@ int RepentogonEntityPickupIsBlind(lua_State* state) {
     const auto force = Read<std::uint8_t>(
         state, pickup, kEntityPickupForceBlindOffset,
         "EntityPickup force-blind flag");
-    lua_pushboolean(state, force != 0);
+    const bool forcedOnly = lua_isnoneornil(state, 2) || lua_toboolean(state, 2);
+    lua_pushboolean(state, force != 0 || (!forcedOnly && HasQuestionmarkSheet(state, pickup)));
     return 1;
 }
 

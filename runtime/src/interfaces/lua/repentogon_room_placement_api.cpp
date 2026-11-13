@@ -809,10 +809,11 @@ int RepentogonLevelTryPlaceRoom(lua_State* state) {
     const bool allowNoNeighbors =
         lua_toboolean(state, 8) != 0;
     const auto natives = LoadNatives(state);
-    const int pushed = static_cast<int>(PlaceDescriptor(
+    static_cast<void>(PlaceDescriptor(
         state, natives, level, config.data, column, line, dimension, seed,
         allowMultipleDoors, allowSpecialNeighbors, allowNoNeighbors));
-    return pushed;
+    // PlaceDescriptor pushes nil on failure but returns zero for internal retries.
+    return 1;
 }
 
 int RepentogonLevelTryPlaceRoomAtDoor(lua_State* state) {

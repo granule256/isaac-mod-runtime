@@ -130,7 +130,7 @@ VectorView ReadVector(lua_State* state, std::uintptr_t vector,
         Read<std::uintptr_t>(state, vector, sizeof(std::uintptr_t), name),
         stride,
     };
-    if (!view.begin || view.end < view.begin ||
+    if ((!view.begin && view.end) || view.end < view.begin ||
         (view.end - view.begin) % view.stride != 0 ||
         (view.end - view.begin) / view.stride > 0x10000) {
         luaL_error(state, "%s vector is invalid", name);
