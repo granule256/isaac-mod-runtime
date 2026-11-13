@@ -3987,8 +3987,8 @@ std::uintptr_t HasCollectibleMethod() noexcept {
 }
 
 // `Entity_Player::AddCollectible` 的地址：与 `HasCollectibleMethod` 同一种接法（模块基址 + 偏移），
-// 但**多做一次入口指纹核对** —— 这个函数的调用会真的改变玩家状态，偏移一旦写错就会去调别的函数，
-// 后果比"读到一个错值"严重得多；核对 4 字节的成本可以忽略。
+// 但**多做一次入口指纹核对**，并接受登记且完整核验过的原生中继 —— 这个函数会改变玩家状态，
+// 偏移一旦写错就会去调别的函数，后果比"读到一个错值"严重得多。
 std::uintptr_t AddCollectibleMethod() noexcept {
     const std::uintptr_t base = EngineModuleBase();
     if (base == 0 || base > UINTPTR_MAX - kEntityPlayerAddCollectibleOffset) {
@@ -3998,9 +3998,7 @@ std::uintptr_t AddCollectibleMethod() noexcept {
     if (!IsEngineMemoryReadable(method, sizeof(std::uint32_t))) {
         return 0;
     }
-    std::uint32_t entryWord = 0;
-    if (!ReadEngine(method, &entryWord) ||
-        entryWord != kEntityPlayerAddCollectibleEntryWord) {
+    if (!EngineEntryWordMatches(method, kEntityPlayerAddCollectibleEntryWord)) {
         return 0;
     }
     return method;
