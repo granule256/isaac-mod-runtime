@@ -44,6 +44,8 @@ constexpr std::uintptr_t kRoomTransitionBossIntroFlag = 0x3E8;
 constexpr std::uintptr_t kGameStartingRoomIndex = 0x21514;
 constexpr std::uintptr_t kGameAmbush = 0x26FAA8;
 constexpr std::uintptr_t kAmbushCurrentWave = 0x3C;
+// LoadConfig @ 0x42813c parses progressAnm2, loaded into this ANM2 @ 0x4285f0.
+constexpr std::uintptr_t kNightmareProgressBarSprite = 0x2E8;
 
 constexpr std::uintptr_t kRoomDescriptorDimension = 0x0C;
 constexpr std::uintptr_t kRoomDescriptorTaintedKeeperCoinSpawns = 0x5E;
@@ -386,6 +388,17 @@ int RepentogonNightmareSceneIsDogmaNightmare(lua_State* state) {
     return 1;
 }
 
+int RepentogonNightmareSceneGetProgressBarSprite(lua_State* state) {
+    RequireGameThread(state, "NightmareScene.GetProgressBarSprite");
+    const auto manager = RequireManager(state);
+    if (manager > UINTPTR_MAX - kManagerNightmareSceneOffset - kNightmareProgressBarSprite) {
+        return luaL_error(state, "NightmareScene progress sprite is unavailable");
+    }
+    PushSceneSprite(state, manager + kManagerNightmareSceneOffset + kNightmareProgressBarSprite,
+                    "NightmareScene.GetProgressBarSprite");
+    return 1;
+}
+
 int RepentogonRoomDescriptorGetDimension(lua_State* state) {
     RequireGameThread(state, "RoomDescriptor.GetDimension");
     if (lua_gettop(state) != 1) {
@@ -454,6 +467,12 @@ bool RepentogonMenuWorldSpriteAlive(std::uintptr_t sprite) noexcept {
     if (sprite == 0 ||
         !engine_memory::EngineMemoryReadable(sprite, kSpriteObjectSize)) {
         return false;
+    }
+    const auto manager = TryReadSingleton(kGameManagerGlobalSlotOffset);
+    if (manager != 0 && manager <= UINTPTR_MAX - kManagerNightmareSceneOffset -
+        kNightmareProgressBarSprite && sprite == manager + kManagerNightmareSceneOffset +
+        kNightmareProgressBarSprite) {
+        return true;
     }
     const auto menu = TryReadSingleton(kMenuManagerSlot);
     if (menu != 0) {

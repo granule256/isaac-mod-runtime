@@ -3494,13 +3494,22 @@ bool ResolveSoundEffectsCore(std::uintptr_t method, const u8* expected, std::siz
         }
         return false;
     };
-    if (!g_InManagedCallbackDispatch.load(std::memory_order_acquire)) {
+    // Author modules may preload sounds before any managed callback runs.
+    if (!IsOnGameThread()) {
         return fail(1);
     }
     uintptr_t manager = g_CurrentCallbackManager.load(std::memory_order_acquire);
     if (manager == 0) {
         if (auto provider = g_FrameManagerProvider.load(std::memory_order_acquire)) {
             manager = provider();
+        }
+    }
+    if (manager == 0) {
+        std::uintptr_t owner{};
+        if (!isaac::runtime::engine_memory::ReadField(EngineModuleBase(), kGameManagerGlobalSlotOffset,
+                                      &owner, &IsReadableMusicObject) || owner == 0 ||
+            !isaac::runtime::engine_memory::ReadAt(owner, &manager, &IsReadableMusicObject)) {
+            manager = 0;
         }
     }
     if (manager == 0) {
@@ -4881,6 +4890,12 @@ isaac::runtime::repentogon::Result DispatchRepentogonCallback(
     LuaCallbackInvoker invoker{0,false,false};
     auto filter=CallbackRegistry::kNoCallbackFilter;
     switch(event.kind) {
+        case EventKind::Boolean:
+            invoker.arguments.AddBoolean(event.low);
+            break;
+        case EventKind::FiredEntity:
+            invoker.arguments.AddEntity(event.object);
+            break;
         case EventKind::CollectibleRemoved:
             filter=event.first;
             invoker.arguments.AddEntity(event.object);

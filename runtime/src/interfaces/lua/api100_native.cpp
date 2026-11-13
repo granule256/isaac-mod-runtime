@@ -1,4 +1,5 @@
 #include "interfaces/lua/api100_native.hpp"
+#include "infrastructure/call/engine_call_access.hpp"
 #include "infrastructure/memory/engine_field_access.hpp"
 #include "lua_runtime.hpp"
 #if defined(__SWITCH__)
@@ -18,7 +19,8 @@ __attribute__((noinline)) std::uintptr_t Resolve(lua_State* state,const Entry& e
   cache.base=base;
   cache.valid=base&&base<=UINTPTR_MAX-entry.offset-16&&
     engine_memory::EngineMemoryReadable(base+entry.offset,16)&&
-    !std::memcmp(engine_memory::AsObject(base+entry.offset),entry.guard,16);
+    engine_call::VerifyEntryBytes(base+entry.offset,entry.guard,16,
+                                  &engine_memory::EngineMemoryReadable);
 #if defined(__SWITCH__)
   // 仅对与入口中继重合的公开API补登记校验；成功缓存热路径不增加工作。
   if(!cache.valid && base && base<=UINTPTR_MAX-entry.offset-16) {

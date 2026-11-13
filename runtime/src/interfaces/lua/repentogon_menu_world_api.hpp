@@ -21,6 +21,7 @@ int RepentogonRoomTransitionStartBossIntro(lua_State* state);
 
 int RepentogonAmbushGetCurrentWave(lua_State* state);
 int RepentogonNightmareSceneIsDogmaNightmare(lua_State* state);
+int RepentogonNightmareSceneGetProgressBarSprite(lua_State* state);
 
 int RepentogonRoomDescriptorGetDimension(lua_State* state);
 int RepentogonRoomDescriptorGetTaintedKeeperCoinSpawns(lua_State* state);

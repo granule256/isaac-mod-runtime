@@ -445,10 +445,11 @@ struct CategoryState {
     std::unordered_map<EntityKey, std::size_t, EntityKeyHash> byTuple;
     std::vector<std::size_t> order;
     int maxId{};
+    std::unordered_map<std::string, int> byName;
 };
 
 struct Store {
-    CategoryState categories[3];
+    CategoryState categories[4];
 };
 
 Store* g_store = nullptr;
@@ -462,6 +463,8 @@ int CategoryIndex(XmlNodeType type) noexcept {
             return 1;
         case XmlNodeType::Backdrop:
             return 2;
+        case XmlNodeType::GiantBook:
+            return 3;
         default:
             return -1;
     }
@@ -475,6 +478,8 @@ XmlNodeType NodeTypeFor(XmlDataFileKind kind) noexcept {
             return XmlNodeType::Challenge;
         case XmlDataFileKind::Backdrops:
             return XmlNodeType::Backdrop;
+        case XmlDataFileKind::GiantBooks:
+            return XmlNodeType::GiantBook;
     }
     return XmlNodeType::Mod;
 }
@@ -487,6 +492,8 @@ const char* ExpectedRoot(XmlNodeType type) noexcept {
             return "challenges";
         case XmlNodeType::Backdrop:
             return "backdrops";
+        case XmlNodeType::GiantBook:
+            return "giantbook";
         default:
             return nullptr;
     }
@@ -545,7 +552,7 @@ void AddOrReplaceById(CategoryState* category, XmlRecord record) {
     category->order.push_back(index);
 }
 
-void AddChallengeOrBackdrop(CategoryState* category, XmlRecord record, bool isContent,
+int AddChallengeOrBackdrop(CategoryState* category, XmlRecord record, bool isContent,
                             XmlNodeType type) {
     const XmlAttribute* explicitId = FindAttribute(record, "id");
     int id = 0;
@@ -569,6 +576,7 @@ void AddChallengeOrBackdrop(CategoryState* category, XmlRecord record, bool isCo
     }
     record.id = id;
     AddOrReplaceById(category, std::move(record));
+    return id;
 }
 
 bool IsEntityCollisionCluster(int type) noexcept {
@@ -627,11 +635,27 @@ bool AddRecord(XmlDataFileKind kind, XmlRecord record, bool isContent,
         ApplySource(&record, sourceId);
         TranslateEntityName(&record, translator);
         AddEntity(&g_store->categories[CategoryIndex(type)], std::move(record), isContent);
-    } else if (type == XmlNodeType::Challenge || type == XmlNodeType::Backdrop) {
+    } else if (type == XmlNodeType::Challenge || type == XmlNodeType::Backdrop ||
+               type == XmlNodeType::GiantBook) {
         ApplySource(&record, sourceId);
         if (type == XmlNodeType::Backdrop) ProcessBackdropName(&record);
-        AddChallengeOrBackdrop(&g_store->categories[CategoryIndex(type)], std::move(record),
-                               isContent, type);
+        if (type == XmlNodeType::GiantBook && !FindAttribute(record, "name")) {
+            const auto* gfx = FindAttribute(record, "gfx");
+            if (gfx) {
+                auto name = gfx->value;
+                const auto separator = name.find_last_of("/\\");
+                if (separator != std::string::npos) name.erase(0, separator + 1);
+                const auto extension = name.find_last_of('.');
+                if (extension != std::string::npos) name.resize(extension);
+                SetAttribute(&record, "name", std::move(name));
+            }
+        }
+        auto& category = g_store->categories[CategoryIndex(type)];
+        const int id = AddChallengeOrBackdrop(&category, std::move(record), isContent, type);
+        if (type == XmlNodeType::GiantBook) {
+            const auto* name = category.records[category.byId.find(id)->second].FindAttribute("name");
+            if (name) category.byName[name->value] = id;
+        }
     } else {
         return false;
     }
@@ -684,7 +708,8 @@ bool IngestXmlDataFile(XmlDataFileKind kind, const char* source_id, bool is_cont
     }
 
     for (XmlRecord& record : document.records) {
-        if (type == XmlNodeType::Entity || type == XmlNodeType::Backdrop) {
+        if (type == XmlNodeType::Entity || type == XmlNodeType::Backdrop ||
+            type == XmlNodeType::GiantBook) {
             MergeMissingAttributes(&record.attributes, document.rootAttributes);
         }
         if (!AddRecord(kind, std::move(record), is_content, source_id, translator)) {
@@ -719,6 +744,14 @@ const XmlRecord* FindEntryById(XmlNodeType type, int id) noexcept {
     const CategoryState& category = g_store->categories[index];
     const auto found = category.byId.find(id);
     return found == category.byId.end() ? nullptr : &category.records[found->second];
+}
+
+const XmlRecord* FindGiantBookByName(const char* name) noexcept {
+    if (!g_store || !name) return nullptr;
+    const auto& category = g_store->categories[3];
+    const auto found = category.byName.find(name);
+    return found == category.byName.end() ? nullptr :
+        FindEntryById(XmlNodeType::GiantBook, found->second);
 }
 
 const XmlRecord* FindEntryByOrder(XmlNodeType type, int order) noexcept {

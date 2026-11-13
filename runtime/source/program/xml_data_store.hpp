@@ -14,7 +14,7 @@
 namespace isaac::runtime::xml_data {
 
 // Values are the public XMLNode enum values from the pinned REPENTOGON
-// snapshot. The store currently populates Entity, Challenge and Backdrop.
+// snapshot. The store currently populates Entity, Challenge, Backdrop and GiantBook.
 enum class XmlNodeType : int {
     Mod = 0,
     Entity = 1,
@@ -60,6 +60,7 @@ enum class XmlDataFileKind : std::uint8_t {
     Entities = 1,
     Challenges = 9,
     Backdrops = 25,
+    GiantBooks = 27,
 };
 
 struct XmlAttribute {
@@ -127,6 +128,7 @@ void ResetXmlDataStore() noexcept;
 [[nodiscard]] const XmlRecord* FindEntityByTypeVarSub(int type, int variant, int subtype,
                                                       bool strict) noexcept;
 [[nodiscard]] const XmlRecord* FindEntryById(XmlNodeType type, int id) noexcept;
+[[nodiscard]] const XmlRecord* FindGiantBookByName(const char* name) noexcept;
 [[nodiscard]] const XmlRecord* FindEntryByOrder(XmlNodeType type, int order) noexcept;
 [[nodiscard]] std::size_t CountEntries(XmlNodeType type) noexcept;
 [[nodiscard]] const XmlDataStoreStats& Statistics() noexcept;

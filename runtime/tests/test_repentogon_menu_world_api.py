@@ -207,6 +207,7 @@ int main() {
     LuaRuntime::SetRuntimeExtensionInstaller(Extensions);
 
     constexpr const char* script = R"lua(
+assert(type(NightmareScene.GetProgressBarSprite()) == 'userdata')
 assert(type(MenuManager) == 'table')
 assert(MenuManager.IsActive())
 assert(MenuManager.GetActiveMenu() == 8)

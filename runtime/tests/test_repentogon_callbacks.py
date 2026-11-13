@@ -271,6 +271,11 @@ static const RepentogonCallbackBinding expected[]={
 {1463,"MC_POST_GRID_ENTITY_WALL_RENDER"},
 {1464,"MC_MENU_INPUT_ACTION"},
 {1470,"MC_POST_SAVESLOT_LOAD"},
+{1103,"MC_POST_NIGHTMARE_SCENE_SHOW"},
+{1255,"MC_POST_FIRE_BRIMSTONE"},
+{1258,"MC_POST_FIRE_SWORD"},
+{1259,"MC_POST_FIRE_TECH_LASER"},
+{1260,"MC_POST_FIRE_TECH_X_LASER"},
 
 };
 int main(int argc,char** argv){
@@ -292,7 +297,7 @@ int main(int argc,char** argv){
     if(mode=="off"||mode=="none"){
         script+="assert(ModCallbacks.MC_PRE_GRID_ENTITY_DECORATION_UPDATE==nil);assert(EntityConfig==nil and MenuManager==nil and RoomTransition==nil and BlendMode==nil and StbType==nil and MainMenuType==nil and Dimension==nil)";
     }else if(mode=="catalog"){
-        script+="assert(type(EntityConfig.GetEntity)=='function' and type(MenuManager.GetActiveMenu)=='function' and type(RoomTransition.GetVersusScreenSprite)=='function')\n";
+        script+="assert(type(EntityConfig.GetEntity)=='function' and type(MenuManager.GetActiveMenu)=='function' and type(RoomTransition.GetVersusScreenSprite)=='function');assert(type(Isaac.GetGiantBookIdByName)=='function')\n";
         script+=R"lua(
 local names={'SPECIAL_ROOMS','BASEMENT','CELLAR','BURNING_BASEMENT','CAVES','CATACOMBS','FLOODED_CAVES','DEPTHS','NECROPOLIS','DANK_DEPTHS','WOMB','UTERO','SCARRED_WOMB','BLUE_WOMB','SHEOL','CATHEDRAL','DARK_ROOM','CHEST'}
 local menus={'TITLE','SAVES','GAME','DAILYRUN','CHARACTER','SPECIALSEEDS','CHALLENGE','COLLECTION','STATS','OPTIONS','CONTROLS','KEYCONFIG','ENDINGS','BESTIARY','MODCHALLENGES','MODS','SEED'}
@@ -338,6 +343,14 @@ for _,id in ipairs({1081,1082,1086,1160,1165,1231,1233,1235,1237,1239,1444,1445}
  end,wanted)
  m:AddCallback(id,function()error('wrong filter '..id)end,999)
 end
+)lua";
+    }else if(mode=="post_fire"){
+        script+=R"lua(
+m:AddCallback(1103,function(_,value)assert(type(value)=='boolean' and value);calls=calls+1 end)
+for _,id in ipairs({1255,1258,1259,1260})do
+ m:AddCallback(id,function(_,...)assert(select('#',...)==1);local entity=...;assert(type(entity)=='userdata');calls=calls+1;return false end)
+end
+m:AddCallback(1259,function()error('post-fire has no variant filter')end,7)
 )lua";
     }else if(mode=="sound"){
         script+=R"lua(
@@ -476,16 +489,16 @@ local f;f=function()m:RemoveCallback(1400,f);calls=calls+1 end;m:AddCallback(140
     if(mode=="off"||mode=="none"){
         assert(!Listening(1400));assert(installCalls==0&&readyCalls==0);assert(ExtendedCallbackCount()==0);
     }else{
-        assert(installCalls==1&&readyCalls==1&&ExtendedCallbackCount()==127);
+        assert(installCalls==1&&readyCalls==1&&ExtendedCallbackCount()==132);
         unsigned type=20,variant=7,subtype=9,gridType=4;
         std::memcpy(entity+kEntityTypeOffset,&type,4);std::memcpy(entity+kEntityVariantOffset,&variant,4);
         std::memcpy(entity+kEntitySubTypeOffset,&subtype,4);std::memcpy(grid+kGridEntityTypeOffset,&gridType,4);
         Vector offset{10,20};Sound sound{5,0.5f,2,false,1,0};
         auto send=[&](unsigned id,EventKind kind=EventKind::Global){return Dispatch(Event{id,kind,kind==EventKind::Grid||kind==EventKind::GridRender?Address(grid):Address(entity),Address(collider),&offset,true,&sound});};
         if(mode=="catalog"){
-            assert(sizeof(expected)/sizeof(expected[0])==127);
+            assert(sizeof(expected)/sizeof(expected[0])==132);
             for(const auto& c:expected){assert(Listening(c.id));send(c.id);}
-            Check();assert(Number("calls")==127&&g_ExtendedCallbackEnabledCount==127);
+            Check();assert(Number("calls")==132&&g_ExtendedCallbackEnabledCount==132);
         }else if(mode=="render"){
             auto result=send(1080,EventKind::EntityRender);Check();assert(result.hasOffset&&result.offset.x==11&&result.offset.y==27);
         }else if(mode=="booleans"){
@@ -504,6 +517,10 @@ local f;f=function()m:RemoveCallback(1400,f);calls=calls+1 end;m:AddCallback(140
             for(unsigned id:{1231,1233,1235,1237,1239})send(id,EventKind::Collision);
             auto r=send(1444,EventKind::GridRender);assert(r.hasOffset&&r.offset.x==4&&r.offset.y==5);
             send(1445,EventKind::GridRender);Check();assert(Number("calls")==11);
+        }else if(mode=="post_fire"){
+            send(1103,EventKind::Boolean);Check();
+            for(auto id:{1255,1258,1259,1260})send(id,EventKind::FiredEntity);
+            Check();assert(Number("calls")==5);
         }else if(mode=="sound"){
             send(1030,EventKind::Sound);Check();assert(sound.id==8&&sound.loop&&sound.pan==-0.5f);
             send(1031,EventKind::Sound);Check();assert(Number("calls")==2);
@@ -648,7 +665,7 @@ class RepentogonCallbackTests(unittest.TestCase):
     def test_native_catalog_delivery_and_lifecycle(self):
         with tempfile.TemporaryDirectory(prefix='repentogon-native-') as tmp:
             binary=test_support.build_lua_harness(source_root=SOURCE,workdir=Path(tmp),harness_source=RUNTIME_DRIVER)
-            for mode in ('sprite_cleanup','off','none','ready_fail','install_fail','catalog','render','booleans','filter','sound','sound_error','level_boss','bulk_callbacks','remaining_phases','change_room_invalid','change_room_non_integer','nested','error','pause','pause_error','bad_vector','remove_all','reset','empty'):
+            for mode in ('sprite_cleanup','off','none','ready_fail','install_fail','catalog','render','booleans','filter','post_fire','sound','sound_error','level_boss','bulk_callbacks','remaining_phases','change_room_invalid','change_room_non_integer','nested','error','pause','pause_error','bad_vector','remove_all','reset','empty'):
                 with self.subTest(mode=mode):
                     result=subprocess.run([str(binary),mode],capture_output=True,text=True)
                     self.assertEqual(result.returncode,0,result.stdout+result.stderr)

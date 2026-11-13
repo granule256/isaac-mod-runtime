@@ -222,11 +222,19 @@ int main() {
                              std::strlen(challenges), {}));
     assert(IngestXmlDataFile(XmlDataFileKind::Backdrops, "BaseGame", false, backdrops,
                              std::strlen(backdrops), {}));
+    const char* giantbooks = "<giantbook><entry id='46' name='Base'/></giantbook>";
+    const char* giantMod = "<giantbook><entry name='Seduce'/></giantbook>";
+    assert(IngestXmlDataFile(static_cast<XmlDataFileKind>(27), "BaseGame", false, giantbooks, std::strlen(giantbooks)));
+    assert(IngestXmlDataFile(static_cast<XmlDataFileKind>(27), "ModA", true, giantMod, std::strlen(giantMod)));
     auto* state = luaL_newstate();
     luaL_requiref(state, "_G", luaopen_base, 1);
     lua_pop(state, 1);
     assert(isaac::runtime::RegisterRepentogonXmlDataApi(state) == 0);
+    lua_pushcfunction(state, isaac::runtime::RepentogonIsaacGetGiantBookIdByName);
+    lua_setglobal(state, "GetGiantBookIdByName");
     const char script[] = R"lua(
+        assert(GetGiantBookIdByName('Seduce')==47 and GetGiantBookIdByName('seduce')==-1)
+        assert(not pcall(GetGiantBookIdByName, {}))
         assert(XMLNode.ENTITY == 1 and XMLNode.CHALLENGE == 9 and XMLNode.BACKDROP == 25)
         local base = XMLData.GetEntityByTypeVarSub(1, 0, 0)
         assert(base.name == 'Base One' and base.anm2root == 'gfx/')
@@ -261,9 +269,9 @@ def _run(command: list[str], *, cwd: Path | None = None) -> None:
         raise AssertionError(result.stdout + result.stderr)
 
 
-def _build_store(work: Path) -> Path:
+def _build_store(work: Path, driver: str = STORE_DRIVER) -> Path:
     source = work / "store_driver.cpp"
-    source.write_text(STORE_DRIVER, encoding="utf-8")
+    source.write_text(driver, encoding="utf-8")
     binary = work / "store_driver"
     includes = (SOURCE, ROOT / "src")
     _run([
@@ -310,6 +318,35 @@ class RepentogonXmlDataTests(unittest.TestCase):
     def test_store_parses_contract_and_rejects_bad_input(self):
         with tempfile.TemporaryDirectory(prefix="isaac-xml-store-") as temporary:
             binary = _build_store(Path(temporary))
+            _run([str(binary)])
+
+    def test_giantbook_content_ids_names_children_and_reset(self):
+        driver = r'''
+#include "program/xml_data_store.hpp"
+#include <cassert>
+#include <cstring>
+using namespace isaac::runtime::xml_data;
+int main(){
+ ResetXmlDataStore();
+ const char* base="<giantbook anm2root='gfx/base/'><entry id='1' name='Base'/><entry id='46' gfx='path/Default.Name.png'/></giantbook>";
+ const char* mod="<giantbook anm2root='gfx/mod/'><entry id='1' name='Seduce' gfx='seduce.png'><layer name='poof' r='255'/></entry></giantbook>";
+ assert(IngestXmlDataFile(static_cast<XmlDataFileKind>(27),"BaseGame",false,base,std::strlen(base)));
+ assert(IngestXmlDataFile(static_cast<XmlDataFileKind>(27),"ModA",true,mod,std::strlen(mod)));
+ const auto* entry=FindGiantBookByName("Seduce");assert(entry&&entry->id==47);
+ assert(entry==FindEntryById(XmlNodeType::GiantBook,47));assert(entry->FindChildren("layer")->entries.size()==1);
+ assert(entry->FindAttribute("anm2root")->value=="gfx/mod/");
+ assert(entry->FindAttribute("relativeid")->value=="1");
+ assert(FindGiantBookByName("Default.Name")->id==46);
+ assert(!FindGiantBookByName("seduce")&&!FindGiantBookByName("missing"));
+ assert(CountEntries(XmlNodeType::GiantBook)==3);
+ const char* replacement="<giantbook><entry id='1' name='Replacement'/></giantbook>";
+ assert(IngestXmlDataFile(static_cast<XmlDataFileKind>(27),"ResourceMod",false,replacement,std::strlen(replacement)));
+ assert(FindGiantBookByName("Replacement")&&FindGiantBookByName("Replacement")->id==1);
+ ResetXmlDataStore();assert(!FindGiantBookByName("Seduce"));
+}
+'''
+        with tempfile.TemporaryDirectory(prefix="giantbook-store-") as tmp:
+            binary = _build_store(Path(tmp), driver)
             _run([str(binary)])
 
     def test_lua_facade_exposes_all_four_handlers(self):

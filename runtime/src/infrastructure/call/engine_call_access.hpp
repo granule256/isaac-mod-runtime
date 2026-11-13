@@ -56,6 +56,7 @@ namespace isaac::runtime::engine_call {
 using engine_memory::ReadableCheck;
 
 // Optional native extensions must validate their exact installed patch and fallback.
+// A legacy word-only request still requires the verifier's complete saved prologue.
 // The verifier is consulted only after an original entry comparison fails.
 using InstalledEntryVerifier = bool (*)(std::uintptr_t,const std::uint8_t*,std::size_t,ReadableCheck) noexcept;
 inline std::atomic<InstalledEntryVerifier> g_InstalledEntryVerifier{};
@@ -65,7 +66,7 @@ inline void SetInstalledEntryVerifier(InstalledEntryVerifier verifier) noexcept 
 [[nodiscard]] inline bool VerifyInstalledEntry(std::uintptr_t address,const std::uint8_t* expected,
     std::size_t size,ReadableCheck readable) noexcept {
     const auto verifier=g_InstalledEntryVerifier.load(std::memory_order_acquire);
-    return verifier&&size==16&&verifier(address,expected,size,readable);
+    return verifier&&(size==4||size==16)&&verifier(address,expected,size,readable);
 }
 
 

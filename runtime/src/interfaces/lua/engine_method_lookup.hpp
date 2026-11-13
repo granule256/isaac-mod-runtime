@@ -24,6 +24,7 @@
 
 #include "lua_runtime_state.hpp"
 #include "infrastructure/memory/engine_field_access.hpp"
+#include "infrastructure/call/engine_call_access.hpp"
 
 namespace isaac::runtime {
 
@@ -47,7 +48,9 @@ template <bool (*IsReadable)(std::uintptr_t, std::size_t)>
     }
     std::uint32_t actual = 0;
     std::memcpy(&actual, engine_memory::AsObject(address), sizeof(actual));
-    return actual == entryWord;
+    return actual == entryWord || engine_call::VerifyInstalledEntry(address,
+        reinterpret_cast<const std::uint8_t*>(&entryWord), sizeof(entryWord),
+        engine_memory::EngineMemoryReadable);
 }
 
 // 主动调用仍走原入口，但已安装的中继会改写序言；只接受登记过的回退入口与完整原始指纹。
