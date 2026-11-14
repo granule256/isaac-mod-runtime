@@ -5,6 +5,7 @@
 #include "interfaces/lua/owner_binding.hpp"
 #include "interfaces/lua/remaining_api.hpp"
 #include "interfaces/lua/repentogon_callbacks.hpp"
+#include "interfaces/lua/repentogon_entity_config_api.hpp"
 #include "interfaces/lua/api100_native.hpp"
 #include "interfaces/lua/sprite_api.hpp"
 #include "interfaces/lua/vector_api.hpp"
@@ -624,6 +625,10 @@ int RepentogonIsaacSetCompletionMarks(lua_State* state) {
             g_CustomCompletionMarks[static_cast<std::size_t>(playerType)];
         entry.marks = marks;
         entry.valid = true;
+        bool tainted = false;
+        entry.tainted =
+            RepentogonEntityConfigPlayerTaintedByType(playerType, &tainted) &&
+            tainted;
         return 0;
     }
     for (std::int32_t mark = 0; mark < 15; ++mark) {

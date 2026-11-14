@@ -9,6 +9,8 @@ int RepentogonEntityConfigGetMaxPlayerType(lua_State*);
 int RepentogonEntityConfigPlayerIsHidden(lua_State*);
 int RepentogonEntityConfigPlayerIsTainted(lua_State*);
 int RepentogonEntityConfigPlayerGetName(lua_State*);
+bool RepentogonEntityConfigPlayerTaintedByType(
+    std::int32_t type, bool* tainted) noexcept;
 int RepentogonEntityConfigEntityCanBeChampion(lua_State*);
 int RepentogonEntityConfigEntityGetStageHP(lua_State*);
 int RepentogonEntityConfigEntityGetCollisionRadius(lua_State*);

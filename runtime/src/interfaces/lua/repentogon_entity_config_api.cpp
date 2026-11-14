@@ -140,6 +140,42 @@ int RepentogonEntityConfigPlayerIsTainted(lua_State* L) {
     const auto size=(tag&1U)?Read<std::uint64_t>(L,record,0x128):tag>>1U;
     lua_pushboolean(L,(id>=21&&id<=40)||size!=0);return 1;
 }
+bool RepentogonEntityConfigPlayerTaintedByType(
+    std::int32_t type, bool* tainted) noexcept {
+    if (tainted == nullptr || type < 0) return false;
+    const auto base = LuaRuntime::EngineModuleBase();
+    const auto config = ResolveContentConfigRoot(true);
+    if (base == 0 || config == 0 || base > UINTPTR_MAX - 0x700ccU - 16 ||
+        !engine_call::VerifyEntryBytes(
+            base + 0x700ccU, kPlayerGuard, 16,
+            engine_memory::EngineMemoryReadable))
+        return false;
+    using PlayerFn = void* (*)(void*, std::int32_t);
+    auto playerFn = engine_call::AsFunction<PlayerFn>(base + 0x700ccU);
+#if !defined(__SWITCH__)
+    if (g_Host.getPlayer == nullptr) return false;
+    playerFn = g_Host.getPlayer;
+#endif
+    const auto record = engine_memory::AddressOf(
+        playerFn(engine_memory::AsObject(config), type));
+    if (!engine_memory::PointerUsable(
+            record, engine_memory::EngineMemoryReadable))
+        return false;
+    std::int32_t id{};
+    std::uint8_t tag{};
+    if (!engine_memory::ReadField(record, 0, &id,
+                                  engine_memory::EngineMemoryReadable) ||
+        !engine_memory::ReadField(record, 0x120, &tag,
+                                  engine_memory::EngineMemoryReadable))
+        return false;
+    std::uint64_t size = tag >> 1U;
+    if ((tag & 1U) != 0 &&
+        !engine_memory::ReadField(record, 0x128, &size,
+                                  engine_memory::EngineMemoryReadable))
+        return false;
+    *tainted = (id >= 21 && id <= 40) || size != 0;
+    return true;
+}
 // Load parses an Entity at sp+0x110 then assigns it unchanged to the config map.
 int RepentogonEntityConfigEntityCanBeChampion(lua_State* L) {lua_pushboolean(L,Read<std::uint8_t>(L,Record(L,false),0x38)!=0);return 1;}
 int RepentogonEntityConfigEntityGetStageHP(lua_State* L) {lua_pushnumber(L,Read<float>(L,Record(L,false),0x58));return 1;}

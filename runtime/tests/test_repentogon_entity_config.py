@@ -131,6 +131,12 @@ change(2);assert(not pcall(e.GetStageHP,e));assert(not pcall(p.GetPortraitPath,p
 change(3);assert(e:GetStageHP()==7.25)
 savedEntity=e;savedPlayer=p
 )lua");
+ bool tainted=false;
+ Run(L,"change(9)");
+ assert(RepentogonEntityConfigPlayerTaintedByType(1,&tainted)&&tainted);
+ Run(L,"change(10)");
+ assert(RepentogonEntityConfigPlayerTaintedByType(1,&tainted)&&!tainted);
+ assert(!RepentogonEntityConfigPlayerTaintedByType(999,&tainted));
  const int callsBefore=entityCalls+playerCalls;
  std::thread worker([&]{auto* otherLua=luaL_newstate();
   for(auto fn:{RepentogonEntityConfigGetEntity,RepentogonEntityConfigGetPlayer,RepentogonEntityConfigGetMaxPlayerType,RepentogonEntityConfigPlayerGetName,RepentogonEntityConfigPlayerIsHidden,RepentogonEntityConfigPlayerIsTainted}){
