@@ -2,6 +2,8 @@
 
 #include <cstdint>
 
+#include "runtime_settings_ui.hpp"
+
 namespace isaac::runtime::notice {
 
 enum Key : unsigned {
@@ -31,8 +33,10 @@ struct State {
         // not, since different languages can have different page counts.
         acknowledged_ = manualCloseRequested_ = false;
         viewedPages_ = page = phaseTicks = holdTicks = targetPage_ = 0;
+        settings_.Reset(lastKeys_);
+        focused = false;
         if (phase != Phase::Hidden) Open(requiresHold, lastKeys_);
-        else blockThisTick_ = focused;
+        else blockThisTick_ = false;
     }
     bool AllPagesViewed(unsigned count) const noexcept {
         if (count == 0 || count > 32) return false;
@@ -41,6 +45,8 @@ struct State {
     }
     std::uint32_t ViewedPagesMask() const noexcept { return viewedPages_; }
     bool BlocksTitleConfirm() const noexcept { return blockThisTick_ || confirmLatch_; }
+    [[nodiscard]] const title::State& Settings() const noexcept { return settings_; }
+    [[nodiscard]] title::State& Settings() noexcept { return settings_; }
     bool ConsumeAcknowledgement() noexcept {
         const bool result = acknowledged_;
         acknowledged_ = false;
@@ -57,14 +63,33 @@ struct State {
             holdTicks = phaseTicks = 0;
             blockThisTick_ = confirmLatch_ = false;
             manualCloseRequested_ = false;
+            settings_.Reset(keys);
             return;
         }
-        blockThisTick_ = phase != Phase::Hidden;
+        settings_.Tick(title, ready && seenKnown_ && pageCount != 0, phase != Phase::Hidden, keys);
+        focused = settings_.focus() == title::Focus::Notice;
+        const auto settingsAction = settings_.PeekAction();
+        if (settingsAction == title::Action::OpenNotice) {
+            static_cast<void>(settings_.ConsumeAction());
+            Open(false, keys);
+            // The old hidden-entry branch opened and returned in the same switch
+            // iteration. Do not advance the opening animation a second time in
+            // this tick, or a queued B tap closes one frame early.
+            settings_.Tick(true, true, true, keys);
+            blockThisTick_ = true;
+            return;
+        }
+        blockThisTick_ = phase != Phase::Hidden || settings_.BlocksTitleInput();
         if (!ready || !seenKnown_ || pageCount == 0) return;
         if (!autoEvaluated_) {
             autoEvaluated_ = true;
             if (!seen_) Open(true, keys);
         }
+        if (phase != Phase::Hidden) {
+            settings_.Tick(true, true, true, keys);
+            focused = false;
+        }
+        blockThisTick_ = phase != Phase::Hidden || settings_.BlocksTitleInput();
         if (phase != Phase::Hidden && (keys & Confirm)) confirmLatch_ = true;
         if (!(keys & Back)) backArmed_ = true;
         if (!requiresHold && backArmed_ && (pressed & Back) &&
@@ -74,10 +99,6 @@ struct State {
 
         switch (phase) {
         case Phase::Hidden:
-            if (pressed & (Right | Down)) focused = true;
-            if (pressed & (Left | Up | Back)) focused = false;
-            if (focused && (pressed & Confirm)) Open(false, keys);
-            blockThisTick_ = focused || phase != Phase::Hidden;
             break;
         case Phase::Opening:
             if (++phaseTicks >= kOpenTicks) { phase = Phase::Reading; phaseTicks = 0; }
@@ -145,6 +166,7 @@ private:
     std::uint32_t viewedPages_{};
     bool seenKnown_{}, seen_{}, autoEvaluated_{}, backArmed_{};
     bool acknowledged_{}, blockThisTick_{}, confirmLatch_{}, manualCloseRequested_{};
+    title::State settings_{};
 };
 
 } // namespace isaac::runtime::notice

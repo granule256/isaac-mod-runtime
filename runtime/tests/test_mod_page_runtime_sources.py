@@ -134,16 +134,13 @@ int main() {
         Check(CollectRuntimeModPageSources(out,256,provider,nullptr,nullptr,nullptr,
                   &FakeReader,nullptr,names,sizeof(names),path,text,&stats)==256,
               "all_256_menu_sources");
-        std::uint8_t entries[257*isaac::runtime::kModPageEntryStride]{};
-        std::uintptr_t pointers[257]{};
-        ModPageEntrySource rows[257]{};
-        rows[0]={"Console: ON",true,false};
-        for(unsigned i=0;i<256;++i)rows[i+1]=out[i];
+        std::uint8_t entries[256*isaac::runtime::kModPageEntryStride]{};
+        std::uintptr_t pointers[256]{};
         std::uintptr_t vector[3]{};std::size_t used=0;
         char arena[256*256]{};
-        Check(isaac::runtime::BuildModPageEntries(entries,pointers,vector,257,
-              rows,arena,sizeof(arena),&used)==257,
-              "console_plus_256_menu_entries");
+        Check(isaac::runtime::BuildModPageEntries(entries,pointers,vector,256,
+              out,arena,sizeof(arena),&used)==256,
+              "real_mods_use_all_256_menu_entries");
     }
     // ---- DecideModPageSource：该等 / 该走 / 该退，三态的分界只有一处 ----
     {

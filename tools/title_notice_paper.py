@@ -49,9 +49,12 @@ def _stretch(source: Image, width: int, height: int, borders: tuple) -> Image:
 class PaperArt:
     sheet: Image
     entry: Image
+    entry_borders: tuple = (10, 5, 10, 7)
 
     def paint(self, target: Image, x: int, y: int, width: int, height: int) -> None:
         tile = self.sheet if (width, height) == (336, 216) else self.entry
+        if tile is self.entry and (tile.width, tile.height) != (width, height):
+            tile = _stretch(self.entry, width, height, self.entry_borders)
         if (tile.width, tile.height) != (width, height):
             raise ValueError("notice paper dimensions do not match the layout")
         for row in range(height):

@@ -28,6 +28,46 @@ ASSET_PATH = "gfx/ui/main menu/isaac-switch/nnotice.anm2"
 LANGUAGES = ("en", "de", "es", "fr", "jp", "kr", "ru", "zh")
 DEFAULT_UI = {"entry": "兼容层说明", "footer_locked": "请先读完 | L/R 翻页",
               "footer_auto": "长按 B 关闭 | L/R 翻页", "footer_manual": "B 关闭 | L/R 翻页"}
+DEFAULT_SETTINGS_UI = {
+    "entry": "Runtime Settings", "header": "Runtime Settings",
+    "console": "Console", "repentogon": "REPENTOGON",
+    "footer": "A: toggle  B: close",
+    "on": "On", "off": "Off",
+    "on_saving": "On - saving", "off_saving": "Off - saving",
+    "on_reload": "On - restart required", "off_reload": "Off - restart required",
+    "save_failed": "Save failed", "unavailable": "Unavailable",
+}
+SETTINGS_UI = {
+    "en": DEFAULT_SETTINGS_UI,
+    "de": {**DEFAULT_SETTINGS_UI, "entry": "Laufzeit-Einstellungen",
+           "header": "Laufzeit-Einstellungen",
+           "footer": "A: umschalten  B: schliessen"},
+    "es": {**DEFAULT_SETTINGS_UI, "entry": "Ajustes de ejecución",
+           "header": "Ajustes de ejecución", "footer": "A: cambiar  B: cerrar"},
+    "fr": {**DEFAULT_SETTINGS_UI, "entry": "Paramètres d’exécution",
+           "header": "Paramètres d’exécution", "footer": "A : changer  B : fermer"},
+    "jp": {**DEFAULT_SETTINGS_UI, "entry": "実行環境設定", "header": "実行環境設定",
+           "console": "コンソール", "footer": "A: 切替  B: 閉じる",
+           "on": "オン", "off": "オフ", "on_saving": "オン（保存中）",
+           "off_saving": "オフ（保存中）",
+           "on_reload": "オン（再読込が必要）", "off_reload": "オフ（再読込が必要）",
+           "save_failed": "保存失敗", "unavailable": "利用不可"},
+    "kr": {**DEFAULT_SETTINGS_UI, "entry": "런타임 설정", "header": "런타임 설정",
+           "console": "콘솔", "footer": "A: 전환  B: 닫기",
+           "on": "켜짐", "off": "꺼짐", "on_saving": "켜짐 (저장 중)",
+           "off_saving": "꺼짐 (저장 중)", "on_reload": "켜짐 (재로드 필요)",
+           "off_reload": "꺼짐 (재로드 필요)", "save_failed": "저장 실패",
+           "unavailable": "사용 불가"},
+    "ru": {**DEFAULT_SETTINGS_UI, "entry": "Настройки среды",
+           "header": "Настройки среды", "console": "Консоль",
+           "footer": "A: переключить  B: закрыть"},
+    "zh": {**DEFAULT_SETTINGS_UI, "entry": "兼容层设置", "header": "兼容层设置",
+           "console": "控制台", "footer": "A 切换  B 关闭",
+           "on": "开", "off": "关", "on_saving": "开（保存中）",
+           "off_saving": "关（保存中）", "on_reload": "开（需重启）",
+           "off_reload": "关（需重启）", "save_failed": "保存失败",
+           "unavailable": "不可用"},
+}
 RESOURCE_ROOT = Path("atmosphere/contents/010021C000B6A000/romfs/rp_patch")
 INK = (49, 36, 32, 255)
 RED = (132, 28, 25, 255)
@@ -244,7 +284,8 @@ def _frame(parent, *, delay=1, x=0, y=0, xs=100, ys=100, rotation=0, interpolate
     return ET.SubElement(parent, "Frame", {key: str(value) for key, value in attributes.items()})
 
 
-def make_anm2(page_count: int, support_y: int, basename: str = "nnotice") -> bytes:
+def make_anm2(page_count: int, support_y: int, settings_y: int,
+              basename: str = "nnotice") -> bytes:
     actor = ET.Element("AnimatedActor")
     ET.SubElement(actor, "Info", CreatedBy="Isaac Switch Runtime", Version="18", Fps="30")
     content = ET.SubElement(actor, "Content")
@@ -284,6 +325,22 @@ def make_anm2(page_count: int, support_y: int, basename: str = "nnotice") -> byt
     animation("FooterLocked", (0, support_y + 44, 336, 18, 168, 0), idle, y=82)
     animation("Progress", (0, support_y + 62, 60, 3, 0, 0), idle)
     animation("Dim", (60, support_y + 62, 1, 1, 0, 0), idle, alpha=140)
+    animation("SettingsPaper", (0, settings_y, 336, 216, 168, 108), idle)
+    animation("SettingsEntry", (336, settings_y, 200, 26, 0, 0), idle)
+    animation("SettingsEntrySelected", (336, settings_y + 28, 200, 26, 0, 0), idle)
+    animation("SettingsSelection", (336, settings_y + 58, 260, 22, 0, 0), idle)
+    animation("SettingsHeader", (336, settings_y + 84, 240, 18, 0, 0), idle)
+    animation("SettingsConsole", (336, settings_y + 106, 96, 16, 0, 0), idle)
+    animation("SettingsRepentogon", (436, settings_y + 106, 128, 16, 0, 0), idle)
+    settings_values = (
+        "On", "Off", "OnSaving", "OffSaving",
+        "OnReload", "OffReload", "SaveFailed", "Unavailable",
+    )
+    for index, name in enumerate(settings_values):
+        x = 336 + (160 if index >= 4 else 0)
+        y = settings_y + 126 + (index % 4) * 18
+        animation(f"Settings{name}", (x, y, 160, 16, 0, 0), idle)
+    animation("SettingsFooter", (336, settings_y + 198, 220, 18, 0, 0), idle)
     ET.indent(actor, space="  ")
     return ET.tostring(actor, encoding="utf-8", xml_declaration=True) + b"\n"
 
@@ -298,6 +355,17 @@ def validate_labels(content: dict, font: Font) -> None:
     ui = content.get("ui", DEFAULT_UI)
     labels.append((ui["entry"], 75, "entry"))
     labels.extend((ui[key], 260, key) for key in ("footer_locked", "footer_auto", "footer_manual"))
+    settings_ui = content.get("settings_ui", DEFAULT_SETTINGS_UI)
+    labels.extend((
+        (settings_ui["entry"], 192, "settings entry"),
+        (settings_ui["header"], 232, "settings header"),
+        (settings_ui["console"], 88, "settings console"),
+        (settings_ui["repentogon"], 120, "settings repentogon"),
+        (settings_ui["footer"], 212, "settings footer"),
+    ))
+    labels.extend((settings_ui[key], 152, f"settings {key}") for key in (
+        "on", "off", "on_saving", "off_saving", "on_reload", "off_reload",
+        "save_failed", "unavailable"))
     for text, limit, name in labels:
         width = font.width(text)
         if not text or "\n" in text or width > limit:
@@ -311,7 +379,9 @@ def render_asset(content: dict, font: Font, basename: str = "nnotice",
     validate_labels(content, font)
     pages = paginate(content, font)
     support_y = ((len(pages) + 1) // 2) * PAPER_HEIGHT
-    atlas = Image(672, support_y + 65, bytearray(672 * (support_y + 65) * 4))
+    settings_y = support_y + 65
+    atlas = Image(672, settings_y + PAPER_HEIGHT,
+                  bytearray(672 * (settings_y + PAPER_HEIGHT) * 4))
     for index, lines in enumerate(pages):
         x, y = (index % 2) * PAPER_WIDTH, (index // 2) * PAPER_HEIGHT
         (paper_art.paint if paper_art else paper)(atlas, x, y, PAPER_WIDTH, PAPER_HEIGHT)
@@ -361,9 +431,52 @@ def render_asset(content: dict, font: Font, basename: str = "nnotice",
         draw_text(atlas, font, text, footer_x + 19, footer_y, INK)
     rectangle(atlas, 0, support_y + 62, 60, 3, INK)
     rectangle(atlas, 60, support_y + 62, 1, 1, (0, 0, 0, 255))
+
+    # Settings has its own blank paper. Never scale a notice body page behind
+    # controls, since its baked copy would show through.
+    (paper_art.paint if paper_art else paper)(atlas, 0, settings_y, PAPER_WIDTH, PAPER_HEIGHT)
+    settings_ui = content.get("settings_ui", DEFAULT_SETTINGS_UI)
+    for selected, offset in [(False, 0), (True, 28)]:
+        ex, ey = 336, settings_y + offset
+        (paper_art.paint if paper_art else paper)(atlas, ex, ey, 200, 26)
+        text = settings_ui["entry"]
+        draw_text(atlas, font, text, ex + (200 - font.width(text)) // 2,
+                  ey + 6, INK)
+        if selected:
+            rectangle(atlas, ex + 11, ey + 21, 178, 2, RED)
+            for i in range(5):
+                rectangle(atlas, ex + 4, ey + 9 + i, i + 1, 1, RED)
+                rectangle(atlas, ex + 4, ey + 14 + i, 5 - i, 1, RED)
+        else:
+            rectangle(atlas, ex + 11, ey + 21, 178, 1, MUTED)
+    rectangle(atlas, 336, settings_y + 58, 260, 22, (215, 193, 178, 255))
+    rectangle(atlas, 337, settings_y + 59, 258, 20, (232, 215, 201, 255))
+    rectangle(atlas, 336, settings_y + 58, 4, 22, RED)
+    for text, x, y, width, color, align in (
+            (settings_ui["header"], 336, settings_y + 84, 240, INK, "center"),
+            (settings_ui["console"], 342, settings_y + 106, 96, INK, "left"),
+            (settings_ui["repentogon"], 442, settings_y + 106, 128, INK, "left"),
+            (settings_ui["footer"], 336, settings_y + 198, 220, MUTED, "center")):
+        if font.width(text) > width - 8:
+            raise ValueError(f"settings label is wider than its baked frame: {text!r}")
+        text_width = font.width(text)
+        text_x = x + (width - text_width) // 2 if align == "center" else x + 4
+        draw_text(atlas, font, text, text_x, y + 1, color)
+    value_keys = (
+        "on", "off", "on_saving", "off_saving",
+        "on_reload", "off_reload", "save_failed", "unavailable",
+    )
+    for index, key in enumerate(value_keys):
+        text = settings_ui[key]
+        if font.width(text) > 152:
+            raise ValueError(f"settings value is wider than its baked frame: {text!r}")
+        x = 336 + (160 if index >= 4 else 0)
+        y = settings_y + 126 + (index % 4) * 18
+        draw_text(atlas, font, text, x + 156 - font.width(text), y + 1,
+                  RED if key in ("save_failed", "unavailable") else INK)
     if max(atlas.width, atlas.height) > 4096:
         raise ValueError("title notice atlas exceeds 4096px")
-    pcx, anm2 = encode_pcx(atlas), make_anm2(len(pages), support_y, basename)
+    pcx, anm2 = encode_pcx(atlas), make_anm2(len(pages), support_y, settings_y, basename)
     return ({"page_count": len(pages), "atlas_width": atlas.width, "atlas_height": atlas.height,
              "rgba_bytes": len(atlas.rgba), "pcx_bytes": len(pcx)}, pcx, anm2)
 
@@ -400,11 +513,14 @@ def load_catalogs(content_path: Path, locales_path: Path | None = None) -> dict[
         content = dict(chinese if language == "zh" else translations[language])
         content["version"] = chinese["version"]
         content["language"] = language
+        content["settings_ui"] = dict(SETTINGS_UI[language])
         if [(s.get("kind", "body"), s.get("page_break_before", False), len(s["paragraphs"]))
                 for s in content["sections"]] != structure:
             raise ValueError(f"notice {language} semantic sections differ from Chinese source")
         if set(content.get("ui", {})) != set(DEFAULT_UI):
             raise ValueError(f"notice {language} must translate every UI label")
+        if set(content["settings_ui"]) != set(DEFAULT_SETTINGS_UI):
+            raise ValueError(f"settings {language} must provide every baked UI label")
         if bool(content.get("support")) != bool(chinese.get("support")):
             raise ValueError(f"notice {language} must translate the support page")
         if content.get("support") and content["support"]["github"] != chinese["support"]["github"]:

@@ -25,13 +25,24 @@ class TitleNoticeAssetsTests(unittest.TestCase):
 
     def font(self, text):
         b = self.api()
-        chars = set(text) | set("0123456789 /←→或LR翻页长按B关闭兼容层说明请先完全部面A?ISAACSWITCHv.-")
+        settings_text = json.dumps(b.SETTINGS_UI, ensure_ascii=False)
+        chars = (set(text) | set(settings_text) |
+                 set("0123456789 /←→或LR翻页长按B关闭兼容层说明请先完全部面A?ISAACSWITCHv.-"))
         glyphs = {ord(c): b.Glyph(0, 0, 2, 3, 0, 0, 4) for c in chars if c != "\n"}
         return b.Font(13, glyphs, b.Image(2, 3, bytearray([255] * 24)))
 
     def content(self):
         return {"version": "v1.0.0-beta.1", "title": "Title", "subtitle": "ISAAC SWITCH",
                 "ui": {"entry": "Info", "footer_locked": "Read | L/R", "footer_auto": "Hold B | L/R", "footer_manual": "B | L/R"},
+                "settings_ui": {
+                    "entry": "Runtime Settings", "header": "Runtime Settings",
+                    "console": "Console", "repentogon": "REPENTOGON",
+                    "footer": "A: toggle  B: close",
+                    "on": "On", "off": "Off",
+                    "on_saving": "On - saving", "off_saving": "Off - saving",
+                    "on_reload": "On - restart required",
+                    "off_reload": "Off - restart required",
+                    "save_failed": "Save failed", "unavailable": "Unavailable"},
                 "sections": [{"kind": "intro", "paragraphs": ["abc，def。\nxyz!", " a  b "]},
                              {"kind": "warning", "paragraphs": ["warning!" * 80]}]}
 
@@ -168,6 +179,78 @@ class TitleNoticeAssetsTests(unittest.TestCase):
             self.assertEqual((progress["Width"], progress["Height"], progress["XPivot"]), ("60", "3", "0"))
             dim = animations["Dim"].find("./LayerAnimations/LayerAnimation/Frame").attrib
             self.assertEqual((dim["Width"], dim["Height"], dim["AlphaTint"]), ("1", "1", "140"))
+
+    def test_settings_ui_is_baked_as_only_its_own_paper_and_label_frames(self):
+        b = self.api()
+        content = self.content()
+        font = self.font(json.dumps(content, ensure_ascii=False))
+        background = (230, 220, 225, 255)
+        blank = b.Image(336, 216, bytearray(background * (336 * 216)))
+        blank_entry = b.Image(120, 26, bytearray(background * (120 * 26)))
+        with tempfile.TemporaryDirectory() as tmp:
+            result, pcx, anm2 = b.render_asset(
+                content, font, paper_art=b.PaperArt(blank, blank_entry))
+            root = Path(tmp)
+            (root / "settings.pcx").write_bytes(pcx)
+            (root / "settings.anm2").write_bytes(anm2)
+            atlas = b.decode_pcx(str(root / "settings.pcx"))
+            animations = {
+                item.attrib["Name"]: item
+                for item in ET.parse(root / "settings.anm2").getroot().findall("./Animations/Animation")
+            }
+            expected_sizes = {
+                "SettingsPaper": (336, 216),
+                "SettingsEntry": (200, 26),
+                "SettingsEntrySelected": (200, 26),
+                "SettingsSelection": (260, 22),
+                "SettingsHeader": (240, 18),
+                "SettingsConsole": (96, 16),
+                "SettingsRepentogon": (128, 16),
+                "SettingsFooter": (220, 18),
+                "SettingsOn": (160, 16),
+                "SettingsOff": (160, 16),
+                "SettingsOnSaving": (160, 16),
+                "SettingsOffSaving": (160, 16),
+                "SettingsOnReload": (160, 16),
+                "SettingsOffReload": (160, 16),
+                "SettingsSaveFailed": (160, 16),
+                "SettingsUnavailable": (160, 16),
+            }
+            crops = []
+            for name, expected in expected_sizes.items():
+                self.assertIn(name, animations)
+                frame = animations[name].find("./LayerAnimations/LayerAnimation/Frame").attrib
+                size = (int(frame["Width"]), int(frame["Height"]))
+                self.assertEqual(size, expected, name)
+                self.assertLessEqual(int(frame["XCrop"]) + size[0], atlas.width, name)
+                self.assertLessEqual(int(frame["YCrop"]) + size[1], atlas.height, name)
+                crops.append((name, int(frame["XCrop"]), int(frame["YCrop"]), *size))
+            for i, (name, x, y, width, height) in enumerate(crops):
+                for other, ox, oy, ow, oh in crops[i + 1:]:
+                    overlap = x < ox + ow and ox < x + width and y < oy + oh and oy < y + height
+                    self.assertFalse(overlap, f"settings crops overlap: {name} and {other}")
+            paper = animations["SettingsPaper"].find("./LayerAnimations/LayerAnimation/Frame").attrib
+            self.assertEqual((paper["XPivot"], paper["YPivot"]), ("168", "108"))
+            x, y = int(paper["XCrop"]), int(paper["YCrop"])
+            for row in range(216):
+                start = ((y + row) * atlas.width + x) * 4
+                self.assertEqual(atlas.rgba[start:start + 336 * 4],
+                                 bytes(background) * 336,
+                                 "settings paper must contain no notice-body pixels")
+            for name in ("SettingsEntry", "SettingsEntrySelected"):
+                frame = animations[name].find("./LayerAnimations/LayerAnimation/Frame").attrib
+                self.assertEqual((frame["XPivot"], frame["YPivot"]), ("0", "0"))
+            def crop_bytes(name):
+                frame = animations[name].find("./LayerAnimations/LayerAnimation/Frame").attrib
+                left, top = int(frame["XCrop"]), int(frame["YCrop"])
+                width, height = int(frame["Width"]), int(frame["Height"])
+                return b"".join(
+                    atlas.rgba[((top + row) * atlas.width + left) * 4:
+                               ((top + row) * atlas.width + left + width) * 4]
+                    for row in range(height))
+            self.assertNotEqual(crop_bytes("SettingsEntry"),
+                                crop_bytes("SettingsEntrySelected"),
+                                "selected settings tab must have a visible bake")
 
     def test_binary_bmfont_parser_reads_metrics_and_case_insensitive_page(self):
         b = self.api()

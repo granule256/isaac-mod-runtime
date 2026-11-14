@@ -91,7 +91,7 @@ QQ群：**1124953430** · [Discord](https://discord.gg/JMQc2jMsve)。也可通�
 
 [简体中文](#中文) | [English](#english)
 
-A community compatibility layer for running PC Lua mods in **The Binding of Isaac: Repentance on NX**. It provides a mod menu, game APIs, callbacks, resource loading and configuration persistence while aiming to preserve original mod calls and behavior.
+A community runtime for running PC Lua mods in **The Binding of Isaac: Repentance on NX**. It provides a mod menu, game APIs, callbacks, resource loading and configuration persistence while aiming to preserve original mod calls and behavior.
 
 The current stable version is **v1.1.2**, targeting the supported **1.7.9b** game build. The layer is free and its core source is public; donations are optional and do not affect access. To prevent resale, the notice-related code is not open source.
 
@@ -117,7 +117,7 @@ Download [isaac-runtime-v1.1.2.zip](https://github.com/granule256/isaac-mod-runt
 
 1. Use an NX device configured for Atmosphère and the supported game build. Back up your saves and fully close the game.
 2. Extract the package and copy its entire `atmosphere/` folder to the SD card root. Merge folders and overwrite matching files. Install the core, resources and patches together and avoid mixing versions.
-3. Launch the game and check that the compatibility-layer notice displays `v1.1.2`.
+3. Launch the game and check that the runtime notice displays `v1.1.2`.
 4. Place each complete mod folder in the following directory without an extra nested folder:
 
    ```text
@@ -146,7 +146,7 @@ Successful loading or zero logged errors does not prove full compatibility. For 
 | Path | Contents |
 | --- | --- |
 | [`runtime/`](runtime/) | Runtime implementation and related tests |
-| [`runtime/game_patches/`](runtime/game_patches/) | Compatibility-layer patch generation and verification |
+| [`runtime/game_patches/`](runtime/game_patches/) | Runtime patch generation and verification |
 | [`tools/`](tools/) | Build, packaging and verification tools |
 | [`tests/`](tests/) | Tool and cross-module tests |
 

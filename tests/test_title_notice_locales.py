@@ -37,6 +37,13 @@ class TitleNoticeLocaleTests(unittest.TestCase):
                 self.assertTrue(all(line.kind == 'support' for line in pages[-1]))
                 self.assertEqual(content['support']['github'],
                                  'https://github.com/granule256/isaac-mod-runtime')
+                self.assertEqual(set(content['settings_ui']), set(b.DEFAULT_SETTINGS_UI))
+                if code == 'zh':
+                    self.assertEqual(content['settings_ui']['entry'], '兼容层设置')
+                if code == 'en':
+                    self.assertEqual(content['settings_ui']['entry'], 'Runtime Settings')
+                    self.assertNotIn('compatibility layer',
+                                     json.dumps(content['settings_ui']).lower())
                 for si, section in enumerate(content['sections']):
                     for pi, paragraph in enumerate(section['paragraphs']):
                         self.assertEqual(''.join(l.text for p in pages for l in p
@@ -47,6 +54,10 @@ class TitleNoticeLocaleTests(unittest.TestCase):
                 if code != 'zh':
                     # Japanese legitimately shares Han glyphs; forbid actual Chinese UI fallback phrases.
                     self.assertTrue(all(label not in b.DEFAULT_UI.values() for label in content['ui'].values()))
+                if code == 'en':
+                    visible = json.dumps(content, ensure_ascii=False).lower()
+                    self.assertNotIn('compatibility layer', visible)
+                    self.assertIn('mod runtime', visible)
 
     def test_wrap_prefers_words_preserves_whitespace_and_splits_long_words(self):
         for text, width, expected in [
@@ -95,7 +106,7 @@ class TitleNoticeLocaleTests(unittest.TestCase):
                     anm = ET.parse(path).getroot()
                     self.assertEqual(anm.find('./Content/Spritesheets/Spritesheet').get('Path'), f'nnotice_{code}.pcx')
                     self.assertTrue(path.with_suffix('.pcx').is_file())
-                    self.assertEqual(len(anm.findall('./Animations/Animation')), int(count) * 5 + 7)
+                    self.assertEqual(len(anm.findall('./Animations/Animation')), int(count) * 5 + 23)
                     for frame in anm.findall('.//LayerAnimation/Frame'):
                         a = frame.attrib
                         self.assertLessEqual(int(a['XCrop']) + int(a['Width']), locale['atlas_width'])

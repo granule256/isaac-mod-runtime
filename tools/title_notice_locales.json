@@ -1,6 +1,6 @@
 {
   "en": {
-    "title": "Mod Compatibility",
+    "title": "Mod Runtime",
     "subtitle": "ISAAC SWITCH  /  {version}",
     "ui": {
       "entry": "MOD INFO",
@@ -12,7 +12,7 @@
       {
         "kind": "intro",
         "paragraphs": [
-          "A PC mod compatibility layer for The Binding of Isaac on Switch.",
+          "A PC mod runtime for The Binding of Isaac on Switch.",
           "Repentance mod support is largely complete. The next focus is finding and fixing remaining bugs.",
           "It adds the mod menu, achievement disabling on new saves, the console, and the APIs and callbacks mods need."
         ]
@@ -47,7 +47,7 @@
           "Project: Isaac Switch Mod Runtime",
           "QQ group: 1124953430",
           "Discord: discord.gg/JMQc2jMsve",
-          "Include layer and mod versions, steps to reproduce, and video or logs when reporting a problem."
+          "Include runtime and mod versions, steps to reproduce, and video or logs when reporting a problem."
         ]
       }
     ],
