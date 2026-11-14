@@ -5,6 +5,7 @@
 #include "infrastructure/call/engine_call_access.hpp"
 #include "infrastructure/memory/engine_field_access.hpp"
 #include "lua_runtime.hpp"
+#include "runtime_constants.hpp"
 #include <climits>
 extern "C" {
 #include <lauxlib.h>
@@ -144,6 +145,7 @@ int RepentogonEntityConfigEntityCanBeChampion(lua_State* L) {lua_pushboolean(L,R
 int RepentogonEntityConfigEntityGetStageHP(lua_State* L) {lua_pushnumber(L,Read<float>(L,Record(L,false),0x58));return 1;}
 int RepentogonEntityConfigEntityGetCollisionRadius(lua_State* L) {lua_pushnumber(L,Read<float>(L,Record(L,false),0x3c));return 1;}
 // LoadPlayers' sp+0x130 record: nameimage+0x20, portrait+0x38, extraportrait+0x80.
+int RepentogonEntityConfigPlayerGetName(lua_State* L) {return Path(L,kEntityConfigPlayerNameOffset);}
 int RepentogonEntityConfigPlayerGetPortraitPath(lua_State* L) {return Path(L,0x38);}
 int RepentogonEntityConfigPlayerGetExtraPortraitPath(lua_State* L) {return Path(L,0x80);}
 int RepentogonEntityConfigPlayerGetNameImagePath(lua_State* L) {return Path(L,0x20);}

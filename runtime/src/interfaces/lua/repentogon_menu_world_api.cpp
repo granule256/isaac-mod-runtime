@@ -57,6 +57,60 @@ constexpr std::array<std::uint8_t, 16> kCompletionCounterIdGuard = {
 };
 api100_native::Cache g_CompletionCounterIdCache{};
 
+constexpr std::size_t kCompletionMarkCount = 15;
+constexpr std::int32_t kMaximumCustomPlayerType = 255;
+struct CustomCompletionMarkEntry {
+    std::array<std::uint8_t, kCompletionMarkCount> marks{};
+    bool valid{};
+    bool tainted{};
+};
+std::array<CustomCompletionMarkEntry, kMaximumCustomPlayerType + 1>
+    g_CustomCompletionMarks{};
+
+constexpr std::array<std::int32_t, 12> kRenderedCompletionMarks = {
+    12, 0, 1, 2, 3, 4, 5, 6, 7, 9, 13, 14};
+
+[[nodiscard]] int CompletionMarkIndex(const char* key) noexcept {
+    if (std::strcmp(key, "MOMS_HEART") == 0 ||
+        std::strcmp(key, "MomsHeart") == 0)
+        return 0;
+    if (std::strcmp(key, "ISAAC") == 0 || std::strcmp(key, "Isaac") == 0)
+        return 1;
+    if (std::strcmp(key, "SATAN") == 0 || std::strcmp(key, "Satan") == 0)
+        return 2;
+    if (std::strcmp(key, "BOSS_RUSH") == 0 ||
+        std::strcmp(key, "BossRush") == 0)
+        return 3;
+    if (std::strcmp(key, "BLUE_BABY") == 0 ||
+        std::strcmp(key, "BlueBaby") == 0 ||
+        std::strcmp(key, "???") == 0 || std::strcmp(key, "????") == 0)
+        return 4;
+    if (std::strcmp(key, "LAMB") == 0 || std::strcmp(key, "Lamb") == 0)
+        return 5;
+    if (std::strcmp(key, "MEGA_SATAN") == 0 ||
+        std::strcmp(key, "MegaSatan") == 0)
+        return 6;
+    if (std::strcmp(key, "ULTRA_GREED") == 0 ||
+        std::strcmp(key, "UltraGreed") == 0 ||
+        std::strcmp(key, "Greed") == 0 || std::strcmp(key, "GREED") == 0)
+        return 7;
+    if (std::strcmp(key, "HUSH") == 0 || std::strcmp(key, "Hush") == 0)
+        return 9;
+    if (std::strcmp(key, "ULTRA_GREEDIER") == 0 ||
+        std::strcmp(key, "UltraGreedier") == 0 ||
+        std::strcmp(key, "GREEDIER") == 0 ||
+        std::strcmp(key, "Greedier") == 0)
+        return 11;
+    if (std::strcmp(key, "DELIRIUM") == 0 ||
+        std::strcmp(key, "Delirium") == 0)
+        return 12;
+    if (std::strcmp(key, "MOTHER") == 0 || std::strcmp(key, "Mother") == 0)
+        return 13;
+    if (std::strcmp(key, "BEAST") == 0 || std::strcmp(key, "Beast") == 0)
+        return 14;
+    return -1;
+}
+
 constexpr std::uintptr_t kRoomDescriptorDimension = 0x0C;
 constexpr std::uintptr_t kRoomDescriptorTaintedKeeperCoinSpawns = 0x5E;
 
@@ -428,35 +482,156 @@ int RepentogonGameIsPauseMenuOpen(lua_State* state) {
     return 1;
 }
 
-int RepentogonIsaacGetCompletionMark(lua_State* state) {
-    RequireGameThread(state, "Isaac.GetCompletionMark");
-    const auto player = luaL_checkinteger(state, 1);
-    const auto mark = luaL_checkinteger(state, 2);
-    if (player < 0 || player > 40)
-        return luaL_error(state, "Custom-player completion tracking is unavailable");
-    if (mark < 0 || mark > 14 || mark == 8 || mark == 10)
-        return luaL_error(state, "Unsupported CompletionType");
-    // Greedier is stored in the hard Greed mark in the native NS profile.
-    const auto event = static_cast<std::int32_t>(mark == 11 ? 7 : mark);
+namespace {
+
+[[nodiscard]] std::int32_t ResolveCompletionCounterId(
+    lua_State* state, std::int32_t event, std::int32_t player) {
     std::uintptr_t host{};
 #if !defined(__SWITCH__)
     if (!g_TestBindings.completionCounterId)
-        return luaL_error(state, "Completion counter host binding is unavailable");
+        luaL_error(state, "Completion counter host binding is unavailable");
     host = engine_call::AddressOfFunction(g_TestBindings.completionCounterId);
 #endif
     using CounterId = std::int32_t (*)(std::int32_t, std::int32_t);
     const auto counterId = engine_call::AsFunction<CounterId>(
         api100_native::Resolve(state, {kCompletionCounterId,
             kCompletionCounterIdGuard.data()}, g_CompletionCounterIdCache, host))(
-                event, static_cast<std::int32_t>(player));
+                event, player);
     if (counterId < 0 || counterId > 522)
-        return luaL_error(state, "Completion event counter is invalid");
+        luaL_error(state, "Completion event counter is invalid");
+    return counterId;
+}
+
+void WriteNativeCompletionMark(
+    lua_State* state, std::int32_t player, std::int32_t mark,
+    std::uint8_t value) {
+    const auto event = static_cast<std::int32_t>(mark == 11 ? 7 : mark);
+    const auto counterId = ResolveCompletionCounterId(state, event, player);
+    const auto manager = RequireManager(state);
+    const auto offset = std::uintptr_t{0x18 + 0x2a8} +
+                        static_cast<std::uintptr_t>(counterId) * 4;
+    std::uint32_t current{};
+    if (!engine_memory::ReadField(manager, offset, &current,
+                                  engine_memory::EngineMemoryReadable))
+        luaL_error(state, "Completion event counter is unavailable");
+    current = (current & ~std::uint32_t{3}) | value;
+    if (!engine_memory::WriteField(manager, offset, current,
+                                   engine_memory::EngineMemoryWritable))
+        luaL_error(state, "Completion event counter is not writable");
+}
+
+}  // namespace
+
+bool RepentogonGetCustomCompletionMarks(
+    int playerType, std::array<std::uint8_t, 15>* marks,
+    bool* tainted) noexcept {
+    if (playerType < 0 || playerType > kMaximumCustomPlayerType ||
+        marks == nullptr || tainted == nullptr)
+        return false;
+    const auto& entry =
+        g_CustomCompletionMarks[static_cast<std::size_t>(playerType)];
+    if (!entry.valid) return false;
+    *marks = entry.marks;
+    *tainted = entry.tainted;
+    return true;
+}
+
+bool RepentogonApplyCustomCompletionMarks(
+    int playerType, std::uintptr_t sprite) noexcept {
+    std::array<std::uint8_t, 15> marks{};
+    bool tainted{};
+    if (sprite == 0 || playerType <= 40 ||
+        !RepentogonGetCustomCompletionMarks(playerType, &marks, &tainted))
+        return false;
+    const auto setLayerFrame = LuaRuntime::SpriteSetLayerFrameThunk();
+    if (setLayerFrame == nullptr) return false;
+    for (std::size_t layer = 0; layer < kRenderedCompletionMarks.size();
+         ++layer) {
+        const auto mark = kRenderedCompletionMarks[layer];
+        auto frame = static_cast<int>(marks[static_cast<std::size_t>(mark)]);
+        if (layer == 0 && tainted) frame += 5;
+        setLayerFrame(engine_memory::AsObject(sprite),
+                      static_cast<int>(layer), frame);
+    }
+    return true;
+}
+
+int RepentogonIsaacGetCompletionMark(lua_State* state) {
+    RequireGameThread(state, "Isaac.GetCompletionMark");
+    const auto player = luaL_checkinteger(state, 1);
+    const auto mark = luaL_checkinteger(state, 2);
+    if (player < 0 || player > kMaximumCustomPlayerType)
+        return luaL_error(state, "Completion player type is invalid");
+    if (mark < 0 || mark > 14 || mark == 8 || mark == 10)
+        return luaL_error(state, "Unsupported CompletionType");
+    if (player > 40) {
+        std::array<std::uint8_t, 15> marks{};
+        bool tainted{};
+        if (RepentogonGetCustomCompletionMarks(
+                static_cast<int>(player), &marks, &tainted))
+            lua_pushinteger(state, marks[static_cast<std::size_t>(mark)]);
+        else
+            lua_pushinteger(state, 0);
+        return 1;
+    }
+    // Greedier is stored in the hard Greed mark in the native NS profile.
+    const auto event = static_cast<std::int32_t>(mark == 11 ? 7 : mark);
+    const auto counterId = ResolveCompletionCounterId(
+        state, event, static_cast<std::int32_t>(player));
     // CompletionWidget::Update reads Manager+0x18 (PGD), then +0x2a8+id*4.
     const auto value = ReadField<std::uint32_t>(state, RequireManager(state),
         0x18 + 0x2a8 + static_cast<std::uintptr_t>(counterId) * 4,
         "Completion event counter is unavailable") & 3U;
     lua_pushinteger(state, value);
     return 1;
+}
+
+int RepentogonIsaacSetCompletionMarks(lua_State* state) {
+    RequireGameThread(state, "Isaac.SetCompletionMarks");
+    luaL_checktype(state, 1, LUA_TTABLE);
+    std::array<std::uint8_t, 15> marks{};
+    std::int32_t playerType{};
+    lua_pushnil(state);
+    while (lua_next(state, 1) != 0) {
+        if (lua_type(state, -2) == LUA_TSTRING) {
+            const char* key = lua_tostring(state, -2);
+            const auto value =
+                static_cast<std::int32_t>(lua_tointeger(state, -1));
+            if (std::strcmp(key, "PlayerType") == 0) {
+                playerType = value;
+            } else {
+                const auto mark = CompletionMarkIndex(key);
+                if (mark < 0)
+                    return luaL_error(
+                        state, "Invalid Completion Marks table index: %s",
+                        key);
+                if (value < 0 || value > 2)
+                    return luaL_error(
+                        state, "Invalid Completion Marks value for %s: %d",
+                        key, static_cast<int>(value));
+                marks[static_cast<std::size_t>(mark)] =
+                    static_cast<std::uint8_t>(value);
+            }
+        }
+        lua_pop(state, 1);
+    }
+    if (playerType < 0 || playerType > kMaximumCustomPlayerType)
+        return luaL_error(state, "Invalid Player Type");
+    if (marks[7] == 2) marks[11] = 2;
+    if (marks[11] > 0) marks[7] = 2;
+    if (playerType > 40) {
+        auto& entry =
+            g_CustomCompletionMarks[static_cast<std::size_t>(playerType)];
+        entry.marks = marks;
+        entry.valid = true;
+        return 0;
+    }
+    for (std::int32_t mark = 0; mark < 15; ++mark) {
+        if (mark == 8 || mark == 10 || mark == 11) continue;
+        WriteNativeCompletionMark(state, playerType, mark,
+                                  marks[static_cast<std::size_t>(mark)]);
+    }
+    return 0;
 }
 
 int RepentogonNightmareSceneGetProgressBarSprite(lua_State* state) {

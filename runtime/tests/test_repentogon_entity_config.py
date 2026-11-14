@@ -77,10 +77,11 @@ static const RepentogonApiBinding extraApis[]={
  {{0x0E023008,ApiDomain::Isaac,"EntityConfig","GetMaxPlayerType",{},0,ThreadAffinity::ManagedCallback,ApiMaturity::Experimental},RepentogonEntityConfigGetMaxPlayerType},
  {{0x0E023009,ApiDomain::Isaac,"EntityConfigPlayer","IsHidden",{},0,ThreadAffinity::ManagedCallback,ApiMaturity::Experimental},RepentogonEntityConfigPlayerIsHidden},
  {{0x0E02300A,ApiDomain::Isaac,"EntityConfigPlayer","IsTainted",{},0,ThreadAffinity::ManagedCallback,ApiMaturity::Experimental},RepentogonEntityConfigPlayerIsTainted},
+ {{0x0E02300B,ApiDomain::Isaac,"EntityConfigPlayer","GetName",{},0,ThreadAffinity::ManagedCallback,ApiMaturity::Experimental},RepentogonEntityConfigPlayerGetName},
 };
 static int Initialize(lua_State* L){RegisterRepentogonEntityConfigViews(L);return 0;}
 static const RepentogonBatch batch{"entity-config",apis,8,nullptr,0,nullptr,0,Initialize};
-static const RepentogonBatch extraBatch{"entity-config-extra",extraApis,3};
+static const RepentogonBatch extraBatch{"entity-config-extra",extraApis,4};
 static const RepentogonBatch batches[]={batch,extraBatch};
 static const RepentogonCatalog catalog{batches,2,nullptr};
 static void Run(lua_State* L,const char* text){if(luaL_dostring(L,text)){std::fprintf(stderr,"%s\n",lua_tostring(L,-1));std::exit(1);}}
@@ -93,7 +94,7 @@ int main(){
  const unsigned char playerGuard[]={0x81,0x01,0xf8,0x37,0x08,0xa4,0x41,0xa9,0x29,0x01,0x08,0xcb,0x29,0xfd,0x43,0xd3};
  std::memcpy(moduleBytes.data()+0x68684,entityGuard,16);std::memcpy(moduleBytes.data()+0x700cc,playerGuard,16);
  Put(entity,0x38,std::uint8_t{1});Put(entity,0x3c,12.5F);Put(entity,0x58,3.5F);
- Text(player,0x20,"name.png");Text(player,0x38,"portrait.png");Text(player,0x80,"extra.png");
+ Text(player,0x08,"fiend");Text(player,0x20,"name.png");Text(player,0x38,"portrait.png");Text(player,0x80,"extra.png");
  currentEntity=entity.data();currentPlayer=player.data();
  Put(manager,kManagerEntityConfigOffset+0x18,reinterpret_cast<std::uintptr_t>(player.data()));
  Put(manager,kManagerEntityConfigOffset+0x20,reinterpret_cast<std::uintptr_t>(player.data())+0x178);
@@ -109,6 +110,7 @@ assert(e:CanBeChampion() and e:GetStageHP()==3.5 and e:GetCollisionRadius()==12.
 assert(EntityConfig.GetEntity(999)==nil)
 assert(EntityConfig.GetEntity(20):GetStageHP()==3.5)
 local p=EntityConfig.GetPlayer(1);assert(type(p)=='userdata')
+assert(p:GetName()=='fiend')
 assert(p:GetPortraitPath()=='portrait.png' and p:GetExtraPortraitPath()=='extra.png')
 assert(p:GetNameImagePath()=='name.png');
 assert(EntityConfig.GetMaxPlayerType()==0)
@@ -131,7 +133,7 @@ savedEntity=e;savedPlayer=p
 )lua");
  const int callsBefore=entityCalls+playerCalls;
  std::thread worker([&]{auto* otherLua=luaL_newstate();
-  for(auto fn:{RepentogonEntityConfigGetEntity,RepentogonEntityConfigGetPlayer,RepentogonEntityConfigGetMaxPlayerType,RepentogonEntityConfigPlayerIsHidden,RepentogonEntityConfigPlayerIsTainted}){
+  for(auto fn:{RepentogonEntityConfigGetEntity,RepentogonEntityConfigGetPlayer,RepentogonEntityConfigGetMaxPlayerType,RepentogonEntityConfigPlayerGetName,RepentogonEntityConfigPlayerIsHidden,RepentogonEntityConfigPlayerIsTainted}){
    lua_pushcfunction(otherLua,fn);lua_pushinteger(otherLua,20);assert(lua_pcall(otherLua,1,1,0)!=LUA_OK);
    assert(std::strstr(lua_tostring(otherLua,-1),"game thread"));lua_pop(otherLua,1);
   }lua_close(otherLua);

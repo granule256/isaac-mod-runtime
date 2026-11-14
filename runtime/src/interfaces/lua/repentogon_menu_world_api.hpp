@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <cstdint>
 
 struct lua_State;
@@ -26,6 +27,11 @@ int RepentogonNightmareSceneGetProgressBarSprite(lua_State* state);
 int RepentogonNightmareSceneGetBackgroundSprite(lua_State* state);
 int RepentogonGameIsPauseMenuOpen(lua_State* state);
 int RepentogonIsaacGetCompletionMark(lua_State* state);
+int RepentogonIsaacSetCompletionMarks(lua_State* state);
+bool RepentogonGetCustomCompletionMarks(
+    int playerType, std::array<std::uint8_t, 15>* marks, bool* tainted) noexcept;
+bool RepentogonApplyCustomCompletionMarks(
+    int playerType, std::uintptr_t sprite) noexcept;
 
 int RepentogonRoomDescriptorGetDimension(lua_State* state);
 int RepentogonRoomDescriptorGetTaintedKeeperCoinSpawns(lua_State* state);

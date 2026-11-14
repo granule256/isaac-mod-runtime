@@ -27,7 +27,9 @@ DRIVER = PREFIX + r'''
 #include "infrastructure/memory/engine_field_access.hpp"
 #include "runtime_constants.hpp"
 #include "lua_object_handles.hpp"
+#include "lua_runtime.hpp"
 
+#include <array>
 #include <vector>
 
 namespace {
@@ -85,6 +87,14 @@ static bool renderingBossIntro = true;
 static unsigned startBossIntroCalls;
 static std::uint32_t lastBossId1;
 static std::uint32_t lastBossId2;
+static std::array<int, 12> completionFrames{};
+static std::uintptr_t completionSprite{};
+
+static void SetCompletionLayerFrame(void* sprite, int layer, int frame) {
+    assert(layer >= 0 && layer < 12);
+    completionSprite = reinterpret_cast<std::uintptr_t>(sprite);
+    completionFrames[static_cast<std::size_t>(layer)] = frame;
+}
 
 static bool RenderingBossIntro(const void* transition) {
     assert(reinterpret_cast<std::uintptr_t>(transition) ==
@@ -148,6 +158,8 @@ static void Extensions(lua_State* state) noexcept {
 
     Bind(state, "Isaac", "WorldToMenuPosition",
          isaac::runtime::RepentogonWorldToMenuPosition);
+    Bind(state, "Isaac", "SetCompletionMarks",
+         isaac::runtime::RepentogonIsaacSetCompletionMarks);
 
     auto* handle = static_cast<LuaRuntime::RoomDescriptorHandle*>(
         lua_newuserdata(state, sizeof(LuaRuntime::RoomDescriptorHandle)));
@@ -218,6 +230,9 @@ int main() {
     LuaRuntime::SetEngineModuleBase(Address(moduleBytes));
     LuaRuntime::SetGameBindings(
         Address(moduleBytes) + kGameOwnerGlobalSlotOffset, 0);
+    LuaRuntime::LuaSpriteBindings spriteBindings{};
+    spriteBindings.setLayerFrame = &SetCompletionLayerFrame;
+    LuaRuntime::SetSpriteBindings(spriteBindings);
     LuaRuntime::ObserveGameThread();
     Files files(true);
     SetSessionSaveFilePort(&files);
@@ -241,9 +256,23 @@ assert(Isaac.GetCompletionMark(0,11)==1, 'Greedier shares the offline event valu
 assert(Isaac.GetCompletionMark(40,12)==2, 'native counter490 is valid')
 assert(not pcall(Isaac.GetCompletionMark,39,12))
 assert(Isaac.GetCompletionMark(1,12)==0)
-assert(not pcall(Isaac.GetCompletionMark,41,12))
+assert(Isaac.GetCompletionMark(41,12)==0)
 assert(not pcall(Isaac.GetCompletionMark,-1,12))
 assert(not pcall(Isaac.GetCompletionMark,0,8))
+assert(type(Isaac.SetCompletionMarks) == 'function', 'missing completion setter')
+Isaac.SetCompletionMarks({
+    PlayerType=41, MomsHeart=2, Isaac=1, Satan=1, BossRush=2,
+    BlueBaby=1, Lamb=1, MegaSatan=2, UltraGreed=1, Hush=2,
+    Delirium=1, Mother=2, Beast=1,
+})
+assert(Isaac.GetCompletionMark(41,0)==2)
+assert(Isaac.GetCompletionMark(41,3)==2)
+assert(Isaac.GetCompletionMark(41,12)==1)
+assert(Isaac.GetCompletionMark(41,14)==1)
+assert(Isaac.GetCompletionMark(42,0)==0)
+assert(not pcall(Isaac.SetCompletionMarks, nil))
+assert(not pcall(Isaac.SetCompletionMarks, {PlayerType=41, MomsHeart=3}))
+assert(not pcall(Isaac.SetCompletionMarks, {PlayerType=41, Unknown=1}))
 assert(type(NightmareScene.GetBackgroundSprite) == 'function', 'missing nightmare background')
 assert(type(NightmareScene.GetBackgroundSprite()) == 'userdata')
 assert(type(NightmareScene.GetProgressBarSprite()) == 'userdata')
@@ -310,6 +339,12 @@ assert(not pcall(Isaac.GetCompletionMark,0,12))
     }
     assert(Read<std::int16_t>(descriptor, 0x5E) == -1);
     assert(startBossIntroCalls == 2 && lastBossId1 == 7 && lastBossId2 == 9);
+    assert(isaac::runtime::RepentogonApplyCustomCompletionMarks(
+        41, static_cast<std::uintptr_t>(0x7000)));
+    assert(completionSprite == 0x7000);
+    const std::array<int, 12> expectedFrames{
+        1, 2, 1, 1, 2, 1, 1, 2, 1, 2, 2, 1};
+    assert(completionFrames == expectedFrames);
     Put<std::int32_t>(descriptor, 0x0C, -1);
     const char* reset_dimension = "assert(roomDesc:GetDimension()==-1, 'reset Dimension must remain signed')";
     if (LuaRuntime::InitializeFromBuffer(reset_dimension, std::strlen(reset_dimension),
