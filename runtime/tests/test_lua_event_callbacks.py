@@ -64,6 +64,10 @@ HARNESS = r'''
 #include <cstdint>
 #include <cstring>
 
+namespace LuaRuntime {
+bool DispatchPostGameStarted(bool isSave);
+}
+
 namespace {
 
 //: 合成的"玩家实体"内存（见文件头 `PLAYER_HANDLE` 的说明）。
@@ -273,7 +277,6 @@ int main(int argc, char** argv) {
         LuaRuntime::LuaInitResult::Success) {
         return 1;
     }
-
     if (std::strcmp(scenario, "use_item_args") == 0) {
         const bool blocked = LuaRuntime::DispatchPreUseItem(Player(), 33, 4, 2, 77);
         LuaRuntime::DispatchUseItem(Player(), 33, 4, 2, 77);
@@ -296,9 +299,13 @@ int main(int argc, char** argv) {
         return LuaRuntime::TakeCallbackError() ? 3 : 0;
     }
     if (std::strcmp(scenario, "exit") == 0) {
+        // A fresh menu VM must not save defaults over an existing configuration.
+        LuaRuntime::DispatchPreGameExit(true);
+        double count = 0;
+        if (!Counter("exit", &count) || count != 0) return 92;
+        if (!LuaRuntime::DispatchPostGameStarted(false)) return 93;
         LuaRuntime::DispatchPreGameExit(true);
         LuaRuntime::DispatchPreGameExit(false);
-        double count = 0;
         bool last = true;
         if (!Counter("exit", &count) || count != 2) return 2;
         // 第二次派发传的是 false（"这一局不会产生可续存档"），处理器必须读到 false。
@@ -443,7 +450,6 @@ SCENARIOS = (
     "use_item_args",
     "card",
     "pill",
-    "exit",
     "filter",
     "filter_blocks",
     "block",
@@ -486,6 +492,9 @@ class LuaEventCallbackTests(unittest.TestCase):
         for scenario in SCENARIOS:
             with self.subTest(scenario=scenario):
                 self.run_harness(scenario)
+
+    def test_game_exit_requires_started_vm_and_preserves_should_save(self):
+        self.run_harness("exit")
 
     def test_dispatch_declarations_exist(self):
         """源码层面钉住六个入口 —— 接口名字改了而门禁没跟上会让上面的场景全部编译失败，

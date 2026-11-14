@@ -105,6 +105,17 @@ int main(int argc,char** argv) {
     store.slot=3; Check(ModPersistence::SaveModData(2,"slot3",5)==ModPersistence::Result::Success,"third_slot");
     ModPersistence::ResetCacheForTesting();CheckValue(2,"slot3");
     store.slot=0;CheckValue(2,"slot0");store.slot=1;CheckValue(2,"second");
+    {
+        Store loadFirst;
+        loadFirst.slot=1;
+        SetSessionSaveFilePort(&loadFirst);ModPersistence::ResetCacheForTesting();
+        const char* empty=nullptr;std::size_t emptySize=0;
+        Check(ModPersistence::LoadModData(77,&empty,&emptySize)==ModPersistence::Result::Missing,
+              "load_before_save_reports_missing");
+        Check(ModPersistence::SaveModData(77,"created",7)==ModPersistence::Result::Success,
+              "save_after_missing_load_creates_file");
+        CheckValue(77,"created");
+    }
     Store legacy;legacy.files["isaac-mod-data.bin"]=Legacy(3,"old");
     const std::string original=legacy.files["isaac-mod-data.bin"];
     SetSessionSaveFilePort(&legacy);ModPersistence::ResetCacheForTesting();CheckValue(3,"old");
