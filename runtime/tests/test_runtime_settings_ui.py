@@ -38,8 +38,8 @@ int main() {
         Check(state.focus() == Focus::Notice, "right focuses the announcement entry");
         Check(state.BlocksTitleInput(), "focused announcement blocks title start");
         state.Tick(true, true, false, 0);
-        state.Tick(true, true, false, Left);
-        Check(state.focus() == Focus::Settings, "left selects the gear left of the notice");
+        state.Tick(true, true, false, Up);
+        Check(state.focus() == Focus::Settings, "up selects the top-right gear");
         state.Tick(true, true, false, 0);
         state.Tick(true, true, false, Confirm);
         Check(state.open(), "confirm opens Runtime Settings");
@@ -58,6 +58,9 @@ int main() {
         state.Tick(true, true, false, Back);
         Check(!state.open(), "back closes the modal");
         Check(state.BlocksTitleInput(), "closing frame still captures back");
+        state.Tick(true, true, false, Back);
+        Check(state.focus() == Focus::None,
+              "focus stays hidden until the closing B press is released");
         state.Tick(true, true, false, 0);
         Check(state.focus() == Focus::Settings, "closing returns focus to the gear");
         Press(state, Up);
@@ -85,7 +88,7 @@ int main() {
     {
         State state;
         Press(state, Right);
-        Press(state, Left);
+        Press(state, Up);
         Press(state, Confirm);
         Check(state.ConsumeAction() == Action::OpenSettings, "settings open action is one-shot");
         Press(state, Confirm);  // Console toggle
@@ -157,7 +160,7 @@ int main() {
         notice.Tick(0, true, true, 3);
         notice.Tick(Right, true, true, 3);
         notice.Tick(0, true, true, 3);
-        notice.Tick(Left, true, true, 3);
+        notice.Tick(Up, true, true, 3);
         Check(notice.Settings().focus() == Focus::Settings,
               "title notice state owns the second entry focus");
         notice.Tick(0, true, true, 3);
@@ -176,13 +179,13 @@ int main() {
     }
     {
         State state;
-        Press(state, Left);
-        Check(state.focus() == Focus::Settings, "left directly selects the gear");
-        Press(state, Right);
-        Check(state.focus() == Focus::Notice, "right moves to the adjacent notice");
-        Press(state, Right);
-        Check(state.focus() == Focus::None, "right past the notice leaves the entries");
-        Press(state, Left);
+        Press(state, Up);
+        Check(state.focus() == Focus::Settings, "up directly selects the corner gear");
+        Press(state, Down);
+        Check(state.focus() == Focus::Notice, "down moves to the notice below");
+        Press(state, Down);
+        Check(state.focus() == Focus::None, "down past the notice leaves the entries");
+        Press(state, Up);
         Press(state, Confirm);
         static_cast<void>(state.ConsumeAction());
         Press(state, Down);

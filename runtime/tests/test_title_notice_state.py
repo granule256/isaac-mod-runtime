@@ -60,8 +60,8 @@ int main() {
       check(s.phase==Phase::Hidden&&!s.ConsumeAcknowledgement(),"manual open never writes seen");
       check(s.focused,"return focus to entry");step(s);
       check(s.focused&&s.BlocksTitleConfirm(),"manual notice close keeps visible focus until navigation");
-      step(s,Left);check(!s.focused&&s.Settings().focus()==isaac::runtime::title::Focus::Settings,"left selects adjacent gear");
-      step(s);step(s,Up);check(!s.BlocksTitleConfirm(),"up returns to title"); }
+      step(s,Up);check(!s.focused&&s.Settings().focus()==isaac::runtime::title::Focus::Settings,"up selects the corner gear");
+      step(s);step(s,Left);check(!s.BlocksTitleConfirm(),"left returns to title"); }
     { State s;s.SetSeenVersion(false);step(s,Back);step(s,Back,100);
       check(s.phase==Phase::Reading,"B held before open must be released");step(s);
       step(s,Right);step(s,0,12);step(s,Right);step(s,0,12);step(s,Back,60);
@@ -119,7 +119,7 @@ int main() {
     { State s;s.SetSeenVersion(true);step(s);step(s,Down);step(s);step(s,Confirm);settle(s);
       step(s,Back);step(s,Confirm,20);check(s.phase==Phase::Hidden,"animation ends while A held");
       check(s.BlocksTitleConfirm(),"A held across closing cannot start game");
-      step(s,Confirm,10);check(s.BlocksTitleConfirm(),"suppress until A released");step(s);step(s,Up);
+      step(s,Confirm,10);check(s.BlocksTitleConfirm(),"suppress until A released");step(s);step(s,Left);
       check(!s.BlocksTitleConfirm(),"normal title navigation restored"); }
     { State s;s.SetSeenVersion(false);step(s,0,1,true,true,1);step(s,0,30,true,true,1);
       check(s.AllPagesViewed(1),"one page is viewed when open completes");

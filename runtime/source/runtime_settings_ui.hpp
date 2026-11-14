@@ -33,6 +33,8 @@ struct State {
         action_ = Action::None;
         open_ = false;
         blocks_ = false;
+        restoreFocus_ = false;
+        restoreFocusTicks_ = 0;
         lastKeys_ = keys;
     }
 
@@ -46,13 +48,31 @@ struct State {
         const unsigned pressed = keys & ~lastKeys_;
         lastKeys_ = keys;
         if (!title) {
+            if (restoreFocus_ && restoreFocusTicks_ != 0) {
+                --restoreFocusTicks_;
+                blocks_ = true;
+                return;
+            }
             Reset(keys);
             return;
         }
         if (announcementOpen) {
+            restoreFocus_ = false;
             focus_ = Focus::None;
             open_ = false;
             blocks_ = true;
+            return;
+        }
+        if (restoreFocus_) {
+            blocks_ = true;
+            if (available && (keys & Back) == 0) {
+                focus_ = Focus::Settings;
+                restoreFocus_ = false;
+                restoreFocusTicks_ = 0;
+            } else if (restoreFocusTicks_ && --restoreFocusTicks_ == 0) {
+                restoreFocus_ = false;
+                focus_ = Focus::None;
+            }
             return;
         }
         if (!available) {
@@ -63,7 +83,9 @@ struct State {
             blocks_ = true;
             if (pressed & Back) {
                 open_ = false;
-                focus_ = Focus::Settings;
+                focus_ = Focus::None;
+                restoreFocus_ = true;
+                restoreFocusTicks_ = 120;
                 return;
             }
             if (pressed & Up) {
@@ -77,23 +99,23 @@ struct State {
         }
 
         if (focus_ == Focus::None) {
-            if (pressed & Left) focus_ = Focus::Settings;
+            if (pressed & Up) focus_ = Focus::Settings;
             else if (pressed & (Right | Down)) focus_ = Focus::Notice;
         } else if (focus_ == Focus::Notice) {
             if (pressed & Confirm) {
                 action_ = Action::OpenNotice;
-            } else if (pressed & Left) {
+            } else if (pressed & Up) {
                 focus_ = Focus::Settings;
-            } else if (pressed & (Right | Up | Back)) {
+            } else if (pressed & (Left | Right | Down | Back)) {
                 focus_ = Focus::None;
             }
         } else {
             if (pressed & Confirm) {
                 open_ = true;
                 action_ = Action::OpenSettings;
-            } else if (pressed & Right) {
+            } else if (pressed & Down) {
                 focus_ = Focus::Notice;
-            } else if (pressed & (Left | Up | Back)) {
+            } else if (pressed & (Left | Right | Up | Back)) {
                 focus_ = Focus::None;
             }
         }
@@ -117,6 +139,8 @@ private:
     Action action_{Action::None};
     bool open_{};
     bool blocks_{};
+    bool restoreFocus_{};
+    unsigned restoreFocusTicks_{};
     unsigned lastKeys_{};
 };
 
