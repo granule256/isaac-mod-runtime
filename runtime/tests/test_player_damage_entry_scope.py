@@ -9,15 +9,21 @@ from .test_player_damage_internal_hook import SOURCE, UNITS
 
 PREFIX=r'''
 #include "player_damage_internal_hook.hpp"
+#include "player_take_damage_callback.hpp"
 #include "application/callback/extended_callback_runtime.hpp"
 #include "infrastructure/memory/engine_field_access.hpp"
 #include <array>
 #include <cassert>
 #include <cstring>
 static bool inNative{}, reachesBoundary{}, cancel{};
-static unsigned originalCalls{}, dispatchCalls{}, replays{};
+static unsigned originalCalls{}, dispatchCalls{}, preDispatches{}, replays{};
 std::uint64_t FakeNative(void*,float,std::uint64_t,const void*,std::int32_t);
 namespace LuaRuntime {
+bool DispatchPrePlayerTakeDamage(std::uintptr_t,float,std::uint64_t,
+                                 std::uintptr_t,std::int32_t) noexcept {
+    ++preDispatches;
+    return false;
+}
 void DispatchPostEntityTakeDamageValues(const isaac::runtime::damage::Values&) {}
 bool DispatchEntityTakeDamage(std::uintptr_t player,float hearts,std::uint64_t flags,
     std::uintptr_t source,std::int32_t countdown,std::int32_t type) {
@@ -58,6 +64,7 @@ int main(){
     reachesBoundary=false;assert(Invoke()==7 && originalCalls==1 && dispatchCalls==0);
     reachesBoundary=true;assert(Invoke()==7 && originalCalls==2 && dispatchCalls==1 && replays==1);
     cancel=true;assert(Invoke()==0 && originalCalls==3 && dispatchCalls==2 && replays==1);
+    assert(preDispatches==3);
     // The wrapper must have unwound its scope even after cancellation.
     alignas(16)std::array<unsigned char,0x80> stack{};
     isaac::runtime::relay::InternalHookContext ctx{};

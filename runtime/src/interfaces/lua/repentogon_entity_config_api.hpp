@@ -5,6 +5,9 @@ namespace isaac::runtime {
 void RegisterRepentogonEntityConfigViews(lua_State*);
 int RepentogonEntityConfigGetEntity(lua_State*);
 int RepentogonEntityConfigGetPlayer(lua_State*);
+int RepentogonEntityConfigGetMaxPlayerType(lua_State*);
+int RepentogonEntityConfigPlayerIsHidden(lua_State*);
+int RepentogonEntityConfigPlayerIsTainted(lua_State*);
 int RepentogonEntityConfigEntityCanBeChampion(lua_State*);
 int RepentogonEntityConfigEntityGetStageHP(lua_State*);
 int RepentogonEntityConfigEntityGetCollisionRadius(lua_State*);

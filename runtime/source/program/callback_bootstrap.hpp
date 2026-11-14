@@ -134,6 +134,9 @@ local function MakeExtensionRunner(invoke, nextMatching)
         local callbacks=Callbacks[callbackId]
         if not callbacks then return end
         local render=callbackId>=1080 and callbackId<=1089
+        local activeCharge=callbackId==1073
+        local chargeSlot,chargePlayer,chargeValue
+        if activeCharge then chargeSlot,chargePlayer,chargeValue=... end
         local offset
         if render then offset=select(2,...) end
         local match=getmetatable(callbacks).__matchParams or defaultCallbackMeta.__matchParams
@@ -165,8 +168,11 @@ local function MakeExtensionRunner(invoke, nextMatching)
                     local version=mutations[callbackId] or 0
                     local result
                     if render then result,offset=InvokeRender(invoke,callbackId,entry,offset,...)
+                    elseif activeCharge then result=invoke(callbackId,entry,chargeSlot,chargePlayer,chargeValue)
                     else result=invoke(callbackId,entry,...) end
-                    if result~=nil then return result end
+                    if result~=nil then
+                        if activeCharge then chargeValue=result else return result end
+                    end
                     if (mutations[callbackId] or 0)~=version then
                         nextIndex,following=ResumeAfterMutation(callbacks,following)
                     end
@@ -187,12 +193,16 @@ local function MakeExtensionRunner(invoke, nextMatching)
                 if matched then
                     local result
                     if render then result,offset=InvokeRender(invoke,callbackId,entry,offset,...)
+                    elseif activeCharge then result=invoke(callbackId,entry,chargeSlot,chargePlayer,chargeValue)
                     else result=invoke(callbackId,entry,...) end
-                    if result~=nil then return result end
+                    if result~=nil then
+                        if activeCharge then chargeValue=result else return result end
+                    end
                 end
             end
         end
         if render then return offset end
+        if activeCharge then return chargeValue end
     end
 end
 local function SelectRunner(invoke,nextMatching)

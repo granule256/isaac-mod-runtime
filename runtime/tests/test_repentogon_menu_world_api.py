@@ -125,6 +125,8 @@ static void Extensions(lua_State* state) noexcept {
          isaac::runtime::RepentogonMenuManagerGetActiveMenu);
     Bind(state, "MenuManager", "IsActive",
          isaac::runtime::RepentogonMenuManagerIsActive);
+    Bind(state, "MenuManager", "GetViewPosition",
+         isaac::runtime::RepentogonMenuManagerGetViewPosition);
     Bind(state, "CollectionMenu", "GetSelectedPage",
          isaac::runtime::RepentogonCollectionMenuGetSelectedPage);
     Bind(state, "CollectionMenu", "GetSelectedElement",
@@ -247,6 +249,12 @@ assert(type(NightmareScene.GetBackgroundSprite()) == 'userdata')
 assert(type(NightmareScene.GetProgressBarSprite()) == 'userdata')
 assert(type(MenuManager) == 'table')
 assert(MenuManager.IsActive())
+local viewPosition = MenuManager.GetViewPosition()
+assert(type(viewPosition) == 'userdata')
+assert(viewPosition.X == 100 and viewPosition.Y == 200)
+local colonViewPosition = MenuManager:GetViewPosition()
+assert(colonViewPosition.X == 100 and colonViewPosition.Y == 200)
+assert(MenuManager.GetViewPosition('ignored').X == 100)
 assert(MenuManager.GetActiveMenu() == 8)
 assert(MenuManager:GetActiveMenu() == 8)
 assert(MenuManager.GetActiveMenu('ignored', 42) == 8)
@@ -340,6 +348,7 @@ assert(not pcall(function() RoomTransition.GetVersusScreenSprite() end))
     constexpr const char* inactive_menu = R"lua(
 assert(not MenuManager.IsActive())
 assert(not pcall(function() MenuManager.GetActiveMenu() end))
+assert(not pcall(function() MenuManager.GetViewPosition() end))
 )lua";
     if (LuaRuntime::InitializeFromBuffer(
             inactive_menu, std::strlen(inactive_menu),
@@ -361,6 +370,32 @@ assert(not pcall(function() MenuManager.GetActiveMenu() end))
 
 
 class RepentogonMenuWorldApiTests(unittest.TestCase):
+    def test_native_branch_compiles_with_null_host_address(self) -> None:
+        with tempfile.TemporaryDirectory(
+                prefix="repentogon-menu-world-compile-") as folder:
+            compatibility = Path(folder) / "compatibility"
+            compatibility.mkdir()
+            (compatibility / "stdfloat").write_text(
+                "#pragma once\n"
+                "namespace std { using float16_t = float; "
+                "using float128_t = long double; }\n",
+                encoding="utf-8",
+            )
+            result = subprocess.run(
+                [
+                    "c++", "-std=c++23", "-D__SWITCH__",
+                    "-DEXL_LAYERED_RUNTIME=1", "-DEXL_DIAGNOSTIC_STAGE=14",
+                    "-DEXL_LOAD_KIND=Module", "-DEXL_LOAD_KIND_ENUM=2",
+                    "-DEXL_PROGRAM_ID=0", "-fsyntax-only",
+                    f"-I{compatibility}", f"-I{PUBLIC_ROOT / 'runtime' / 'src'}",
+                    f"-I{SOURCE}",
+                    f"-I{SOURCE / 'third_party' / 'lua-5.3.3' / 'src'}",
+                    str(EXTRA_SOURCE),
+                ],
+                text=True, capture_output=True, check=False,
+            )
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
     def test_static_menu_world_surface(self) -> None:
         with tempfile.TemporaryDirectory(prefix="repentogon-menu-world-") as folder:
             binary = test_support.build_lua_harness(

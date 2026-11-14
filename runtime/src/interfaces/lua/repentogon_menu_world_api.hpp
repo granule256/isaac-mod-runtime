@@ -8,6 +8,7 @@ namespace isaac::runtime {
 
 int RepentogonMenuManagerGetActiveMenu(lua_State* state);
 int RepentogonMenuManagerIsActive(lua_State* state);
+int RepentogonMenuManagerGetViewPosition(lua_State* state);
 int RepentogonCollectionMenuGetSelectedPage(lua_State* state);
 int RepentogonCollectionMenuGetSelectedElement(lua_State* state);
 int RepentogonSaveMenuGetDeletePopupSprite(lua_State* state);

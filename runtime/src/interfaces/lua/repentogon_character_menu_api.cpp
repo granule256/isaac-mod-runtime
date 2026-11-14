@@ -32,6 +32,9 @@ constexpr std::uintptr_t kCharacterStatus = 0x38;
 constexpr std::uintptr_t kCharacterUnlocked = 0x3D;
 constexpr std::uintptr_t kCharacterDifficulty = 0x40;
 constexpr std::uintptr_t kCharacterSelectedId = 0x48;
+// Menu_Character::Reset loads gfx/ui/main menu/CharacterMenuBG.anm2 into this
+// embedded ANM2; Menu_Character::Render renders it before the character wheel.
+constexpr std::uintptr_t kCharacterBackgroundSprite = 0x480;
 constexpr std::uintptr_t kCharacterBigCharPage = 0x78;
 constexpr std::uintptr_t kCharacterShownPage = 0x1138;
 constexpr std::uintptr_t kCharacterPageSwapWidget = 0x1140;
@@ -201,6 +204,14 @@ int RepentogonCharacterMenuGetDifficulty(lua_State* state) {
         static_cast<lua_Integer>(ReadField<std::int32_t>(
             state, character, kCharacterDifficulty,
             "CharacterMenu difficulty is unavailable")));
+    return 1;
+}
+
+int RepentogonCharacterMenuGetBGSprite(lua_State* state) {
+    RequireGameThread(state, "CharacterMenu.GetBGSprite");
+    const auto character = RequireCharacterMenu(state);
+    PushSceneSprite(state, character + kCharacterBackgroundSprite,
+                    "CharacterMenu.GetBGSprite");
     return 1;
 }
 
@@ -414,7 +425,8 @@ bool RepentogonCharacterMenuSpriteAlive(std::uintptr_t sprite) noexcept {
         character > UINTPTR_MAX - kCharacterCompletionWidget) {
         return false;
     }
-    return sprite == character + kCharacterBigCharPage ||
+    return sprite == character + kCharacterBackgroundSprite ||
+           sprite == character + kCharacterBigCharPage ||
            sprite == character + kCharacterPageSwapWidget ||
            sprite == character + kCharacterCompletionWidget +
                          kCompletionWidgetAnm2;

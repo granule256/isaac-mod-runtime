@@ -223,6 +223,16 @@ int RepentogonMenuManagerIsActive(lua_State* state) {
     return 1;
 }
 
+int RepentogonMenuManagerGetViewPosition(lua_State* state) {
+    RequireGameThread(state, "MenuManager.GetViewPosition");
+    const auto menu = RequireMenuManager(state);
+    const auto position = ReadField<Vector2>(
+        state, menu, kMenuManagerViewPosition,
+        "MenuManager view position is unavailable");
+    PushLuaVector(state, position.x, position.y);
+    return 1;
+}
+
 int RepentogonCollectionMenuGetSelectedPage(lua_State* state) {
     RequireGameThread(state, "CollectionMenu.GetSelectedPage");
     RequireNoArguments(state, "CollectionMenu.GetSelectedPage");

@@ -394,6 +394,9 @@ struct RoomEntitySpawnOverride {
 [[nodiscard]] bool DispatchEntityTakeDamage(std::uintptr_t entity, float amount,
                                             std::uint64_t damageFlags, std::uintptr_t sourceRef,
                                             std::int32_t countdownFrames, std::int32_t entityType);
+[[nodiscard]] bool DispatchPrePlayerTakeDamage(
+    std::uintptr_t player, float damage, std::uint64_t damageFlags,
+    std::uintptr_t sourceRef, std::int32_t damageCountdown) noexcept;
 // Extended callback 11 path. Mutates the values which the native bridge will write
 // back at its accepted boundary; true means cancel the damage.
 [[nodiscard]] bool DispatchEntityTakeDamageValues(isaac::runtime::damage::Values& values);

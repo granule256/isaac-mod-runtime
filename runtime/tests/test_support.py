@@ -70,6 +70,7 @@ def layered_lua_runtime_sources(source_root: Path) -> list[Path]:
         unit_root / "interfaces" / "lua" / "repentogon_entity_api.cpp",
         unit_root / "interfaces" / "lua" / "pickup_flip_api.cpp",
         source_root / "damage_context.cpp",
+        source_root / "player_take_damage_callback.cpp",
         unit_root / "interfaces" / "lua" / "repentogon_entity_config_api.cpp",
         unit_root / "interfaces" / "lua" / "repentogon_sprite_api.cpp",
         unit_root / "interfaces" / "lua" / "repentogon_menu_world_api.cpp",

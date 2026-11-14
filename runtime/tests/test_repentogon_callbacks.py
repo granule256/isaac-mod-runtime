@@ -146,6 +146,14 @@ static void Extensions(lua_State* state) noexcept {
 static const RepentogonCallbackBinding expected[]={
 {1005,"MC_POST_ADD_COLLECTIBLE"},
     {1006,"MC_POST_ENTITY_TAKE_DMG"},
+{1008,"MC_PRE_PLAYER_TAKE_DMG"},
+{1069,"MC_PRE_PLAYER_TRIGGER_ROOM_CLEAR"},
+{1073,"MC_PLAYER_GET_ACTIVE_MIN_USABLE_CHARGE"},
+{1079,"MC_POST_PLAYERHUD_RENDER_ACTIVE_ITEM"},
+{1216,"MC_PRE_COMPLETION_MARKS_RENDER"},
+{1217,"MC_POST_COMPLETION_MARKS_RENDER"},
+{1333,"MC_PRE_RENDER_CUSTOM_CHARACTER_MENU"},
+{1271,"MC_POST_ROOM_TRANSITION_UPDATE"},
 {1020,"MC_HUD_UPDATE"},
 {1021,"MC_POST_HUD_UPDATE"},
 {1022,"MC_HUD_RENDER"},
@@ -312,6 +320,17 @@ assert(Dimension.CURRENT==-1 and Dimension.NORMAL==0)
 assert(Dimension.KNIFE_PUZZLE==1 and Dimension.MIRROR==1 and Dimension.MINESHAFT==1 and Dimension.DEATH_CERTIFICATE==2)
 )lua";
         for(const auto& c:expected)script+="assert(ModCallbacks."+std::string(c.name)+"=="+std::to_string(c.id)+");m:AddCallback("+std::to_string(c.id)+",function()calls=calls+1 end)\n";
+    }else if(mode=="reverie"){
+        script+=R"lua(
+m:AddCallback(1069,function(_,p)assert(p);return false end,7)
+m:AddCallback(1069,function()error('wrong room-clear filter')end,8)
+m:AddCallback(1073,function(_,slot,p,normal)assert(slot==1 and p and normal==6);return -5 end,123)
+m:AddCallback(1073,function()error('wrong active-item filter')end,124)
+m:AddCallback(1079,function(_,p,slot,pos,alpha,size,charge)
+ assert(p and slot==1 and pos.X==10 and pos.Y==20 and alpha==0.5 and size==0.25 and charge.X==9 and charge.Y==8)
+ calls=calls+1
+end,123)
+)lua";
     }else if(mode=="render"){
         script+=R"lua(
 m:AddPriorityCallback(1080,-1,function(_,e,v)assert(e and v.X==10 and v.Y==20);order=order..'A';return Vector(2,3)end,7)
@@ -489,16 +508,25 @@ local f;f=function()m:RemoveCallback(1400,f);calls=calls+1 end;m:AddCallback(140
     if(mode=="off"||mode=="none"){
         assert(!Listening(1400));assert(installCalls==0&&readyCalls==0);assert(ExtendedCallbackCount()==0);
     }else{
-        assert(installCalls==1&&readyCalls==1&&ExtendedCallbackCount()==132);
+        assert(installCalls==1&&readyCalls==1&&ExtendedCallbackCount()==140);
         unsigned type=20,variant=7,subtype=9,gridType=4;
         std::memcpy(entity+kEntityTypeOffset,&type,4);std::memcpy(entity+kEntityVariantOffset,&variant,4);
         std::memcpy(entity+kEntitySubTypeOffset,&subtype,4);std::memcpy(grid+kGridEntityTypeOffset,&gridType,4);
         Vector offset{10,20};Sound sound{5,0.5f,2,false,1,0};
         auto send=[&](unsigned id,EventKind kind=EventKind::Global){return Dispatch(Event{id,kind,kind==EventKind::Grid||kind==EventKind::GridRender?Address(grid):Address(entity),Address(collider),&offset,true,&sound});};
         if(mode=="catalog"){
-            assert(sizeof(expected)/sizeof(expected[0])==132);
+            assert(sizeof(expected)/sizeof(expected[0])==140);
             for(const auto& c:expected){assert(Listening(c.id));send(c.id);}
-            Check();assert(Number("calls")==132&&g_ExtendedCallbackEnabledCount==132);
+            Check();assert(Number("calls")==140&&g_ExtendedCallbackEnabledCount==140);
+        }else if(mode=="reverie"){
+            const auto clear=send(1069,EventKind::Entity);Check();assert(clear.hasBoolean&&!clear.boolean);
+            Event charge{};charge.id=1073;charge.kind=EventKind::PlayerActiveMinUsableCharge;
+            charge.object=Address(entity);charge.first=1;charge.second=6;charge.third=123;
+            const auto value=Dispatch(charge);Check();assert(value.hasInteger&&value.integer==-5);
+            Vector chargePos{9,8};Event hud{};hud.id=1079;hud.kind=EventKind::PlayerHudActive;
+            hud.object=Address(entity);hud.first=1;hud.second=123;hud.offset=&offset;
+            hud.number=0.5F;hud.scale=0.25F;hud.chargeBar=&chargePos;
+            static_cast<void>(Dispatch(hud));Check();assert(Number("calls")==1);
         }else if(mode=="render"){
             auto result=send(1080,EventKind::EntityRender);Check();assert(result.hasOffset&&result.offset.x==11&&result.offset.y==27);
         }else if(mode=="booleans"){
@@ -644,6 +672,11 @@ local f;f=function()m:RemoveCallback(1400,f);calls=calls+1 end;m:AddCallback(140
 '''
 
 class RepentogonCallbackTests(unittest.TestCase):
+    def test_reverie_callback_exports(self):
+        source = (SOURCE.parent / 'src/interfaces/lua/repentogon_callbacks.cpp').read_text()
+        for name in ('MC_PRE_PLAYER_TRIGGER_ROOM_CLEAR', 'MC_PLAYER_GET_ACTIVE_MIN_USABLE_CHARGE', 'MC_POST_PLAYERHUD_RENDER_ACTIVE_ITEM'):
+            self.assertTrue(name in source, name)
+
     def _run_policy_driver(self, driver_text):
         with tempfile.TemporaryDirectory(prefix='repentogon-policy-') as tmp:
             work=test_support.prepare_harness_directory(Path(tmp))
@@ -656,6 +689,21 @@ class RepentogonCallbackTests(unittest.TestCase):
             result=subprocess.run([str(binary)],capture_output=True,text=True)
             self.assertEqual(result.returncode,0,result.stdout+result.stderr)
 
+    def test_active_min_charge_chains_third_argument(self):
+        driver = POLICY_DRIVER.replace('local outer=Isaac.RunCallbackWithParam', """local chargeMod={};local order=0
+Isaac.AddPriorityCallback(chargeMod,1073,0,function(_,slot,p,current)
+ assert(slot==1 and p and current==6);order=order+1;return -5
+end,123)
+Isaac.AddPriorityCallback(chargeMod,1073,1,function(_,slot,p,current)
+ assert(current==-5);order=order+1;return 'pass-through'
+end,123)
+Isaac.AddPriorityCallback(chargeMod,1073,2,function(_,slot,p,current)
+ assert(current=='pass-through');order=order+1;return 3
+end,123)
+assert(Isaac.RunCallbackWithParam(1073,123,1,{},6)==3 and order==3)
+local outer=Isaac.RunCallbackWithParam""")
+        self._run_policy_driver(driver)
+
     def test_pre_render_runner_accumulates_offsets(self):
         self._run_policy_driver(POLICY_DRIVER)
 
@@ -665,7 +713,7 @@ class RepentogonCallbackTests(unittest.TestCase):
     def test_native_catalog_delivery_and_lifecycle(self):
         with tempfile.TemporaryDirectory(prefix='repentogon-native-') as tmp:
             binary=test_support.build_lua_harness(source_root=SOURCE,workdir=Path(tmp),harness_source=RUNTIME_DRIVER)
-            for mode in ('sprite_cleanup','off','none','ready_fail','install_fail','catalog','render','booleans','filter','post_fire','sound','sound_error','level_boss','bulk_callbacks','remaining_phases','change_room_invalid','change_room_non_integer','nested','error','pause','pause_error','bad_vector','remove_all','reset','empty'):
+            for mode in ('sprite_cleanup','off','none','ready_fail','install_fail','catalog','reverie','render','booleans','filter','post_fire','sound','sound_error','level_boss','bulk_callbacks','remaining_phases','change_room_invalid','change_room_non_integer','nested','error','pause','pause_error','bad_vector','remove_all','reset','empty'):
                 with self.subTest(mode=mode):
                     result=subprocess.run([str(binary),mode],capture_output=True,text=True)
                     self.assertEqual(result.returncode,0,result.stdout+result.stderr)

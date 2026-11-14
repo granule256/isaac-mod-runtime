@@ -8,6 +8,7 @@ namespace isaac::runtime {
 
 int RepentogonCharacterMenuGetActiveStatus(lua_State* state);
 int RepentogonCharacterMenuGetDifficulty(lua_State* state);
+int RepentogonCharacterMenuGetBGSprite(lua_State* state);
 int RepentogonCharacterMenuGetIsCharacterUnlocked(lua_State* state);
 int RepentogonCharacterMenuGetPageSwapWidgetSprite(lua_State* state);
 int RepentogonCharacterMenuGetSelectedCharacterID(lua_State* state);

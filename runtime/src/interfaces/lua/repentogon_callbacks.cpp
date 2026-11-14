@@ -40,6 +40,7 @@ const NativePort* g_NativePort{};
 constexpr RepentogonCallbackBinding kCallbacks[]={
     {1005,"MC_POST_ADD_COLLECTIBLE"},
     {1006,"MC_POST_ENTITY_TAKE_DMG"},
+    {1008,"MC_PRE_PLAYER_TAKE_DMG"},
     {1020,"MC_HUD_UPDATE"},
     {1021,"MC_POST_HUD_UPDATE"},
     {1022,"MC_HUD_RENDER"},
@@ -50,6 +51,9 @@ constexpr RepentogonCallbackBinding kCallbacks[]={
     {1031,"MC_POST_SFX_PLAY"},
     {1060,"MC_PRE_LEVEL_INIT"},
     {1061,"MC_PRE_CHANGE_ROOM"},
+    {1069,"MC_PRE_PLAYER_TRIGGER_ROOM_CLEAR"},
+    {1073,"MC_PLAYER_GET_ACTIVE_MIN_USABLE_CHARGE"},
+    {1079,"MC_POST_PLAYERHUD_RENDER_ACTIVE_ITEM"},
     {1080,"MC_PRE_FAMILIAR_RENDER"},
     {1081,"MC_PRE_NPC_RENDER"},
     {1082,"MC_PRE_PLAYER_RENDER"},
@@ -176,7 +180,7 @@ constexpr RepentogonCallbackBinding kCallbacks[]={
     {1271,"MC_POST_ROOM_TRANSITION_UPDATE"},
 };
 constexpr auto kCallbackCount=sizeof(kCallbacks)/sizeof(kCallbacks[0]);
-static_assert(kCallbackCount==136);
+static_assert(kCallbackCount==140);
 constexpr RepentogonEnumBinding kEnums[]={
     {"ModCallbacks","MC_HUD_POST_UPDATE",1021},
     {"StbType","SPECIAL_ROOMS",0},
@@ -341,6 +345,8 @@ constexpr RepentogonApiBinding kApis[]={
       ApiMaturity::Experimental},RepentogonLayerStateGetSpritesheetPath},
     {{0x0E024100,ApiDomain::Isaac,"CharacterMenu","GetActiveStatus",{},0,ThreadAffinity::ManagedCallback,
       ApiMaturity::Experimental},RepentogonCharacterMenuGetActiveStatus},
+    {{0x0E02410A,ApiDomain::Isaac,"CharacterMenu","GetBGSprite",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonCharacterMenuGetBGSprite},
     {{0x0E024101,ApiDomain::Isaac,"CharacterMenu","GetDifficulty",{},0,ThreadAffinity::ManagedCallback,
       ApiMaturity::Experimental},RepentogonCharacterMenuGetDifficulty},
     {{0x0E024102,ApiDomain::Isaac,"CharacterMenu","GetIsCharacterUnlocked",{},0,ThreadAffinity::ManagedCallback,
@@ -401,6 +407,8 @@ constexpr RepentogonApiBinding kApis[]={
       ApiMaturity::Experimental},RepentogonEntityPlayerGetDeadEyeCharge},
     {{0x0E02000B,ApiDomain::Isaac,"EntityPlayer","GetPurityState",{},0,ThreadAffinity::ManagedCallback,
       ApiMaturity::Experimental},RepentogonEntityPlayerGetPurityState},
+    {{0x0E02000D,ApiDomain::Isaac,"EntityPlayer","AddActiveCharge",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonEntityPlayerAddActiveCharge},
     {{0x0E02000C,ApiDomain::Isaac,"Entity","SetDead",{},0,ThreadAffinity::ManagedCallback,
       ApiMaturity::Experimental},RepentogonEntitySetDead},
     {{0x04020001,ApiDomain::Room,"Room","SetWaterAmount",{},0,ThreadAffinity::ManagedCallback,
@@ -489,6 +497,12 @@ constexpr RepentogonApiBinding kApis[]={
       ApiMaturity::Experimental},RepentogonEntityConfigPlayerGetExtraPortraitPath},
     {{0x0E023007,ApiDomain::Isaac,"EntityConfigPlayer","GetNameImagePath",{},0,ThreadAffinity::ManagedCallback,
       ApiMaturity::Experimental},RepentogonEntityConfigPlayerGetNameImagePath},
+    {{0x0E023008,ApiDomain::Isaac,"EntityConfig","GetMaxPlayerType",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonEntityConfigGetMaxPlayerType},
+    {{0x0E023009,ApiDomain::Isaac,"EntityConfigPlayer","IsHidden",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonEntityConfigPlayerIsHidden},
+    {{0x0E02300A,ApiDomain::Isaac,"EntityConfigPlayer","IsTainted",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonEntityConfigPlayerIsTainted},
     {{0x0E026000,ApiDomain::Isaac,"EntityPlayer","GetDamageModifier",{},0,ThreadAffinity::ManagedCallback,
       ApiMaturity::Experimental},RepentogonEntityPlayerGetDamageModifier},
     {{0x0E026001,ApiDomain::Isaac,"EntityPlayer","GetEdenDamage",{},0,ThreadAffinity::ManagedCallback,
@@ -579,6 +593,8 @@ constexpr RepentogonApiBinding kApis[]={
       ApiMaturity::Experimental},RepentogonXmlDataGetNumEntries},
     {{0x0E024000,ApiDomain::Isaac,"MenuManager","GetActiveMenu",{},0,ThreadAffinity::ManagedCallback,
       ApiMaturity::Experimental},RepentogonMenuManagerGetActiveMenu},
+    {{0x0E024010,ApiDomain::Isaac,"MenuManager","GetViewPosition",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonMenuManagerGetViewPosition},
     {{0x0E024001,ApiDomain::Isaac,"MenuManager","IsActive",{},0,ThreadAffinity::ManagedCallback,
       ApiMaturity::Experimental},RepentogonMenuManagerIsActive},
     {{0x0E024002,ApiDomain::Isaac,"CollectionMenu","GetSelectedPage",{},0,ThreadAffinity::ManagedCallback,

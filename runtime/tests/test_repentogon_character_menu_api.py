@@ -45,6 +45,7 @@ constexpr std::uintptr_t kCharacterStatus = 0x38;
 constexpr std::uintptr_t kCharacterUnlocked = 0x3D;
 constexpr std::uintptr_t kCharacterDifficulty = 0x40;
 constexpr std::uintptr_t kCharacterSelectedId = 0x48;
+constexpr std::uintptr_t kCharacterBackgroundSprite = 0x480;
 constexpr std::uintptr_t kCharacterShownPage = 0x1138;
 constexpr std::uintptr_t kCharacterPageSwapWidget = 0x1140;
 constexpr std::uintptr_t kCharacterCompletionWidget = 0x5D8;
@@ -143,6 +144,8 @@ static void Extensions(lua_State* state) noexcept {
          isaac::runtime::RepentogonCharacterMenuGetActiveStatus);
     Bind(state, "CharacterMenu", "GetDifficulty",
          isaac::runtime::RepentogonCharacterMenuGetDifficulty);
+    Bind(state, "CharacterMenu", "GetBGSprite",
+         isaac::runtime::RepentogonCharacterMenuGetBGSprite);
     Bind(state, "CharacterMenu", "GetIsCharacterUnlocked",
          isaac::runtime::RepentogonCharacterMenuGetIsCharacterUnlocked);
     Bind(state, "CharacterMenu", "GetPageSwapWidgetSprite",
@@ -220,6 +223,8 @@ MenuManager.SetColorModifier(modifier, false, 0.2)
 
 assert(CharacterMenu.GetActiveStatus() == 3)
 assert(CharacterMenu.GetDifficulty() == 2)
+assert(type(CharacterMenu.GetBGSprite()) == 'userdata')
+assert(type(CharacterMenu.GetBGSprite('ignored')) == 'userdata')
 assert(CharacterMenu.GetIsCharacterUnlocked() == true)
 assert(CharacterMenu.GetSelectedCharacterID() == 9)
 assert(CharacterMenu.GetSelectedCharacterMenu() == 1)
@@ -285,6 +290,8 @@ assert(_inputAllowed(20))
     assert(isaac::runtime::RepentogonCharacterMenuSpriteAlive(
         character + kCharacterPageSwapWidget));
     assert(isaac::runtime::RepentogonCharacterMenuSpriteAlive(
+        character + kCharacterBackgroundSprite));
+    assert(isaac::runtime::RepentogonCharacterMenuSpriteAlive(
         character + kCharacterCompletionWidget + 0x08));
     assert(!isaac::runtime::RepentogonCharacterMenuSpriteAlive(
         character + kCharacterPageSwapWidget + 8));
@@ -302,6 +309,7 @@ assert(CharacterMenu.GetIsCharacterUnlocked() == false)
     Put<std::uintptr_t>(menuSlot, 0, 0);
     constexpr const char* inactive = R"lua(
 assert(not pcall(function() CharacterMenu.GetActiveStatus() end))
+assert(not pcall(function() CharacterMenu.GetBGSprite() end))
 assert(not pcall(function() CharacterMenu.GetPageSwapWidgetSprite() end))
 )lua";
     if (LuaRuntime::InitializeFromBuffer(inactive, std::strlen(inactive),

@@ -80,6 +80,7 @@ extern "C" char __fake_heap[];
 #include "application/callback/callback_dispatcher.hpp"
 #include "application/callback/callback_registry.hpp"
 #include "damage_context.hpp"
+#include "player_take_damage_callback.hpp"
 #include "domain/callback/callback_descriptor.hpp"
 #include "interfaces/lua/api_catalog.hpp"
 #include "interfaces/lua/json_api.hpp"
@@ -4810,6 +4811,13 @@ void ParseRepentogonReturn(lua_State* state,void* opaque) {
     auto& context=*static_cast<RepentogonReturnContext*>(opaque);
     const auto& event=*context.event;
     const auto id=event.id;
+    if(id==1073) {
+        if(lua_isinteger(state,-1)) {
+            context.result.hasInteger=true;
+            context.result.integer=static_cast<std::int32_t>(lua_tointeger(state,-1));
+        }
+        return;
+    }
     if(id==1137) {
         std::uintptr_t object{};
         if(isaac::runtime::ResolveApi500RoomConfig(state,-1,&object)) {
@@ -4858,7 +4866,7 @@ void ParseRepentogonReturn(lua_State* state,void* opaque) {
     }
     const bool entityRender=id>=1080&&id<=1089;
     const bool gridPre=id>=1400&&id<=1462&&(id&1)==0;
-    const bool pre=entityRender||gridPre||(id>=1160&&id<=1169)||id==1026||id==1030||id==1218||id==1201||id==1216;
+    const bool pre=entityRender||gridPre||(id>=1160&&id<=1169)||id==1026||id==1030||id==1218||id==1201||id==1216||id==1069;
     if(!pre)return;
     if(lua_isboolean(state,-1)) {
         context.result.hasBoolean=true;context.result.boolean=lua_toboolean(state,-1)!=0;
@@ -4895,6 +4903,23 @@ isaac::runtime::repentogon::Result DispatchRepentogonCallback(
     LuaCallbackInvoker invoker{0,false,false};
     auto filter=CallbackRegistry::kNoCallbackFilter;
     switch(event.kind) {
+        case EventKind::PlayerActiveMinUsableCharge:
+            filter=event.third;
+            invoker.arguments.AddInteger(event.first);
+            invoker.arguments.AddEntity(event.object);
+            invoker.arguments.AddInteger(event.second);
+            break;
+        case EventKind::PlayerHudActive: {
+            if(!event.offset||!event.chargeBar)return {};
+            filter=event.second;
+            invoker.arguments.AddEntity(event.object);
+            invoker.arguments.AddInteger(event.first);
+            invoker.arguments.AddVector(event.offset->x,event.offset->y);
+            invoker.arguments.AddFloat(event.number);
+            invoker.arguments.AddFloat(event.scale);
+            invoker.arguments.AddVector(event.chargeBar->x,event.chargeBar->y);
+            break;
+        }
         case EventKind::Boolean:
             invoker.arguments.AddBoolean(event.low);
             break;
@@ -6540,6 +6565,34 @@ bool DispatchEntityTakeDamageValues(isaac::runtime::damage::Values& values) {
     g_ErrorContextOwner = previousOwner;
     g_ErrorContextCallbackId = previousId;
     return context.cancelled;
+}
+
+bool DispatchPrePlayerTakeDamage(
+    std::uintptr_t player, float damage, std::uint64_t damageFlags,
+    std::uintptr_t sourceRef, std::int32_t damageCountdown) noexcept {
+    namespace ptd = isaac::runtime::player_take_damage;
+    if (!IsReady() || g_LuaState == nullptr ||
+        !isaac::runtime::ShouldDispatchManagedCallbacks() ||
+        !isaac::runtime::BuiltinCallbackEnabled(ptd::kPrePlayerTakeDamageCallbackId)) {
+        return false;
+    }
+    if (!lua_checkstack(g_LuaState, 8)) {
+        g_CallbackError.store(true, std::memory_order_release);
+        return false;
+    }
+    std::uint32_t type{};
+    std::uint32_t variant{};
+    const bool identityReadable = isaac::runtime::ReadEntityIdentity(player, &type, &variant);
+    const auto filter = identityReadable ? static_cast<std::int32_t>(variant) : std::int32_t{-1};
+    const ManagedEngineDispatchScope dispatchScope;
+    LuaCallbackInvoker invoker{0, false, false};
+    invoker.arguments.AddEntity(player);
+    invoker.arguments.AddFloat(damage);
+    invoker.arguments.AddInteger(static_cast<std::int64_t>(damageFlags));
+    invoker.arguments.AddReference(sourceRef);
+    invoker.arguments.AddInteger(static_cast<std::int64_t>(damageCountdown));
+    isaac::runtime::CallbackDispatcher dispatcher{g_CallbackRegistry, invoker};
+    return ptd::DispatchPrePlayerTakeDamage(dispatcher, filter);
 }
 
 bool DispatchEntityTakeDamage(std::uintptr_t entity, float amount, std::uint64_t damageFlags,

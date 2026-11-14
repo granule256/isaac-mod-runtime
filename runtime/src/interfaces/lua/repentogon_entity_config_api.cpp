@@ -5,6 +5,7 @@
 #include "infrastructure/call/engine_call_access.hpp"
 #include "infrastructure/memory/engine_field_access.hpp"
 #include "lua_runtime.hpp"
+#include <climits>
 extern "C" {
 #include <lauxlib.h>
 }
@@ -105,6 +106,38 @@ int RepentogonEntityConfigGetEntity(lua_State* L) {
 int RepentogonEntityConfigGetPlayer(lua_State* L) {
     const auto config=Config(L);
     return Push(L,config,static_cast<std::int32_t>(luaL_checkinteger(L,1)),0,0,true);
+}
+int RepentogonEntityConfigGetMaxPlayerType(lua_State* L) {
+    const auto config=Config(L);
+    const auto base=LuaRuntime::EngineModuleBase();
+    if(!base||base>UINTPTR_MAX-0x700ccU-16||
+       !engine_call::VerifyEntryBytes(base+0x700ccU,kPlayerGuard,16,
+                                     engine_memory::EngineMemoryReadable))
+        return luaL_error(L,"EntityConfig native lookup guard mismatch");
+    // GetPlayer uses this vector directly, with a 0x178-byte Player stride.
+    const auto begin=Read<std::uintptr_t>(L,config,0x18);
+    const auto end=Read<std::uintptr_t>(L,config,0x20);
+    if(end<begin||(end-begin)%0x178U||(end-begin)/0x178U>INT_MAX||
+       (end!=begin&&(!begin||!engine_memory::EngineMemoryReadable(begin,1)||
+                                  !engine_memory::EngineMemoryReadable(end-1,1))))
+        return luaL_error(L,"EntityConfig player vector is invalid");
+    lua_pushinteger(L,static_cast<lua_Integer>((end-begin)/0x178U)-1);
+    return 1;
+}
+int RepentogonEntityConfigPlayerIsHidden(lua_State* L) {
+    const auto record=Record(L,true);
+    const auto id=Read<std::int32_t>(L,record,0);
+    const bool hidden=Read<std::uint8_t>(L,record,0x13c)!=0||
+        id==11||id==12||id==17||id==20||id==38||id==39||id==40;
+    lua_pushboolean(L,hidden);return 1;
+}
+int RepentogonEntityConfigPlayerIsTainted(lua_State* L) {
+    const auto record=Record(L,true);
+    const auto id=Read<std::int32_t>(L,record,0);
+    // LoadPlayers assigns bSkinParent to Player+0x120 (libc++ string).
+    const auto tag=Read<std::uint8_t>(L,record,0x120);
+    const auto size=(tag&1U)?Read<std::uint64_t>(L,record,0x128):tag>>1U;
+    lua_pushboolean(L,(id>=21&&id<=40)||size!=0);return 1;
 }
 // Load parses an Entity at sp+0x110 then assigns it unchanged to the config map.
 int RepentogonEntityConfigEntityCanBeChampion(lua_State* L) {lua_pushboolean(L,Read<std::uint8_t>(L,Record(L,false),0x38)!=0);return 1;}
