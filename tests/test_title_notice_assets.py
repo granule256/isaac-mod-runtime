@@ -186,7 +186,7 @@ class TitleNoticeAssetsTests(unittest.TestCase):
         font = self.font(json.dumps(content, ensure_ascii=False))
         background = (230, 220, 225, 255)
         blank = b.Image(336, 216, bytearray(background * (336 * 216)))
-        blank_entry = b.Image(120, 26, bytearray(background * (120 * 26)))
+        blank_entry = b.Image(120, 26, bytearray((90, 80, 70, 255) * (120 * 26)))
         with tempfile.TemporaryDirectory() as tmp:
             result, pcx, anm2 = b.render_asset(
                 content, font, paper_art=b.PaperArt(blank, blank_entry))
@@ -199,22 +199,27 @@ class TitleNoticeAssetsTests(unittest.TestCase):
                 for item in ET.parse(root / "settings.anm2").getroot().findall("./Animations/Animation")
             }
             expected_sizes = {
-                "SettingsPaper": (336, 216),
-                "SettingsEntry": (200, 26),
-                "SettingsEntrySelected": (200, 26),
-                "SettingsSelection": (260, 22),
-                "SettingsHeader": (240, 18),
-                "SettingsConsole": (96, 16),
-                "SettingsRepentogon": (128, 16),
-                "SettingsFooter": (220, 18),
-                "SettingsOn": (160, 16),
-                "SettingsOff": (160, 16),
-                "SettingsOnSaving": (160, 16),
-                "SettingsOffSaving": (160, 16),
-                "SettingsOnReload": (160, 16),
-                "SettingsOffReload": (160, 16),
-                "SettingsSaveFailed": (160, 16),
-                "SettingsUnavailable": (160, 16),
+                "SettingsPaper": (288, 176),
+                "SettingsEntry": (32, 32),
+                "SettingsEntrySelected": (32, 32),
+                "SettingsSelection": (16, 18),
+                "SettingsTooltip": (200, 20),
+                "SettingsConsoleSelected": (112, 18),
+                "SettingsRepentogonSelected": (144, 18),
+                "SettingsConsoleHelp": (264, 18),
+                "SettingsRepentogonHelp": (264, 18),
+                "SettingsHeader": (264, 22),
+                "SettingsConsole": (112, 18),
+                "SettingsRepentogon": (144, 18),
+                "SettingsFooter": (264, 18),
+                "SettingsOn": (48, 24),
+                "SettingsOff": (48, 24),
+                "SettingsOnSaving": (264, 18),
+                "SettingsOffSaving": (264, 18),
+                "SettingsOnReload": (264, 18),
+                "SettingsOffReload": (264, 18),
+                "SettingsSaveFailed": (264, 18),
+                "SettingsUnavailable": (264, 18),
             }
             crops = []
             for name, expected in expected_sizes.items():
@@ -230,16 +235,16 @@ class TitleNoticeAssetsTests(unittest.TestCase):
                     overlap = x < ox + ow and ox < x + width and y < oy + oh and oy < y + height
                     self.assertFalse(overlap, f"settings crops overlap: {name} and {other}")
             paper = animations["SettingsPaper"].find("./LayerAnimations/LayerAnimation/Frame").attrib
-            self.assertEqual((paper["XPivot"], paper["YPivot"]), ("168", "108"))
+            self.assertEqual((paper["XPivot"], paper["YPivot"]), ("144", "88"))
             x, y = int(paper["XCrop"]), int(paper["YCrop"])
-            for row in range(216):
+            for row in range(176):
                 start = ((y + row) * atlas.width + x) * 4
-                self.assertEqual(atlas.rgba[start:start + 336 * 4],
-                                 bytes(background) * 336,
+                self.assertEqual(atlas.rgba[start:start + 288 * 4],
+                                 bytes(background) * 288,
                                  "settings paper must contain no notice-body pixels")
             for name in ("SettingsEntry", "SettingsEntrySelected"):
                 frame = animations[name].find("./LayerAnimations/LayerAnimation/Frame").attrib
-                self.assertEqual((frame["XPivot"], frame["YPivot"]), ("0", "0"))
+                self.assertEqual((frame["XPivot"], frame["YPivot"]), ("16", "16"))
             def crop_bytes(name):
                 frame = animations[name].find("./LayerAnimations/LayerAnimation/Frame").attrib
                 left, top = int(frame["XCrop"]), int(frame["YCrop"])

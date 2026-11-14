@@ -52,7 +52,9 @@ class PaperArt:
     entry_borders: tuple = (10, 5, 10, 7)
 
     def paint(self, target: Image, x: int, y: int, width: int, height: int) -> None:
-        tile = self.sheet if (width, height) == (336, 216) else self.entry
+        tile = self.sheet if (width, height) in ((336, 216), (288, 176)) else self.entry
+        if tile is self.sheet and (tile.width, tile.height) != (width, height):
+            tile = _stretch(self.sheet, width, height, (24, 18, 56, 80))
         if tile is self.entry and (tile.width, tile.height) != (width, height):
             tile = _stretch(self.entry, width, height, self.entry_borders)
         if (tile.width, tile.height) != (width, height):

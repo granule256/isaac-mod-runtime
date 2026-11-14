@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 from dataclasses import dataclass
 import json
+import math
 import hashlib
 from pathlib import Path
 import struct
@@ -62,12 +63,71 @@ SETTINGS_UI = {
            "header": "Настройки среды", "console": "Консоль",
            "footer": "A: переключить  B: закрыть"},
     "zh": {**DEFAULT_SETTINGS_UI, "entry": "兼容层设置", "header": "兼容层设置",
-           "console": "控制台", "footer": "A 切换  B 关闭",
+           "console": "控制台", "repentogon": "忏悔龙扩展", "footer": "A 切换  B 关闭",
            "on": "开", "off": "关", "on_saving": "开（保存中）",
            "off_saving": "关（保存中）", "on_reload": "开（需重启）",
            "off_reload": "关（需重启）", "save_failed": "保存失败",
            "unavailable": "不可用"},
 }
+# Short focused tooltip and separate explanatory copy keep the switch compact.
+SETTINGS_HINTS = {
+    "en": ("Settings", "Up/Down: select  A: toggle  B: back", "Applies immediately in game.",
+           "Changes apply after restarting.", "Saving...", "Currently Off; restart to apply.",
+           "Currently On; restart to apply.", "Not saved. Toggle again to retry.", "Extension is not active."),
+    "de": ("Einstellungen", "Hoch/Runter  A: ändern  B: zurück", "Im Spiel sofort wirksam.",
+           "Änderung nach einem Neustart.", "Wird gespeichert...", "Jetzt aus; Neustart erforderlich.",
+           "Jetzt an; Neustart erforderlich.", "Nicht gespeichert. Erneut versuchen.", "Erweiterung ist nicht aktiv."),
+    "es": ("Ajustes", "Arriba/Abajo  A: cambiar  B: volver", "Se aplica de inmediato en partida.",
+           "Reinicia para aplicar los cambios.", "Guardando...", "Ahora apagado; reinicia para aplicar.",
+           "Ahora encendido; reinicia para aplicar.", "No guardado. Vuelve a intentarlo.", "La extensión no está activa."),
+    "fr": ("Réglages", "Haut/Bas  A : changer  B : retour", "Effet immédiat en partie.",
+           "Redémarre pour appliquer le réglage.", "Enregistrement...", "Inactif ; redémarre pour appliquer.",
+           "Actif ; redémarre pour appliquer.", "Non enregistré. Réessaie.", "Extension inactive."),
+    "jp": ("設定", "上下 選択  A 切替  B 戻る", "ゲーム中にすぐ反映されます。",
+           "変更はゲームの再起動後に反映。", "保存中…", "現在オフ。再起動後に設定を反映。",
+           "現在オン。再起動後に設定を反映。", "保存失敗。もう一度切り替えてください。", "拡張機能は動作していません。"),
+    "kr": ("설정", "위/아래 선택  A 전환  B 뒤로", "게임에서 즉시 적용됩니다.",
+           "게임을 재시작하면 적용됩니다.", "저장 중...", "현재 꺼짐. 재시작 후 설정 적용.",
+           "현재 켜짐. 재시작 후 설정 적용.", "저장 실패. 다시 전환하세요.", "확장 기능이 비활성 상태입니다."),
+    "ru": ("Настройки", "Вверх/вниз  A: сменить  B: назад", "В игре применяется сразу.",
+           "Изменение после перезапуска игры.", "Сохранение...", "Сейчас выкл.; нужен перезапуск.",
+           "Сейчас вкл.; нужен перезапуск.", "Не сохранено. Повторите попытку.", "Расширение не активно."),
+    "zh": ("设置", "↑↓ 选择  A 切换  B 返回", "控制台在游戏中使用，切换立即生效。",
+           "修改后需重新启动游戏才能生效。", "正在保存…", "当前关闭，重启游戏后应用设置。",
+           "当前开启，重启游戏后应用设置。", "保存失败，请再次切换重试。", "扩展尚未启用，请检查运行环境。"),
+}
+for _code, _copy in SETTINGS_HINTS.items():
+    _short, _footer, _console, _rgon, _saving, _on, _off, _failed, _unavailable = _copy
+    SETTINGS_UI[_code].update(entry_short=_short, footer=_footer, console_help=_console,
+        repentogon_help=_rgon, on_saving=_saving, off_saving=_saving, on_reload=_on,
+        off_reload=_off, save_failed=_failed, unavailable=_unavailable)
+
+# Atlas-local crops; the notice booklet above this block keeps its original art.
+SETTINGS_FRAMES = {
+    "SettingsPaper": (0, 0, 288, 176, 144, 88),
+    "SettingsEntry": (336, 0, 32, 32, 16, 16),
+    "SettingsEntrySelected": (372, 0, 32, 32, 16, 16),
+    "SettingsSelection": (408, 0, 16, 18, 0, 0),
+    "SettingsTooltip": (432, 0, 200, 20, 0, 0),
+    "SettingsHeader": (336, 36, 264, 22, 0, 0),
+    "SettingsConsole": (336, 62, 112, 18, 0, 0),
+    "SettingsConsoleSelected": (452, 62, 112, 18, 0, 0),
+    "SettingsRepentogon": (336, 84, 144, 18, 0, 0),
+    "SettingsRepentogonSelected": (484, 84, 144, 18, 0, 0),
+    "SettingsOn": (336, 106, 48, 24, 0, 0),
+    "SettingsOff": (388, 106, 48, 24, 0, 0),
+    "SettingsOnSaving": (336, 140, 264, 18, 0, 0),
+    "SettingsOffSaving": (336, 160, 264, 18, 0, 0),
+    "SettingsOnReload": (336, 180, 264, 18, 0, 0),
+    "SettingsOffReload": (336, 200, 264, 18, 0, 0),
+    "SettingsSaveFailed": (336, 220, 264, 18, 0, 0),
+    "SettingsUnavailable": (336, 240, 264, 18, 0, 0),
+    "SettingsConsoleHelp": (336, 260, 264, 18, 0, 0),
+    "SettingsRepentogonHelp": (336, 280, 264, 18, 0, 0),
+    "SettingsFooter": (336, 300, 264, 18, 0, 0),
+}
+SETTINGS_INK = (27, 24, 21, 255)
+
 RESOURCE_ROOT = Path("atmosphere/contents/010021C000B6A000/romfs/rp_patch")
 INK = (49, 36, 32, 255)
 RED = (132, 28, 25, 255)
@@ -325,22 +385,8 @@ def make_anm2(page_count: int, support_y: int, settings_y: int,
     animation("FooterLocked", (0, support_y + 44, 336, 18, 168, 0), idle, y=82)
     animation("Progress", (0, support_y + 62, 60, 3, 0, 0), idle)
     animation("Dim", (60, support_y + 62, 1, 1, 0, 0), idle, alpha=140)
-    animation("SettingsPaper", (0, settings_y, 336, 216, 168, 108), idle)
-    animation("SettingsEntry", (336, settings_y, 200, 26, 0, 0), idle)
-    animation("SettingsEntrySelected", (336, settings_y + 28, 200, 26, 0, 0), idle)
-    animation("SettingsSelection", (336, settings_y + 58, 260, 22, 0, 0), idle)
-    animation("SettingsHeader", (336, settings_y + 84, 240, 18, 0, 0), idle)
-    animation("SettingsConsole", (336, settings_y + 106, 96, 16, 0, 0), idle)
-    animation("SettingsRepentogon", (436, settings_y + 106, 128, 16, 0, 0), idle)
-    settings_values = (
-        "On", "Off", "OnSaving", "OffSaving",
-        "OnReload", "OffReload", "SaveFailed", "Unavailable",
-    )
-    for index, name in enumerate(settings_values):
-        x = 336 + (160 if index >= 4 else 0)
-        y = settings_y + 126 + (index % 4) * 18
-        animation(f"Settings{name}", (x, y, 160, 16, 0, 0), idle)
-    animation("SettingsFooter", (336, settings_y + 198, 220, 18, 0, 0), idle)
+    for name, (x, y, width, height, px, py) in SETTINGS_FRAMES.items():
+        animation(name, (x, settings_y + y, width, height, px, py), idle)
     ET.indent(actor, space="  ")
     return ET.tostring(actor, encoding="utf-8", xml_declaration=True) + b"\n"
 
@@ -355,17 +401,13 @@ def validate_labels(content: dict, font: Font) -> None:
     ui = content.get("ui", DEFAULT_UI)
     labels.append((ui["entry"], 75, "entry"))
     labels.extend((ui[key], 260, key) for key in ("footer_locked", "footer_auto", "footer_manual"))
-    settings_ui = content.get("settings_ui", DEFAULT_SETTINGS_UI)
-    labels.extend((
-        (settings_ui["entry"], 192, "settings entry"),
-        (settings_ui["header"], 232, "settings header"),
-        (settings_ui["console"], 88, "settings console"),
-        (settings_ui["repentogon"], 120, "settings repentogon"),
-        (settings_ui["footer"], 212, "settings footer"),
-    ))
-    labels.extend((settings_ui[key], 152, f"settings {key}") for key in (
-        "on", "off", "on_saving", "off_saving", "on_reload", "off_reload",
-        "save_failed", "unavailable"))
+    settings_ui = {**DEFAULT_SETTINGS_UI, **content.get("settings_ui", {})}
+    labels.extend((settings_ui[key], limit, f"settings {key}") for key, limit in (
+        ("entry", 192), ("entry_short", 184), ("header", 256), ("console", 104),
+        ("repentogon", 136), ("footer", 256), ("on", 40), ("off", 40),
+        ("console_help", 256), ("repentogon_help", 256), ("on_saving", 256),
+        ("off_saving", 256), ("on_reload", 256), ("off_reload", 256),
+        ("save_failed", 256), ("unavailable", 256)))
     for text, limit, name in labels:
         width = font.width(text)
         if not text or "\n" in text or width > limit:
@@ -380,8 +422,8 @@ def render_asset(content: dict, font: Font, basename: str = "nnotice",
     pages = paginate(content, font)
     support_y = ((len(pages) + 1) // 2) * PAPER_HEIGHT
     settings_y = support_y + 65
-    atlas = Image(672, settings_y + PAPER_HEIGHT,
-                  bytearray(672 * (settings_y + PAPER_HEIGHT) * 4))
+    atlas = Image(672, settings_y + 320,
+                  bytearray(672 * (settings_y + 320) * 4))
     for index, lines in enumerate(pages):
         x, y = (index % 2) * PAPER_WIDTH, (index // 2) * PAPER_HEIGHT
         (paper_art.paint if paper_art else paper)(atlas, x, y, PAPER_WIDTH, PAPER_HEIGHT)
@@ -432,48 +474,63 @@ def render_asset(content: dict, font: Font, basename: str = "nnotice",
     rectangle(atlas, 0, support_y + 62, 60, 3, INK)
     rectangle(atlas, 60, support_y + 62, 1, 1, (0, 0, 0, 255))
 
-    # Settings has its own blank paper. Never scale a notice body page behind
-    # controls, since its baked copy would show through.
-    (paper_art.paint if paper_art else paper)(atlas, 0, settings_y, PAPER_WIDTH, PAPER_HEIGHT)
-    settings_ui = content.get("settings_ui", DEFAULT_SETTINGS_UI)
-    for selected, offset in [(False, 0), (True, 28)]:
-        ex, ey = 336, settings_y + offset
-        (paper_art.paint if paper_art else paper)(atlas, ex, ey, 200, 26)
-        text = settings_ui["entry"]
-        draw_text(atlas, font, text, ex + (200 - font.width(text)) // 2,
-                  ey + 6, INK)
+    paint = paper_art.paint if paper_art else paper
+    paint(atlas, 0, settings_y, 288, 176)
+    settings_ui = {**DEFAULT_SETTINGS_UI, **content.get("settings_ui", {})}
+    for selected, ex in ((False, 336), (True, 372)):
+        paper(atlas, ex, settings_y, 32, 32)
+        if paper_art:
+            for py in range(4, 28):
+                for px in range(4, 28):
+                    atlas.set_pixel(ex + px, settings_y + py,
+                                    paper_art.sheet.pixel(120 + px % 7, 50 + py % 7))
+        for py in range(5, 27):
+            for px in range(5, 27):
+                dx, dy = px - 15.5, py - 15.5
+                radius = 10.5 if math.cos(8 * math.atan2(dy, dx)) > 0.1 else 8.0
+                if 4.0 ** 2 <= dx * dx + dy * dy <= radius * radius:
+                    atlas.set_pixel(ex + px, settings_y + py, SETTINGS_INK)
         if selected:
-            rectangle(atlas, ex + 11, ey + 21, 178, 2, RED)
-            for i in range(5):
-                rectangle(atlas, ex + 4, ey + 9 + i, i + 1, 1, RED)
-                rectangle(atlas, ex + 4, ey + 14 + i, 5 - i, 1, RED)
-        else:
-            rectangle(atlas, ex + 11, ey + 21, 178, 1, MUTED)
-    rectangle(atlas, 336, settings_y + 58, 260, 22, (215, 193, 178, 255))
-    rectangle(atlas, 337, settings_y + 59, 258, 20, (232, 215, 201, 255))
-    rectangle(atlas, 336, settings_y + 58, 4, 22, RED)
-    for text, x, y, width, color, align in (
-            (settings_ui["header"], 336, settings_y + 84, 240, INK, "center"),
-            (settings_ui["console"], 342, settings_y + 106, 96, INK, "left"),
-            (settings_ui["repentogon"], 442, settings_y + 106, 128, INK, "left"),
-            (settings_ui["footer"], 336, settings_y + 198, 220, MUTED, "center")):
-        if font.width(text) > width - 8:
-            raise ValueError(f"settings label is wider than its baked frame: {text!r}")
-        text_width = font.width(text)
-        text_x = x + (width - text_width) // 2 if align == "center" else x + 4
-        draw_text(atlas, font, text, text_x, y + 1, color)
-    value_keys = (
-        "on", "off", "on_saving", "off_saving",
-        "on_reload", "off_reload", "save_failed", "unavailable",
-    )
-    for index, key in enumerate(value_keys):
-        text = settings_ui[key]
-        if font.width(text) > 152:
-            raise ValueError(f"settings value is wider than its baked frame: {text!r}")
-        x = 336 + (160 if index >= 4 else 0)
-        y = settings_y + 126 + (index % 4) * 18
-        draw_text(atlas, font, text, x + 156 - font.width(text), y + 1,
-                  RED if key in ("save_failed", "unavailable") else INK)
+            for x, y, w, h in ((3, 1, 25, 2), (2, 3, 2, 25),
+                               (28, 3, 2, 26), (4, 29, 24, 2)):
+                rectangle(atlas, ex + x, settings_y + y, w, h, SETTINGS_INK)
+    # Solid native-menu-style arrow, not a low-contrast row-wide highlight.
+    for row in range(16):
+        width = 11 - abs(7 - row)
+        rectangle(atlas, 410, settings_y + row + 1, max(1, width), 1, SETTINGS_INK)
+
+    def label(name, key, *, bold=False, muted=False, prefix=""):
+        x, y, width, height, _, _ = SETTINGS_FRAMES[name]
+        text = prefix + settings_ui[key]
+        tx = x + (width - font.width(text)) // 2 if name not in (
+            "SettingsConsole", "SettingsConsoleSelected", "SettingsRepentogon",
+            "SettingsRepentogonSelected") else x + 3
+        ty = settings_y + y + (height - font.line_height) // 2
+        color = MUTED if muted else SETTINGS_INK
+        draw_text(atlas, font, text, tx, ty, color)
+        if bold:
+            draw_text(atlas, font, text, tx, ty, color)
+
+    label("SettingsTooltip", "entry_short", bold=True, prefix="A  ")
+    label("SettingsHeader", "header", bold=True)
+    for name, key in (("SettingsConsole", "console"), ("SettingsRepentogon", "repentogon")):
+        label(name, key, muted=True)
+        label(name + "Selected", key, bold=True)
+    for name, key in (("SettingsOn", "on"), ("SettingsOff", "off")):
+        x, y, width, height, _, _ = SETTINGS_FRAMES[name]
+        # Brackets use the same ink as the selection arrow and stay close to the label.
+        for bx in (x + 3, x + width - 5):
+            rectangle(atlas, bx, settings_y + y + 3, 2, height - 6, SETTINGS_INK)
+        for bx in (x + 3, x + width - 9):
+            rectangle(atlas, bx, settings_y + y + 3, 6, 2, SETTINGS_INK)
+            rectangle(atlas, bx, settings_y + y + height - 5, 6, 2, SETTINGS_INK)
+        label(name, key, bold=True)
+    for name, key in (("OnSaving", "on_saving"), ("OffSaving", "off_saving"),
+                      ("OnReload", "on_reload"), ("OffReload", "off_reload"),
+                      ("SaveFailed", "save_failed"), ("Unavailable", "unavailable"),
+                      ("ConsoleHelp", "console_help"), ("RepentogonHelp", "repentogon_help"),
+                      ("Footer", "footer")):
+        label("Settings" + name, key, muted=name == "Footer")
     if max(atlas.width, atlas.height) > 4096:
         raise ValueError("title notice atlas exceeds 4096px")
     pcx, anm2 = encode_pcx(atlas), make_anm2(len(pages), support_y, settings_y, basename)

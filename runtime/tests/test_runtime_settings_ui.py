@@ -38,8 +38,8 @@ int main() {
         Check(state.focus() == Focus::Notice, "right focuses the announcement entry");
         Check(state.BlocksTitleInput(), "focused announcement blocks title start");
         state.Tick(true, true, false, 0);
-        state.Tick(true, true, false, Right);
-        Check(state.focus() == Focus::Settings, "right again focuses Runtime Settings");
+        state.Tick(true, true, false, Left);
+        Check(state.focus() == Focus::Settings, "left selects the gear left of the notice");
         state.Tick(true, true, false, 0);
         state.Tick(true, true, false, Confirm);
         Check(state.open(), "confirm opens Runtime Settings");
@@ -59,7 +59,9 @@ int main() {
         Check(!state.open(), "back closes the modal");
         Check(state.BlocksTitleInput(), "closing frame still captures back");
         state.Tick(true, true, false, 0);
-        Check(!state.BlocksTitleInput(), "released back restores title navigation");
+        Check(state.focus() == Focus::Settings, "closing returns focus to the gear");
+        Press(state, Up);
+        Check(!state.BlocksTitleInput(), "up returns to title navigation");
         state.Tick(true, true, false, Right);
         Check(state.focus() == Focus::Notice, "focus can be acquired again");
         state.Tick(true, false, false, 0);
@@ -83,7 +85,7 @@ int main() {
     {
         State state;
         Press(state, Right);
-        Press(state, Right);
+        Press(state, Left);
         Press(state, Confirm);
         Check(state.ConsumeAction() == Action::OpenSettings, "settings open action is one-shot");
         Press(state, Confirm);  // Console toggle
@@ -145,7 +147,7 @@ int main() {
     Check(kRuntimeSettingsLayout.paperScale > 0.0F &&
               kRuntimeSettingsLayout.paperScale < 1.0F,
           "settings reuse the notice paper as a smaller modal");
-    const float halfPaperHeight = 108.0F * kRuntimeSettingsLayout.paperScale;
+    const float halfPaperHeight = 88.0F * kRuntimeSettingsLayout.paperScale;
     Check(kRuntimeSettingsLayout.titleY > -halfPaperHeight &&
               kRuntimeSettingsLayout.footerY < halfPaperHeight,
           "all modal rows remain inside the scaled notice paper");
@@ -155,7 +157,7 @@ int main() {
         notice.Tick(0, true, true, 3);
         notice.Tick(Right, true, true, 3);
         notice.Tick(0, true, true, 3);
-        notice.Tick(Right, true, true, 3);
+        notice.Tick(Left, true, true, 3);
         Check(notice.Settings().focus() == Focus::Settings,
               "title notice state owns the second entry focus");
         notice.Tick(0, true, true, 3);
@@ -171,6 +173,22 @@ int main() {
               "modal toggles are exposed to the native adapter");
         Check(notice.BlocksTitleConfirm(),
               "Runtime Settings remains inside the announcement authority gate");
+    }
+    {
+        State state;
+        Press(state, Left);
+        Check(state.focus() == Focus::Settings, "left directly selects the gear");
+        Press(state, Right);
+        Check(state.focus() == Focus::Notice, "right moves to the adjacent notice");
+        Press(state, Right);
+        Check(state.focus() == Focus::None, "right past the notice leaves the entries");
+        Press(state, Left);
+        Press(state, Confirm);
+        static_cast<void>(state.ConsumeAction());
+        Press(state, Down);
+        Press(state, Left);
+        Check(state.ConsumeAction() == Action::None, "left does not accidentally toggle a row");
+        Check(kRuntimeSettingsLayout.textScale >= 1.0F, "settings text is not shrunk with the paper");
     }
     return failures == 0 ? 0 : 1;
 }

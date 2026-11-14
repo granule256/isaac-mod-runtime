@@ -58,7 +58,10 @@ int main() {
       step(s,Confirm);check(s.phase==Phase::Opening&&!s.requiresHold,"manual mode");settle(s);
       step(s,Back);check(s.phase==Phase::Closing,"manual tap closes");step(s,0,20);
       check(s.phase==Phase::Hidden&&!s.ConsumeAcknowledgement(),"manual open never writes seen");
-      check(s.focused,"return focus to entry");step(s,Left);check(!s.focused,"left returns title focus"); }
+      check(s.focused,"return focus to entry");step(s);
+      check(s.focused&&s.BlocksTitleConfirm(),"manual notice close keeps visible focus until navigation");
+      step(s,Left);check(!s.focused&&s.Settings().focus()==isaac::runtime::title::Focus::Settings,"left selects adjacent gear");
+      step(s);step(s,Up);check(!s.BlocksTitleConfirm(),"up returns to title"); }
     { State s;s.SetSeenVersion(false);step(s,Back);step(s,Back,100);
       check(s.phase==Phase::Reading,"B held before open must be released");step(s);
       step(s,Right);step(s,0,12);step(s,Right);step(s,0,12);step(s,Back,60);

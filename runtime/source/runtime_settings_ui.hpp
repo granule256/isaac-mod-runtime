@@ -36,6 +36,12 @@ struct State {
         lastKeys_ = keys;
     }
 
+    void ReturnFromNotice(unsigned keys) noexcept {
+        Reset(keys);
+        focus_ = Focus::Notice;
+        blocks_ = true;
+    }
+
     void Tick(bool title, bool available, bool announcementOpen, unsigned keys) noexcept {
         const unsigned pressed = keys & ~lastKeys_;
         lastKeys_ = keys;
@@ -57,7 +63,7 @@ struct State {
             blocks_ = true;
             if (pressed & Back) {
                 open_ = false;
-                focus_ = Focus::None;
+                focus_ = Focus::Settings;
                 return;
             }
             if (pressed & Up) {
@@ -71,22 +77,23 @@ struct State {
         }
 
         if (focus_ == Focus::None) {
-            if (pressed & (Right | Down)) focus_ = Focus::Notice;
+            if (pressed & Left) focus_ = Focus::Settings;
+            else if (pressed & (Right | Down)) focus_ = Focus::Notice;
         } else if (focus_ == Focus::Notice) {
             if (pressed & Confirm) {
                 action_ = Action::OpenNotice;
-            } else if (pressed & (Right | Down)) {
+            } else if (pressed & Left) {
                 focus_ = Focus::Settings;
-            } else if (pressed & (Left | Up | Back)) {
+            } else if (pressed & (Right | Up | Back)) {
                 focus_ = Focus::None;
             }
         } else {
             if (pressed & Confirm) {
                 open_ = true;
                 action_ = Action::OpenSettings;
-            } else if (pressed & (Left | Up)) {
+            } else if (pressed & Right) {
                 focus_ = Focus::Notice;
-            } else if (pressed & (Right | Down | Back)) {
+            } else if (pressed & (Left | Up | Back)) {
                 focus_ = Focus::None;
             }
         }
@@ -229,6 +236,7 @@ enum class DisplayValue : std::uint8_t {
 
 struct Layout {
     float paperScale;
+    float textScale;
     float titleY;
     float rowY[2];
     float footerY;
@@ -236,8 +244,8 @@ struct Layout {
     float valueRight;
 };
 
-// Coordinates are relative to the centre of the scaled notice paper.
-inline constexpr Layout kRuntimeSettingsLayout{0.72F, -56.0F, {-10.0F, 24.0F}, 59.0F,
-                                               -112.0F, 112.0F};
+// Keep text at native size; only the blank paper is scaled.
+inline constexpr Layout kRuntimeSettingsLayout{0.90F, 1.0F, -62.0F, {-30.0F, 3.0F}, 50.0F,
+                                               -103.0F, 116.0F};
 
 } // namespace isaac::runtime::title

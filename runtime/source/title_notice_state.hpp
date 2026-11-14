@@ -135,6 +135,7 @@ struct State {
             if (++phaseTicks >= kCloseTicks) {
                 acknowledged_ = requiresHold;
                 focused = !requiresHold;
+                if (focused) settings_.ReturnFromNotice(keys);
                 requiresHold = false;
                 phase = Phase::Hidden;
                 phaseTicks = holdTicks = 0;
