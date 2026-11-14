@@ -183,7 +183,7 @@ const RepentogonCatalog& DefaultRepentogonCatalog() noexcept {
     // claimed until the remaining compatibility gaps have been recovered.
     static constexpr RepentogonCatalog catalog{&repentogon::kCallbackBatch,1,"0.0.0"};
     static constexpr RepentogonCatalog empty{};
-    return repentogon::HasNativePort()?catalog:empty;
+    return repentogon::HasNativePortAvailable()?catalog:empty;
 }
 
 void BeginRepentogonEnvironment(lua_State* state,bool requested,const RepentogonCatalog& catalog) {

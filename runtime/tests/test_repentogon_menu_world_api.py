@@ -396,6 +396,10 @@ assert(not pcall(function() MenuManager.GetViewPosition() end))
     }
 
     assert(LuaRuntime::ShutdownForModReload());
+    std::array<std::uint8_t, 15> persisted_marks{};
+    bool persisted_tainted = false;
+    assert(!isaac::runtime::RepentogonGetCustomCompletionMarks(
+        41, &persisted_marks, &persisted_tainted));
     LuaRuntime::SetRuntimeExtensionInstaller(nullptr);
     isaac::runtime::SetRepentogonMenuWorldNativeTestBindings({});
     isaac::runtime::repentogon::SetNativePort(nullptr);

@@ -53,4 +53,5 @@ void SetNativePort(const NativePort*) noexcept;
 extern const RepentogonBatch kCallbackBatch;
 const RepentogonBatch& CallbackBatch() noexcept;
 bool HasNativePort() noexcept;
+bool HasNativePortAvailable() noexcept;
 } // namespace isaac::runtime::repentogon

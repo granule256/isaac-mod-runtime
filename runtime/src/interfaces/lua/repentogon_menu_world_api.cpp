@@ -537,6 +537,10 @@ bool RepentogonGetCustomCompletionMarks(
     return true;
 }
 
+void ResetRepentogonCustomCompletionMarks() noexcept {
+    g_CustomCompletionMarks = {};
+}
+
 bool RepentogonApplyCustomCompletionMarks(
     int playerType, std::uintptr_t sprite) noexcept {
     std::array<std::uint8_t, 15> marks{};

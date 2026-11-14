@@ -30,6 +30,7 @@ int RepentogonIsaacGetCompletionMark(lua_State* state);
 int RepentogonIsaacSetCompletionMarks(lua_State* state);
 bool RepentogonGetCustomCompletionMarks(
     int playerType, std::array<std::uint8_t, 15>* marks, bool* tainted) noexcept;
+void ResetRepentogonCustomCompletionMarks() noexcept;
 bool RepentogonApplyCustomCompletionMarks(
     int playerType, std::uintptr_t sprite) noexcept;
 

@@ -687,7 +687,14 @@ constexpr auto MakeStateIndices() noexcept {
 }
 constexpr auto kStateIndices=MakeStateIndices();
 std::array<ExtendedCallbackState*,kCallbackCount> g_States{};
-void Reset() noexcept {g_States.fill(nullptr);ResetRepentogonTimerApi();ResetRepentogonGameStateData();ResetRepentogonAchievementState();ClearRepentogonMenuInputMask();}
+void Reset() noexcept {
+    g_States.fill(nullptr);
+    ResetRepentogonTimerApi();
+    ResetRepentogonGameStateData();
+    ResetRepentogonAchievementState();
+    ResetRepentogonCustomCompletionMarks();
+    ClearRepentogonMenuInputMask();
+}
 
 bool Ready() noexcept {
     return g_NativePort&&g_NativePort->ready&&g_NativePort->install&&g_NativePort->ready();
@@ -724,11 +731,18 @@ void SetNativePort(const NativePort* port) noexcept { g_NativePort=port; }
 bool UpdatePaused() noexcept {
     return g_ExtendedCallbackDelivery&&g_NativePort&&g_NativePort->updatePaused&&g_NativePort->updatePaused();
 }
-bool HasSpriteValidator() noexcept {return g_NativePort&&g_NativePort->spriteAlive;}
+bool HasSpriteValidator() noexcept {
+    // Native availability alone is not enough: an OFF VM must not inherit
+    // sprite lifetime semantics from a capability that was never activated.
+    return g_ExtendedCallbackDelivery&&g_NativePort&&g_NativePort->spriteAlive;
+}
 bool CallbackSpriteAlive(std::uintptr_t address) noexcept {
     return address&&HasSpriteValidator()&&g_NativePort->spriteAlive(address);
 }
-bool HasNativePort() noexcept { return g_NativePort!=nullptr; }
+bool HasNativePort() noexcept { return g_ExtendedCallbackDelivery&&g_NativePort!=nullptr; }
+// Catalog construction happens before the environment becomes active. Keep
+// availability separate so the OFF path cannot observe an active capability.
+bool HasNativePortAvailable() noexcept { return g_NativePort!=nullptr; }
 constinit const RepentogonBatch kCallbackBatch{"callbacks",kApis,sizeof(kApis)/sizeof(kApis[0]),kEnums,sizeof(kEnums)/sizeof(kEnums[0]),kCallbacks,kCallbackCount,Initialize,Reset,Ready};
 const RepentogonBatch& CallbackBatch() noexcept {return kCallbackBatch;}
 const ExtendedCallbackState* FindCallbackState(std::uint32_t id) noexcept {

@@ -173,6 +173,8 @@ static void Extensions(lua_State* state) noexcept {
 }
 
 int main() {
+    Files files(true);
+    SetSessionSaveFilePort(&files);
     moduleBytes.assign(kMenuManagerSlot + sizeof(std::uintptr_t), 0);
     menuSlot.assign(sizeof(std::uintptr_t), 0);
     menuManager.assign(0x1B0000, 0);
@@ -322,6 +324,7 @@ assert(not pcall(function() CharacterMenu.GetPageSwapWidgetSprite() end))
     LuaRuntime::SetRuntimeExtensionInstaller(nullptr);
     isaac::runtime::SetRepentogonCharacterMenuNativeTestBindings({});
     isaac::runtime::repentogon::SetNativePort(nullptr);
+    SetSessionSaveFilePort(nullptr);
 }
 '''
 
