@@ -8,11 +8,15 @@ constexpr std::string_view kOn = "isaac-repentogon 1\nenabled 1\n";
 
 Status RepentogonSettings::LoadOnce(ISaveFilePort* files) noexcept {
     if (loaded_) return loadStatus_;
-    loaded_ = true;
     if (!files) return loadStatus_ = Status{StatusCode::Unsupported};
     char buffer[64]{};
     std::size_t size{};
     loadStatus_ = files->Read(kRepentogonSettingsFile, buffer, sizeof(buffer), &size);
+    // The first Lua VM can be created before the session save port is
+    // published. An unavailable port is transient, so it must not freeze the
+    // startup snapshot at OFF for the rest of the game process.
+    if (loadStatus_.code() == StatusCode::Unsupported) return loadStatus_;
+    loaded_ = true;
     if (loadStatus_.code() == StatusCode::NotFound) return loadStatus_ = Status::Ok();
     if (!loadStatus_.ok()) return loadStatus_;
     if (size > sizeof(buffer)) return loadStatus_ = Status{StatusCode::Corrupted};

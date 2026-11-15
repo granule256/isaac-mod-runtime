@@ -66,6 +66,12 @@ int main() {
     RepentogonSettings unavailable;
     assert(!unavailable.LoadOnce(nullptr).ok());
     assert(!unavailable.SetEnabled(nullptr,true).ok()&&!unavailable.Requested());
+    RepentogonSettings retry_after_unavailable;
+    assert(!retry_after_unavailable.LoadOnce(nullptr).ok());
+    files.bytes="isaac-repentogon 1\nenabled 1\n";
+    files.read=Status::Ok();
+    assert(retry_after_unavailable.LoadOnce(&files).ok());
+    assert(retry_after_unavailable.StartupEnabled());
 }
 '''
 
