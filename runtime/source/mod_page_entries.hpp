@@ -37,8 +37,9 @@ inline constexpr std::size_t kModPageEntryStride = 0x140;
 inline constexpr std::size_t kModPageEntryStringOffset = 0x18;
 // 长串形态的数据指针：字符串 +0x10。
 inline constexpr std::size_t kModPageEntryStringDataOffset = kModPageEntryStringOffset + 0x10;
-// 启用位 / "旧版"位。
+// 用户启用位 / 本轮加载位 / "旧版"位。
 inline constexpr std::size_t kModPageEntryEnabledOffset = 0x138;
+inline constexpr std::size_t kModPageEntryLoadOffset = 0x139;
 inline constexpr std::size_t kModPageEntryOldOffset = 0x13a;
 
 // 调用方给的条目来源（名字必须是 NUL 结尾的 C 串；`enabled` / `outdated` 就是页面上那两个分支）。
@@ -67,6 +68,32 @@ inline void SetModPageEntryName(std::uint8_t* entry, const char* name) noexcept 
     std::memcpy(entry + kModPageEntryStringOffset + 0x08, &capacity, sizeof(capacity));
     const auto data = reinterpret_cast<std::uintptr_t>(name);
     std::memcpy(entry + kModPageEntryStringDataOffset, &data, sizeof(data));
+}
+
+// Publish an existing pointer array as the engine's `vector<ModEntry*>`.
+//
+// The native ModManager must receive full `ModEntry` objects.  The historical
+// 0x140-byte page substitutes remain a fallback only; this writer is shared by
+// both paths so begin/end/capacity can never drift between them.
+[[nodiscard]] inline bool BuildModEntryPointerVector(
+    std::uintptr_t* vector, std::uintptr_t* pointers,
+    const std::uintptr_t* entries, std::uint32_t count) noexcept {
+    if (vector == nullptr || (count != 0 && (pointers == nullptr || entries == nullptr))) {
+        return false;
+    }
+    std::uintptr_t begin = 0;
+    std::uintptr_t end = 0;
+    if (count != 0) {
+        for (std::uint32_t i = 0; i < count; ++i) {
+            pointers[i] = entries[i];
+        }
+        begin = reinterpret_cast<std::uintptr_t>(pointers);
+        end = begin + sizeof(std::uintptr_t) * count;
+    }
+    std::memcpy(vector, &begin, sizeof(begin));
+    std::memcpy(reinterpret_cast<std::uint8_t*>(vector) + sizeof(begin), &end, sizeof(end));
+    std::memcpy(reinterpret_cast<std::uint8_t*>(vector) + 2 * sizeof(begin), &end, sizeof(end));
+    return true;
 }
 
 // 造好 `count` 个条目、写指针数组，并把 `begin/end/cap` 三个字写进 `vector`（= `g_Manager+0x36800`）。
@@ -108,14 +135,13 @@ inline void SetModPageEntryName(std::uint8_t* entry, const char* name) noexcept 
         arenaCursor += length + 1;
         SetModPageEntryName(entry, stored);  // 字节写法只此一处（见上面那条注释）
         entry[kModPageEntryEnabledOffset] = sources[i].enabled ? 1 : 0;
+        entry[kModPageEntryLoadOffset] = sources[i].enabled ? 1 : 0;
         entry[kModPageEntryOldOffset] = sources[i].outdated ? 1 : 0;
         pointers[i] = reinterpret_cast<std::uintptr_t>(entry);
     }
-    const std::uintptr_t begin = reinterpret_cast<std::uintptr_t>(&pointers[0]);
-    const std::uintptr_t end = begin + sizeof(std::uintptr_t) * count;
-    std::memcpy(vector, &begin, sizeof(begin));
-    std::memcpy(reinterpret_cast<std::uint8_t*>(vector) + sizeof(begin), &end, sizeof(end));
-    std::memcpy(reinterpret_cast<std::uint8_t*>(vector) + 2 * sizeof(begin), &end, sizeof(end));
+    if (!BuildModEntryPointerVector(vector, pointers, pointers, count)) {
+        return 0;
+    }
     if (nameBytesUsed != nullptr) {
         *nameBytesUsed = arenaCursor;
     }

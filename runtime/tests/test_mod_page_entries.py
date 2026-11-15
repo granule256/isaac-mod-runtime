@@ -26,9 +26,11 @@ HARNESS = r'''
 #include <cstdint>
 
 using isaac::runtime::BuildModPageEntries;
+using isaac::runtime::BuildModEntryPointerVector;
 using isaac::runtime::ModPageEntrySource;
 using isaac::runtime::SetModPageEntryName;
 using isaac::runtime::kModPageEntryEnabledOffset;
+using isaac::runtime::kModPageEntryLoadOffset;
 using isaac::runtime::kModPageEntryOldOffset;
 using isaac::runtime::kModPageEntryStride;
 using isaac::runtime::kModPageEntryStringDataOffset;
@@ -50,6 +52,7 @@ int main() {
     static_assert(kModPageEntryStringOffset == 0x18, "std::string 偏移");
     static_assert(kModPageEntryStringDataOffset == 0x28, "长串数据指针偏移");
     static_assert(kModPageEntryEnabledOffset == 0x138, "启用位");
+    static_assert(kModPageEntryLoadOffset == 0x139, "本轮加载位");
     static_assert(kModPageEntryOldOffset == 0x13a, "旧版位");
 
     alignas(16) std::uint8_t entries[3 * kModPageEntryStride]{};
@@ -77,6 +80,32 @@ int main() {
     Check(vector[1] == begin + 8 * 3, "end = begin + 3*8");
     Check(vector[2] == vector[1], "cap = end");
 
+    // The engine's ModManager stores pointers to full `ModEntry` objects.  The
+    // same vector writer must be able to publish those pointers without
+    // treating the real entries as our 0x140-byte page substitutes.
+    {
+        std::uintptr_t realEntries[2] = {0x123450, 0x234560};
+        std::uintptr_t realPointers[2]{};
+        std::uintptr_t realVector[3]{};
+        Check(BuildModEntryPointerVector(realVector, realPointers, realEntries, 2),
+              "real ModEntry pointers must publish");
+        Check(realPointers[0] == realEntries[0] &&
+                  realPointers[1] == realEntries[1],
+              "the vector must retain the exact real ModEntry pointers");
+        Check(realVector[0] == reinterpret_cast<std::uintptr_t>(realPointers),
+              "real vector begin");
+        Check(realVector[1] == realVector[0] + 2 * sizeof(std::uintptr_t),
+              "real vector end");
+        Check(realVector[2] == realVector[1], "real vector capacity");
+
+        Check(BuildModEntryPointerVector(realVector, realPointers, nullptr, 0),
+              "an empty ModManager vector is valid");
+        Check(realVector[0] == 0 && realVector[1] == 0 && realVector[2] == 0,
+              "an empty ModManager vector must use null begin/end/capacity");
+        Check(!BuildModEntryPointerVector(realVector, realPointers, nullptr, 1),
+              "missing real entries must be rejected");
+    }
+
     for (std::uint32_t i = 0; i < 3; ++i) {
         const std::uint8_t* entry = entries + i * kModPageEntryStride;
         Check(pointers[i] == reinterpret_cast<std::uintptr_t>(entry), "指针数组指向对应条目");
@@ -89,6 +118,8 @@ int main() {
         std::memcpy(&capacity, entry + kModPageEntryStringOffset + 0x08, sizeof(capacity));
         Check(capacity == std::strlen(sources[i].displayName), "长串的长度字段自洽");
         Check(entry[kModPageEntryEnabledOffset] == (sources[i].enabled ? 1 : 0), "启用位");
+        Check(entry[kModPageEntryLoadOffset] == (sources[i].enabled ? 1 : 0),
+              "本轮加载位");
         Check(entry[kModPageEntryOldOffset] == (sources[i].outdated ? 1 : 0), "旧版位");
         // 名字副本必须在 arena 里（稳定内存），不能是调用方那个字面量的地址。
         Check(data >= reinterpret_cast<std::uintptr_t>(arena) &&

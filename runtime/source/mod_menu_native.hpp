@@ -445,6 +445,8 @@ struct State {
     std::uint32_t memCodeKiB;                 // [87] `CodeStatic` + `CodeMutable`（KiB）
     std::uint32_t memMappedKiB;               // [88] `MappedMemory`+`ThreadLocal`+`TransferMem`+`ProcessMem`（KiB）
     std::uint32_t memPrivateKiB;              // [89] 私有/真实占用合计（KiB）——含游戏+兼容层+模组
+    std::uint32_t anmCacheDropAttempts;       // [90] 换语言时检查 ModsMenu 裸缓存键的次数
+    std::uint32_t anmCacheDropHits;           // [91] 其中实际调用 RemoveReference 的次数
     // 2026-10-10：原来这里还有 [90] `memMappedTotalKiB`（所有"非 Unmapped"合计），
     //   已删除** —— 实测它**恒为哨兵 `0xFFFFFFFF`**（"IO / 保留区"的**虚拟地址范围**是 TiB 量级，
     //   KiB 单位下必然溢出 u32）⇒ **那一格没有意义，留着只会让读数里多一个误导性的数**。

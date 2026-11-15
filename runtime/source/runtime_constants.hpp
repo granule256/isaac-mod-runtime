@@ -3820,6 +3820,7 @@ inline constexpr std::uintptr_t kModEntryEnabledFlagOffset = 0x139;    // 引擎
 // 与运行时 Lua 侧 `ModToggleService::ApplyToBatch` 认 `<目录>/disable.it` 的口径一致 ——
 // 否则会出现"内容进了引擎、脚本没加载"这种更难查的半截状态。
 inline constexpr std::uintptr_t kModEntryUserEnabledFlagOffset = 0x138;
+inline constexpr std::uintptr_t kModEntryOutdatedFlagOffset = 0x13a;
 // 引擎自己的"启用模组"总开关（`Manager` 上的一个字节；PC 的 ModsEnabled）。
 //
 // 依据（反汇编 `ModManager::ListMods`，镜像 `0x41FB0C`，）：
@@ -4152,6 +4153,7 @@ inline constexpr std::array<ModContentFeedSpec, 16> kModContentFeedSpecs = {{
 // 表里那两行的行号（`.cpp` 用它们把"喂的动作"路由到专用路 / 得到 `PostLoadMods` 的地址）。
 inline constexpr std::size_t kModFeedRowCostumes = 3;
 inline constexpr std::size_t kModFeedRowMusic = 12;
+inline constexpr std::size_t kModFeedRowPlayers = 10;
 inline constexpr std::size_t kModFeedRowCustomResources = 14;
 inline constexpr std::size_t kModFeedRowPostLoadMods = 15;
 // 14 个"content 下的文件"就排在表的前 14 行。
@@ -4230,6 +4232,8 @@ inline constexpr std::size_t kMaximumRealModEntries = 256;
 //   不会影响别的代码。
 inline constexpr uintptr_t kModEntryContentPathOffset = 0x48;
 inline constexpr uintptr_t kModEntryContentDirectoryOffset = 0x60;
+// `ListMods` 在 `ModEntry+0x18` 写显示名（`Menu_Mods::Render` 读同一格）。
+inline constexpr uintptr_t kModEntryDisplayNameOffset = 0x18;
 
 // `std::string::assign(const char*)` 的 PLT 桩（`0x66FB80`）—— 把上面那两个成员填成
 // `isaac_mods/mods/<目录>/content/` 用它。
@@ -5968,6 +5972,17 @@ inline constexpr uintptr_t kPerformLanguageSwitchOffset = 0x3B39C0;
 inline constexpr std::array<u8, 16> kPerformLanguageSwitchExpectedBytes = {
     0xFD, 0x7B, 0xBC, 0xA9, 0xF7, 0x0B, 0x00, 0xF9,
     0xFD, 0x03, 0x00, 0x91, 0xF6, 0x57, 0x02, 0xA9,
+};
+// `MenuManager::ResetCharacterMenu()` 是一个三指令 thunk：给 `this` 加
+// `Menu_Character` 的固定偏移后，直接跳到 `Menu_Character::Reset()`。
+// `Game::PostLanguageSwitch()` 会先用 `ModEntry* == nullptr` 重读本体
+// `players.xml`；该分支会把 EntityConfig 的 players 向量截回本体 41 项，
+// 因而清掉模组角色。重读模组 players.xml 后必须再调这个入口，才能让
+// `Menu_Character+0x1400` 的模组角色表按新向量重建。
+inline constexpr uintptr_t kMenuManagerResetCharacterMenuOffset = 0x3FD76C;
+inline constexpr std::array<u8, 16> kMenuManagerResetCharacterMenuExpectedBytes = {
+    0x08, 0xCB, 0x84, 0x52, 0x48, 0x03, 0xA0, 0x72,
+    0x00, 0x00, 0x08, 0x8B, 0xD2, 0xFE, 0x09, 0x14,
 };
 
 // --- 游戏控制台 `IsaacRepentance::Console` 与系统软键盘（2026-09-25，）---------------
