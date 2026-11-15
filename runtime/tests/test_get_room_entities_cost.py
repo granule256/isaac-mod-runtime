@@ -102,7 +102,8 @@ int main(){
  removeSpawn();assert(#query()==100,'same-callback remove must be visible')
  removeEffect();assert(#query()==99,'removed effect must not return from snapshot')
  exclude();assert(#query()==99 and query()[1]==second[1],'GetRoomEntities includes NO_QUERY entities')
- local ok=pcall(query,1);assert(not ok,'arguments must still be rejected')
+ assert(#query({})==99,'Isaac:GetRoomEntities() colon-call receiver must be accepted')
+ local ok=pcall(query,{},1);assert(not ok,'more than one receiver argument must be rejected')
  )lua";
  if(luaL_dostring(L,script)){std::fprintf(stderr,"%s",lua_tostring(L,-1));return 5;}
  // Exercise the production sink's deduplication and 4096-result bound.

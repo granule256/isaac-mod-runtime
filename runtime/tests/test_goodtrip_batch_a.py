@@ -109,8 +109,10 @@ class GoodTripBatchATests(unittest.TestCase):
         self.assertIn("ForEachEntityInTable", body)
         self.assertIn("PushQueryResult", body)
         self.assertNotIn("PushZero", body)
-        # 声明为无参数：PC 的签名就是 `GetRoomEntities()`。
-        self.assertIn("accepts no arguments", body)
+        # PC 的签名是 `GetRoomEntities()`，但 ``Isaac:GetRoomEntities()`` 会把全局表
+        # 作为 receiver 压栈；PC 绑定接受这种写法，兼容层也必须接受。
+        self.assertIn("top > 1", body)
+        self.assertIn("lua_istable(state, 1)", body)
 
     def test_mouse_handlers_never_raise_on_the_hot_path(self) -> None:
         """`Input.GetMousePosition` 每帧都被调用 ⇒ 只允许「参数个数不对」这一条抛错路径。

@@ -7739,8 +7739,12 @@ int IsaacGetTrinketIdByName(lua_State* state) {
 //
 // 降级口径与 `FindByType` 相同：拿不到房间/内存不可读 ⇒ 返回**空表**（不抛错）。
 int IsaacGetRoomEntities(lua_State* state) {
-    if (lua_gettop(state) != 0) {
-        return luaL_error(state, "Isaac.GetRoomEntities accepts no arguments");
+    // PC's zero-argument binding accepts `Isaac:GetRoomEntities()`: Lua passes the
+    // global table as a receiver even though the contract is written with a dot.
+    // Keep that callable and reject only a second argument.
+    const int top = lua_gettop(state);
+    if (top > 1 || (top == 1 && !lua_istable(state, 1))) {
+        return luaL_error(state, "Isaac.GetRoomEntities accepts only its receiver");
     }
     lua_createtable(state, g_RoomEntityQueryCapacity, 0);
     g_RoomEntityQueryCapacity = 0;
