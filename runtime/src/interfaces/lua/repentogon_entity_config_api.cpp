@@ -180,11 +180,12 @@ bool RepentogonEntityConfigPlayerTaintedByType(
 int RepentogonEntityConfigEntityCanBeChampion(lua_State* L) {lua_pushboolean(L,Read<std::uint8_t>(L,Record(L,false),0x38)!=0);return 1;}
 int RepentogonEntityConfigEntityGetStageHP(lua_State* L) {lua_pushnumber(L,Read<float>(L,Record(L,false),0x58));return 1;}
 int RepentogonEntityConfigEntityGetCollisionRadius(lua_State* L) {lua_pushnumber(L,Read<float>(L,Record(L,false),0x3c));return 1;}
-// LoadPlayers' sp+0x130 record: nameimage+0x20, portrait+0x38, extraportrait+0x80.
+// LoadPlayers' player record: name+0x08, skin+0x20, nameimage+0x38,
+// portrait+0x50, extraportrait+0x80.
 int RepentogonEntityConfigPlayerGetName(lua_State* L) {return Path(L,kEntityConfigPlayerNameOffset);}
-int RepentogonEntityConfigPlayerGetPortraitPath(lua_State* L) {return Path(L,0x38);}
+int RepentogonEntityConfigPlayerGetPortraitPath(lua_State* L) {return Path(L,0x50);}
 int RepentogonEntityConfigPlayerGetExtraPortraitPath(lua_State* L) {return Path(L,0x80);}
-int RepentogonEntityConfigPlayerGetNameImagePath(lua_State* L) {return Path(L,0x20);}
+int RepentogonEntityConfigPlayerGetNameImagePath(lua_State* L) {return Path(L,0x38);}
 #if !defined(__SWITCH__)
 void SetRepentogonEntityConfigNativeTestBindings(RepentogonEntityConfigNativeTestBindings value) noexcept {g_Host=value;}
 #endif

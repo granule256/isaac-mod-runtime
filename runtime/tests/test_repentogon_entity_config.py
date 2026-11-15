@@ -94,7 +94,8 @@ int main(){
  const unsigned char playerGuard[]={0x81,0x01,0xf8,0x37,0x08,0xa4,0x41,0xa9,0x29,0x01,0x08,0xcb,0x29,0xfd,0x43,0xd3};
  std::memcpy(moduleBytes.data()+0x68684,entityGuard,16);std::memcpy(moduleBytes.data()+0x700cc,playerGuard,16);
  Put(entity,0x38,std::uint8_t{1});Put(entity,0x3c,12.5F);Put(entity,0x58,3.5F);
- Text(player,0x08,"fiend");Text(player,0x20,"name.png");Text(player,0x38,"portrait.png");Text(player,0x80,"extra.png");
+ Text(player,0x08,"fiend");Text(player,0x20,"skin.png");Text(player,0x38,"name.png");
+ Text(player,0x50,"portrait.png");Text(player,0x80,"extra.png");
  currentEntity=entity.data();currentPlayer=player.data();
  Put(manager,kManagerEntityConfigOffset+0x18,reinterpret_cast<std::uintptr_t>(player.data()));
  Put(manager,kManagerEntityConfigOffset+0x20,reinterpret_cast<std::uintptr_t>(player.data())+0x178);
