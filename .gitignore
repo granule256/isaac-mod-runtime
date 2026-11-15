@@ -58,6 +58,9 @@ analysis/
 # 发布包（对外发布走 GitHub Release 资产，不进 git）
 releases/
 
+# 作者模组本地原件只保留在磁盘，不进入公开源码历史。
+mods/
+
 # 本地记忆与工作流状态（含本机路径与账号信息）
 .workbuddy/
 .superpowers/
