@@ -174,6 +174,9 @@ enum class HookId : std::uint8_t {
     NativeRestartInput,
     ItemPoolLoadPools,
     EntityPickupInit,
+    // 引擎全局换语言事务的唯一入口。模组页是自建对象，不在 MenuManager 的页面链表里；
+    // 在这个事务入口内先放开它，才能参与引擎随后那次 AnmCache 全局回收。
+    PerformLanguageSwitch,
     Count,
 };
 
@@ -296,6 +299,7 @@ inline constexpr std::array<HookDescriptor, kHookIdCount> kHookCatalog = {{
     {HookId::NativeRestartInput, "NativeRestartInput", HookBackend::GotSlot, false},
     {HookId::ItemPoolLoadPools, "ItemPoolLoadPools", HookBackend::GotSlot, false},
     {HookId::EntityPickupInit, "EntityPickupInit", HookBackend::GotSlot, true},
+    {HookId::PerformLanguageSwitch, "PerformLanguageSwitch", HookBackend::EntryRelay, false},
 }};
 
 // 取登记项。传入 `HookId::Count` 或越界值属于调用方错误，这里退化成第一个登记项

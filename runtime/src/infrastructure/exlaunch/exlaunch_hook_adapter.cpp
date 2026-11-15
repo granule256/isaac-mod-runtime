@@ -86,6 +86,8 @@ Status ExlaunchHookAdapter::Install(HookId id, const HookTarget& target) noexcep
         case HookId::ModManagerLoadConfigs:
         // （`ANM2::Load` 入口中继）：同样只走零占洞入口中继。
         case HookId::Anm2Load:
+        // 换语言事务入口同样只走零占洞入口中继。
+        case HookId::PerformLanguageSwitch:
         // `MC_ENTITY_TAKE_DMG` 的四条 + `MC_EVALUATE_CACHE` 同理 ——
         // 只走零占洞入口中继，旧 IPS 蹦床这边不接。
         case HookId::EntityTakeDamage:

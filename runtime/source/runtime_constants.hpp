@@ -5958,6 +5958,17 @@ inline constexpr std::array<u8, 16> kMenuManagerSetStateExpectedBytes = {
     0xFD, 0x7B, 0xBD, 0xA9, 0xF5, 0x0B, 0x00, 0xF9,
     0xFD, 0x03, 0x00, 0x91, 0xF4, 0x4F, 0x02, 0xA9,
 };
+// `IsaacRepentance::PerformLanguageSwitch(KAGE::eLanguage)` 是引擎整套换语言事务的
+// 唯一入口。NRO 里只有一个真实调用点：`Menu_Options::Update+0x38` 经 PLT 调它。
+// 事务顺序是 MenuManager/Manager/Game Pre -> AnmCache 全局回收 -> SetLanguage ->
+// MenuManager/Manager/Game Post。入口中继把自建 Menu_Mods 的 Pre 放到原函数之前，
+// 让页面引用和引擎自己的页面一起在全局回收前归零；Post 则等整套事务完成后再重载。
+// 前 16 字节只有 stp/str/mov，不含 PC 相对寻址，满足入口中继回放条件。
+inline constexpr uintptr_t kPerformLanguageSwitchOffset = 0x3B39C0;
+inline constexpr std::array<u8, 16> kPerformLanguageSwitchExpectedBytes = {
+    0xFD, 0x7B, 0xBC, 0xA9, 0xF7, 0x0B, 0x00, 0xF9,
+    0xFD, 0x03, 0x00, 0x91, 0xF6, 0x57, 0x02, 0xA9,
+};
 
 // --- 游戏控制台 `IsaacRepentance::Console` 与系统软键盘（2026-09-25，）---------------
 //

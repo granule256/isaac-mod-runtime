@@ -28,9 +28,10 @@ extern std::uint32_t g_ModRoomLoadState[8];
 // 全部字段都是 `std::uint32_t`（浮点按位模式存，读数端再解成浮点）。
 struct State {
     std::uint32_t armed;             // [0]  1 = 本功能编进来了（生产构建恒 1）
-    std::uint32_t relayInstalled;    // [1]  三个入口中继的安装结果位图：
+    std::uint32_t relayInstalled;    // [1]  入口中继的安装结果位图：
                                      //      bit0 `Menu_Game::Render` / bit1 `Menu_Title::Render`
-                                     //      / bit2 `MenuManager::SetState`（0b111 = 三个都装上）
+                                     //      / bit2 `MenuManager::SetState`
+                                     //      / bit3 `PerformLanguageSwitch`（0b1111 = 四个都装上）
     std::uint32_t failure;           // [2]  最近一次失败码（0 = 没有；枚举见 .cpp，与探针同一套语义）
     std::uint32_t rowOwner;          // [3]  那一行的归属：1 = 引擎在画（覆盖层生效）
                                      //      / 2 = 我们在兜底画
@@ -64,12 +65,9 @@ struct State {
                                      //      用户在选项页里换语言是当场生效的 ⇒ 我们每帧问一次
                                      //      语言码，变了就换布局 + 重载模组页那张纸（它是分语言的）。
     std::uint32_t pageReloads;       // [21] 因"语言变了"重新载入过模组页几次（`Menu_Mods::Init`）
-                                     //      重载本身只换得了贴图；动画排版是引擎按路径哈希
-                                     //      缓存的（路径串一样分不出语言）⇒ 还得照引擎协议做那三步
-                                     //      （Pre 放开引用 → `AnmCache::FreeUnreferenced*` 回收 → Post 重载），
-                                     //      **083 起已在做、真机三条全过**。079 曾被 080 以"把 EID 的
-                                     //      信息显示搞坏了"为由撤回，但**那是误判**（真凶是 082 修的
-                                     //      "换语言后丢 Mod 挂载点"）⇒ 别再按旧说法"退回不做"（见 `.cpp` 那段历史）
+                                     //      **根因修法**是在 `PerformLanguageSwitch` 入口事务中先放开自建页，
+                                     //      让页面引用参与引擎随后那次全局 free，再在事务返回后 Post。
+                                     //      旧的事后局部 free 只保留为挂点缺失/守卫失败时的回退。
     // ---- [22]..[25]：2026-09-23 定位"换语言后 EID 坏掉"时加的观测（**只读**，不改引擎行为）----
     std::uint32_t mountRelayFired;      // [22] 引擎重建挂载点表之后，我们那个"重新挂回去"的中继跑过几次。
                                         //      它应当跟着重建次数一起涨；恒 0 = 中继没装上或没被调到。

@@ -197,6 +197,10 @@ extern "C" void EntryRelayModManagerLoadConfigsCallback(void* self);
 extern "C" void EntryRelayAnm2LoadCallback(void* anm2, const void* name,
                                            std::uint32_t loadGraphics);
 
+// `IsaacRepentance::PerformLanguageSwitch(KAGE::eLanguage)` —— w0 = 新语言。
+// 回调在 `source/mod_menu_native.cpp`：事务前放开自建模组页，事务后按新语言重载。
+extern "C" void EntryRelayPerformLanguageSwitchCallback(std::uint32_t language);
+
 // `RegisterEntryRelayCallbacks` 定义在匿名命名空间之外（外部链接）：调用点在
 // hook_manager.cpp，而 g_hookCallbacks 在本 TU 的匿名命名空间里。
 
@@ -366,6 +370,10 @@ EntryRelayBinding BindingOf(HookId id) noexcept {
             // `ANM2::Load`，与 Lua 侧的 `Sprite:Load` 同一个地址（本批不另立常量）。
             return {"ANM2::Load", kSpriteLoadOffset, kSpriteLoadExpectedBytes.data(), callback,
                     &g_fallbackEntries[index]};
+        case HookId::PerformLanguageSwitch:
+            return {"PerformLanguageSwitch", kPerformLanguageSwitchOffset,
+                    kPerformLanguageSwitchExpectedBytes.data(), callback,
+                    &g_fallbackEntries[index]};
         case HookId::ManagerPresent:
         case HookId::GameStart:
         case HookId::NpcUpdateAi:
@@ -479,6 +487,9 @@ void RegisterEntryRelayCallbacks() noexcept {
     // `ANM2::Load` 入口中继（回调体在 `source/anm2_load_override_hook.cpp`）。
     g_hookCallbacks[static_cast<std::size_t>(HookId::Anm2Load)] =
         engine_memory::AsObject(engine_call::AddressOfFunction(&EntryRelayAnm2LoadCallback));
+    g_hookCallbacks[static_cast<std::size_t>(HookId::PerformLanguageSwitch)] =
+        engine_memory::AsObject(
+            engine_call::AddressOfFunction(&EntryRelayPerformLanguageSwitchCallback));
     // `MC_ENTITY_TAKE_DMG` 的四条 + `MC_EVALUATE_CACHE`（回调体都在
     // `source/hook_manager.cpp`，四条受伤共用同一个派发函数 `DispatchEntityTakeDamage`）。
     g_hookCallbacks[static_cast<std::size_t>(HookId::EntityTakeDamage)] =
