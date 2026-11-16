@@ -91,6 +91,16 @@ RepentogonEntityNativeTestBindings g_Tests{};
 #endif
 }
 
+int RepentogonEntitySetInvincible(lua_State* state) {
+    const auto entity=Entity(state);
+    if (!lua_isboolean(state,2)) return luaL_argerror(state,2,"boolean expected");
+    const auto value=static_cast<std::uint8_t>(lua_toboolean(state,2)!=0);
+    if (!engine_memory::WriteField(entity,kEntityIsInvincibleOffset,value,
+                                   engine_memory::EngineMemoryWritable))
+        return luaL_error(state,"Entity invincibility flag is not writable");
+    return 0;
+}
+
 int RepentogonEntityGiveMinecart(lua_State* state) {
     const auto entity=Entity(state);
     if(lua_gettop(state)!=3)return luaL_error(state,"Entity:GiveMinecart expects position and velocity");

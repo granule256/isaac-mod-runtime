@@ -5,12 +5,12 @@
 #include "infrastructure/memory/engine_field_access.hpp"
 #include "interfaces/lua/field_api.hpp"
 #include "interfaces/lua/isaac_api.hpp"
+#include "interfaces/lua/sprite_api.hpp"
 #include "lua_runtime.hpp"
 #include "runtime_constants.hpp"
 
 #include <array>
 #include <cstdint>
-#include <cstring>
 
 extern "C" {
 #include <lauxlib.h>
@@ -22,6 +22,14 @@ namespace {
 constexpr std::uint8_t kDeadEyeGuard[]={0x08,0x28,0x5d,0xb9,0xf3,0x03,0x00,0xaa,0x1f,0x1d,0x00,0x71,0x0c,0x01,0x00,0x54};
 constexpr std::uint8_t kPurityGuard[]={0x08,0xa4,0x5d,0xb9,0xf3,0x03,0x00,0xaa,0x1f,0x11,0x00,0x71,0xab,0x00,0x00,0x54};
 api100_native::Cache g_DeadEyeLayout{},g_PurityLayout{};
+// AnimatePickup(ANM2 const&, bool, char const*) selects player+0x12d8
+// as the destination of ANM2::operator= at 0x2f66dc.
+constexpr std::uint8_t kHeldSpriteGuard[]{0x08,0x5b,0x82,0x52,0x74,0x02,0x08,0x8b,
+                                         0xe1,0x03,0x00,0x91,0xe0,0x03,0x14,0xaa};
+api100_native::Cache g_HeldSpriteLayout{};
+constexpr std::uint8_t kActiveMaxChargeGuard[]{0xfd,0x7b,0xbe,0xa9,0xf3,0x0b,0x00,0xf9,
+                                              0xfd,0x03,0x00,0x91,0x3f,0x0c,0x00,0x71};
+api100_native::Cache g_ActiveMaxChargeEntry{};
 #if defined(__SWITCH__)
 struct Method {
     std::uintptr_t offset;
@@ -36,6 +44,7 @@ RepentogonPlayerIntHost g_HealthTypeHost{};
 RepentogonPlayerPointerHost g_MarkedTargetHost{};
 RepentogonPlayerIntHost g_IsLocalPlayerHost{};
 RepentogonPlayerAddActiveChargeHost g_AddActiveChargeHost{};
+RepentogonPlayerActiveMaxChargeHost g_ActiveMaxChargeHost{};
 #endif
 
 std::uintptr_t Player(lua_State* state) {
@@ -50,8 +59,8 @@ std::uintptr_t Player(lua_State* state) {
 std::uintptr_t MethodAddress(lua_State* state,const Method& method,const char* name) {
     const auto base=LuaRuntime::EngineModuleBase();
     if (!base || base>UINTPTR_MAX-method.offset ||
-        !engine_memory::EngineMemoryReadable(base+method.offset,method.guard.size()) ||
-        std::memcmp(engine_memory::AsObject(base+method.offset),method.guard.data(),method.guard.size())!=0)
+        !engine_call::VerifyEntryBytes(base+method.offset,method.guard.data(),method.guard.size(),
+                                       &engine_memory::EngineMemoryReadable))
         luaL_error(state,"EntityPlayer:%s native binding is unavailable",name);
     return base+method.offset;
 }
@@ -134,6 +143,33 @@ int RepentogonEntityPlayerGetPurityState(lua_State* state) {
     lua_pushinteger(state,value);return 1;
 }
 
+int RepentogonEntityPlayerGetHeldSprite(lua_State* state) {
+    const auto player = Player(state);
+    static_cast<void>(api100_native::Resolve(state,{0x2f66cc,kHeldSpriteGuard},g_HeldSpriteLayout));
+    return PushEnginePlayerHeldSpriteHandle(state, player);
+}
+
+int RepentogonEntityPlayerGetActiveMaxCharge(lua_State* state) {
+    const auto player = Player(state);
+    const auto slot = luaL_optinteger(state, 2, 0);
+    if (slot < 0 || slot > 3) {
+        return luaL_argerror(state, 2, lua_pushfstring(state, "Invalid ActiveSlot %I", slot));
+    }
+    std::uintptr_t host = 0;
+#if !defined(__SWITCH__)
+    if (!g_ActiveMaxChargeHost) {
+        return luaL_error(state, "EntityPlayer:GetActiveMaxCharge host binding is unavailable");
+    }
+    host = engine_call::AddressOfFunction(g_ActiveMaxChargeHost);
+#endif
+    using Fn = std::int32_t (*)(void*,std::int32_t);
+    const auto method = api100_native::Resolve(
+        state, {0x27f828,kActiveMaxChargeGuard}, g_ActiveMaxChargeEntry, host);
+    lua_pushinteger(state, engine_call::AsFunction<Fn>(method)(
+        engine_memory::AsObject(player), static_cast<std::int32_t>(slot)));
+    return 1;
+}
+
 int RepentogonEntityPlayerAddActiveCharge(lua_State* state) {
     const auto player=Player(state);
     const int argumentCount=lua_gettop(state);
@@ -197,5 +233,7 @@ void SetRepentogonPlayerGetMarkedTargetHost(RepentogonPlayerPointerHost value) n
 void SetRepentogonPlayerIsLocalPlayerHost(RepentogonPlayerIntHost value) noexcept {g_IsLocalPlayerHost=value;}
 void SetRepentogonPlayerAddActiveChargeHost(
     RepentogonPlayerAddActiveChargeHost value) noexcept {g_AddActiveChargeHost=value;}
+void SetRepentogonPlayerActiveMaxChargeHost(
+    RepentogonPlayerActiveMaxChargeHost value) noexcept {g_ActiveMaxChargeHost=value;}
 #endif
 }

@@ -41,8 +41,19 @@ static_assert(offsetof(RepentogonColorModifierValue, contrast) == 0x14);
 int CreateRepentogonColorModifierHandle(lua_State* state);
 int RepentogonColorModifierIndex(lua_State* state);
 int RepentogonColorModifierNewIndex(lua_State* state);
+int RepentogonGameSetColorModifier(lua_State* state);
+int RepentogonRoomUpdateColorModifier(lua_State* state);
 
 // Publishes the callable global ColorModifier class and its value metatable.
 int RegisterRepentogonColorModifierApi(lua_State* state);
+
+#if !defined(__SWITCH__)
+struct RepentogonColorModifierNativeTestBindings {
+    void (*set)(void*, const RepentogonColorModifierValue&, bool, float){};
+    RepentogonColorModifierValue (*compute)(const void*){};
+};
+void SetRepentogonColorModifierNativeTestBindings(
+    RepentogonColorModifierNativeTestBindings bindings) noexcept;
+#endif
 
 } // namespace isaac::runtime

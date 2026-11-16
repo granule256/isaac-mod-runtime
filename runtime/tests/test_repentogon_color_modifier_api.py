@@ -5,6 +5,7 @@ import unittest
 from pathlib import Path
 
 from . import test_support
+from .test_repentogon_in_game import PREFIX
 
 RUNTIME = Path(__file__).resolve().parents[1]
 SOURCE = RUNTIME / "source"
@@ -91,6 +92,92 @@ assert(ColorModifier(1, 1, 1, 0)._address == nil)
 }
 '''
 
+NATIVE_DRIVER = PREFIX + r'''
+#include "game_observer.hpp"
+#include "interfaces/lua/repentogon_color_modifier_api.hpp"
+#include "runtime_constants.hpp"
+#include <array>
+#include <vector>
+
+static std::vector<unsigned char> module, game, room;
+static std::uintptr_t gamePointer;
+static unsigned computes, sets;
+
+GameRoomObservation ReadCurrentGameRoom(std::uintptr_t ownerSlot, void** current) {
+    assert(ownerSlot == reinterpret_cast<std::uintptr_t>(module.data()) + kGameOwnerGlobalSlotOffset);
+    *current = room.data();
+    return GameRoomObservation::Success;
+}
+
+template<class T> static void Put(std::vector<unsigned char>& bytes, std::size_t offset, T value) {
+    assert(offset + sizeof(T) <= bytes.size());
+    std::memcpy(bytes.data() + offset, &value, sizeof(T));
+}
+
+static RepentogonColorModifierValue Compute(const void* object) {
+    assert(object == room.data());
+    ++computes;
+    return {2, 3, 4, 5, 6, 7};
+}
+
+static void Set(void* object, const RepentogonColorModifierValue& color, bool lerp, float rate) {
+    assert(object == game.data());
+    assert(color.contrast == color.r + 5);
+    if (sets == 0) assert(color.r == 1 && lerp && rate == 0.015f);
+    if (sets == 1) assert(color.r == 2 && lerp && rate == 1.f);
+    if (sets == 2) assert(color.r == 8 && !lerp && rate == 0.25f);
+    if (sets == 3) assert(color.r == 2 && lerp && rate == 0.015f);
+    ++sets;
+}
+
+int main() {
+    module.resize(kGameOwnerGlobalSlotOffset + sizeof(std::uintptr_t));
+    game.resize(0x350000);
+    room.resize(0x4000);
+    gamePointer = reinterpret_cast<std::uintptr_t>(game.data());
+    const auto base = reinterpret_cast<std::uintptr_t>(module.data());
+    Put(module, kGameOwnerGlobalSlotOffset, reinterpret_cast<std::uintptr_t>(&gamePointer));
+    Put(room, 0x1f30, RepentogonColorModifierValue{8, 9, 10, 11, 12, 13});
+    const std::array<unsigned char, 16> setGuard{
+        0x2d,0x08,0x40,0xf9,0x89,0xd0,0x8b,0x52,0x89,0x06,0xa0,0x72,0x2b,0x30,0x40,0xa9};
+    const std::array<unsigned char, 16> computeGuard{
+        0xef,0x3b,0xb9,0x6d,0xed,0x33,0x01,0x6d,0xf5,0x2b,0x00,0xf9,0xeb,0x2b,0x02,0x6d};
+    Put(module, 0x35ca3c, setGuard);
+    Put(module, 0x48a5ec, computeGuard);
+    LuaRuntime::SetEngineModuleBase(base);
+    LuaRuntime::SetGameBindings(base + kGameOwnerGlobalSlotOffset, 0);
+    LuaRuntime::ObserveGameThread();
+    Files files(true);
+    SetSessionSaveFilePort(&files);
+    const repentogon::NativePort port{Ready, Ready};
+    repentogon::SetNativePort(&port);
+    SetRepentogonColorModifierNativeTestBindings({Set, Compute});
+
+    const char* script = R"lua(
+local game = Game()
+local room = game:GetRoom()
+game:SetColorModifier(ColorModifier(1,2,3,4,5,6))
+room:UpdateColorModifier(true, true, 1)
+room:UpdateColorModifier(false, false, 0.25)
+room:UpdateColorModifier()
+assert(not pcall(game.SetColorModifier, game, {}))
+assert(not pcall(game.SetColorModifier, game, ColorModifier(), 'x'))
+)lua";
+    if (LuaRuntime::InitializeFromBuffer(script, std::strlen(script), "@color-native.lua") !=
+        LuaRuntime::LuaInitResult::Success) {
+        char error[1024]{};
+        static_cast<void>(LuaRuntime::CopyLastLuaErrorText(error, sizeof(error)));
+        std::fprintf(stderr, "%s\n", error);
+        return 1;
+    }
+    assert(sets == 4 && computes == 2);
+    assert(LuaRuntime::ShutdownForModReload());
+    SetRepentogonColorModifierNativeTestBindings({});
+    repentogon::SetNativePort(nullptr);
+    SetSessionSaveFilePort(nullptr);
+}
+'''
+
 
 class RepentogonColorModifierApiTests(unittest.TestCase):
     def test_constructor_properties_and_typed_native_accessor(self):
@@ -107,6 +194,13 @@ class RepentogonColorModifierApiTests(unittest.TestCase):
                 harness_source=DRIVER,
                 extra_sources=extra_sources,
             )
+            result = subprocess.run([str(binary)], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_game_and_room_submit_native_color_with_correct_abi_and_defaults(self):
+        with tempfile.TemporaryDirectory(prefix="color-modifier-native-") as folder:
+            binary = test_support.build_lua_harness(
+                source_root=SOURCE, workdir=Path(folder), harness_source=NATIVE_DRIVER)
             result = subprocess.run([str(binary)], capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 

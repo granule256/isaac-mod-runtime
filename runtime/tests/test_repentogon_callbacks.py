@@ -144,11 +144,38 @@ static void Extensions(lua_State* state) noexcept {
     lua_pushcfunction(state,Reenter);lua_setglobal(state,"_reenter");
 }
 static const RepentogonCallbackBinding expected[]={
+{1004,"MC_PRE_ADD_COLLECTIBLE"},
 {1005,"MC_POST_ADD_COLLECTIBLE"},
     {1006,"MC_POST_ENTITY_TAKE_DMG"},
 {1008,"MC_PRE_PLAYER_TAKE_DMG"},
+{1009,"MC_PRE_PLAYER_ADD_HEARTS"},
+{1010,"MC_POST_PLAYER_ADD_HEARTS"},
+{1066,"MC_GET_SHOP_ITEM_PRICE"},
+{1067,"MC_PLAYER_GET_HEALTH_TYPE"},
+{1063,"MC_GET_FOLLOWER_PRIORITY"},
+{1011,"MC_POST_GRID_ROCK_DESTROY"},
+{1012,"MC_GRID_HURT_DAMAGE"},
+{1123,"MC_PRE_SLOT_CREATE_EXPLOSION_DROPS"},
+{1124,"MC_POST_SLOT_CREATE_EXPLOSION_DROPS"},
+{1241,"MC_POST_SLOT_COLLISION"},
+{1050,"MC_PRE_TRIGGER_PLAYER_DEATH"},
+{1051,"MC_TRIGGER_PLAYER_DEATH_POST_CHECK_REVIVES"},
+{1033,"MC_POST_TEAR_DEATH"},
+{1034,"MC_PRE_MUSIC_PLAY"},
+{1064,"MC_PRE_USE_CARD"},
+{1213,"MC_PRE_PICKUP_MORPH"},
+{1243,"MC_POST_KNIFE_COLLISION"},
+{1068,"MC_PRE_ROOM_TRIGGER_CLEAR"},
+{1222,"MC_NPC_PICK_TARGET"},
+{1077,"MC_POST_PLAYER_NEW_ROOM_TEMP_EFFECTS"},
+{1078,"MC_POST_PLAYER_NEW_LEVEL"},
+{1481,"MC_PRE_PLAYER_REVIVE"},
+{1482,"MC_POST_PLAYER_REVIVE"},
+{1484,"MC_PRE_ITEM_TEXT_DISPLAY"},
 {1069,"MC_PRE_PLAYER_TRIGGER_ROOM_CLEAR"},
+{1072,"MC_PLAYER_GET_ACTIVE_MAX_CHARGE"},
 {1073,"MC_PLAYER_GET_ACTIVE_MIN_USABLE_CHARGE"},
+{1074,"MC_PLAYER_GET_HEART_LIMIT"},
 {1079,"MC_POST_PLAYERHUD_RENDER_ACTIVE_ITEM"},
 {1216,"MC_PRE_COMPLETION_MARKS_RENDER"},
 {1217,"MC_POST_COMPLETION_MARKS_RENDER"},
@@ -176,13 +203,19 @@ static const RepentogonCallbackBinding expected[]={
 {1089,"MC_PRE_SLOT_RENDER"},
 {1090,"MC_POST_SLOT_RENDER"},
 {1095,"MC_POST_TRIGGER_COLLECTIBLE_REMOVED"},
+{1098,"MC_POST_TRIGGER_WEAPON_FIRED"},
     {1099,"MC_POST_LEVEL_LAYOUT_GENERATED"},
     {1101,"MC_POST_GRID_ENTITY_SPAWN"},
 {1102,"MC_POST_NIGHTMARE_SCENE_RENDER"},
 {1104,"MC_PRE_LEVEL_SELECT"},
+{1114,"MC_PRE_PLANETARIUM_APPLY_TELESCOPE_LENS"},
+{1118,"MC_PRE_PLAYERHUD_RENDER_HEARTS"},
+{1119,"MC_PRE_PLAYERHUD_RENDER_ACTIVE_ITEM"},
 {1120,"MC_CONSOLE_AUTOCOMPLETE"},
 {1121,"MC_POST_SLOT_INIT"},
 {1122,"MC_POST_SLOT_UPDATE"},
+{1131,"MC_PRE_DEVIL_APPLY_STAGE_PENALTY"},
+{1132,"MC_PRE_DEVIL_APPLY_SPECIAL_ITEMS"},
 {1133,"MC_POST_DEVIL_CALCULATE"},
     {1137,"MC_PRE_LEVEL_PLACE_ROOM"},
 {1160,"MC_PRE_PLAYER_UPDATE"},
@@ -195,11 +228,13 @@ static const RepentogonCallbackBinding expected[]={
 {1167,"MC_PRE_LASER_UPDATE"},
 {1168,"MC_PRE_EFFECT_UPDATE"},
 {1169,"MC_PRE_SLOT_UPDATE"},
+{1171,"MC_PRE_PLAYER_GRID_COLLISION"},
 {1200,"MC_PRE_NEW_ROOM"},
 {1201,"MC_PRE_MEGA_SATAN_ENDING"},
 {1210,"MC_POST_MODS_LOADED"},
 {1218,"MC_PRE_PAUSE_SCREEN_RENDER"},
 {1219,"MC_POST_PAUSE_SCREEN_RENDER"},
+{1224,"MC_EVALUATE_CUSTOM_CACHE"},
 {1231,"MC_POST_PLAYER_COLLISION"},
 {1233,"MC_POST_TEAR_COLLISION"},
 {1235,"MC_POST_FAMILIAR_COLLISION"},
@@ -281,9 +316,11 @@ static const RepentogonCallbackBinding expected[]={
 {1470,"MC_POST_SAVESLOT_LOAD"},
 {1103,"MC_POST_NIGHTMARE_SCENE_SHOW"},
 {1255,"MC_POST_FIRE_BRIMSTONE"},
+{1251,"MC_POST_PLAYER_GET_MULTI_SHOT_PARAMS"},
 {1258,"MC_POST_FIRE_SWORD"},
 {1259,"MC_POST_FIRE_TECH_LASER"},
 {1260,"MC_POST_FIRE_TECH_X_LASER"},
+{1265,"MC_PRE_PICKUP_VOIDED"},
 
 };
 int main(int argc,char** argv){
@@ -304,6 +341,33 @@ int main(int argc,char** argv){
     std::string script=std::string(detection)+";local m=RegisterMod('callback102',1);calls=0;order=''\n";
     if(mode=="off"||mode=="none"){
         script+="assert(ModCallbacks.MC_PRE_GRID_ENTITY_DECORATION_UPDATE==nil);assert(EntityConfig==nil and MenuManager==nil and RoomTransition==nil and BlendMode==nil and StbType==nil and MainMenuType==nil and Dimension==nil)";
+        script+=";assert(ModCallbacks.MC_EVALUATE_CUSTOM_CACHE==nil)";
+    }else if(mode=="custom_cache"){
+        script+=R"lua(
+local id=ModCallbacks.MC_EVALUATE_CUSTOM_CACHE
+assert(id==1224)
+m:AddPriorityCallback(id,-20,function(_,p,tag,value)
+ assert(p and tag=='maxcoins' and value==99)
+ calls=calls+1
+ return 999999999
+end,'maxcoins')
+m:AddPriorityCallback(id,-15,function()error('wrong string filter')end,'MAXCOINS')
+m:AddPriorityCallback(id,-10,function(_,_,_,value)
+ assert(value==999999999)
+ error('custom cache listener error')
+end,'maxcoins')
+m:AddPriorityCallback(id,-8,function()return "bad response" end,'maxcoins')
+m:AddPriorityCallback(id,-5,function(_,p,tag,value)
+ assert(p and tag=='maxcoins' and value=='bad response')
+ calls=calls+1
+ return 999999999
+end,'maxcoins')
+m:AddCallback(id,function(_,p,tag,value)
+ assert(p and tag=='maxcoins' and value==999999999)
+ calls=calls+1
+ return value+0.25
+end)
+)lua";
     }else if(mode=="catalog"){
         script+="assert(type(EntityConfig.GetEntity)=='function' and type(MenuManager.GetActiveMenu)=='function' and type(RoomTransition.GetVersusScreenSprite)=='function');assert(type(Isaac.GetGiantBookIdByName)=='function')\n";
         script+=R"lua(
@@ -508,16 +572,30 @@ local f;f=function()m:RemoveCallback(1400,f);calls=calls+1 end;m:AddCallback(140
     if(mode=="off"||mode=="none"){
         assert(!Listening(1400));assert(installCalls==0&&readyCalls==0);assert(ExtendedCallbackCount()==0);
     }else{
-        assert(installCalls==1&&readyCalls==1&&ExtendedCallbackCount()==140);
+        assert(installCalls==1&&readyCalls==1&&ExtendedCallbackCount()==std::size(expected));
         unsigned type=20,variant=7,subtype=9,gridType=4;
         std::memcpy(entity+kEntityTypeOffset,&type,4);std::memcpy(entity+kEntityVariantOffset,&variant,4);
         std::memcpy(entity+kEntitySubTypeOffset,&subtype,4);std::memcpy(grid+kGridEntityTypeOffset,&gridType,4);
         Vector offset{10,20};Sound sound{5,0.5f,2,false,1,0};
         auto send=[&](unsigned id,EventKind kind=EventKind::Global){return Dispatch(Event{id,kind,kind==EventKind::Grid||kind==EventKind::GridRender?Address(grid):Address(entity),Address(collider),&offset,true,&sound});};
-        if(mode=="catalog"){
-            assert(sizeof(expected)/sizeof(expected[0])==140);
-            for(const auto& c:expected){assert(Listening(c.id));send(c.id);}
-            Check();assert(Number("calls")==140&&g_ExtendedCallbackEnabledCount==140);
+        if(mode=="custom_cache"){
+            Event cache{};
+            cache.id=1224;cache.kind=EventKind::CustomCache;
+            cache.object=Address(entity);cache.customCacheTag="maxcoins";
+            cache.customCacheValue=99;
+            const auto result=Dispatch(cache);
+            assert(result.hasCustomCacheValue&&result.customCacheValue==999999999.25);
+            assert(Number("calls")==3&&LuaRuntime::TakeCallbackError());
+            LuaRuntime::LuaErrorHistoryEntryView errors[8]{};
+            const auto count=LuaRuntime::CopyLuaErrorHistory(errors,8);
+            assert(count==1&&errors[0].callbackId==1224);
+        }else if(mode=="catalog"){
+            assert(std::size(expected)>0);
+            for(const auto& c:expected){
+                assert(Listening(c.id));
+                send(c.id,(c.id==1050||c.id==1051)?EventKind::Entity:EventKind::Global);
+            }
+            Check();assert(Number("calls")==std::size(expected)&&g_ExtendedCallbackEnabledCount==std::size(expected));
         }else if(mode=="reverie"){
             const auto clear=send(1069,EventKind::Entity);Check();assert(clear.hasBoolean&&!clear.boolean);
             Event charge{};charge.id=1073;charge.kind=EventKind::PlayerActiveMinUsableCharge;
@@ -707,13 +785,74 @@ local outer=Isaac.RunCallbackWithParam""")
     def test_pre_render_runner_accumulates_offsets(self):
         self._run_policy_driver(POLICY_DRIVER)
 
+    def test_pre_add_collectible_chains_overrides_and_cancels(self):
+        script = """
+local itemMod={}; local p={}; local cancel=false;local calls=0
+Isaac.AddPriorityCallback(itemMod,1004,-5,function(_,id,charge,first,slot,data,player)
+ assert(id==5 and charge==2 and first and slot==0 and data==7 and player==p)
+ return {6,3,false,nil,8}
+end,5)
+Isaac.AddPriorityCallback(itemMod,1004,0,function(_,id,charge,first,slot,data,player)
+ assert(id==6 and charge==3 and not first and slot==0 and data==8 and player==p)
+ if cancel then return false end
+ return {[4]=2}
+end,5)
+Isaac.AddPriorityCallback(itemMod,1004,5,function() calls=calls+1 end,5)
+local v=Isaac.RunCallbackWithParam(1004,5,5,2,true,0,7,p)
+assert(type(v)=='table' and v[1]==6 and v[2]==3 and v[3]==false and v[4]==2 and v[5]==8)
+assert(calls==1)
+cancel=true
+assert(Isaac.RunCallbackWithParam(1004,5,5,2,true,0,7,p)==false and calls==1)
+"""
+        self._run_policy_driver(POLICY_DRIVER.replace(
+            'local outer=Isaac.RunCallbackWithParam', script+'\nlocal outer=Isaac.RunCallbackWithParam'))
+
+    def test_death_callbacks_stop_on_revive_but_not_true_return(self):
+        script = r'''
+local originalIpairs=ipairs
+for custom=0,1 do
+ if custom==1 then
+  ipairs=function(t)
+   return function(s,i) i=i+1;if s[i] then return i,s[i] end end,t,0
+  end
+ end
+ for _,id in originalIpairs({1050,1051}) do
+  local mod={};local mode=0;local count=0
+  local player={dead=true,exists=true}
+  function player:IsDead()return self.dead end
+  function player:Exists()return self.exists end
+  local function first(_,p)
+   count=count+1
+   if mode==1 then p.dead=false
+   elseif mode==2 then p.exists=false
+   elseif mode==3 then return false
+   else return true end
+  end
+  local function second() count=count+1;return true end
+  Isaac.AddPriorityCallback(mod,id,0,first)
+  Isaac.AddPriorityCallback(mod,id,1,second)
+  for test=0,3 do
+   mode=test;count=0;player.dead=true;player.exists=true
+   local result=Isaac.RunCallback(id,player)
+   if test==0 then assert(result==true and count==2,'true must continue')
+   elseif test==3 then assert(result==false and count==1,'false must stop')
+   else assert(result==nil and count==1,'revived/removed player must stop') end
+  end
+  Isaac.RemoveCallback(mod,id,first);Isaac.RemoveCallback(mod,id,second)
+ end
+end
+ipairs=originalIpairs
+'''
+        self._run_policy_driver(POLICY_DRIVER.replace(
+            'local outer=Isaac.RunCallbackWithParam', script+'\nlocal outer=Isaac.RunCallbackWithParam'))
+
     def test_pre_render_runner_reuses_functions_without_allocating(self):
         self._run_policy_driver(ALLOCATION_DRIVER)
 
     def test_native_catalog_delivery_and_lifecycle(self):
         with tempfile.TemporaryDirectory(prefix='repentogon-native-') as tmp:
             binary=test_support.build_lua_harness(source_root=SOURCE,workdir=Path(tmp),harness_source=RUNTIME_DRIVER)
-            for mode in ('sprite_cleanup','off','none','ready_fail','install_fail','catalog','reverie','render','booleans','filter','post_fire','sound','sound_error','level_boss','bulk_callbacks','remaining_phases','change_room_invalid','change_room_non_integer','nested','error','pause','pause_error','bad_vector','remove_all','reset','empty'):
+            for mode in ('sprite_cleanup','off','none','ready_fail','install_fail','catalog','custom_cache','reverie','render','booleans','filter','post_fire','sound','sound_error','level_boss','bulk_callbacks','remaining_phases','change_room_invalid','change_room_non_integer','nested','error','pause','pause_error','bad_vector','remove_all','reset','empty'):
                 with self.subTest(mode=mode):
                     result=subprocess.run([str(binary),mode],capture_output=True,text=True)
                     self.assertEqual(result.returncode,0,result.stdout+result.stderr)

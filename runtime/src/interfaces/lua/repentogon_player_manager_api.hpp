@@ -7,8 +7,10 @@ extern "C" {
 }
 
 namespace isaac::runtime {
+int RepentogonPlayerManagerGetPlayers(lua_State* state);
 int RepentogonPlayerManagerAnyoneHasCollectible(lua_State* state);
 int RepentogonPlayerManagerAnyoneHasTrinket(lua_State* state);
+int RepentogonPlayerManagerAnyoneIsPlayerType(lua_State* state);
 int RegisterPlayerManagerApi(lua_State* state);
 
 #if !defined(__SWITCH__)

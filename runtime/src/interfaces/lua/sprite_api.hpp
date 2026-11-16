@@ -32,6 +32,11 @@ int CreateSpriteHandle(lua_State* state);
 // 只是重新解析时换用网格实体的存活判据与 `kGridEntitySpriteOffset`）。
 int PushEngineGridEntitySpriteHandle(lua_State* state, void* gridEntity);
 
+// EntityConfigPlayer returns references to five ANM2 objects owned by the
+// engine's player config.  They are borrowed and must never be destructed or
+// freed by Lua.
+int PushEngineConfigSpriteHandle(lua_State* state, void* sprite);
+
 // `__gc`: runs the game's complete-object destructor (`~ANM2()`, which does **not** free `this`)
 // and then releases the block this module allocated.
 int DestroySpriteHandle(lua_State* state);
@@ -88,6 +93,8 @@ struct SpriteReplaceSpritesheetProbe {
 //     原生地址（句柄里缓存的地址只当身份，不作为解引用依据）。
 // 详情与理由写在 `lua_object_handles.hpp` 的 `SpriteHandle` 注释里。
 int PushEngineEntitySpriteHandle(lua_State* state, void* entity);
+// Borrow the live player's inline ANM2 used by the held-item animation.
+int PushEnginePlayerHeldSpriteHandle(lua_State* state, std::uintptr_t player);
 
 // PC 的 `Sprite:GetAnimation()`：**只读**，没有引擎调用 —— 动画名就是 `ANM2+0x38` 指向的
 // libc++ `std::string`（引擎自己的 `ANM2::IsPlaying(char const*)` 就是这么读的，见

@@ -53,6 +53,14 @@ int main(int argc,char**argv){
  std::vector<unsigned char> image{std::istreambuf_iterator<char>(in),{}};
  base=reinterpret_cast<std::uintptr_t>(image.data());
  assert(speed_cache_boundary::ImageMatches(image.data(),image.size()));
+ const std::uint32_t chargeBranch=speed_cache_boundary::Branch(0x280d0c,0x277744);
+ std::uint32_t originalChargeWord{};
+ std::memcpy(&originalChargeWord,image.data()+0x280d0c,4);
+ std::memcpy(image.data()+0x280d0c,&chargeBranch,4);
+ assert(speed_cache_boundary::ImageMatches(image.data(),image.size()));
+ image[0x280d0c]^=1;
+ assert(!speed_cache_boundary::ImageMatches(image.data(),image.size()));
+ std::memcpy(image.data()+0x280d0c,&originalChargeWord,4);
  for(auto at:{std::uintptr_t{0x40},speed_cache_boundary::kFunction,speed_cache_boundary::kSource,
              speed_cache_boundary::kFunction+speed_cache_boundary::kLength-1,speed_cache_boundary::kGate+23}){
   image[at]^=1;assert(!speed_cache_boundary::ImageMatches(image.data(),image.size()));image[at]^=1;

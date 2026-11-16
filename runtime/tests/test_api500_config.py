@@ -6,6 +6,7 @@ from .test_support import build_lua_harness,layered_lua_runtime_sources
 ROOT=Path(__file__).resolve().parents[2]
 MAIN=r'''
 #include "interfaces/lua/api500_config.hpp"
+#include "program/xml_data_store.hpp"
 #include <cassert>
 static std::vector<std::vector<unsigned char>> g_Strings;
 static std::vector<std::uintptr_t> g_AssignmentTargets;
@@ -13,23 +14,37 @@ static void*Assign(void*dst,const void*src){g_AssignmentTargets.push_back(reinte
 int main(int argc,char**argv){
  static_cast<void>(kScriptTemplate);static_cast<void>(&HarnessHasCollectible);static_cast<void>(&BuildPrelude);static_cast<void>(&ExpectNumber);
  if(argc!=2)return 99;std::string scene=argv[1];CreateBlocks();FillEntities();PublishLists();PublishGame();PublishEntityList(g_RoomBytes,true);
+ const char pools[]="<ItemPools><Pool Name='secret'><Item id='1'/></Pool><Pool Name='shionBeggar'/><Pool Name='flandre'/></ItemPools>";
+ assert(isaac::runtime::xml_data::IngestXmlDataFile(isaac::runtime::xml_data::XmlDataFileKind::ItemPools,"3387954355",true,pools,std::strlen(pools)));
  LuaRuntime::SetEngineModuleBase(g_EngineBase);LuaRuntime::SetGameBindings(g_EngineBase+kGameOwnerGlobalSlotOffset,0x2222);
- std::vector<unsigned char> manager(kManagerItemConfigOffset+0x100),slot(8),item(0x200),card(0x80),pill(0x80),items(16),cards(16),pills(16);
+ std::vector<unsigned char> manager(kManagerItemConfigOffset+0x100),slot(8),item(0x200),card(0x80),pill(0x80),items(16),cards(16),pills(16),nulls(8),nullItem(0x80);
  WriteWord(slot,0,AddressOf(manager));WriteWord(g_ModuleBytes,kGameManagerGlobalSlotOffset,AddressOf(slot));
  auto publish=[&](auto&v,auto&o,std::size_t off){WriteWord(v,8,AddressOf(o));WriteWord(manager,kManagerItemConfigOffset+off,AddressOf(v));WriteWord(manager,kManagerItemConfigOffset+off+8,AddressOf(v)+16);};
- publish(items,item,0);publish(cards,card,0x48);publish(pills,pill,0x60);
+ publish(items,item,0);publish(cards,card,0x48);publish(pills,pill,0x60);publish(nulls,nullItem,0x30);
  WriteAt<std::int32_t>(item,0,1);WriteAt<std::int32_t>(item,4,1);
  WriteAt<std::uint32_t>(item,0x54,0x80000001U);WriteAt<std::int32_t>(item,0x78,-11);WriteAt<std::int16_t>(item,0x7c,-2);WriteAt<std::int16_t>(item,0x7e,-3);WriteAt<std::int32_t>(item,0xd0,-1);
  item[0xb5]=1;item[0xb6]=1;item[0xb8]=1;item[0xb9]=1;
  WriteAt<std::int32_t>(item,0x80,17);item[0x88]=8;std::memcpy(item.data()+0x89,"test",4);WriteAt<std::int32_t>(item,0xa0,-19);item[0xa4]=1;item[0xa5]=1;item[0xa6]=1;item[0xac]=1;
  WriteAt<std::int32_t>(card,0,1);WriteAt<std::int32_t>(card,4,-101);card[0x38]=8;std::memcpy(card.data()+0x39,"card",4);card[0x50]=1;WriteAt<std::uint32_t>(card,0x54,0x8000001fU);WriteAt<std::int32_t>(card,0x58,1);WriteAt<std::int32_t>(card,0x5c,33);WriteAt<std::int32_t>(card,0x60,-34);
  WriteAt<std::int32_t>(pill,0,1);WriteAt<std::int32_t>(pill,4,-102);pill[0x38]=1;WriteAt<std::int32_t>(pill,0x3c,41);WriteAt<std::int32_t>(pill,0x40,42);WriteAt<std::int32_t>(pill,0x44,-43);
+ WriteAt<std::uint32_t>(nullItem,4,7);nullItem[8]=16;std::memcpy(nullItem.data()+9,"TestNull",8);
  /*GUARDS*/
  isaac::runtime::SetApi500ConfigStringAssignmentForTesting(Assign);
  const char*body=R"lua(
  if _config500 then assert(not pcall(function()return _held500.Priority end));assert(not pcall(function()return _item500.MaxCooldown end));_config500={done=2};return end
  local c=Isaac.GetItemConfig();local i=c:GetCollectible(1);local a=c:GetCard(1);local p=c:GetPillEffect(1)
+ assert(Isaac.GetNullItemIdByName("TestNull")==7)
+ assert(Isaac.GetNullItemIdByName("missing")==-1)
+ assert(Isaac.GetPoolIdByName("treasure")==0 and Isaac.GetPoolIdByName("secret")==5)
+ assert(Isaac.GetPoolIdByName("greedSecret")==22 and Isaac.GetPoolIdByName("rottenBeggar")==30)
+ local shionPool=Isaac.GetPoolIdByName("shionBeggar");local flandrePool=Isaac.GetPoolIdByName("flandre")
+ assert(shionPool==31 and flandrePool==32,tostring(shionPool)..","..tostring(flandrePool))
+ assert(Isaac.GetPoolIdByName("missing")==-1)
  assert(i.CacheFlags==2147483649 and i.MaxCooldown==-11 and i.DevilPrice==-2 and i.ShopPrice==-3 and i.InitCharge==-1)
+ i.Name="item-name";i.Description="item-desc";i.GfxFileName="gfx/custom.anm2"
+ a.Name="card-name";a.Description="card-desc"
+ assert(i.Name=="item-name" and i.Description=="item-desc" and i.GfxFileName=="gfx/custom.anm2")
+ assert(a.Name=="card-name" and a.Description=="card-desc")
  assert(i.PassiveCache and i.AddCostumeOnPickup and i.PersistentEffect and i.ClearEffectsOnRemove)
  local s=i.Costume;assert(type(s)=='userdata' and s.ID==17 and s.Anm2Path=='test' and s.Priority==-19 and s.HasOverlay and s.IsFlying and s.HasSkinAlt and s.OverwriteColor)
  local mt=getmetatable(s);assert(mt.__type=='ItemConfigCostume');assert(mt.__class.__index(s,'ID')==s.ID);mt.__class.__newindex(s,'Priority',-23);assert(s.Priority==-23)
@@ -57,7 +72,9 @@ int main(int argc,char**argv){
   std::uint32_t cache{};std::int32_t cooldown{};std::int16_t price{},shop{};
   std::memcpy(&cache,item.data()+0x54,4);std::memcpy(&cooldown,item.data()+0x78,4);std::memcpy(&price,item.data()+0x7c,2);std::memcpy(&shop,item.data()+0x7e,2);
   if(cache!=1||cooldown!=29||price!=1||shop!=-3||item[0xb5]!=0||item[0xa4]!=0||item[0xa5]!=1||item[0xa6]!=0||item[0xac]!=0)return 6;
-  if(g_AssignmentTargets.size()!=3||g_AssignmentTargets[0]!=AddressOf(card)+0x38||g_AssignmentTargets[1]!=AddressOf(item)+0x88||g_AssignmentTargets[2]!=AddressOf(card)+0x38)return 7;
+  const std::uintptr_t expectedTargets[]={AddressOf(item)+0x08,AddressOf(item)+0x20,AddressOf(item)+0x38,AddressOf(card)+0x08,AddressOf(card)+0x20,AddressOf(card)+0x38,AddressOf(item)+0x88,AddressOf(card)+0x38};
+  if(g_AssignmentTargets.size()!=sizeof(expectedTargets)/sizeof(expectedTargets[0]))return 7;
+  for(std::size_t n=0;n<sizeof(expectedTargets)/sizeof(expectedTargets[0]);++n)if(g_AssignmentTargets[n]!=expectedTargets[n])return 7;
  }
  if(scene=="lifetime"||scene=="crossbase"){
   if(scene=="lifetime"){WriteWord(items,8,0);}else{LuaRuntime::SetEngineModuleBase(g_EngineBase+8);}

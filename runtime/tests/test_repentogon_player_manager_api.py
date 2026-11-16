@@ -19,6 +19,12 @@ static std::vector<unsigned char> moduleBytes,ownerSlot,managerSlot,manager;
 static std::vector<unsigned char> game,playerList,player,backup;
 static std::vector<unsigned char> collectibles,trinkets;
 static std::vector<unsigned char> item5,item6,trinket7,trinket8;
+extern "C" std::uint32_t g_HostEngineCallTrampolineCalls;
+extern "C" std::uintptr_t g_HostEngineCallTrampolineLastTarget;
+static void Seed(void* object,std::uint32_t seed,std::uint32_t shift) {
+ const std::uint32_t values[]{seed,shift};std::memcpy(object,values,sizeof(values));
+}
+static std::uint32_t Random(void*,std::uint32_t max) {return max-1;}
 static bool Has(void* entity,std::uint32_t id,bool ignore){
  (void)ignore;
  if(entity!=player.data()&&entity!=backup.data())return false;
@@ -49,6 +55,8 @@ int main(){
  item5.assign(0x100,0);item6.assign(0x100,0);
  trinket7.assign(0x100,0);trinket8.assign(0x100,0);
  const auto base=reinterpret_cast<std::uintptr_t>(moduleBytes.data());
+ std::memcpy(moduleBytes.data()+kEntityPlayerEvaluateItemsOffset,
+   kEntityPlayerEvaluateItemsExpectedBytes.data(),kEntityPlayerEvaluateItemsExpectedBytes.size());
  const auto vptr=base+kEntityPlayerVtableOffset;
  std::memcpy(player.data(),&vptr,8);
  std::memcpy(backup.data(),&vptr,8);
@@ -100,6 +108,12 @@ int main(){
    sizeof(managerSlotAddress));
  LuaRuntime::SetEngineModuleBase(base);LuaRuntime::SetGameBindings(
    ownerSlotAddress,0);LuaRuntime::ObserveGameThread();
+ LuaRuntime::SetRngBindings(reinterpret_cast<std::uintptr_t>(&Seed),0);
+ LuaRuntime::SetRngRandomBindings(reinterpret_cast<std::uintptr_t>(&Random),0);
+ std::memset(game.data()+kGamePlayerArrayBeginOffset,0,16);
+ assert(ResolveEnginePlayerArray().readable&&ResolveEnginePlayerArray().count==0);
+ std::memcpy(game.data()+kGamePlayerArrayBeginOffset,&begin,8);
+ std::memcpy(game.data()+kGamePlayerArrayEndOffset,&end,8);
  Files files(true);SetSessionSaveFilePort(&files);
  const repentogon::NativePort port{Ready,Ready};repentogon::SetNativePort(&port);
  SetEntityPlayerHasCollectibleHostImplementation(&Has);
@@ -108,6 +122,24 @@ int main(){
  const auto players=isaac::runtime::ResolveEnginePlayerArray();
  assert(players.readable&&players.count==1);
  const char* script=R"lua(
+local players = PlayerManager.GetPlayers()
+assert(type(players)=='table' and #players==1)
+assert(GetPtrHash(players[1])==GetPtrHash(Isaac.GetPlayer(0)))
+players[1]=nil
+assert(#PlayerManager.GetPlayers()==1) -- a fresh table, not the engine container
+assert(PlayerManager.AnyoneIsPlayerType(PlayerType.PLAYER_ISAAC))
+assert(not PlayerManager.AnyoneIsPlayerType(PlayerType.PLAYER_MAGDALENE))
+local p=Isaac.GetPlayer(0)
+assert(select('#',p:AddCacheFlags(CacheFlag.CACHE_SPEED,false))==0)
+assert(select('#',p:AddCacheFlags(CacheFlag.CACHE_DAMAGE,true))==0)
+assert(RNG(91,9):GetSeed()==91 and RNG():GetSeed()==0xAA17414F)
+assert(not pcall(RNG,0,9) and not pcall(RNG,91,81))
+assert(RNG(91):RandomInt(-5,4)==4 and RNG(91):RandomInt(4,4)==4)
+assert(RNG(91):RandomInt(4)==3 and not pcall(function() RNG(91):RandomInt(4,3) end))
+local item=Isaac.GetItemConfig():GetCollectible(5)
+item.MaxCharges=13;item.ChargeType=2
+assert(item.MaxCharges==13 and item.ChargeType==2)
+assert(not pcall(function() item.MaxCharges=1.5 end))
 assert(PlayerManager.AnyoneHasCollectible(5,false))
 assert(PlayerManager.AnyoneHasCollectible(6,false)==true) -- backup with LazShared tag
 assert(PlayerManager.AnyoneHasTrinket(7,true))
@@ -121,6 +153,8 @@ assert(not pcall(function()PlayerManager.AnyoneHasCollectible(1,1)end))
   char error[2048]{};static_cast<void>(LuaRuntime::CopyLastLuaErrorText(error,sizeof(error)));
   std::fprintf(stderr,"%s\n",error);return 1;
  }
+ assert(g_HostEngineCallTrampolineCalls==1);
+ assert(g_HostEngineCallTrampolineLastTarget==base+kEntityPlayerEvaluateItemsOffset);
  assert(LuaRuntime::ShutdownForModReload());
  repentogon::SetNativePort(nullptr);
  SetEntityPlayerHasCollectibleHostImplementation(nullptr);SetRepentogonPlayerManagerTrinketHost(nullptr);

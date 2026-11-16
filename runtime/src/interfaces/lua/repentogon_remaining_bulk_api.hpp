@@ -15,6 +15,7 @@ int RepentogonEntityPlayerGetFlippedForm(lua_State* state);
 int RepentogonEntityPickupIsBlind(lua_State* state);
 int RepentogonItemPoolGetNumItemPools(lua_State* state);
 int RepentogonItemPoolGetCollectiblesFromPool(lua_State* state);
+int RepentogonItemPoolGetRemovedCollectibles(lua_State* state);
 
 #if !defined(__SWITCH__)
 struct RepentogonRemainingBulkNativeTestBindings {

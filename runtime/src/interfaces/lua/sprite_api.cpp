@@ -49,6 +49,7 @@ using LuaRuntime::kColorMetatable;
 using LuaRuntime::kSpriteMetatable;
 using LuaRuntime::kSpriteSourceEngineEntity;
 using LuaRuntime::kSpriteSourceEngineGridEntity;
+using LuaRuntime::kSpriteSourceEnginePlayerHeld;
 using LuaRuntime::kSpriteSourceRuntimeOwned;
 using LuaRuntime::SpriteHandle;
 using LuaRuntime::VectorHandle;
@@ -108,6 +109,19 @@ bool WriteEngine(std::uintptr_t address, const T& value) noexcept {
 struct CallbackSpriteLifetime { bool active{}; };
 struct CallbackSpriteHandle { SpriteHandle base{}; CallbackSpriteLifetime* lifetime{}; bool persistent{}; };
 constexpr char kCallbackSpriteCache[]="IsaacRuntime.CallbackSpriteCache";
+
+// REPENTOGON returns &_heldSprite. Switch constructs the inline ANM2 at
+// 0x277bf8 and passes it to ANM2::Render at 0x2d9ecc in render_player_sprite.
+constexpr std::uintptr_t kPlayerHeldSpriteOffset = 0x12d8;
+
+std::uintptr_t ReadablePlayerHeldSprite(std::uintptr_t player) noexcept {
+    if (!engine_memory::RangeUsable(player, kPlayerHeldSpriteOffset + kSpriteObjectSize)) {
+        return 0;
+    }
+    const auto sprite = player + kPlayerHeldSpriteOffset;
+    return IsEngineMemoryReadable(sprite, kSpriteObjectSize) ? sprite : 0;
+}
+
 void* ResolveSpriteObject(const SpriteHandle* handle) noexcept {
     if (handle == nullptr) {
         return nullptr;
@@ -117,6 +131,14 @@ void* ResolveSpriteObject(const SpriteHandle* handle) noexcept {
         if(borrowed->persistent)
             return repentogon::CallbackSpriteAlive(engine_memory::AddressOf(handle->sprite))?handle->sprite:nullptr;
         return borrowed->lifetime&&borrowed->lifetime->active?handle->sprite:nullptr;
+    }
+    if (handle->source == LuaRuntime::kSpriteSourceEngineConfig) {
+        if (!handle->sprite ||
+            !engine_memory::EngineMemoryReadable(
+                engine_memory::AddressOf(handle->sprite), kSpriteObjectSize)) {
+            return nullptr;
+        }
+        return handle->sprite;
     }
     if(handle->source==LuaRuntime::kSpriteSourceEngineGridExtra)return ResolveApi700GridSprite(handle);
     if (handle->source == kSpriteSourceEngineEntity) {
@@ -137,6 +159,16 @@ void* ResolveSpriteObject(const SpriteHandle* handle) noexcept {
             return nullptr;
         }
         return engine_memory::AsObject(owner + kGridEntitySpriteOffset);
+    }
+    if (handle->source == kSpriteSourceEnginePlayerHeld) {
+        const auto player = engine_memory::AddressOf(handle->owner);
+        // Player D2 destroys this ANM2 before base Entity D2 dispatches remove
+        // and retires the token. The base vtable already invalidates the view.
+        if (!LuaRuntime::IsOnGameThread() || !EntityLifetimeAlive(handle->lifetime) ||
+            ClassifyCallbackEntity(player) != CallbackEntityClass::Player) {
+            return nullptr;
+        }
+        return engine_memory::AsObject(ReadablePlayerHeldSprite(player));
     }
     return handle->sprite;
 }
@@ -291,7 +323,8 @@ int ResolveSprite(lua_State* state, const char* apiName, void** sprite) {
     void* resolved = ResolveSpriteObject(handle);
     if (resolved == nullptr) {
         // 两种失效原因分开报，否则真机日志会把"实体没了"误读成"我们自己把 Sprite 释放了"。
-        if (handle->source == kSpriteSourceEngineEntity) {
+        if (handle->source == kSpriteSourceEngineEntity ||
+            handle->source == kSpriteSourceEnginePlayerHeld) {
             return luaL_error(
                 state, "%s: the engine entity this Sprite belongs to is no longer alive", apiName);
         }
@@ -1295,21 +1328,16 @@ int SpriteIsLoaded(lua_State* state) {
     return 1;
 }
 
-// `Entity:GetSprite()` 的句柄。调用方（`isaac_api.cpp` 的 `EntityGetSprite`）已经
-// 用 `ValidatedEntity` 校验过 `entity`，这里只负责建句柄 + 打上**非拥有**标记。
-int PushEngineEntitySpriteHandle(lua_State* state, void* entity) {
-    if (entity == nullptr) {
-        return luaL_error(state, "Entity:GetSprite requires a live entity");
-    }
-    auto* token=PushEntityLifetimeToken(state,engine_memory::AddressOf(entity));
+static int PushEntityOwnedSpriteHandle(lua_State* state, std::uintptr_t owner,
+                                       std::uintptr_t sprite, std::uint8_t source) {
+    auto* token=PushEntityLifetimeToken(state,owner);
     const int tokenIndex=lua_gettop(state);
     auto* handle = static_cast<SpriteHandle*>(lua_newuserdata(state, sizeof(SpriteHandle)));
     handle->lifetime=token;
     lua_pushvalue(state,tokenIndex);lua_setuservalue(state,-2);
-    handle->sprite = engine_memory::AsObject(engine_memory::AddressOf(entity) +
-                                             kEntitySpriteOffset);
-    handle->owner = entity;
-    handle->source = kSpriteSourceEngineEntity;
+    handle->sprite = engine_memory::AsObject(sprite);
+    handle->owner = engine_memory::AsObject(owner);
+    handle->source = source;
     // 三个缓存属性的初值与 PC 的对象默认值一致（与 `CreateSpriteHandle` 同一套理由）。
     handle->scaleX = 1.0F;
     handle->scaleY = 1.0F;
@@ -1325,6 +1353,23 @@ int PushEngineEntitySpriteHandle(lua_State* state, void* entity) {
     lua_setmetatable(state, -2);
     lua_remove(state,tokenIndex);
     return 1;
+}
+
+int PushEngineEntitySpriteHandle(lua_State* state, void* entity) {
+    if (entity == nullptr) {
+        return luaL_error(state, "Entity:GetSprite requires a live entity");
+    }
+    const auto owner = engine_memory::AddressOf(entity);
+    return PushEntityOwnedSpriteHandle(state, owner, owner + kEntitySpriteOffset,
+                                       kSpriteSourceEngineEntity);
+}
+
+int PushEnginePlayerHeldSpriteHandle(lua_State* state, std::uintptr_t player) {
+    const auto sprite = ReadablePlayerHeldSprite(player);
+    if (sprite == 0) {
+        return luaL_error(state, "EntityPlayer:GetHeldSprite native Sprite is unavailable");
+    }
+    return PushEntityOwnedSpriteHandle(state, player, sprite, kSpriteSourceEnginePlayerHeld);
 }
 
 // `GridEntity:GetSprite()` / `GridEntityRock:GetSprite()` 的句柄。
@@ -1354,6 +1399,30 @@ int PushEngineGridEntitySpriteHandle(lua_State* state, void* gridEntity) {
     handle->hasScale = 0;
     handle->hasColor = 0;
     handle->hasFlipX = 0;
+    luaL_getmetatable(state, kSpriteMetatable);
+    lua_setmetatable(state, -2);
+    return 1;
+}
+
+int PushEngineConfigSpriteHandle(lua_State* state, void* sprite) {
+    if (sprite == nullptr) {
+        lua_pushnil(state);
+        return 1;
+    }
+    if (!engine_memory::EngineMemoryReadable(
+            engine_memory::AddressOf(sprite), kSpriteObjectSize)) {
+        return luaL_error(state, "EntityConfig sprite is unreadable");
+    }
+    auto* handle = static_cast<SpriteHandle*>(lua_newuserdata(state, sizeof(SpriteHandle)));
+    *handle = {};
+    handle->sprite = sprite;
+    handle->source = LuaRuntime::kSpriteSourceEngineConfig;
+    handle->scaleX = 1.0F;
+    handle->scaleY = 1.0F;
+    handle->colorRed = 1.0F;
+    handle->colorGreen = 1.0F;
+    handle->colorBlue = 1.0F;
+    handle->colorAlpha = 1.0F;
     luaL_getmetatable(state, kSpriteMetatable);
     lua_setmetatable(state, -2);
     return 1;
@@ -1825,7 +1894,9 @@ int DestroySpriteHandle(lua_State* state) {
     // 这条分支就是所有权标记存在的唯一理由（去掉它 = 每次 GC 都踩一次引擎内存）。
     if (handle->source == kSpriteSourceEngineEntity ||
         handle->source == kSpriteSourceEngineGridEntity ||
+        handle->source == kSpriteSourceEnginePlayerHeld ||
         handle->source == LuaRuntime::kSpriteSourceEngineGridExtra ||
+        handle->source == LuaRuntime::kSpriteSourceEngineConfig ||
         handle->source == LuaRuntime::kSpriteSourceCallbackBorrowed) {
         return 0;
     }

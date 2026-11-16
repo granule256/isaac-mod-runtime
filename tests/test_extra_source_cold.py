@@ -111,13 +111,13 @@ class ExtraSourceColdToolTests(unittest.TestCase):
             self.assertIn(cold.predecessor_kind(self.image, address), ("ret", "b"))
 
     def test_cold_records_are_guarded_and_patch_all_three_holes(self):
-        self.assertEqual(len(cold.SITES), 7)
+        self.assertIn(cold.TEAR_DEATH_SITE, cold.SITES)
         records = cold.cold_records(self.image)
         by_offset = dict(records)
         expected_offsets = set()
         for site in cold.SITES:
             expected_offsets.update((site.source, site.gate, site.fallback))
-        self.assertEqual(len(records), 21)
+        self.assertEqual(len(records), len(cold.SITES) * 3)
         self.assertEqual(set(by_offset), expected_offsets)
         patched = bytearray(self.image)
         for offset, payload in records:
@@ -180,8 +180,7 @@ class ExtraSourceColdToolTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     cold.cold_records(b"", (first, second))
 
-    def test_hole_xref_scan_covers_all_21_ranges_and_detects_a_hit(self):
-        self.assertEqual(len(cold.SITES) * 3, 21)
+    def test_hole_xref_scan_covers_all_ranges_and_detects_a_hit(self):
         self.assertEqual(cold.scan_hole_xrefs(self.image), [])
         image = bytearray(self.image)
         target = cold.LASER_SITE.gate
@@ -235,7 +234,7 @@ class ExtraSourceColdToolTests(unittest.TestCase):
         self.assertEqual(x30, initial_lr)
         self.assertEqual(x16, gateway)
 
-    def test_aarch64_all_seven_gates_keep_blr_contract(self):
+    def test_aarch64_all_gates_keep_blr_contract(self):
         image = bytearray(self.image)
         for offset, payload in cold.cold_records(image):
             image[offset : offset + len(payload)] = payload

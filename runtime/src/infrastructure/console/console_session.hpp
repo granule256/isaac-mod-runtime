@@ -13,6 +13,7 @@
 #include "infrastructure/memory/engine_field_access.hpp"
 #include "lua_runtime_state.hpp"
 #include "raw_engine_input.hpp"
+#include "interfaces/lua/repentogon_imgui_api.hpp"
 #include "runtime_constants.hpp"
 
 #include <cstdint>
@@ -101,7 +102,7 @@ inline void SessionFrameUpdate() noexcept {
     // 首次帧点早于绑定发布时允许恢复，不能永久缓存nullptr。
     if (!query) query=engine_call::AsFunction<ActionQueryFn>(LuaRuntime::InputIsActionPressedBinding());
     if (!query) return;
-    if (!ConsoleSwitchEnabled()) {
+    if (!ConsoleSwitchEnabled() && !RepentogonImGuiAvailable()) {
         PanelFrame(entries,SessionPanelEntries(),base,0,0,{},0,0,false);
         return;
     }
@@ -112,6 +113,45 @@ inline void SessionFrameUpdate() noexcept {
             if (query(nullptr,action,kAnyController,nullptr)) mask|=1U<<action;
     }
     State().actionsSeen|=mask;
+    static std::uint32_t guiHold{},guiPreviousMask{};
+    static bool guiComboLatched{},guiRelease{};
+    bool guiCombo=false;
+    if(RepentogonImGuiAvailable() && buttonQuery) {
+        const auto manager=LoadPointerField(base,kKageInputManagerSlotOffset);
+        if(manager) {
+            auto* object=engine_memory::AsObject(manager);
+            guiCombo=buttonQuery(object,9,kAnyController,nullptr) &&
+                     buttonQuery(object,12,kAnyController,nullptr);
+        }
+    }
+    // Hold ZL+ZR to open the extension menu; read physical edges before masking
+    // gameplay input. The existing console remains on its own configured keys.
+    if(guiCombo) {
+        if(guiHold<48)++guiHold;
+        if(guiHold==48&&!guiComboLatched) {
+            SetRepentogonImGuiVisible(!RepentogonImGuiVisible());
+            guiComboLatched=true;guiRelease=true;
+        }
+    } else {guiHold=0;guiComboLatched=false;}
+    const bool wasGui=RepentogonImGuiVisible();
+    if(wasGui) {
+        const auto edges=mask&~guiPreviousMask;
+        const auto frame=ImGuiInputFromEngineEdges(edges);
+        static_cast<void>(UpdateRepentogonImGui(frame));
+        guiRelease=true;
+    }
+    guiPreviousMask=mask;
+    if(!mask&&!guiCombo&&!RepentogonImGuiVisible())guiRelease=false;
+    if(wasGui||RepentogonImGuiVisible()||guiRelease) {
+        g_ConsolePaused.store(RepentogonImGuiVisible(),std::memory_order_relaxed);
+        g_ConsoleInputCaptured.store(1,std::memory_order_relaxed);
+        Panel().previousMask=mask;
+        return;
+    }
+    if(!ConsoleSwitchEnabled()) {
+        PanelFrame(entries,SessionPanelEntries(),base,0,0,{},0,0,false);
+        return;
+    }
     bool combo=false;
     if (buttonQuery) {
         const auto manager=LoadPointerField(base,kKageInputManagerSlotOffset);
@@ -142,6 +182,16 @@ inline void SessionFrameUpdate() noexcept {
 }
 
 // 只从Game::Render返回处调用，保持游戏逻辑画布与上下文；不在最终Present外侧画。
-inline void SessionRenderOverlay() noexcept { RenderPanel(SessionPanelEntries()); }
+inline void SessionRenderOverlay() noexcept {
+    RenderPanel(SessionPanelEntries());
+    if(RepentogonImGuiVisible()) {
+        const auto base=LuaRuntime::EngineModuleBase();
+        float height=720.0F;
+        const auto slot=LoadPointerField(base,kIsaacScreenHeightSlotOffset);
+        if(slot)static_cast<void>(engine_memory::ReadAt(slot,&height,
+            engine_memory::EngineMemoryReadable));
+        static_cast<void>(DrawRepentogonImGui({12,12,ScreenWidth(base)-24,height-24,1}));
+    }
+}
 
 } // namespace isaac::runtime::console

@@ -27,6 +27,11 @@
 #include "interfaces/lua/repentogon_game_state_data.hpp"
 #include "interfaces/lua/repentogon_room_placement_api.hpp"
 #include "interfaces/lua/repentogon_generator_api.hpp"
+#include "interfaces/lua/repentogon_imgui_api.hpp"
+#include "interfaces/lua/repentogon_weapon_api.hpp"
+#include "interfaces/lua/repentogon_minimap_api.hpp"
+#include "interfaces/lua/repentogon_playerhud_hearts_api.hpp"
+#include "interfaces/lua/custom_cache_api.hpp"
 #include "application/callback/extended_callback_runtime.hpp"
 #include "lua_runtime.hpp"
 #include <array>
@@ -38,9 +43,14 @@ namespace isaac::runtime::repentogon {
 namespace {
 const NativePort* g_NativePort{};
 constexpr RepentogonCallbackBinding kCallbacks[]={
+    {1004,"MC_PRE_ADD_COLLECTIBLE"},
     {1005,"MC_POST_ADD_COLLECTIBLE"},
     {1006,"MC_POST_ENTITY_TAKE_DMG"},
     {1008,"MC_PRE_PLAYER_TAKE_DMG"},
+    {1009,"MC_PRE_PLAYER_ADD_HEARTS"},
+    {1010,"MC_POST_PLAYER_ADD_HEARTS"},
+    {1011,"MC_POST_GRID_ROCK_DESTROY"},
+    {1012,"MC_GRID_HURT_DAMAGE"},
     {1020,"MC_HUD_UPDATE"},
     {1021,"MC_POST_HUD_UPDATE"},
     {1022,"MC_HUD_RENDER"},
@@ -49,10 +59,23 @@ constexpr RepentogonCallbackBinding kCallbacks[]={
     {1026,"MC_PRE_UPDATE"},
     {1030,"MC_PRE_SFX_PLAY"},
     {1031,"MC_POST_SFX_PLAY"},
+    {1033,"MC_POST_TEAR_DEATH"},
+    {1034,"MC_PRE_MUSIC_PLAY"},
+    {1050,"MC_PRE_TRIGGER_PLAYER_DEATH"},
+    {1051,"MC_TRIGGER_PLAYER_DEATH_POST_CHECK_REVIVES"},
     {1060,"MC_PRE_LEVEL_INIT"},
     {1061,"MC_PRE_CHANGE_ROOM"},
+    {1063,"MC_GET_FOLLOWER_PRIORITY"},
+    {1064,"MC_PRE_USE_CARD"},
+    {1066,"MC_GET_SHOP_ITEM_PRICE"},
+    {1067,"MC_PLAYER_GET_HEALTH_TYPE"},
+    {1068,"MC_PRE_ROOM_TRIGGER_CLEAR"},
     {1069,"MC_PRE_PLAYER_TRIGGER_ROOM_CLEAR"},
+    {1072,"MC_PLAYER_GET_ACTIVE_MAX_CHARGE"},
     {1073,"MC_PLAYER_GET_ACTIVE_MIN_USABLE_CHARGE"},
+    {1074,"MC_PLAYER_GET_HEART_LIMIT"},
+    {1077,"MC_POST_PLAYER_NEW_ROOM_TEMP_EFFECTS"},
+    {1078,"MC_POST_PLAYER_NEW_LEVEL"},
     {1079,"MC_POST_PLAYERHUD_RENDER_ACTIVE_ITEM"},
     {1080,"MC_PRE_FAMILIAR_RENDER"},
     {1081,"MC_PRE_NPC_RENDER"},
@@ -66,13 +89,21 @@ constexpr RepentogonCallbackBinding kCallbacks[]={
     {1089,"MC_PRE_SLOT_RENDER"},
     {1090,"MC_POST_SLOT_RENDER"},
     {1095,"MC_POST_TRIGGER_COLLECTIBLE_REMOVED"},
+    {1098,"MC_POST_TRIGGER_WEAPON_FIRED"},
     {1099,"MC_POST_LEVEL_LAYOUT_GENERATED"},
     {1101,"MC_POST_GRID_ENTITY_SPAWN"},
     {1102,"MC_POST_NIGHTMARE_SCENE_RENDER"},
     {1104,"MC_PRE_LEVEL_SELECT"},
+    {1114,"MC_PRE_PLANETARIUM_APPLY_TELESCOPE_LENS"},
+    {1118,"MC_PRE_PLAYERHUD_RENDER_HEARTS"},
+    {1119,"MC_PRE_PLAYERHUD_RENDER_ACTIVE_ITEM"},
     {1120,"MC_CONSOLE_AUTOCOMPLETE"},
     {1121,"MC_POST_SLOT_INIT"},
     {1122,"MC_POST_SLOT_UPDATE"},
+    {1123,"MC_PRE_SLOT_CREATE_EXPLOSION_DROPS"},
+    {1124,"MC_POST_SLOT_CREATE_EXPLOSION_DROPS"},
+    {1131,"MC_PRE_DEVIL_APPLY_STAGE_PENALTY"},
+    {1132,"MC_PRE_DEVIL_APPLY_SPECIAL_ITEMS"},
     {1133,"MC_POST_DEVIL_CALCULATE"},
     {1137,"MC_PRE_LEVEL_PLACE_ROOM"},
     {1160,"MC_PRE_PLAYER_UPDATE"},
@@ -85,16 +116,21 @@ constexpr RepentogonCallbackBinding kCallbacks[]={
     {1167,"MC_PRE_LASER_UPDATE"},
     {1168,"MC_PRE_EFFECT_UPDATE"},
     {1169,"MC_PRE_SLOT_UPDATE"},
+    {1171,"MC_PRE_PLAYER_GRID_COLLISION"},
     {1200,"MC_PRE_NEW_ROOM"},
     {1201,"MC_PRE_MEGA_SATAN_ENDING"},
     {1210,"MC_POST_MODS_LOADED"},
+    {1213,"MC_PRE_PICKUP_MORPH"},
     {1218,"MC_PRE_PAUSE_SCREEN_RENDER"},
     {1219,"MC_POST_PAUSE_SCREEN_RENDER"},
+    {1224,"MC_EVALUATE_CUSTOM_CACHE"},
     {1231,"MC_POST_PLAYER_COLLISION"},
     {1233,"MC_POST_TEAR_COLLISION"},
     {1235,"MC_POST_FAMILIAR_COLLISION"},
     {1237,"MC_POST_BOMB_COLLISION"},
     {1239,"MC_POST_PICKUP_COLLISION"},
+    {1243,"MC_POST_KNIFE_COLLISION"},
+    {1241,"MC_POST_SLOT_COLLISION"},
     {1270,"MC_POST_BOSS_INTRO_SHOW"},
     {1280,"MC_PRE_BOSS_SELECT"},
     {1300,"MC_POST_GLOWING_HOURGLASS_SAVE"},
@@ -171,16 +207,22 @@ constexpr RepentogonCallbackBinding kCallbacks[]={
     {1470,"MC_POST_SAVESLOT_LOAD"},
     {1103,"MC_POST_NIGHTMARE_SCENE_SHOW"},
     {1255,"MC_POST_FIRE_BRIMSTONE"},
+    {1251,"MC_POST_PLAYER_GET_MULTI_SHOT_PARAMS"},
     {1258,"MC_POST_FIRE_SWORD"},
     {1259,"MC_POST_FIRE_TECH_LASER"},
     {1260,"MC_POST_FIRE_TECH_X_LASER"},
+    {1265,"MC_PRE_PICKUP_VOIDED"},
     {1216,"MC_PRE_COMPLETION_MARKS_RENDER"},
     {1217,"MC_POST_COMPLETION_MARKS_RENDER"},
     {1333,"MC_PRE_RENDER_CUSTOM_CHARACTER_MENU"},
     {1271,"MC_POST_ROOM_TRANSITION_UPDATE"},
+    {1484,"MC_PRE_ITEM_TEXT_DISPLAY"},
+    {1481,"MC_PRE_PLAYER_REVIVE"},
+    {1482,"MC_POST_PLAYER_REVIVE"},
+    {1222,"MC_NPC_PICK_TARGET"},
 };
 constexpr auto kCallbackCount=sizeof(kCallbacks)/sizeof(kCallbacks[0]);
-static_assert(kCallbackCount==140);
+static_assert(kCallbackCount==177);
 constexpr RepentogonEnumBinding kEnums[]={
     {"ModCallbacks","MC_HUD_POST_UPDATE",1021},
     {"StbType","SPECIAL_ROOMS",0},
@@ -405,6 +447,28 @@ constexpr RepentogonApiBinding kApis[]={
       ApiMaturity::Experimental},RepentogonPlayerManagerAnyoneHasCollectible},
     {{0x0E020009,ApiDomain::Isaac,"PlayerManager","AnyoneHasTrinket",{},0,ThreadAffinity::ManagedCallback,
       ApiMaturity::Experimental},RepentogonPlayerManagerAnyoneHasTrinket},
+    {{0x0E02000E,ApiDomain::Isaac,"PlayerManager","GetPlayers",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonPlayerManagerGetPlayers},
+    {{0x0E02000F,ApiDomain::Isaac,"EntityPlayer","GetHeldSprite",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonEntityPlayerGetHeldSprite},
+    {{0x0E020010,ApiDomain::Isaac,"EntityPlayer","GetActiveMaxCharge",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonEntityPlayerGetActiveMaxCharge},
+    {{0x0E020011,ApiDomain::Isaac,"PlayerManager","AnyoneIsPlayerType",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonPlayerManagerAnyoneIsPlayerType},
+    {{0x02020002,ApiDomain::Game,"Game","SetColorModifier",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonGameSetColorModifier},
+    {{0x04020013,ApiDomain::Room,"Room","UpdateColorModifier",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonRoomUpdateColorModifier},
+    {{0x0E02410B,ApiDomain::Isaac,"PauseMenu","GetState",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonPauseMenuGetState},
+    {{0x0E02410C,ApiDomain::Isaac,"PauseMenu","GetSprite",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonPauseMenuGetSprite},
+    {{0x0E02410D,ApiDomain::Isaac,"PauseMenu","GetStatsSprite",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonPauseMenuGetStatsSprite},
+    {{0x0E02410E,ApiDomain::Isaac,"PauseMenu","GetMyStuffSprite",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonPauseMenuGetMyStuffSprite},
+    {{0x0E02410F,ApiDomain::Isaac,"PauseMenu","GetCompletionMarksSprite",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonPauseMenuGetCompletionMarksSprite},
     {{0x0E02000A,ApiDomain::Isaac,"EntityPlayer","GetDeadEyeCharge",{},0,ThreadAffinity::ManagedCallback,
       ApiMaturity::Experimental},RepentogonEntityPlayerGetDeadEyeCharge},
     {{0x0E02000B,ApiDomain::Isaac,"EntityPlayer","GetPurityState",{},0,ThreadAffinity::ManagedCallback,
@@ -413,6 +477,8 @@ constexpr RepentogonApiBinding kApis[]={
       ApiMaturity::Experimental},RepentogonEntityPlayerAddActiveCharge},
     {{0x0E02000C,ApiDomain::Isaac,"Entity","SetDead",{},0,ThreadAffinity::ManagedCallback,
       ApiMaturity::Experimental},RepentogonEntitySetDead},
+    {{0x0E020012,ApiDomain::Isaac,"Entity","SetInvincible",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonEntitySetInvincible},
     {{0x04020001,ApiDomain::Room,"Room","SetWaterAmount",{},0,ThreadAffinity::ManagedCallback,
       ApiMaturity::Experimental},RepentogonRoomSetWaterAmount},
     {{0x04020002,ApiDomain::Room,"Room","SetWaterCurrent",{},0,ThreadAffinity::ManagedCallback,
@@ -507,6 +573,22 @@ constexpr RepentogonApiBinding kApis[]={
       ApiMaturity::Experimental},RepentogonEntityConfigPlayerIsTainted},
     {{0x0E02300B,ApiDomain::Isaac,"EntityConfigPlayer","GetName",{},0,ThreadAffinity::ManagedCallback,
       ApiMaturity::Experimental},RepentogonEntityConfigPlayerGetName},
+    {{0x0E02300C,ApiDomain::Isaac,"EntityConfigEntity","GetAnm2Path",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonEntityConfigEntityGetAnm2Path},
+    {{0x0E02300D,ApiDomain::Isaac,"EntityConfigPlayer","GetModdedMenuBackgroundSprite",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonEntityConfigPlayerGetModdedMenuBackgroundSprite},
+    {{0x0E02300E,ApiDomain::Isaac,"EntityConfigPlayer","GetModdedMenuPortraitSprite",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonEntityConfigPlayerGetModdedMenuPortraitSprite},
+    {{0x0E02300F,ApiDomain::Isaac,"EntityConfigPlayer","GetModdedGameOverSprite",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonEntityConfigPlayerGetModdedGameOverSprite},
+    {{0x0E023010,ApiDomain::Isaac,"EntityConfigPlayer","GetModdedCoopMenuSprite",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonEntityConfigPlayerGetModdedCoopMenuSprite},
+    {{0x0E023011,ApiDomain::Isaac,"EntityConfigPlayer","GetModdedControlsSprite",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonEntityConfigPlayerGetModdedControlsSprite},
+    {{0x0E023012,ApiDomain::Isaac,"EntityConfigEntity","GetEntityTags",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonEntityConfigEntityGetEntityTags},
+    {{0x0E023013,ApiDomain::Isaac,"EntityConfigEntity","HasEntityTags",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonEntityConfigEntityHasEntityTags},
     {{0x0E026000,ApiDomain::Isaac,"EntityPlayer","GetDamageModifier",{},0,ThreadAffinity::ManagedCallback,
       ApiMaturity::Experimental},RepentogonEntityPlayerGetDamageModifier},
     {{0x0E026001,ApiDomain::Isaac,"EntityPlayer","GetEdenDamage",{},0,ThreadAffinity::ManagedCallback,
@@ -521,6 +603,8 @@ constexpr RepentogonApiBinding kApis[]={
       ApiMaturity::Experimental},RepentogonItemPoolGetNumItemPools},
     {{0x05010008,ApiDomain::ItemPool,"ItemPool","GetCollectiblesFromPool",{},0,ThreadAffinity::ManagedCallback,
       ApiMaturity::Experimental},RepentogonItemPoolGetCollectiblesFromPool},
+    {{0x05010009,ApiDomain::ItemPool,"ItemPool","GetRemovedCollectibles",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonItemPoolGetRemovedCollectibles},
     {{0x0E027000,ApiDomain::Isaac,"RoomDescriptor","GetEntitiesSaveState",{},0,ThreadAffinity::ManagedCallback,
       ApiMaturity::Experimental},RepentogonRoomDescriptorGetEntitiesSaveState},
     {{0x0E027001,ApiDomain::Isaac,"RoomDescriptor","GetDecoSaveState",{},0,ThreadAffinity::ManagedCallback,
@@ -680,7 +764,7 @@ constexpr RepentogonApiBinding kApis[]={
 };
 // A bounded read-only ID map addresses the cached states, not the ordinary ID array.
 constexpr auto MakeStateIndices() noexcept {
-    std::array<std::uint8_t,1472-1000> indices{};
+    std::array<std::uint8_t,1485-1000> indices{};
     for(auto& index:indices)index=255;
     for(std::size_t i=0;i<kCallbackCount;++i)indices[kCallbacks[i].id-1000]=static_cast<std::uint8_t>(i);
     return indices;
@@ -694,6 +778,7 @@ void Reset() noexcept {
     ResetRepentogonAchievementState();
     ResetRepentogonCustomCompletionMarks();
     ClearRepentogonMenuInputMask();
+    if(g_NativePort&&g_NativePort->resetCustomCacheRun)g_NativePort->resetCustomCacheRun();
 }
 
 bool Ready() noexcept {
@@ -724,6 +809,11 @@ int Initialize(lua_State* state) {
     static_cast<void>(RegisterRepentogonGameStateData(state));
     static_cast<void>(RegisterRepentogonRoomPlacementApi(state));
     RegisterRepentogonGeneratorViews(state);
+    static_cast<void>(RegisterRepentogonImGuiApi(state));
+    RegisterRepentogonWeaponApi(state);
+    RegisterRepentogonMinimapApi(state);
+    RegisterRepentogonPlayerHudHearts(state);
+    static_cast<void>(RegisterCustomCacheApi(state));
     return 0;
 }
 }
@@ -746,7 +836,7 @@ bool HasNativePortAvailable() noexcept { return g_NativePort!=nullptr; }
 constinit const RepentogonBatch kCallbackBatch{"callbacks",kApis,sizeof(kApis)/sizeof(kApis[0]),kEnums,sizeof(kEnums)/sizeof(kEnums[0]),kCallbacks,kCallbackCount,Initialize,Reset,Ready};
 const RepentogonBatch& CallbackBatch() noexcept {return kCallbackBatch;}
 const ExtendedCallbackState* FindCallbackState(std::uint32_t id) noexcept {
-    if(id>=1000&&id<1472) {
+    if(id>=1000&&id<1485) {
         const auto index=kStateIndices[id-1000];
         if(index!=255&&g_States[index])return g_States[index];
     }

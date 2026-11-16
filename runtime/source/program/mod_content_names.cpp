@@ -43,6 +43,7 @@ std::uint32_t g_ModKeyCount = 0;
 // 追加一格"同语义；漏推进会让后面的条目整体错位（静默错）。
 std::int32_t g_NextId[static_cast<std::size_t>(ModContentNameFamily::Count)] = {
     kModContentNameIdBase[0], kModContentNameIdBase[1], kModContentNameIdBase[2],
+    kModContentNameIdBase[3],
 };
 ModContentNameStats g_Stats = {};
 
@@ -61,6 +62,7 @@ constexpr TagRule kItemsRules[] = {
     {"familiar", 8, ModContentNameFamily::Collectible},
     {"trinket", 7, ModContentNameFamily::Trinket},
 };
+constexpr TagRule kNullRule{"null", 4, ModContentNameFamily::Null};
 // `pocketitems.xml` 的识别规则：`<card>` 与 `<rune>` 同一条处理路（都进卡牌向量）；
 // `<pilleffect>` 走另一条路（药丸向量）⇒ 不识别、不占卡牌 id。
 constexpr TagRule kPocketRules[] = {
@@ -273,7 +275,8 @@ bool TagMatches(const char* xml, std::size_t nameStart, std::size_t nameLength,
 // 返回识别到的总数（不受 capacity 限制；超出 capacity 记在 `*overflow` 里，由调用方处置）。
 std::uint32_t ParseTaggedFile(const char* xml, std::size_t length, ModContentFileKind file,
                               ModContentName* out, std::uint32_t capacity, bool skipNegativeId,
-                              bool* malformed, std::uint32_t* skipped, std::uint32_t* overflow) noexcept {
+                              bool* malformed, std::uint32_t* skipped, std::uint32_t* overflow,
+                              bool readCacheTags = false) noexcept {
     if (malformed != nullptr) {
         *malformed = false;
     }
@@ -342,6 +345,9 @@ std::uint32_t ParseTaggedFile(const char* xml, std::size_t length, ModContentFil
                 break;
             }
         }
+        if (matched == nullptr && readCacheTags && TagMatches(xml, nameStart, nameLength, kNullRule)) {
+            matched = &kNullRule;
+        }
         if (matched == nullptr) {
             continue;  // 不认识的标签：不占 id
         }
@@ -365,27 +371,24 @@ std::uint32_t ParseTaggedFile(const char* xml, std::size_t length, ModContentFil
         if (!hasHud) {
             (void)ExtractAttribute(xml, nameStart, tagEnd, "name", 4, &value, &valueLength);
         }
-        if (value != nullptr && valueLength > 0) {
-            // 有名条目。
-            if (out != nullptr && stored < capacity) {
-                out[stored].family = matched->family;
-                out[stored].name = value;
-                out[stored].length = valueLength;
-            } else {
-                ++over;
+        ModContentName entry{matched->family, valueLength ? value : nullptr, valueLength};
+        if (readCacheTags) {
+            (void)ExtractAttribute(xml, nameStart, tagEnd, "customcache", 11,
+                                  &entry.customCache, &entry.customCacheLength);
+            if (matched->family == ModContentNameFamily::Null) {
+                const char* idText = nullptr;
+                std::size_t idLength = 0;
+                if (!entry.customCacheLength ||
+                    !ExtractAttribute(xml, nameStart, tagEnd, "id", 2, &idText, &idLength) ||
+                    !ParseIntAttribute(idText, idLength, &entry.explicitId)) continue;
             }
-            ++stored;
-        } else {
-            // 无名条目：仍占一个 id（引擎照样 append），但不进表。
-            if (out != nullptr && stored < capacity) {
-                out[stored].family = matched->family;
-                out[stored].name = nullptr;
-                out[stored].length = 0;
-            } else {
-                ++over;
-            }
-            ++stored;
         }
+        if (out != nullptr && stored < capacity) {
+            out[stored] = entry;
+        } else {
+            ++over;
+        }
+        ++stored;
     }
     // `NextTag` 在"最后一个标签没闭合 `>`"时会返回 false（于是上面的 `while` 直接退出，
     //   循环体里那次 `truncated` 检查根本没机会跑）。必须在这里补一次，否则截断文件会被当成
@@ -425,7 +428,7 @@ bool StoreName(ModContentNameFamily family, const char* name, std::size_t length
 }
 
 std::uint32_t Ingest(ModContentFileKind file, const char* modKey, const char* xml,
-                     std::size_t length) noexcept {
+                     std::size_t length, ModContentItemTagSink cacheTags) noexcept {
     // 幂等键不能为空 —— 没有键就无法保证"同名模组喂两次不追加两次"，宁可不加。
     if (modKey == nullptr || modKey[0] == '\0') {
         ++g_Stats.malformedFiles;
@@ -460,7 +463,7 @@ std::uint32_t Ingest(ModContentFileKind file, const char* modKey, const char* xm
     const bool skipNegativeId = file == ModContentFileKind::PocketItems;
     const std::uint32_t count =
         ParseTaggedFile(xml, length, file, names, kMaxEntriesPerFile, skipNegativeId, &malformed,
-                        &skipCount, &overflow);
+                        &skipCount, &overflow, cacheTags && file == ModContentFileKind::Items);
     g_Stats.skippedEntries += skipCount;
     if (malformed) {
         ++g_Stats.malformedFiles;
@@ -476,10 +479,18 @@ std::uint32_t Ingest(ModContentFileKind file, const char* modKey, const char* xm
 
     std::uint32_t appended = 0;
     for (std::uint32_t index = 0; index < count; ++index) {
+        const auto& entry = names[index];
+        if (entry.family == ModContentNameFamily::Null) {
+            cacheTags(entry.family, entry.explicitId, entry.customCache, entry.customCacheLength);
+            continue;
+        }
         const auto familyIndex = static_cast<std::size_t>(names[index].family);
         const std::int32_t id = g_NextId[familyIndex];
         ++g_NextId[familyIndex];  // 无论存没存，都占一个 id（与引擎"往向量里追加一格"一致）
         ++g_Stats.consumedIds;
+        if (entry.customCacheLength) {
+            cacheTags(entry.family, id, entry.customCache, entry.customCacheLength);
+        }
         if (names[index].name == nullptr) {
             ++g_Stats.unnamedEntries;  // 占 id 但不进表
             continue;
@@ -511,8 +522,8 @@ std::uint32_t ParseModPocketItemsXml(const char* xml, std::size_t length, ModCon
 }
 
 std::uint32_t IngestModContentXml(ModContentFileKind file, const char* modKey, const char* xml,
-                                  std::size_t length) noexcept {
-    return Ingest(file, modKey, xml, length);
+                                  std::size_t length, ModContentItemTagSink cacheTags) noexcept {
+    return Ingest(file, modKey, xml, length, cacheTags);
 }
 
 std::int32_t LookupModContentName(ModContentNameFamily family, const char* name,

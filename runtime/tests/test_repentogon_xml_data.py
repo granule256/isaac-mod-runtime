@@ -23,6 +23,7 @@ STORE_DRIVER = r'''
 using isaac::runtime::xml_data::FindEntityByTypeVarSub;
 using isaac::runtime::xml_data::FindEntryById;
 using isaac::runtime::xml_data::FindEntryByOrder;
+using isaac::runtime::xml_data::FindItemPoolByName;
 using isaac::runtime::xml_data::CountEntries;
 using isaac::runtime::xml_data::IngestXmlDataFile;
 using isaac::runtime::xml_data::ResetXmlDataStore;
@@ -146,6 +147,31 @@ int main() {
     assert(std::strcmp(ChildAttr(basement->children[0].entries[0], "value"), "one") == 0);
     const XmlRecord* cellar = FindEntryById(XmlNodeType::Backdrop, 2);
     assert(cellar && std::strcmp(Attr(cellar, "name"), "Cellar") == 0);
+
+    const char base_pools[] =
+        "<ItemPools><Pool Name='treasure'><Item id='1'/></Pool>"
+        "<Pool Name='shop'><Item id='2'/></Pool></ItemPools>";
+    const char mod_pools[] =
+        "<ItemPools><Pool Name='treasure'><Item id='3'/></Pool>"
+        "<Pool Name='shionBeggar'><Item id='4'/></Pool>"
+        "<Pool Name='flandre'><Item id='5'/></Pool></ItemPools>";
+    assert(IngestXmlDataFile(XmlDataFileKind::ItemPools, "BaseGame", false, base_pools,
+                             std::strlen(base_pools), {}));
+    assert(IngestXmlDataFile(XmlDataFileKind::ItemPools, "3387954355", true, mod_pools,
+                             std::strlen(mod_pools), {}));
+    assert(CountEntries(XmlNodeType::ItemPool) == 4);
+    const XmlRecord* merged_pool = FindItemPoolByName("treasure");
+    assert(merged_pool && merged_pool->id == 0);
+    const auto* merged_items = merged_pool->FindChildren("item");
+    assert(merged_items && merged_items->entries.size() == 2);
+    assert(std::strcmp(ChildAttr(merged_items->entries[0], "id"), "1") == 0);
+    assert(std::strcmp(ChildAttr(merged_items->entries[1], "id"), "3") == 0);
+    const XmlRecord* shion_pool = FindItemPoolByName("shionBeggar");
+    assert(shion_pool && shion_pool->id == 31);
+    assert(std::strcmp(Attr(shion_pool, "sourceid"), "3387954355") == 0);
+    const XmlRecord* flandre_pool = FindItemPoolByName("flandre");
+    assert(flandre_pool && flandre_pool->id == 32);
+    assert(FindItemPoolByName("missing") == nullptr);
 
     const char malformed[] = "<entities><entity id='1'";
     assert(!IngestXmlDataFile(XmlDataFileKind::Entities, "Bad", true, malformed,

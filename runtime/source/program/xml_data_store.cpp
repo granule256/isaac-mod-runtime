@@ -1,10 +1,12 @@
 #include "program/xml_data_store.hpp"
+#include "program/custom_item_pool.hpp"
 
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
+#include <iterator>
 #include <limits>
 #include <new>
 #include <string_view>
@@ -439,6 +441,26 @@ struct EntityKeyHash {
     }
 };
 
+constexpr std::string_view kBaseItemPoolNames[] = {
+    "treasure",      "shop",        "boss",         "devil",
+    "angel",         "secret",      "library",      "shellGame",
+    "goldenChest",   "redChest",    "beggar",       "demonBeggar",
+    "curse",         "keyMaster",   "batteryBum",   "momsChest",
+    "greedTreasure", "greedBoss",   "greedShop",    "greedDevil",
+    "greedAngel",    "greedCurse",  "greedSecret",  "craneGame",
+    "ultraSecret",   "bombBum",     "planetarium",  "oldChest",
+    "babyShop",      "woodenChest", "rottenBeggar",
+};
+
+int BaseItemPoolId(std::string_view name) noexcept {
+    for (std::size_t index = 0; index < std::size(kBaseItemPoolNames); ++index) {
+        if (kBaseItemPoolNames[index] == name) {
+            return static_cast<int>(index);
+        }
+    }
+    return -1;
+}
+
 struct CategoryState {
     std::vector<XmlRecord> records;
     std::unordered_map<int, std::size_t> byId;
@@ -449,7 +471,7 @@ struct CategoryState {
 };
 
 struct Store {
-    CategoryState categories[6];
+    CategoryState categories[7];
 };
 
 Store* g_store = nullptr;
@@ -469,6 +491,8 @@ int CategoryIndex(XmlNodeType type) noexcept {
             return 4;
         case XmlNodeType::Player:
             return 5;
+        case XmlNodeType::ItemPool:
+            return 6;
         default:
             return -1;
     }
@@ -488,6 +512,8 @@ XmlNodeType NodeTypeFor(XmlDataFileKind kind) noexcept {
             return XmlNodeType::GiantBook;
         case XmlDataFileKind::Achievements:
             return XmlNodeType::Achievement;
+        case XmlDataFileKind::ItemPools:
+            return XmlNodeType::ItemPool;
     }
     return XmlNodeType::Mod;
 }
@@ -506,6 +532,8 @@ const char* ExpectedRoot(XmlNodeType type) noexcept {
             return "giantbook";
         case XmlNodeType::Achievement:
             return "achievements";
+        case XmlNodeType::ItemPool:
+            return "ItemPools";
         default:
             return nullptr;
     }
@@ -712,6 +740,52 @@ bool AddRecord(XmlDataFileKind kind, XmlRecord record, bool isContent,
             const auto* name = category.records[category.byId.find(id)->second].FindAttribute("name");
             if (name) category.byName[name->value] = id;
         }
+    } else if (type == XmlNodeType::ItemPool) {
+        ApplySource(&record, sourceId);
+        const XmlAttribute* name = FindAttribute(record, "name");
+        if (name == nullptr || name->value.empty()) return false;
+        auto& category = g_store->categories[CategoryIndex(type)];
+        for (XmlRecord& existing : category.records) {
+            const XmlAttribute* existingName = FindAttribute(existing, "name");
+            if (existingName == nullptr || existingName->value != name->value) continue;
+            // A mod may extend a base pool by declaring the same Pool Name
+            // again. Keep the original id and merge the item children.
+            for (const XmlChildGroup& group : record.children) {
+                XmlChildGroup* destination = nullptr;
+                for (XmlChildGroup& candidate : existing.children) {
+                    if (candidate.tag == group.tag) {
+                        destination = &candidate;
+                        break;
+                    }
+                }
+                if (destination == nullptr) {
+                    existing.children.push_back(group);
+                } else {
+                    destination->entries.insert(destination->entries.end(),
+                                                group.entries.begin(), group.entries.end());
+                }
+            }
+            return true;
+        }
+        const int baseId = BaseItemPoolId(name->value);
+        if (baseId >= 0) {
+            record.id = baseId;
+        } else {
+            // The base file has 31 pools; reserve those ids even if a base
+            // read was unavailable. New mod pools start at the PC value 31.
+            if (isContent) {
+                category.maxId = std::max(category.maxId, kFirstCustomItemPoolId);
+            }
+            record.id = category.maxId++;
+        }
+        if (isContent) {
+            category.maxId = std::max(category.maxId, kFirstCustomItemPoolId);
+        }
+        SetAttribute(&record, "id", IntegerString(record.id));
+        const std::size_t index = category.records.size();
+        category.records.push_back(std::move(record));
+        category.byId.emplace(category.records.back().id, index);
+        category.order.push_back(index);
     } else {
         return false;
     }
@@ -733,6 +807,7 @@ void RefreshStats() {
 }  // namespace
 
 void ResetXmlDataStore() noexcept {
+    custom_item_pool::ResetState();
     delete g_store;
     g_store = nullptr;
     g_stats = {};
@@ -762,6 +837,8 @@ bool IngestXmlDataFile(XmlDataFileKind kind, const char* source_id, bool is_cont
             return false;
         }
     }
+
+    if(kind==XmlDataFileKind::ItemPools)custom_item_pool::ResetState();
 
     for (XmlRecord& record : document.records) {
         if (type == XmlNodeType::Entity || type == XmlNodeType::Backdrop ||
@@ -817,6 +894,21 @@ const XmlRecord* FindAchievementByName(const char* name) noexcept {
     const auto found = category.byName.find(name);
     return found == category.byName.end() ? nullptr :
         FindEntryById(XmlNodeType::Achievement, found->second);
+}
+
+const XmlRecord* FindItemPoolByName(const char* name) noexcept {
+    if (!g_store || !name) return nullptr;
+    const auto& category = g_store->categories[6];
+    for (const XmlRecord& record : category.records) {
+        const XmlAttribute* candidate = record.FindAttribute("name");
+        if (candidate != nullptr && candidate->value == name) return &record;
+    }
+    return nullptr;
+}
+
+int FindBaseItemPoolIdByName(const char* name, std::size_t length) noexcept {
+    if (name == nullptr) return -1;
+    return BaseItemPoolId(std::string_view(name, length));
 }
 
 const XmlRecord* FindEntryByOrder(XmlNodeType type, int order) noexcept {

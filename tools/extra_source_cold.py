@@ -130,6 +130,18 @@ BRIMSTONE_BALL_SITE = ColdSite(
     function_guard=EFFECT_FUNCTION_GUARD,
 )
 
+TEAR_DEATH_SITE = ColdSite(
+    name="Entity_Tear::Update post-death Remove boundary",
+    source=0x334524,
+    original=0xD63F0100,
+    target_register=8,
+    gate=0x342F14,
+    slot=0x38E8A8,
+    fallback=0x37FC48,
+    function_offset=0x334518,
+    function_guard=bytes.fromhex("680240f9e00313aa082d40f900013fd6"),
+)
+
 SITES = (
     LASER_SITE,
     KNIFE_NORMAL_SITE,
@@ -138,6 +150,7 @@ SITES = (
     GELLO_NORMAL_SITE,
     GELLO_FIREPLACE_SITE,
     BRIMSTONE_BALL_SITE,
+    TEAR_DEATH_SITE,
 )
 
 

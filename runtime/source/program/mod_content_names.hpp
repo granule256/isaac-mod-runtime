@@ -75,7 +75,8 @@ enum class ModContentNameFamily : std::uint8_t {
     Collectible = 0,  // `items.xml` 的 `<passive>`/`<active>`/`<familiar>`
     Trinket = 1,      // `items.xml` 的 `<trinket>`
     Card = 2,         // `pocketitems.xml` 的 `<card>`/`<rune>`
-    Count = 3,
+    Null = 3,         // `items.xml` 的 `<null>` keeps its explicit ID
+    Count = 4,
 };
 
 // 我们喂进追加层的"文件别"（一个文件可能喂出多个族 —— `items.xml` 同时喂收藏品与饰品）。
@@ -91,6 +92,7 @@ inline constexpr std::int32_t kModContentNameIdBase[] = {
     733,  // 收藏品：`ItemConfig::Load` 序言 `mov w8,#0x2dd`
     190,  // 饰品：`ItemConfig::Load` 序言 `mov w8,#0xbe`
     98,   // 卡牌：`ItemConfig::LoadPocketItems` 序言 `mov w8,#0x62`
+    0,    // Null items use explicit IDs rather than the append counters.
 };
 
 // 模组 `content/` 下的文件名（与 `kModContentFeedSpecs` 第 1/2 项逐字相同）。
@@ -102,7 +104,14 @@ struct ModContentName {
     ModContentNameFamily family;
     const char* name;   // 卡牌优先 hud，其余取 name；缺失/为空仍占 id、但不进表。
     std::size_t length;
+    const char* customCache{};
+    std::size_t customCacheLength{};
+    std::int32_t explicitId{};
 };
+
+using ModContentItemTagSink =
+    void (*)(ModContentNameFamily family, std::int32_t id,
+             const char* tags, std::size_t length) noexcept;
 
 // 追加层的可读诊断计数（读数 / 门禁按它判"坏在哪一层"）。
 struct ModContentNameStats {
@@ -136,7 +145,8 @@ struct ModContentNameStats {
 // 解析 + 追加一步到位（宿主门禁按它测顺序 / 幂等 / 坏 XML / 各族独立推进）。
 // `modKey` = 模组目录名（幂等键，不能为空）。返回本次真正存下的条数。
 [[nodiscard]] std::uint32_t IngestModContentXml(ModContentFileKind file, const char* modKey,
-                                                const char* xml, std::size_t length) noexcept;
+                                                const char* xml, std::size_t length,
+                                                ModContentItemTagSink cacheTags = nullptr) noexcept;
 
 // 按族查（非本体 —— 本体优先由调用方先查静态表）。命中返回 id，未命中返回 `-1`。
 [[nodiscard]] std::int32_t LookupModContentName(ModContentNameFamily family, const char* name,

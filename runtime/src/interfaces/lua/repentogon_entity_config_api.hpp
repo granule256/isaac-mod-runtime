@@ -14,9 +14,17 @@ bool RepentogonEntityConfigPlayerTaintedByType(
 int RepentogonEntityConfigEntityCanBeChampion(lua_State*);
 int RepentogonEntityConfigEntityGetStageHP(lua_State*);
 int RepentogonEntityConfigEntityGetCollisionRadius(lua_State*);
+int RepentogonEntityConfigEntityGetAnm2Path(lua_State*);
+int RepentogonEntityConfigEntityGetEntityTags(lua_State*);
+int RepentogonEntityConfigEntityHasEntityTags(lua_State*);
 int RepentogonEntityConfigPlayerGetPortraitPath(lua_State*);
 int RepentogonEntityConfigPlayerGetExtraPortraitPath(lua_State*);
 int RepentogonEntityConfigPlayerGetNameImagePath(lua_State*);
+int RepentogonEntityConfigPlayerGetModdedMenuBackgroundSprite(lua_State*);
+int RepentogonEntityConfigPlayerGetModdedMenuPortraitSprite(lua_State*);
+int RepentogonEntityConfigPlayerGetModdedGameOverSprite(lua_State*);
+int RepentogonEntityConfigPlayerGetModdedCoopMenuSprite(lua_State*);
+int RepentogonEntityConfigPlayerGetModdedControlsSprite(lua_State*);
 #if !defined(__SWITCH__)
 struct RepentogonEntityConfigNativeTestBindings {
     void* (*getEntity)(void*,std::int32_t,std::uint32_t,std::uint32_t){};

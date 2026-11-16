@@ -181,11 +181,76 @@ bool TryWriteApi600PlayerField(lua_State*L,std::uintptr_t p,const char*n){const 
 int Api600EntityPlayerGetTearHitParams(lua_State*L){auto*p=engine_memory::AsObject(Player(L));const auto weapon=Int(L,2);const auto scale=lua_toboolean(L,3)?static_cast<float>(luaL_checknumber(L,3)):1.0F;const auto displacement=DefaultInt(L,4,1);std::uintptr_t source{};if(!lua_isnoneornil(L,5)){source=EntityPointerArgument(L,5);if(!source)luaL_argerror(L,5,"expected a live Entity or nil");}
  const auto value=Native<Api600TearParams(*)(void*,std::int32_t,float,std::int32_t,void*)>(L,0)(p,weapon,scale,displacement,engine_memory::AsObject(source));PushOwned(L,kTear,value);return 1;}
 int Api600EntityPlayerGetMultiShotParams(lua_State*L){auto*p=engine_memory::AsObject(Player(L));const auto weapon=DefaultInt(L,2,1);const auto value=Native<Api600MultiShotParams(*)(void*,std::int32_t)>(L,1)(p,weapon);PushOwned(L,kMulti,value);return 1;}
+int Api600MultiShotParamsGetNumTears(lua_State*L){
+ if(lua_gettop(L)!=1)return luaL_error(L,"MultiShotParams:GetNumTears accepts no arguments");
+ if(lua_rawlen(L,1)!=sizeof(Api600MultiShotParams))return luaL_argerror(L,1,"MultiShotParams expected");
+ const auto*p=static_cast<const Api600MultiShotParams*>(luaL_checkudata(L,1,kMulti));
+ lua_pushinteger(L,At<std::int16_t>(p->bytes,kApi600MultiShotNumTearsOffset));return 1;
+}
+int Api600MultiShotParamsSetNumTears(lua_State*L){
+ if(lua_gettop(L)!=2)return luaL_error(L,"MultiShotParams:SetNumTears accepts one integer");
+ if(lua_rawlen(L,1)!=sizeof(Api600MultiShotParams))return luaL_argerror(L,1,"MultiShotParams expected");
+ auto*p=static_cast<Api600MultiShotParams*>(luaL_checkudata(L,1,kMulti));
+ Put(p->bytes,kApi600MultiShotNumTearsOffset,static_cast<std::int16_t>(luaL_checkinteger(L,2)));return 0;
+}
 int Api600MultiShotParamsGetNumLanesPerEye(lua_State*L){
  if(lua_gettop(L)!=1)return luaL_error(L,"MultiShotParams:GetNumLanesPerEye accepts no arguments");
  if(lua_rawlen(L,1)!=sizeof(Api600MultiShotParams))return luaL_argerror(L,1,"MultiShotParams expected");
  const auto*p=static_cast<const Api600MultiShotParams*>(luaL_checkudata(L,1,kMulti));
- lua_pushinteger(L,At<std::uint32_t>(p->bytes,0x14));return 1;
+ lua_pushinteger(L,At<std::int16_t>(p->bytes,kApi600MultiShotNumLanesPerEyeOffset));return 1;
+}
+int Api600MultiShotParamsSetNumLanesPerEye(lua_State*L){
+ if(lua_gettop(L)!=2)return luaL_error(L,"MultiShotParams:SetNumLanesPerEye accepts one integer");
+ if(lua_rawlen(L,1)!=sizeof(Api600MultiShotParams))return luaL_argerror(L,1,"MultiShotParams expected");
+ auto*p=static_cast<Api600MultiShotParams*>(luaL_checkudata(L,1,kMulti));
+ Put(p->bytes,kApi600MultiShotNumLanesPerEyeOffset,static_cast<std::int16_t>(luaL_checkinteger(L,2)));return 0;
+}
+int Api600MultiShotParamsGetSpreadAngle(lua_State*L){
+ if(lua_gettop(L)!=2)return luaL_error(L,"MultiShotParams:GetSpreadAngle accepts one weapon type");
+ if(lua_rawlen(L,1)!=sizeof(Api600MultiShotParams))return luaL_argerror(L,1,"MultiShotParams expected");
+ const auto*p=static_cast<const Api600MultiShotParams*>(luaL_checkudata(L,1,kMulti));
+ const auto weapon=Int(L,2);float value{};
+ switch(weapon){
+  case 1:case 5:value=At<float>(p->bytes,kApi600MultiShotSpreadAngleTearsOffset);break;
+  case 2:case 3:value=At<float>(p->bytes,kApi600MultiShotSpreadAngleLaserOffset);break;
+  case 4:value=At<float>(p->bytes,kApi600MultiShotSpreadAngleKnifeOffset);break;
+  case 9:case 14:value=At<float>(p->bytes,kApi600MultiShotSpreadAngleTechXOffset);break;
+  case 10:case 11:value=At<float>(p->bytes,kApi600MultiShotSpreadAngleKnifeOffset)*3.0F;break;
+  case 6:case 7:case 8:case 12:case 13:case 15:value=0.0F;break;
+  default:return luaL_error(L,"WeaponTypes bigger 15 are not supported!");
+ }
+ lua_pushnumber(L,value);return 1;
+}
+int Api600MultiShotParamsSetSpreadAngle(lua_State*L){
+ if(lua_gettop(L)!=3)return luaL_error(L,"MultiShotParams:SetSpreadAngle accepts a weapon type and angle");
+ if(lua_rawlen(L,1)!=sizeof(Api600MultiShotParams))return luaL_argerror(L,1,"MultiShotParams expected");
+ auto*p=static_cast<Api600MultiShotParams*>(luaL_checkudata(L,1,kMulti));
+ const auto weapon=Int(L,2);const auto target=static_cast<float>(luaL_checknumber(L,3));
+ switch(weapon){
+  case 1:case 5:Put(p->bytes,kApi600MultiShotSpreadAngleTearsOffset,target);break;
+  case 2:case 3:Put(p->bytes,kApi600MultiShotSpreadAngleLaserOffset,target);break;
+  case 4:Put(p->bytes,kApi600MultiShotSpreadAngleKnifeOffset,target);break;
+  case 9:case 14:Put(p->bytes,kApi600MultiShotSpreadAngleTechXOffset,target);break;
+  case 10:case 11:Put(p->bytes,kApi600MultiShotSpreadAngleKnifeOffset,target/3.0F);break;
+  case 6:case 7:case 8:case 12:case 13:case 15:
+   return luaL_error(L,"The given WeaponType cant change its spread angle!");
+  default:return luaL_error(L,"A WeaponType bigger 15 is not supported!");
+ }
+ if(At<std::int16_t>(p->bytes,kApi600MultiShotNumLanesPerEyeOffset)<2)
+  Put(p->bytes,kApi600MultiShotNumLanesPerEyeOffset,static_cast<std::int16_t>(2));
+ return 0;
+}
+bool PushApi600MultiShotParamsSnapshot(lua_State*L,const Api600MultiShotParams&value){
+ if(!L)return false;
+ PushOwned(L,kMulti,value);
+ return true;
+}
+bool ReadApi600MultiShotParamsSnapshot(lua_State*L,int index,Api600MultiShotParams*value){
+ if(!L||!value||lua_rawlen(L,index)!=sizeof(Api600MultiShotParams))return false;
+ const auto*p=static_cast<const Api600MultiShotParams*>(luaL_testudata(L,index,kMulti));
+ if(!p)return false;
+ *value=*p;
+ return true;
 }
 int Api600EntityPlayerGetMultiShotPositionVelocity(lua_State*L){
  // PC wrapper838140 has loop/weapon/vector/speed/params at1..5 and no receiver.

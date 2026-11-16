@@ -41,6 +41,7 @@ SECTIONS
      * `.text.RepentogonRelayArena` 跟着 `hook_manager.o` 被吸进了封印区间）。 */
     HIDDEN(__jit_arena_start__ = .);
     *(.rgon_relay_arena)
+    *(.rgon_custom_cache_arena)
     HIDDEN(__jit_arena_end__ = .);
     *(.text .text.*)
     HIDDEN(__text_end__ = .);

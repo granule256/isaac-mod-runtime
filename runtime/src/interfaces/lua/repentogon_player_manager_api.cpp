@@ -80,11 +80,15 @@ bool HasTrinket(lua_State* state,std::uintptr_t player,std::uint32_t id,bool ign
 #endif
 }
 
+bool IsOrdinaryPlayer(std::uintptr_t player) {
+    std::uint32_t variant=UINT32_MAX;
+    return player && engine_memory::ReadField(player,kEntityVariantOffset,&variant,
+        engine_memory::EngineMemoryReadable) && variant==0;
+}
+
 bool PlayerHasQuery(lua_State* state,std::uintptr_t player,std::uint32_t id,
                     bool trinket,bool ignore) {
-    std::uint32_t variant=UINT32_MAX;
-    if (!player || !engine_memory::ReadField(player,kEntityVariantOffset,&variant,
-            engine_memory::EngineMemoryReadable) || variant!=0) return false;
+    if (!IsOrdinaryPlayer(player)) return false;
     return trinket?HasTrinket(state,player,id,ignore)
                   :EntityPlayerHasCollectibleForApi(player,id,ignore);
 }
@@ -134,6 +138,39 @@ int RepentogonPlayerManagerAnyoneHasTrinket(lua_State* state) {
         if (PlayerHasQuery(state,player,id,true,ignore) ||
             (ItemHasLazSharedTag(true,id) &&
              BackupPlayer(state,player,true,id,ignore))) {
+            lua_pushboolean(state,1);
+            return 1;
+        }
+    }
+    lua_pushboolean(state,0);
+    return 1;
+}
+
+int RepentogonPlayerManagerGetPlayers(lua_State* state) {
+    if (!LuaRuntime::IsOnGameThread())
+        return luaL_error(state,"PlayerManager queries require the game thread");
+    const auto players=ResolveEnginePlayerArray();
+    if (!players.readable)
+        return luaL_error(state,"PlayerManager player list is unavailable");
+    lua_createtable(state,static_cast<int>(players.count),0);
+    for (std::size_t i=0;i<players.count;++i) {
+        PushEntityCallbackArgument(state,ResolveEnginePlayerAt(i));
+        lua_rawseti(state,-2,static_cast<lua_Integer>(i+1));
+    }
+    return 1;
+}
+
+int RepentogonPlayerManagerAnyoneIsPlayerType(lua_State* state) {
+    if (!LuaRuntime::IsOnGameThread())
+        return luaL_error(state,"PlayerManager queries require the game thread");
+    const auto wanted=static_cast<std::uint32_t>(luaL_checkinteger(state,1));
+    const auto players=ResolveEnginePlayerArray();
+    if (!players.readable) return luaL_error(state,"PlayerManager player list is unavailable");
+    for (std::size_t i=0;i<players.count;++i) {
+        const auto player=ResolveEnginePlayerAt(i);
+        std::uint32_t type{};
+        if (IsOrdinaryPlayer(player)&&engine_memory::ReadField(player,kEntityPlayerTypeOffset,&type,
+                engine_memory::EngineMemoryReadable)&&type==wanted) {
             lua_pushboolean(state,1);
             return 1;
         }

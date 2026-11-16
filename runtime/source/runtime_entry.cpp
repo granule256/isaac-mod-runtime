@@ -27,6 +27,7 @@
 #include "interfaces/lua/os_api.hpp"
 #include "manager_update_hook_audit.hpp"
 #include "persistence_event_journal.hpp"
+#include "program/custom_item_pool_native.hpp"
 #include "runtime_constants.hpp"
 #include "runtime_state.hpp"
 #include "test_run_observer.hpp"
@@ -626,6 +627,12 @@ void ModuleWorker(void*) {
 #endif
             TestRunObserver::Mark(TestRunObserver::State::ManifestInstallEntered);
             const DefaultManifestInstallResult install = TryInstallDefaultManifestMod(*scan.module);
+            const isaac::runtime::HookTarget customItemPoolTarget{
+                scan.module->base, scan.module->textSize, scan.module->size,
+                scan.module->buildId};
+            static_cast<void>(
+                isaac::runtime::custom_item_pool_native::
+                    InstallCustomItemPoolNativeHooks(customItemPoolTarget));
             TestRunObserver::Mark(TestRunObserver::State::ManifestInstallReturned,
                                   static_cast<std::uint32_t>(install));
             if (install == DefaultManifestInstallResult::Success) {

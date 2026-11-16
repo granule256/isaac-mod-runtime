@@ -339,8 +339,7 @@ struct RoomConfigEntryHandle {
 struct EntityLifetimeToken;
 struct SpriteHandle {
     void* sprite;
-    // 仅 `kSpriteSourceEngineEntity` / `kSpriteSourceEngineGridEntity` 非空：
-    // 借出这个 sprite 的引擎实体（或网格实体）地址。
+    // 借出这个内嵌 sprite 的引擎实体（或网格实体）地址。
     void* owner;
     std::uint8_t source;
     float scaleX;
@@ -369,6 +368,11 @@ inline constexpr std::uint8_t kSpriteSourceEngineEntity = 1;
 // 来源是网格实体（`GridEntity:GetSprite()`）—— 释放语义与
 // `kSpriteSourceEngineEntity` 相同（都不放手），只有"重新解析时的存活判据 + 偏移"不同。
 inline constexpr std::uint8_t kSpriteSourceEngineGridEntity = 2;
+// EntityConfig owns its five modded-character menu ANM2 objects but does not
+// expose them through the callback-sprite validator.  This source is borrowed
+// from the engine config and is only checked for readability on resolution.
+inline constexpr std::uint8_t kSpriteSourceEngineConfig = 5;
+inline constexpr std::uint8_t kSpriteSourceEnginePlayerHeld = 6;
 
 // `Entity` / `EntityPlayer`：**必须**保存原生指针 —— 与上面 `Game`/`Level`/`Room` 的占位句柄
 // 不同，玩家 1 与玩家 2 只有指针能区分，而且 `EntityPlayer` 的方法（`HasCollectible`）本来

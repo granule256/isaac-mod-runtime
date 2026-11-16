@@ -51,6 +51,12 @@ constexpr std::uintptr_t kNightmareProgressBarSprite = 0x2E8;
 constexpr std::uintptr_t kNightmareBackgroundSprite = 0x38;
 // Game::Render forms this PauseScreen; Show/Update write its leading state.
 constexpr std::uintptr_t kGamePauseScreen = 0x1AE128;
+constexpr std::uintptr_t kPauseMainSprite = 0x30;
+constexpr std::uintptr_t kPauseStatsSprite = 0x188;
+// PauseScreen::Render uses the My Stuff ANM2 at 0x433138.
+constexpr std::uintptr_t kPauseMyStuffSprite = 0x2E0;
+// The CompletionWidget used at 0x433018 embeds its ANM2 at +8.
+constexpr std::uintptr_t kPauseCompletionSprite = 0x8B90 + 8;
 constexpr std::uintptr_t kCompletionCounterId = 0x439844;
 constexpr std::array<std::uint8_t, 16> kCompletionCounterIdGuard = {
     0x3f,0xa0,0x00,0x71,0x6d,0x00,0x00,0x54,
@@ -483,6 +489,43 @@ int RepentogonGameIsPauseMenuOpen(lua_State* state) {
     return 1;
 }
 
+int RepentogonPauseMenuGetState(lua_State* state) {
+    RequireGameThread(state, "PauseMenu.GetState");
+    lua_pushinteger(state, ReadField<std::int32_t>(state, RequireGame(state),
+        kGamePauseScreen, "PauseScreen state is unavailable"));
+    return 1;
+}
+
+namespace {
+
+int PauseMenuSprite(lua_State* state, std::uintptr_t offset, const char* api) {
+    RequireGameThread(state, api);
+    RequireNoArguments(state, api);
+    const auto game = RequireGame(state);
+    if (game > UINTPTR_MAX - kGamePauseScreen - offset)
+        return luaL_error(state, "%s sprite is unavailable", api);
+    PushSceneSprite(state, game + kGamePauseScreen + offset, api);
+    return 1;
+}
+
+}
+
+int RepentogonPauseMenuGetSprite(lua_State* state) {
+    return PauseMenuSprite(state, kPauseMainSprite, "PauseMenu.GetSprite");
+}
+
+int RepentogonPauseMenuGetStatsSprite(lua_State* state) {
+    return PauseMenuSprite(state, kPauseStatsSprite, "PauseMenu.GetStatsSprite");
+}
+
+int RepentogonPauseMenuGetMyStuffSprite(lua_State* state) {
+    return PauseMenuSprite(state, kPauseMyStuffSprite, "PauseMenu.GetMyStuffSprite");
+}
+
+int RepentogonPauseMenuGetCompletionMarksSprite(lua_State* state) {
+    return PauseMenuSprite(state, kPauseCompletionSprite, "PauseMenu.GetCompletionMarksSprite");
+}
+
 namespace {
 
 [[nodiscard]] std::int32_t ResolveCompletionCounterId(
@@ -748,6 +791,11 @@ bool RepentogonMenuWorldSpriteAlive(std::uintptr_t sprite) noexcept {
         }
     }
     const auto game = TryCurrentGame();
+    if (game && game <= UINTPTR_MAX - kGamePauseScreen - kPauseCompletionSprite) {
+        const auto pause = game + kGamePauseScreen;
+        if (sprite == pause + kPauseMainSprite || sprite == pause + kPauseStatsSprite ||
+            sprite == pause + kPauseMyStuffSprite || sprite == pause + kPauseCompletionSprite) return true;
+    }
     if (game && game<=UINTPTR_MAX-0x25db0-0x1488 &&
         (sprite==game+0x25db0+8 || sprite==game+0x25db0+0x1488)) return true;
     return game != 0 &&
@@ -763,7 +811,7 @@ int RegisterRepentogonMenuWorldApi(lua_State* state) {
     }
     for (const auto* owner :
          {"MenuManager", "CollectionMenu", "SaveMenu", "MainMenu",
-          "RoomTransition", "Ambush", "NightmareScene"}) {
+          "RoomTransition", "Ambush", "NightmareScene", "PauseMenu"}) {
         CreateGlobalOwnerTable(state, owner);
     }
     return 0;

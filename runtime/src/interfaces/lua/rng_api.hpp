@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 
 extern "C" {
 #include <lua.h>
@@ -14,6 +15,8 @@ namespace isaac::runtime {
 [[nodiscard]] void* TryResolveRngObject(LuaRuntime::RngHandle* handle,bool writable) noexcept;
 // 在交给原生方法前统一复核引用身份与读写权限，失效抛Lua错误。
 [[nodiscard]] void* ResolveRngObject(lua_State* state, LuaRuntime::RngHandle* handle, bool writable);
+void SeedRngObject(lua_State* state, LuaRuntime::RngHandle* handle,
+                   std::uint32_t seed, std::uint32_t shift);
 
 // Installed only by the REPENTOGON extension; ordinary SetSeed keeps its contract.
 int RepentogonRngSetSeed(lua_State* state);

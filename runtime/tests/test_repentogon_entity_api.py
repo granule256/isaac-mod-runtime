@@ -82,6 +82,9 @@ int main(){
  isaac::runtime::pickup_flip::SetNativeTestBindings(flip);
  LuaRuntime::SetRuntimeExtensionInstaller(Extensions);
  const char* script=R"lua(
+entity:SetInvincible(true);assert(entity:IsInvincible())
+entity:SetInvincible(false);assert(not entity:IsInvincible())
+assert(not pcall(function() entity:SetInvincible(1) end))
 local car=entity:GiveMinecart(Vector(3,4),Vector(5,6));assert(car and car.Type==20 and car.Variant==965)
 assert(entity:GetMinecart():ToNPC().Type==20)
 assert(entity:ToSlot()==nil)

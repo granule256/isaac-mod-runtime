@@ -8,6 +8,8 @@ inline constexpr std::array<std::uint8_t,32> kBuildId={0x91,0xC7,0x3F,0xDD,0x57,
 // Fixed NRO dynamic symbol Entity_Player::EvaluateItems, including its cold tails.
 inline constexpr std::uintptr_t kFunction=0x280804,kLength=0xC684;
 inline constexpr std::uint64_t kFunctionHash=0xC00B3E9D53B78DFCULL;
+// The cold active max charge relay changes only the instruction at 0x280d0c.
+inline constexpr std::uint64_t kFunctionHashWithActiveMaxCharge=0xA7AD6FD2822A542AULL;
 inline constexpr std::uintptr_t kSource=0x2857A8,kGate=0x68CF40;
 inline constexpr std::uint32_t kOriginal=0x394002A8U;
 constexpr std::uint32_t Branch(std::uintptr_t from,std::uintptr_t to) noexcept {
@@ -26,7 +28,7 @@ inline bool ImageMatches(const std::uint8_t* image,std::size_t size) noexcept {
       ?static_cast<std::uint8_t>(kOriginal>>((at-kSource)*8)):image[at];
   hash=(hash^byte)*1099511628211ULL;
  }
- return hash==kFunctionHash;
+ return hash==kFunctionHash||hash==kFunctionHashWithActiveMaxCharge;
 }
 // PC 0x734511 dispatches CACHE_SPEED before its later 0.1..2 clamp. NS resumes
 // at 0x2857AC (tear-flag test), reaching the native clamp at 0x28BE64..0x28BE8C.

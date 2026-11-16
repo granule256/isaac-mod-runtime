@@ -380,6 +380,38 @@ if DamageFlag.DAMAGE_SPAWN_RUNE ~= 4294967296 then error('DamageFlag.DAMAGE_SPAW
 -- `RoomDescriptor` 页上有两张表格（`DISPLAY_*` 与 `FLAG_*`），PC 把它们都挂在同一个全局下。
 if RoomDescriptor.FLAG_RED_ROOM ~= 1024 then error('RoomDescriptor.FLAG_RED_ROOM') end
 if RoomDescriptor.DISPLAY_ALL ~= 4 then error('RoomDescriptor.DISPLAY_ALL') end
+-- REPENTOGON-specific globals consumed by Reverie: Make Good Omissions.
+for _, name in ipairs({
+    'AddHealthType', 'EntityTag', 'FollowerPriority', 'GridPoopVariant',
+    'HealthType', 'ImGuiCallback', 'ImGuiData', 'ImGuiElement',
+    'ImGuiNotificationType', 'MinimapState', 'MouseButton', 'PauseMenuStates',
+    'PillCardSlot', 'PlayerVariant', 'PocketItemType', 'PressurePlateVariant',
+    'SlotVariant',
+}) do
+    if _G[name] == nil then error('missing REPENTOGON enum table: ' .. name) end
+end
+if AddHealthType.BROKEN ~= 256 or HealthType.LOST ~= 2 then error('health enums') end
+if EntityTag.FLY ~= 1 or EntityTag.NODELIRIUM ~= 512 then error('EntityTag') end
+if FollowerPriority.DEFENSIVE ~= 2 or FollowerPriority.KING_BABY ~= 9999 then
+    error('FollowerPriority')
+end
+if GridPoopVariant.CHARMING ~= 11 or GridPoopVariant.WHITE ~= 6 then
+    error('GridPoopVariant')
+end
+if ImGuiCallback.Render ~= 10 or ImGuiData.Value ~= 1 then error('ImGui data/callback') end
+if ImGuiElement.MenuItem ~= 2 or ImGuiElement.SliderFloat ~= 19 then error('ImGuiElement') end
+if ImGuiNotificationType.ERROR ~= 3 then error('ImGuiNotificationType') end
+if MinimapState.EXPANDED_OPAQUE ~= 2 then error('MinimapState') end
+if MouseButton.SCROLLWHEEL ~= 2 then error('MouseButton') end
+if PauseMenuStates.OPTIONS ~= 2 then error('PauseMenuStates') end
+if PillCardSlot.TERTIARY ~= 2 or PocketItemType.ACTIVE_ITEM ~= 2 then
+    error('pocket item enums')
+end
+if PlayerVariant.FOUND_SOUL ~= 1 then error('PlayerVariant') end
+if PressurePlateVariant.GREED_MODE ~= 2 then error('PressurePlateVariant') end
+if SlotVariant.DONATION_MACHINE ~= 8 or SlotVariant.ROTTEN_BEGGAR ~= 18 then
+    error('SlotVariant')
+end
 -- Bit-flag tables: `enums.lua` writes every one of these as a shift expression
 -- (`1<<5`, `1 << 5`), and the generator used to truncate each one to its leading
 -- `1`. Every member is pinned here so that regression cannot come back silently.

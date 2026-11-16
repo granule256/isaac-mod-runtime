@@ -1,4 +1,4 @@
-"""Focused host checks for REPENTOGON callback 1079's PlayerHUD runner."""
+"""Focused host checks for PlayerHUD callback ordering and argument derivation."""
 import shutil
 import subprocess
 import tempfile
@@ -40,14 +40,29 @@ void Put(void* object, std::uintptr_t offset, T value) {
 }
 
 bool listen;
+bool listenPre;
 unsigned originalCalls;
 unsigned dispatchCalls;
+unsigned preCalls;
+PreResult preResult{};
 Event lastEvent{};
+Event lastPre{};
 void* expectedPlayer;
+int charge{};
+bool inspectCharge{};
 
 bool Listening(std::uint32_t id) noexcept {
+    if (id == kPreCallbackId) return listenPre;
     assert(id == kCallbackId);
     return listen;
+}
+
+PreResult DispatchPre(const Event& event) noexcept {
+    assert(originalCalls == 0 && dispatchCalls == 0);
+    ++preCalls;
+    lastPre = event;
+    if (inspectCharge) charge = 6;
+    return preResult;
 }
 
 void Dispatch(const Event& event) noexcept {
@@ -64,13 +79,17 @@ void Original(void* hud, std::uint32_t slot, const Vector& pos, float size,
     assert(pos.x == 100.0F && pos.y == 50.0F);
     assert(size > 0.0F);
     assert(alpha >= 0.0F);
+    if (inspectCharge) assert(charge == 6);
     (void)unused;
 }
 
 void Reset() {
     originalCalls = 0;
     dispatchCalls = 0;
+    preCalls = 0;
     lastEvent = {};
+    lastPre = {};
+    charge = 0;
 }
 
 bool Near(float actual, float expected) noexcept {
@@ -107,6 +126,7 @@ struct Harness {
 
 int main() {
     static_assert(kCallbackId == 1079);
+    static_assert(kPreCallbackId == 1119);
     static_assert(kPlayerHudIndexOffset == 0x10);
     static_assert(kPlayerHudActiveItemOffset == 0x258);
     static_assert(kPlayerHudActiveItemStride == 0x30);
@@ -115,7 +135,7 @@ int main() {
     static_assert(kPlayerActiveItemStride == 0x1c);
     static_assert(kPlayerCoopGhostOffset == 0x284c);
     static_assert(abi::kRenderActiveItemOffset == 0x3a3ed4);
-    const RunnerPort port{Listening, Dispatch};
+    const RunnerPort port{Listening, Dispatch, DispatchPre};
 
     // Zero listeners must call the original before touching the invalid HUD.
     listen = false;
@@ -208,6 +228,41 @@ int main() {
                         Vector{100.0F, 50.0F}, 1.0F, 0.0F, false, nullptr,
                         port);
     assert(originalCalls == 0 && dispatchCalls == 0);
+
+    Harness h(4, 1, 329, true);
+    listenPre = true;
+    inspectCharge = true;
+    Reset();
+    RunRenderActiveItem(h.hud, 1, h.pos, 2.0F, 0.75F, false, &Original, port);
+    assert(preCalls == 1 && originalCalls == 1 && dispatchCalls == 1);
+    assert(lastPre.id == 1119 && lastEvent.id == 1079);
+    assert(lastPre.slot == lastEvent.slot && lastPre.activeItemId == lastEvent.activeItemId);
+    assert(lastPre.player == h.player && lastEvent.player == h.player);
+    assert(lastPre.itemPos.y == 46.0F && lastEvent.itemPos.y == lastPre.itemPos.y);
+    assert(lastPre.chargeBarPos.x == 138.0F && lastEvent.chargeBarPos.x == lastPre.chargeBarPos.x);
+    assert(lastPre.alpha == 0.75F && lastPre.scale == 1.0F);
+
+    preResult = {false, true, true};
+    Reset();
+    RunRenderActiveItem(h.hud, 1, h.pos, 2.0F, 0.75F, false, &Original, port);
+    assert(preCalls == 1 && originalCalls == 0 && dispatchCalls == 0);
+
+    preResult = {false, true, false};
+    Reset();
+    RunRenderActiveItem(h.hud, 1, h.pos, 2.0F, 0.75F, false, &Original, port);
+    assert(preCalls == 1 && originalCalls == 1 && dispatchCalls == 1);
+
+    preResult = {true, true, true};
+    listen = false;
+    Reset();
+    RunRenderActiveItem(h.hud, 1, h.pos, 2.0F, 0.75F, false, &Original, port);
+    assert(preCalls == 1 && originalCalls == 1 && dispatchCalls == 0);
+
+    Harness ghost(0, 0, 330, false, true);
+    inspectCharge = false;
+    Reset();
+    RunRenderActiveItem(ghost.hud, 0, ghost.pos, 1.0F, 0.75F, false, &Original, port);
+    assert(preCalls == 0 && originalCalls == 1 && dispatchCalls == 0);
     return 0;
 }
 '''

@@ -247,9 +247,15 @@ int main() {
 assert(type(Isaac.GetCompletionMark) == 'function', 'missing completion marks')
 assert(type(Game().IsPauseMenuOpen) == 'function', 'missing pause-menu state')
 assert(not Game():IsPauseMenuOpen())
-_pause(1);assert(Game():IsPauseMenuOpen())
-_pause(2);assert(Game():IsPauseMenuOpen())
-_pause(0);assert(not Game():IsPauseMenuOpen())
+_pause(1);assert(Game():IsPauseMenuOpen() and PauseMenu.GetState()==1)
+_pause(2);assert(Game():IsPauseMenuOpen() and PauseMenu.GetState()==2)
+local pauseSprites = {PauseMenu.GetSprite(), PauseMenu.GetStatsSprite(),
+    PauseMenu.GetMyStuffSprite(), PauseMenu.GetCompletionMarksSprite()}
+for i, sprite in ipairs(pauseSprites) do
+    assert(type(sprite)=='userdata')
+    for j=1,i-1 do assert(sprite ~= pauseSprites[j]) end
+end
+_pause(0);assert(not Game():IsPauseMenuOpen() and PauseMenu.GetState()==0)
 assert(not pcall(function() Game().IsPauseMenuOpen({}) end))
 assert(Isaac.GetCompletionMark(21,12)==2, 'offline mark must exclude online bits')
 assert(Isaac.GetCompletionMark(0,11)==1, 'Greedier shares the offline event value')

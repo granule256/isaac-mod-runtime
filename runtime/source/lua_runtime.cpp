@@ -45,6 +45,7 @@ extern "C" {
 
 #include <cstdarg>
 #include <cmath>
+#include <bit>
 #include <cstdio>
 #include <cstdlib>
 #include <ctime>
@@ -64,6 +65,12 @@ extern "C" char __fake_heap[];
 // `widget.lua:185` 报 `attempt to index a nil value (global 'RoomShape')`、小地图画不出来。
 #include "program/doc_lua_enum_data.hpp"
 #include "program/doc_lua_enum_data.cpp"
+// REPENTOGON adds a separate set of global enum tables used by its API.
+// Reverie: Make Good Omissions reads several of them during mod load.
+#include "program/repentogon_enum_data.hpp"
+#include "interfaces/lua/repentogon_imgui_api.hpp"
+#include "interfaces/lua/repentogon_weapon_api.hpp"
+#include "interfaces/lua/api600_player.hpp"
 #include "program/embedded_lua_test_script.hpp"
 #include "runtime_constants.hpp"
 
@@ -1640,6 +1647,24 @@ void RegisterPcLuaEnumTables(lua_State* state) {
             lua_setglobal(state, docTables[tableIndex].name);
         }
     }
+    std::size_t repentogonCount = 0;
+    const RepentogonLuaEnumData::Table* repentogonTables =
+        RepentogonLuaEnumData::Tables(&repentogonCount);
+    if (repentogonTables != nullptr) {
+        for (std::size_t tableIndex = 0; tableIndex < repentogonCount; ++tableIndex) {
+            lua_newtable(state);
+            for (std::size_t valueIndex = 0;
+                 valueIndex < repentogonTables[tableIndex].count; ++valueIndex) {
+                lua_pushinteger(
+                    state,
+                    static_cast<lua_Integer>(
+                        repentogonTables[tableIndex].values[valueIndex].value));
+                lua_setfield(state, -2,
+                             repentogonTables[tableIndex].values[valueIndex].key);
+            }
+            lua_setglobal(state, repentogonTables[tableIndex].name);
+        }
+    }
 }
 
 
@@ -1911,13 +1936,22 @@ int CreateMusicHandle(lua_State* state) {
 #endif
 
 int CreateRngHandle(lua_State* state) {
-    if (lua_gettop(state) != 0) {
+    const bool extended = isaac::runtime::RepentogonEnvironmentActive();
+    std::uint32_t seed{}, shift{};
+    if (extended) {
+        if (!IsOnGameThread()) return luaL_error(state, "RNG requires the game thread");
+        seed = static_cast<std::uint32_t>(luaL_optinteger(state, 1, 0xAA17414F));
+        shift = static_cast<std::uint32_t>(luaL_optinteger(state, 2, 35));
+        if (seed == 0) return luaL_argerror(state, 1, "RNG seed must be an integer above 0");
+        if (shift > 80) return luaL_argerror(state, 2, "RNG shift index must be between 0 and 80 (inclusive)");
+    } else if (lua_gettop(state) != 0) {
         return luaL_error(state, "RNG accepts no arguments");
     }
     auto* rng = static_cast<RngHandle*>(lua_newuserdata(state, sizeof(RngHandle)));
     *rng = {};
     luaL_getmetatable(state, kRngMetatable);
     lua_setmetatable(state, -2);
+    if (extended) isaac::runtime::SeedRngObject(state, rng, seed, shift);
     return 1;
 }
 
@@ -2498,6 +2532,7 @@ LuaInitResult ResetAfterFailure(lua_State* state, LuaInitResult result) {
     isaac::runtime::ResetCompatibilityAdapters(state);
     isaac::runtime::console::SetAutocompleteDispatch(nullptr);
     isaac::runtime::SuspendRepentogonEnvironment(state);
+    isaac::runtime::ResetRepentogonImGui(state);
     lua_close(state);
     isaac::runtime::EndRepentogonEnvironment(state);
     g_LuaState = nullptr;
@@ -2865,6 +2900,11 @@ void RecordLuaErrorText(const char* text, std::size_t length) noexcept {
     }
     std::memcpy(g_LastLuaErrorText.data(), text, length);
     g_LastLuaErrorLength.store(static_cast<std::uint32_t>(length), std::memory_order_release);
+}
+
+void RecordLuaStartupError(const char* text, std::size_t length) noexcept {
+    if (!text || !length) return;
+    RecordLuaErrorHistory(text, length);
 }
 
 bool InManagedCallbackScope() noexcept {
@@ -4093,6 +4133,7 @@ struct CallbackArgument {
     enum class Kind : std::uint8_t {
         None = 0,  // 哨兵（表尾，不压栈）
         Integer,   // 整数
+        Text,
         Boolean,   // 布尔（`lua_pushboolean`，不是整数 0/1）
         Entity,    // 实体句柄（视图与 `Isaac.GetRoomEntities()` 给的一致）
         Grid,
@@ -4103,6 +4144,7 @@ struct CallbackArgument {
         // 必须 `lua_pushnumber`（压整数会让模组 `amount > 1.5` 这类比较失真）。
         // 值借用 `x` 那一格（与 `Vector` 共用，不另开字段）。
         Float,
+        Double,
         // `MC_ENTITY_TAKE_DMG` 的 `Source`（`EntityRef` 句柄，缓冲区装的是这一次
         // 调用的那个引用）。值借用 `entity` 那一格存"引擎实体引用的指针"。
         Reference,
@@ -4112,7 +4154,7 @@ struct CallbackArgument {
         CollectibleRng,
         Room,
         RoomDescriptor,
-        LevelGenerator, LevelGeneratorRoom, BossPool, RoomConfig,
+        LevelGenerator, LevelGeneratorRoom, BossPool, RoomConfig, Weapon,
     };
     Kind kind{Kind::None};
     std::int64_t number{0};
@@ -4130,10 +4172,17 @@ struct CallbackArguments {
     std::size_t count{0};
 
     void AddInteger(std::int64_t value) noexcept { Push(CallbackArgument::Kind::Integer, value); }
+    void AddDouble(double value) noexcept {
+        Push(CallbackArgument::Kind::Double, std::bit_cast<std::int64_t>(value));
+    }
     void AddBoolean(bool value) noexcept {
         Push(CallbackArgument::Kind::Boolean, value ? 1 : 0);
     }
     void AddNil() noexcept { Push(CallbackArgument::Kind::Nil, 0); }
+    void AddText(const char* value) noexcept {
+        AddNativeView(CallbackArgument::Kind::Text,
+                      isaac::runtime::engine_memory::AddressOf(value));
+    }
     void AddCollectibleRng(std::uintptr_t player,std::int32_t item) noexcept {
         if(count>=kMaximum)return;
         auto& argument=items[count++];argument.kind=CallbackArgument::Kind::CollectibleRng;
@@ -4460,6 +4509,7 @@ struct LuaCallbackInvoker final : isaac::runtime::ICallbackInvoker {
     std::uint32_t tableOwner{0};
     bool batchMode{false};
     std::int64_t batchFilter{isaac::runtime::CallbackRegistry::kNoCallbackFilter};
+    const char* textFilter{};
     bool ownerBatch{false};
     void (*extendedReturn)(lua_State*,void*){};
     void* extendedContext{};
@@ -4500,7 +4550,8 @@ private:
         if(self->batchMode) {
             isaac::runtime::PushCallbackRunner(state,self->ownerBatch);
             lua_pushinteger(state,descriptor->id);
-            if(self->batchFilter==isaac::runtime::CallbackRegistry::kNoCallbackFilter)lua_pushnil(state);
+            if(self->textFilter)lua_pushstring(state,self->textFilter);
+            else if(self->batchFilter==isaac::runtime::CallbackRegistry::kNoCallbackFilter)lua_pushnil(state);
             else lua_pushinteger(state,self->batchFilter);
             if(self->ownerBatch)lua_pushinteger(state,self->batchOwner);
         } else {
@@ -4513,6 +4564,11 @@ private:
             switch (argument.kind) {
                 case CallbackArgument::Kind::Integer:
                     lua_pushinteger(state, static_cast<lua_Integer>(argument.number));
+                    break;
+                case CallbackArgument::Kind::Text:
+                    lua_pushstring(state, argument.entity
+                        ? static_cast<const char*>(isaac::runtime::engine_memory::AsObject(argument.entity))
+                        : "");
                     break;
                 case CallbackArgument::Kind::Boolean:
                     lua_pushboolean(state, argument.number != 0 ? 1 : 0);
@@ -4561,6 +4617,10 @@ private:
                 case CallbackArgument::Kind::LevelGenerator:
                     isaac::runtime::PushRepentogonLevelGeneratorHandle(state,
                         isaac::runtime::engine_memory::AsObject(argument.entity));break;
+                case CallbackArgument::Kind::Weapon:
+                    reinterpret_cast<const isaac::runtime::WeaponCallbackScope*>(
+                        argument.entity)->Push(state);
+                    break;
                 case CallbackArgument::Kind::LevelGeneratorRoom:
                     isaac::runtime::PushRepentogonLevelGeneratorRoomHandle(state,nullptr,
                         isaac::runtime::engine_memory::AsObject(argument.entity));break;
@@ -4576,6 +4636,9 @@ private:
                 case CallbackArgument::Kind::Float:
                     // PC 契约写的是 float（`Amount`）⇒ 压 number，不是 integer。
                     lua_pushnumber(state, static_cast<lua_Number>(argument.x));
+                    break;
+                case CallbackArgument::Kind::Double:
+                    lua_pushnumber(state,std::bit_cast<double>(argument.number));
                     break;
                 case CallbackArgument::Kind::Reference:
                     // `EntityRef` 句柄（缓冲区从引擎那个引用搬，见 entity_ref_api.cpp）。
@@ -4811,7 +4874,73 @@ void ParseRepentogonReturn(lua_State* state,void* opaque) {
     auto& context=*static_cast<RepentogonReturnContext*>(opaque);
     const auto& event=*context.event;
     const auto id=event.id;
-    if(id==1073) {
+    if(id==1251&&event.multiShot) {
+        context.result.hasObject=isaac::runtime::ReadApi600MultiShotParamsSnapshot(state,-1,event.multiShot);
+        return;
+    }
+    if(id==1224) {
+        if(lua_isnumber(state,-1)) {
+            context.result.hasCustomCacheValue=true;
+            context.result.customCacheValue=lua_tonumber(state,-1);
+        }
+        return;
+    }
+    if(id==1004 && lua_istable(state,-1)) {
+        const int table=lua_absindex(state,-1);
+        auto value=[&](int index,int fallback) {
+            lua_rawgeti(state,table,index);
+            const auto number=lua_isinteger(state,-1)?lua_tointeger(state,-1):fallback;
+            lua_pop(state,1);
+            return number>=INT32_MIN&&number<=INT32_MAX?static_cast<int>(number):fallback;
+        };
+        context.result.hasTable=true;
+        context.result.first=value(1,event.first);
+        context.result.second=value(2,event.second);
+        lua_rawgeti(state,table,3);
+        context.result.firstFlag=lua_isboolean(state,-1)?lua_toboolean(state,-1)!=0:event.low;
+        lua_pop(state,1);
+        context.result.third=value(4,event.third);
+        context.result.fourth=value(5,event.fourth);
+        return;
+    }
+    if(id==1034||id==1213) {
+        if(lua_isboolean(state,-1)) {
+            context.result.hasBoolean=true;
+            context.result.boolean=lua_toboolean(state,-1)!=0;
+        } else if(id==1034&&lua_isinteger(state,-1)) {
+            context.result.hasInteger=true;
+            context.result.integer=static_cast<std::int32_t>(lua_tointeger(state,-1));
+        } else if(lua_istable(state,-1)) {
+            const auto count=lua_rawlen(state,-1);
+            if((id==1034&&count!=2)||(id==1213&&count!=3&&count!=6))return;
+            context.result.hasTable=true;context.result.tableLength=count;
+            for(std::size_t index=1;index<=count;++index) {
+                lua_rawgeti(state,-1,index);
+                if(id==1034&&index==2)context.result.number=luaL_checknumber(state,-1);
+                else if(index<=3) {
+                    const auto value=static_cast<std::int32_t>(luaL_checkinteger(state,-1));
+                    if(index==1)context.result.first=value;
+                    if(index==2)context.result.second=value;
+                    if(index==3)context.result.third=value;
+                } else {
+                    const bool value=lua_toboolean(state,-1)!=0;
+                    if(index==4)context.result.firstFlag=value;
+                    if(index==5)context.result.secondFlag=value;
+                    if(index==6)context.result.thirdFlag=value;
+                }
+                lua_pop(state,1);
+            }
+        }
+        return;
+    }
+    if(id==1222) {
+        if(lua_isuserdata(state,-1)) {
+            const auto entity=isaac::runtime::EntityPointerArgument(state,-1);
+            if(entity) {context.result.hasObject=true;context.result.object=entity;}
+        }
+        return;
+    }
+    if(id==1072||id==1073||id==1074||id==1067||id==1009||id==1066||id==1063) {
         if(lua_isinteger(state,-1)) {
             context.result.hasInteger=true;
             context.result.integer=static_cast<std::int32_t>(lua_tointeger(state,-1));
@@ -4832,7 +4961,8 @@ void ParseRepentogonReturn(lua_State* state,void* opaque) {
         }
         return;
     }
-    if(id==1133) {
+    if(id==1114||id==1132||id==1133) {
+        if(id!=1133&&!lua_isnumber(state,-1))return;
         context.result.hasNumber=true;
         context.result.number=static_cast<float>(lua_tonumber(state,-1));
         return;
@@ -4866,7 +4996,7 @@ void ParseRepentogonReturn(lua_State* state,void* opaque) {
     }
     const bool entityRender=id>=1080&&id<=1089;
     const bool gridPre=id>=1400&&id<=1462&&(id&1)==0;
-    const bool pre=entityRender||gridPre||(id>=1160&&id<=1169)||id==1026||id==1030||id==1218||id==1201||id==1216||id==1069;
+    const bool pre=entityRender||gridPre||(id>=1160&&id<=1169)||id==1026||id==1030||id==1218||id==1201||id==1216||id==1069||id==1484||id==1481||id==1064||id==1050||id==1051||id==1012||id==1123||id==1004||id==1118||id==1119||id==1131||id==1171||id==1265;
     if(!pre)return;
     if(lua_isboolean(state,-1)) {
         context.result.hasBoolean=true;context.result.boolean=lua_toboolean(state,-1)!=0;
@@ -4901,8 +5031,133 @@ isaac::runtime::repentogon::Result DispatchRepentogonCallback(
     if(!repentogon::Listening(event.id)||!IsOnGameThread()||!IsReady()||!g_LuaState)return {};
     const ManagedEngineDispatchScope scope;
     LuaCallbackInvoker invoker{0,false,false};
+    WeaponCallbackScope weapon;
     auto filter=CallbackRegistry::kNoCallbackFilter;
     switch(event.kind) {
+        case EventKind::PlayerGridCollision:
+            filter=event.first;
+            invoker.arguments.AddEntity(event.object);
+            invoker.arguments.AddInteger(event.second);
+            if(event.collider)invoker.arguments.AddGrid(event.collider);
+            else invoker.arguments.AddNil();
+            break;
+        case EventKind::ActiveMaxCharge:
+            filter=event.first;
+            invoker.arguments.AddInteger(event.first);
+            invoker.arguments.AddEntity(event.object);
+            invoker.arguments.AddInteger(event.second);
+            invoker.arguments.AddInteger(event.third);
+            break;
+        case EventKind::PlayerHealthType:
+        case EventKind::PlayerHeartLimit: {
+            std::int32_t playerType{};
+            if(!engine_memory::ReadField(event.object,kEntityPlayerTypeOffset,
+                    &playerType,engine_memory::EngineMemoryReadable))return {};
+            filter=playerType;
+            invoker.arguments.AddEntity(event.object);
+            invoker.arguments.AddInteger(event.first);
+            if(event.kind==EventKind::PlayerHealthType)invoker.arguments.AddInteger(event.second);
+            else invoker.arguments.AddBoolean(event.low);
+            break;
+        }
+        case EventKind::PlayerHudHearts:
+            if(!event.offset)return {};
+            if(event.chargeBar)invoker.arguments.AddVector(event.chargeBar->x,event.chargeBar->y);
+            else invoker.arguments.AddNil();
+            invoker.arguments.AddCallbackSprite(event.collider);
+            invoker.arguments.AddVector(event.offset->x,event.offset->y);
+            invoker.arguments.AddFloat(event.scale);
+            invoker.arguments.AddEntity(event.object);
+            break;
+        case EventKind::LegacyMultiShot:
+            filter=event.first;
+            invoker.arguments.AddEntity(event.object);
+            break;
+        case EventKind::PickupVoid:
+            filter=event.first;
+            invoker.arguments.AddEntity(event.object);
+            invoker.arguments.AddBoolean(event.low);
+            break;
+        case EventKind::CustomCache:
+            if(!event.object||!event.customCacheTag)return {};
+            invoker.textFilter=event.customCacheTag;
+            invoker.arguments.AddEntity(event.object);
+            invoker.arguments.AddText(event.customCacheTag);
+            invoker.arguments.AddDouble(event.customCacheValue);
+            break;
+        case EventKind::WeaponFired:
+            if (!event.object || !event.collider || !event.offset) return {};
+            filter=event.first;
+            invoker.arguments.AddVector(event.offset->x,event.offset->y);
+            invoker.arguments.AddInteger(event.second);
+            invoker.arguments.AddEntity(event.object);
+            weapon.Begin(event.collider,event.object,event.first);
+            invoker.arguments.AddNativeView(CallbackArgument::Kind::Weapon,
+                engine_memory::AddressOf(&weapon));
+            break;
+        case EventKind::UseCard:
+            filter=event.first;
+            invoker.arguments.AddInteger(event.first);
+            invoker.arguments.AddEntity(event.object);
+            invoker.arguments.AddInteger(static_cast<std::uint32_t>(event.second));
+            break;
+        case EventKind::MusicPlay:
+            filter=event.first;
+            invoker.arguments.AddInteger(event.first);
+            invoker.arguments.AddFloat(event.number);
+            invoker.arguments.AddBoolean(event.low);
+            break;
+        case EventKind::PickupMorph:
+            invoker.arguments.AddEntity(event.object);
+            invoker.arguments.AddInteger(event.first);
+            invoker.arguments.AddInteger(static_cast<std::uint32_t>(event.second));
+            invoker.arguments.AddInteger(static_cast<std::uint32_t>(event.third));
+            invoker.arguments.AddBoolean(event.low);
+            invoker.arguments.AddBoolean((event.fourth&1)!=0);
+            invoker.arguments.AddBoolean((event.fourth&2)!=0);
+            break;
+        case EventKind::NpcTarget: {
+            std::uint32_t type{},variant{};
+            if(!ReadEntityIdentity(event.object,&type,&variant))return {};
+            filter=type;
+            invoker.arguments.AddEntity(event.object);
+            if(event.collider)invoker.arguments.AddEntity(event.collider);
+            else invoker.arguments.AddNil();
+            break;
+        }
+        case EventKind::PlayerLifecycle: {
+            std::int32_t playerType{};
+            if(!engine_memory::ReadField(event.object,kEntityPlayerTypeOffset,
+                    &playerType,engine_memory::EngineMemoryReadable))return {};
+            filter=playerType;
+            invoker.arguments.AddEntity(event.object);
+            if(event.id==1078) {
+                invoker.arguments.AddBoolean(event.low);
+                invoker.arguments.AddBoolean(event.first!=0);
+            }
+            break;
+        }
+        case EventKind::PlayerAddHearts:
+            filter=event.second;
+            invoker.arguments.AddEntity(event.object);
+            invoker.arguments.AddInteger(event.first);
+            invoker.arguments.AddInteger(event.second);
+            if(event.second==2)invoker.arguments.AddBoolean(event.low);
+            else invoker.arguments.AddNil();
+            break;
+        case EventKind::ShopItemPrice:
+            filter=event.first;
+            invoker.arguments.AddInteger(event.first);
+            invoker.arguments.AddInteger(event.second);
+            invoker.arguments.AddInteger(event.third);
+            invoker.arguments.AddInteger(event.fourth);
+            break;
+        case EventKind::ItemText:
+            invoker.arguments.AddText(event.title);
+            invoker.arguments.AddText(event.subtitle);
+            invoker.arguments.AddBoolean(event.low);
+            invoker.arguments.AddBoolean(event.first!=0);
+            break;
         case EventKind::PlayerActiveMinUsableCharge:
             filter=event.third;
             invoker.arguments.AddInteger(event.first);
@@ -4957,8 +5212,9 @@ isaac::runtime::repentogon::Result DispatchRepentogonCallback(
             std::uint32_t type{},variant{};
             if(!ReadEntityIdentity(event.object,&type,&variant))return {};
             filter=variant;
+            if(event.id==1241||event.id==1124)filter=event.first;
             if(event.id==1081)filter=type;
-            if(event.id==1165) {
+            if(event.id==1165||event.id==1243) {
                 std::uint32_t subtype{};if(!ReadEntitySubType(event.object,&subtype))return {};
                 filter=subtype;
             }
@@ -4971,9 +5227,22 @@ isaac::runtime::repentogon::Result DispatchRepentogonCallback(
         case EventKind::Grid:
         case EventKind::GridRender: {
             std::uint32_t type{};
-            if(!event.object||!engine_memory::ReadAt(event.object+kGridEntityTypeOffset,&type,
+            if(event.id==1011||event.id==1012)type=event.first;
+            else if(!event.object||!engine_memory::ReadAt(event.object+kGridEntityTypeOffset,&type,
                 &engine_memory::EngineMemoryReadable))return {};
-            filter=type;invoker.arguments.AddGrid(event.object);break;
+            filter=type;invoker.arguments.AddGrid(event.object);
+            if(event.id==1011) {
+                invoker.arguments.AddInteger(type);invoker.arguments.AddBoolean(event.low);
+                invoker.arguments.AddNil();
+            } else if(event.id==1012) {
+                if(event.collider)invoker.arguments.AddEntity(event.collider);
+                else invoker.arguments.AddNil();
+                invoker.arguments.AddInteger(event.second);
+                invoker.arguments.AddInteger(static_cast<lua_Integer>(event.damageFlags));
+                invoker.arguments.AddFloat(event.number);
+                invoker.arguments.AddBoolean(event.low);
+            }
+            break;
         }
         case EventKind::Sound: {
             if(!event.sound)return {};
@@ -5067,7 +5336,7 @@ isaac::runtime::repentogon::Result DispatchRepentogonCallback(
     if(menuRenderMaskScope)BeginRepentogonMainMenuRenderInputMaskScope();
     static_cast<void>(dispatcher.DispatchFiltered(event.id,ThreadAffinity::Any,filter));
     if(menuRenderMaskScope)EndRepentogonMainMenuRenderInputMaskScope();
-    if(invoker.batchFailed)return {};
+    if(invoker.batchFailed) {repentogon::Result failed{};failed.failed=true;return failed;}
     if(context.soundChanged)*event.sound=context.sound;
     return context.result;
 }
@@ -7658,6 +7927,7 @@ bool ShutdownForModReload() noexcept {
     isaac::runtime::ResetCompatibilityAdapters(state);
     isaac::runtime::console::SetAutocompleteDispatch(nullptr);
     isaac::runtime::SuspendRepentogonEnvironment(state);
+    isaac::runtime::ResetRepentogonImGui(state);
     lua_close(state);
     isaac::runtime::EndRepentogonEnvironment(state);
     g_LuaState = nullptr;

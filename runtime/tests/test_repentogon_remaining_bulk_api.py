@@ -103,7 +103,7 @@ static void Extensions(lua_State* state) noexcept {
 
 int main() {
     module.assign(0xaac698 + 0x100, 0);
-    game.assign(0x242c0 + 0x900, 0);
+    game.assign(0x242c0 + 0x908, 0);
     player.assign(0x2700, 0);
     backup.assign(0x2700, 0);
     pickup.assign(0x800, 0);
@@ -126,6 +126,12 @@ int main() {
     pickup[0x562] = 1;
 
     const auto pool = Address(game) + 0x242c0;
+    const std::uint64_t removedWords[]{6, 1};
+    const std::uintptr_t removedBits = reinterpret_cast<std::uintptr_t>(removedWords);
+    const std::size_t removedCount = 66, removedCapacity = 2;
+    std::memcpy(reinterpret_cast<void*>(pool + 0x8f0), &removedBits, 8);
+    std::memcpy(reinterpret_cast<void*>(pool + 0x8f8), &removedCount, 8);
+    std::memcpy(reinterpret_cast<void*>(pool + 0x900), &removedCapacity, 8);
     const auto begin = Address(poolItems);
     const auto end = begin + poolItems.size();
     // GetPool @ 0x3c5580 returns this + 8 + type * 0x48;
@@ -189,6 +195,9 @@ assert(pickup:IsBlind(false) and pickup:IsBlind())
 _blindSheet(8)
 assert(not pickup:IsBlind(false) and not pickup:IsBlind())
 assert(pool:GetNumItemPools() == 31)
+local removed = pool:GetRemovedCollectibles()
+assert(#removed == 65 and removed[0] == nil and removed[66] == nil)
+assert(removed[1] and removed[2] and not removed[3] and removed[64] and not removed[65])
 local items = pool:GetCollectiblesFromPool(0)
 assert(#items == 2 and items[1].itemID == 42)
 assert(items[1].initialWeight == 1.5 and items[1].weight == 0.75)

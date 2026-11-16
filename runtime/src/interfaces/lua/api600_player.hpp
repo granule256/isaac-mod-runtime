@@ -6,6 +6,13 @@ namespace isaac::runtime {
 struct alignas(8) Api600TearParams {unsigned char bytes[0x68];};
 struct alignas(4) Api600MultiShotParams {unsigned char bytes[0x24];};
 struct Api600PosVel {float positionX,positionY,velocityX,velocityY;};
+inline constexpr std::uintptr_t kApi600MultiShotNumTearsOffset=0x0;
+inline constexpr std::uintptr_t kApi600MultiShotNumLanesPerEyeOffset=0x2;
+inline constexpr std::uintptr_t kApi600MultiShotSpreadAngleTearsOffset=0x4;
+inline constexpr std::uintptr_t kApi600MultiShotSpreadAngleLaserOffset=0x8;
+inline constexpr std::uintptr_t kApi600MultiShotSpreadAngleTechXOffset=0xc;
+inline constexpr std::uintptr_t kApi600MultiShotSpreadAngleKnifeOffset=0x10;
+inline constexpr std::uintptr_t kApi600MultiShotNumEyesActiveOffset=0x14;
 static_assert(sizeof(Api600TearParams)==0x68);
 static_assert(sizeof(Api600MultiShotParams)==0x24);
 static_assert(alignof(Api600MultiShotParams)==4);
@@ -20,7 +27,16 @@ int Api600EntityPlayerAreOpposingShootDirectionsPressed(lua_State*);
 int Api600EntityPlayerHasWeaponType(lua_State*);
 int Api600EntityPlayerGetMultiShotParams(lua_State*);
 int Api600EntityPlayerGetMultiShotPositionVelocity(lua_State*);
+int Api600MultiShotParamsGetNumTears(lua_State*);
+int Api600MultiShotParamsSetNumTears(lua_State*);
 int Api600MultiShotParamsGetNumLanesPerEye(lua_State*);
+int Api600MultiShotParamsSetNumLanesPerEye(lua_State*);
+int Api600MultiShotParamsGetSpreadAngle(lua_State*);
+int Api600MultiShotParamsSetSpreadAngle(lua_State*);
+bool PushApi600MultiShotParamsSnapshot(
+    lua_State*, const Api600MultiShotParams&);
+bool ReadApi600MultiShotParamsSnapshot(
+    lua_State*, int index, Api600MultiShotParams*);
 #if !defined(__SWITCH__)
 struct Api600PlayerNativeTestBindings {std::uintptr_t methods[4];};
 void SetApi600PlayerNativeTestBindings(Api600PlayerNativeTestBindings)noexcept;

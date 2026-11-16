@@ -30,6 +30,8 @@ constexpr std::uintptr_t kItemPoolPoolListBeginOffset = 0x10;
 constexpr std::uintptr_t kItemPoolPoolListEndOffset = 0x18;
 constexpr std::size_t kItemPoolPoolItemStride = 0x18;
 constexpr std::int32_t kItemPoolCount = 31;
+// ItemPool::RemoveCollectible indexes the vector at +0x8f0 by item ID / 64.
+constexpr std::uintptr_t kRemovedCollectibleBitsOffset = 0x8f0;
 
 #if !defined(__SWITCH__)
 RepentogonRemainingBulkNativeTestBindings g_TestBindings{};
@@ -297,6 +299,34 @@ int RepentogonItemPoolGetNumItemPools(lua_State* state) {
 int RepentogonItemPoolGetCollectiblesFromPool(lua_State* state) {
     const auto itemPool = ItemPool(state);
     PushItemPoolTable(state, itemPool);
+    return 1;
+}
+
+int RepentogonItemPoolGetRemovedCollectibles(lua_State* state) {
+    const auto itemPool = ItemPool(state);
+    RequireNoArgs(state, "ItemPool:GetRemovedCollectibles");
+    const auto count = Read<std::size_t>(state, itemPool,
+        kRemovedCollectibleBitsOffset + 8, "ItemPool removed collectible count");
+    if (count <= 1) {
+        lua_newtable(state);
+        return 1;
+    }
+    const auto bits = Read<std::uintptr_t>(state, itemPool,
+        kRemovedCollectibleBitsOffset, "ItemPool removed collectible bits");
+    const auto capacity = Read<std::size_t>(state, itemPool,
+        kRemovedCollectibleBitsOffset + 16, "ItemPool removed collectible capacity");
+    const auto words = count / 64 + (count % 64 != 0);
+    if (count > INT32_MAX || words > capacity || (bits & 7) != 0 ||
+        !engine_memory::EngineMemoryReadable(bits, words * sizeof(std::uint64_t)))
+        return luaL_error(state, "ItemPool removed collectible table is invalid");
+    lua_createtable(state, static_cast<int>(count - 1), 0);
+    std::uint64_t word{};
+    for (std::size_t id = 1; id < count; ++id) {
+        if (id == 1 || id % 64 == 0)
+            std::memcpy(&word, engine_memory::AsObject(bits + (id / 64) * sizeof(word)), sizeof(word));
+        lua_pushboolean(state, (word >> (id % 64)) & 1);
+        lua_rawseti(state, -2, static_cast<lua_Integer>(id));
+    }
     return 1;
 }
 

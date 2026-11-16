@@ -129,12 +129,39 @@ local function ResumeAfterMutation(callbacks, entry)
     end
     return #callbacks+1,nil
 end
+local function ApplyCollectibleOverride(result, id, charge, first, slot, data)
+    if type(result)=="number" then return result,charge,first,slot,data,true end
+    if type(result)~="table" then return id,charge,first,slot,data,false end
+    if type(result[1])=="number" then id=result[1] end
+    if type(result[2])=="number" then charge=result[2] end
+    if type(result[3])=="boolean" then first=result[3] end
+    if type(result[4])=="number" then slot=result[4] end
+    if type(result[5])=="number" then data=result[5] end
+    return id,charge,first,slot,data,true
+end
 local function MakeExtensionRunner(invoke, nextMatching)
     return function(callbackId,param,...)
         local callbacks=Callbacks[callbackId]
         if not callbacks then return end
         local render=callbackId>=1080 and callbackId<=1089
         local activeCharge=callbackId==1073
+        local maxCharge=callbackId==1072
+        local heartLimit=callbackId==1074
+        local healthType=callbackId==1067
+        local maxItem,maxPlayer,maxVarData,maxValue
+        local limitPlayer,limitValue,limitKeeper
+        if maxCharge then maxItem,maxPlayer,maxVarData,maxValue=... end
+        if heartLimit then limitPlayer,limitValue,limitKeeper=... end
+        local customCache=callbackId==1224
+        local cachePlayer,cacheTag,cacheValue
+        if customCache then cachePlayer,cacheTag,cacheValue=... end
+        local addCollectible=callbackId==1004
+        local itemId,itemCharge,itemFirst,itemSlot,itemData,itemPlayer
+        local itemOverridden=false
+        if addCollectible then itemId,itemCharge,itemFirst,itemSlot,itemData,itemPlayer=... end
+        local death=callbackId==1050 or callbackId==1051
+        local deathPlayer
+        if death then deathPlayer=... end
         local chargeSlot,chargePlayer,chargeValue
         if activeCharge then chargeSlot,chargePlayer,chargeValue=... end
         local offset
@@ -169,9 +196,25 @@ local function MakeExtensionRunner(invoke, nextMatching)
                     local result
                     if render then result,offset=InvokeRender(invoke,callbackId,entry,offset,...)
                     elseif activeCharge then result=invoke(callbackId,entry,chargeSlot,chargePlayer,chargeValue)
+                    elseif maxCharge then result=invoke(callbackId,entry,maxItem,maxPlayer,maxVarData,maxValue)
+                    elseif heartLimit then result=invoke(callbackId,entry,limitPlayer,limitValue,limitKeeper)
+                    elseif customCache then result=invoke(callbackId,entry,cachePlayer,cacheTag,cacheValue)
+                    elseif addCollectible then result=invoke(callbackId,entry,itemId,itemCharge,itemFirst,itemSlot,itemData,itemPlayer)
                     else result=invoke(callbackId,entry,...) end
-                    if result~=nil then
-                        if activeCharge then chargeValue=result else return result end
+                    if death then
+                        if not deathPlayer:IsDead() or not deathPlayer:Exists() then return end
+                        if result==false then return false end
+                    elseif result~=nil then
+                        if addCollectible then
+                            if result==false then return false end
+                            local changed
+                            itemId,itemCharge,itemFirst,itemSlot,itemData,changed=ApplyCollectibleOverride(result,itemId,itemCharge,itemFirst,itemSlot,itemData)
+                            itemOverridden=itemOverridden or changed
+                        elseif activeCharge then chargeValue=result
+                        elseif customCache then cacheValue=result
+                        elseif maxCharge then if math.type(result)=="integer" then maxValue=result end
+                        elseif heartLimit then if math.type(result)=="integer" then limitValue=result end
+                        elseif not healthType or math.type(result)=="integer" then return result end
                     end
                     if (mutations[callbackId] or 0)~=version then
                         nextIndex,following=ResumeAfterMutation(callbacks,following)
@@ -194,15 +237,36 @@ local function MakeExtensionRunner(invoke, nextMatching)
                     local result
                     if render then result,offset=InvokeRender(invoke,callbackId,entry,offset,...)
                     elseif activeCharge then result=invoke(callbackId,entry,chargeSlot,chargePlayer,chargeValue)
+                    elseif maxCharge then result=invoke(callbackId,entry,maxItem,maxPlayer,maxVarData,maxValue)
+                    elseif heartLimit then result=invoke(callbackId,entry,limitPlayer,limitValue,limitKeeper)
+                    elseif customCache then result=invoke(callbackId,entry,cachePlayer,cacheTag,cacheValue)
+                    elseif addCollectible then result=invoke(callbackId,entry,itemId,itemCharge,itemFirst,itemSlot,itemData,itemPlayer)
                     else result=invoke(callbackId,entry,...) end
-                    if result~=nil then
-                        if activeCharge then chargeValue=result else return result end
+                    if death then
+                        if not deathPlayer:IsDead() or not deathPlayer:Exists() then return end
+                        if result==false then return false end
+                    elseif result~=nil then
+                        if addCollectible then
+                            if result==false then return false end
+                            local changed
+                            itemId,itemCharge,itemFirst,itemSlot,itemData,changed=ApplyCollectibleOverride(result,itemId,itemCharge,itemFirst,itemSlot,itemData)
+                            itemOverridden=itemOverridden or changed
+                        elseif activeCharge then chargeValue=result
+                        elseif customCache then cacheValue=result
+                        elseif maxCharge then if math.type(result)=="integer" then maxValue=result end
+                        elseif heartLimit then if math.type(result)=="integer" then limitValue=result end
+                        elseif not healthType or math.type(result)=="integer" then return result end
                     end
                 end
             end
         end
         if render then return offset end
         if activeCharge then return chargeValue end
+        if maxCharge then return maxValue end
+        if heartLimit then return limitValue end
+        if customCache then return cacheValue end
+        if itemOverridden then return {itemId,itemCharge,itemFirst,itemSlot,itemData} end
+        if death then return true end
     end
 end
 local function SelectRunner(invoke,nextMatching)

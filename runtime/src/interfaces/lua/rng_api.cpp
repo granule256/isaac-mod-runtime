@@ -3,6 +3,7 @@
 #include "infrastructure/call/engine_call_access.hpp"  // 引擎调用层（调引擎只在这里转换签名）
 #include "interfaces/lua/lua_integer_argument.hpp"
 #include "interfaces/lua/owner_binding.hpp"
+#include "interfaces/lua/repentogon_environment.hpp"
 
 #include "lua_object_handles.hpp"
 #include "infrastructure/memory/engine_field_access.hpp"
@@ -165,10 +166,18 @@ int RngGetSeed(lua_State* state) {
 // 编一个随机数（假随机数比报错更难查，而且会导致模组偷偷走进错误分支）。
 int RngRandomInt(lua_State* state) {
     auto* rng = static_cast<RngHandle*>(luaL_checkudata(state, 1, kRngMetatable));
-    lua_Integer maximum = 0;
-    if (lua_gettop(state) != 2 || !isaac::runtime::IsIntegerArgument(state, 2) ||
-        (maximum = lua_tointegerx(state, 2, nullptr)) < 0 ||
-        static_cast<std::uint64_t>(maximum) > std::numeric_limits<std::uint32_t>::max()) {
+    lua_Integer minimum = 0;
+    lua_Integer bound = 0;
+    if (lua_gettop(state) == 3 && RepentogonEnvironmentActive()) {
+        minimum = luaL_checkinteger(state, 2);
+        const auto maximum = luaL_checkinteger(state, 3);
+        if (minimum < INT32_MIN || maximum > INT32_MAX || minimum > maximum ||
+            maximum - minimum >= UINT32_MAX)
+            return luaL_argerror(state, 3, "invalid inclusive int32 interval");
+        bound = maximum - minimum + 1;
+    } else if (lua_gettop(state) != 2 || !IsIntegerArgument(state, 2) ||
+        (bound = lua_tointegerx(state, 2, nullptr)) < 0 ||
+        static_cast<std::uint64_t>(bound) > UINT32_MAX) {
         return luaL_error(state, "RNG:RandomInt accepts one integer maximum inside uint32 range");
     }
     const std::uintptr_t method = RngRandomUintThunk();
@@ -178,8 +187,8 @@ int RngRandomInt(lua_State* state) {
     using RandomUintFn = std::uint32_t (*)(void*, std::uint32_t);
     const std::uint32_t value =
         engine_call::AsFunction<RandomUintFn>(method)(ResolveRngObject(state, rng, true),
-                                                      static_cast<std::uint32_t>(maximum));
-    lua_pushinteger(state, static_cast<lua_Integer>(value));
+                                                      static_cast<std::uint32_t>(bound));
+    lua_pushinteger(state, minimum + static_cast<lua_Integer>(value));
     return 1;
 }
 
@@ -207,12 +216,19 @@ int RepentogonRngSetSeed(lua_State* state) {
     const auto shift = static_cast<std::uint32_t>(luaL_optinteger(state, 3, 35));
     if (seed == 0) return luaL_argerror(state, 2, "RNG seed must be an integer above 0");
     if (shift > 80) return luaL_argerror(state, 3, "RNG shift index must be between 0 and 80 (inclusive)");
+    SeedRngObject(state, rng, seed, shift);
+    return 0;
+}
+
+void SeedRngObject(lua_State* state, LuaRuntime::RngHandle* rng,
+                   std::uint32_t seed, std::uint32_t shift) {
     const auto method = LuaRuntime::RngSetSeedThunk();
-    if (!LuaRuntime::ValidateRngSetSeedBinding(method))
-        return luaL_error(state, "RNG:SetSeed native bindings are unavailable");
+    if (!LuaRuntime::ValidateRngSetSeedBinding(method)) {
+        luaL_error(state, "RNG:SetSeed native bindings are unavailable");
+        return;
+    }
     using SetSeedFn = void (*)(void*, std::uint32_t, std::uint32_t);
     engine_call::AsFunction<SetSeedFn>(method)(ResolveRngObject(state, rng, true), seed, shift);
-    return 0;
 }
 
 std::size_t AttachRngMethods(lua_State* state) noexcept {

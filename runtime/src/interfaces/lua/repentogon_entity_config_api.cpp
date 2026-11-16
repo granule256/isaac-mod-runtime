@@ -2,6 +2,7 @@
 #include "interfaces/lua/isaac_api.hpp"
 #include "interfaces/lua/api500_config.hpp"
 #include "interfaces/lua/owner_binding.hpp"
+#include "interfaces/lua/sprite_api.hpp"
 #include "infrastructure/call/engine_call_access.hpp"
 #include "infrastructure/memory/engine_field_access.hpp"
 #include "lua_runtime.hpp"
@@ -17,6 +18,17 @@ constexpr char kEntityMt[]="IsaacRuntime.EntityConfigEntity";
 constexpr char kPlayerMt[]="IsaacRuntime.EntityConfigPlayer";
 constexpr std::uint8_t kEntityGuard[]={0x0a,0x8c,0x40,0xf8,0x29,0x2c,0x0c,0x53,0xca,0x02,0x00,0xb4,0x28,0x21,0x02,0x2a};
 constexpr std::uint8_t kPlayerGuard[]={0x81,0x01,0xf8,0x37,0x08,0xa4,0x41,0xa9,0x29,0x01,0x08,0xcb,0x29,0xfd,0x43,0xd3};
+// LoadPlayers leaves the libc++ strings at +0x08/+0x20; the actual entity
+// record in the live tree places anm2Path at +0x90.  Player records use the
+// five ANM2 pointers following _renderCustomBackground.
+constexpr std::uintptr_t kEntityAnm2PathOffset=0x90;
+// EntityConfig::Load writes the native XML tag mask at temporary record +0x118.
+constexpr std::uintptr_t kEntityTagsOffset=0x118;
+constexpr std::uintptr_t kPlayerModdedMenuBackgroundOffset=0x150;
+constexpr std::uintptr_t kPlayerModdedMenuPortraitOffset=0x158;
+constexpr std::uintptr_t kPlayerModdedGameOverOffset=0x160;
+constexpr std::uintptr_t kPlayerModdedCoopMenuOffset=0x168;
+constexpr std::uintptr_t kPlayerModdedControlsOffset=0x170;
 struct View {
     std::uintptr_t config{},record{},base{};
     std::int32_t type{};
@@ -108,6 +120,18 @@ int RepentogonEntityConfigGetPlayer(lua_State* L) {
     const auto config=Config(L);
     return Push(L,config,static_cast<std::int32_t>(luaL_checkinteger(L,1)),0,0,true);
 }
+int RepentogonEntityConfigEntityGetEntityTags(lua_State* L) {
+    const auto tags=Read<std::uint64_t>(L,Record(L,false),kEntityTagsOffset);
+    lua_pushinteger(L,static_cast<lua_Integer>(tags));
+    return 1;
+}
+int RepentogonEntityConfigEntityHasEntityTags(lua_State* L) {
+    const auto tags=Read<std::uint64_t>(L,Record(L,false),kEntityTagsOffset);
+    const auto mask=static_cast<std::int32_t>(luaL_checkinteger(L,2));
+    const auto bits=static_cast<std::uint32_t>(mask);
+    lua_pushboolean(L,mask>0&&(tags&bits)==bits);
+    return 1;
+}
 int RepentogonEntityConfigGetMaxPlayerType(lua_State* L) {
     const auto config=Config(L);
     const auto base=LuaRuntime::EngineModuleBase();
@@ -180,12 +204,44 @@ bool RepentogonEntityConfigPlayerTaintedByType(
 int RepentogonEntityConfigEntityCanBeChampion(lua_State* L) {lua_pushboolean(L,Read<std::uint8_t>(L,Record(L,false),0x38)!=0);return 1;}
 int RepentogonEntityConfigEntityGetStageHP(lua_State* L) {lua_pushnumber(L,Read<float>(L,Record(L,false),0x58));return 1;}
 int RepentogonEntityConfigEntityGetCollisionRadius(lua_State* L) {lua_pushnumber(L,Read<float>(L,Record(L,false),0x3c));return 1;}
+int RepentogonEntityConfigEntityGetAnm2Path(lua_State* L) {
+    const auto record=Record(L,false);
+    if(record>UINTPTR_MAX-kEntityAnm2PathOffset)
+        return luaL_error(L,"EntityConfig anm2 path address is invalid");
+    return Api500PushConfigString(L,record+kEntityAnm2PathOffset);
+}
 // LoadPlayers' player record: name+0x08, skin+0x20, nameimage+0x38,
 // portrait+0x50, extraportrait+0x80.
 int RepentogonEntityConfigPlayerGetName(lua_State* L) {return Path(L,kEntityConfigPlayerNameOffset);}
 int RepentogonEntityConfigPlayerGetPortraitPath(lua_State* L) {return Path(L,0x50);}
 int RepentogonEntityConfigPlayerGetExtraPortraitPath(lua_State* L) {return Path(L,0x80);}
 int RepentogonEntityConfigPlayerGetNameImagePath(lua_State* L) {return Path(L,0x38);}
+int PushPlayerSprite(lua_State* L,std::uintptr_t offset) {
+    const auto record=Record(L,true);
+    const auto sprite=Read<std::uintptr_t>(L,record,offset);
+    if(!sprite){lua_pushnil(L);return 1;}
+    if(!engine_memory::EngineMemoryReadable(
+           sprite,kSpriteObjectSize))
+        return luaL_error(L,"EntityConfig player sprite is unreadable");
+    // These ANM2 objects are owned by the player config and are not part of
+    // the callback-sprite lifetime set.
+    return PushEngineConfigSpriteHandle(L,engine_memory::AsObject(sprite));
+}
+int RepentogonEntityConfigPlayerGetModdedMenuBackgroundSprite(lua_State* L) {
+    return PushPlayerSprite(L,kPlayerModdedMenuBackgroundOffset);
+}
+int RepentogonEntityConfigPlayerGetModdedMenuPortraitSprite(lua_State* L) {
+    return PushPlayerSprite(L,kPlayerModdedMenuPortraitOffset);
+}
+int RepentogonEntityConfigPlayerGetModdedGameOverSprite(lua_State* L) {
+    return PushPlayerSprite(L,kPlayerModdedGameOverOffset);
+}
+int RepentogonEntityConfigPlayerGetModdedCoopMenuSprite(lua_State* L) {
+    return PushPlayerSprite(L,kPlayerModdedCoopMenuOffset);
+}
+int RepentogonEntityConfigPlayerGetModdedControlsSprite(lua_State* L) {
+    return PushPlayerSprite(L,kPlayerModdedControlsOffset);
+}
 #if !defined(__SWITCH__)
 void SetRepentogonEntityConfigNativeTestBindings(RepentogonEntityConfigNativeTestBindings value) noexcept {g_Host=value;}
 #endif

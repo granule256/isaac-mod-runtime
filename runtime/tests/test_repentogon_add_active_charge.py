@@ -39,6 +39,13 @@ static std::vector<unsigned char> player;
 static int calls;
 static int step;
 static int substep;
+static int maxQueries;
+
+static std::int32_t Maximum(void* object, std::int32_t slot) {
+    assert(object == player.data());
+    ++maxQueries;
+    return 10 + slot;
+}
 
 static std::int32_t Added(void* object, std::int32_t charge, std::int32_t slot,
                           bool flashHUD, bool overcharge, bool force) {
@@ -97,6 +104,9 @@ int main() {
     std::memcpy(player.data(), &vptr, sizeof(vptr));
     const std::uint32_t type = kEntityTypePlayer;
     std::memcpy(player.data() + kEntityTypeOffset, &type, sizeof(type));
+    const unsigned char maxChargeGuard[]={0xfd,0x7b,0xbe,0xa9,0xf3,0x0b,0x00,0xf9,
+                                          0xfd,0x03,0x00,0x91,0x3f,0x0c,0x00,0x71};
+    std::memcpy(moduleBytes.data() + 0x27f828, maxChargeGuard, sizeof(maxChargeGuard));
 
     LuaRuntime::SetEngineModuleBase(base);
     LuaRuntime::ObserveGameThread();
@@ -105,9 +115,17 @@ int main() {
     const repentogon::NativePort port{Ready, Ready};
     repentogon::SetNativePort(&port);
     SetRepentogonPlayerAddActiveChargeHost(&Added);
+    SetRepentogonPlayerActiveMaxChargeHost(&Maximum);
     LuaRuntime::SetRuntimeExtensionInstaller(Extensions);
 
     const char* script = R"lua(
+assert(type(player.GetActiveMaxCharge)=='function', 'EntityPlayer:GetActiveMaxCharge was not registered')
+assert(player:GetActiveMaxCharge() == 10 and player:GetActiveMaxCharge(nil) == 10)
+assert(player:GetActiveMaxCharge(2) == 12 and player:GetActiveMaxCharge(3) == 13)
+local ok, err=pcall(player.GetActiveMaxCharge, player, -1)
+assert(not ok and err:find('Invalid ActiveSlot -1', 1, true))
+assert(not pcall(player.GetActiveMaxCharge, player, 4))
+assert(not pcall(player.GetActiveMaxCharge, player, 1.5))
 _step(1); assert(player:AddActiveCharge(-1, 1, false, true, false) == 1)
 _step(2); assert(player:AddActiveCharge(2) == 2)
 _step(3); assert(player:AddActiveCharge(3, nil, nil, nil, nil) == 0)
@@ -131,8 +149,10 @@ assert(not pcall(function() player:AddActiveCharge(1, {}) end))
         return 1;
     }
     assert(calls == 14);
+    assert(maxQueries == 4);
     assert(LuaRuntime::ShutdownForModReload());
     SetRepentogonPlayerAddActiveChargeHost(nullptr);
+    SetRepentogonPlayerActiveMaxChargeHost(nullptr);
     repentogon::SetNativePort(nullptr);
     SetSessionSaveFilePort(nullptr);
     LuaRuntime::SetRuntimeExtensionInstaller(nullptr);
@@ -202,6 +222,7 @@ class RepentogonAddActiveChargeTests(unittest.TestCase):
             catalog,
         )
         self.assertIn("RepentogonEntityPlayerAddActiveCharge", catalog)
+        self.assertIn('"EntityPlayer","GetActiveMaxCharge"', catalog)
 
 
 if __name__ == "__main__":

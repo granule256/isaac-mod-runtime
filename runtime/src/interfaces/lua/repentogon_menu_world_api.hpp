@@ -26,6 +26,11 @@ int RepentogonNightmareSceneIsDogmaNightmare(lua_State* state);
 int RepentogonNightmareSceneGetProgressBarSprite(lua_State* state);
 int RepentogonNightmareSceneGetBackgroundSprite(lua_State* state);
 int RepentogonGameIsPauseMenuOpen(lua_State* state);
+int RepentogonPauseMenuGetState(lua_State* state);
+int RepentogonPauseMenuGetSprite(lua_State* state);
+int RepentogonPauseMenuGetStatsSprite(lua_State* state);
+int RepentogonPauseMenuGetMyStuffSprite(lua_State* state);
+int RepentogonPauseMenuGetCompletionMarksSprite(lua_State* state);
 int RepentogonIsaacGetCompletionMark(lua_State* state);
 int RepentogonIsaacSetCompletionMarks(lua_State* state);
 bool RepentogonGetCustomCompletionMarks(

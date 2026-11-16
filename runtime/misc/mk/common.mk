@@ -297,6 +297,7 @@ CPPFILES += pressure_plate_animation_hook.cpp
 CPPFILES += main_module_load_hook.cpp
 CPPFILES += entity_init_hook.cpp entity_remove_hook.cpp cold_callbacks_internal_hook.cpp card_hook.cpp console_callback_hook.cpp
 CPPFILES += stat_hud_planetarium_native.cpp
+CPPFILES += repentogon_custom_cache_helper.cpp repentogon_custom_cache_native_api.cpp repentogon_custom_cache_runner.cpp
 ifeq ($(PERSISTENCE_TRACE),1)
 CPPFILES += persistence_trace.cpp
 CPPFILES += manager_update_hook_audit.cpp

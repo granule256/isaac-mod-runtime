@@ -64,6 +64,7 @@ enum class XmlDataFileKind : std::uint8_t {
     Backdrops = 25,
     Achievements = 26,
     GiantBooks = 27,
+    ItemPools = 10,
 };
 
 struct XmlAttribute {
@@ -133,8 +134,11 @@ void ResetXmlDataStore() noexcept;
 [[nodiscard]] const XmlRecord* FindEntryById(XmlNodeType type, int id) noexcept;
 [[nodiscard]] const XmlRecord* FindGiantBookByName(const char* name) noexcept;
 [[nodiscard]] const XmlRecord* FindAchievementByName(const char* name) noexcept;
+[[nodiscard]] const XmlRecord* FindItemPoolByName(const char* name) noexcept;
+[[nodiscard]] int FindBaseItemPoolIdByName(const char* name, std::size_t length) noexcept;
 inline constexpr int kFirstCustomPlayerId = 41;
 inline constexpr int kFirstCustomAchievementId = 641;
+inline constexpr int kFirstCustomItemPoolId = 31;
 [[nodiscard]] const XmlRecord* FindEntryByOrder(XmlNodeType type, int order) noexcept;
 [[nodiscard]] std::size_t CountEntries(XmlNodeType type) noexcept;
 [[nodiscard]] const XmlDataStoreStats& Statistics() noexcept;

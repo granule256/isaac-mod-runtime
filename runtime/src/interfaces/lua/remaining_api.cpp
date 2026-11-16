@@ -39,11 +39,19 @@
 
 #include "game_observer.hpp"
 #include "lua_object_handles.hpp"
+#include "lua_runtime.hpp"
 #include "level_start_room.hpp"
 #include "lua_runtime_state.hpp"
+#include "program/custom_item_pool.hpp"
+#include "program/custom_item_pool_native.hpp"
+#include "program/isaac_name_tables.hpp"
+#include "program/mod_content_names.hpp"
+#include "program/xml_data_store.hpp"
 #include "runtime_constants.hpp"
 
+#include <array>
 #include <atomic>
+#include <cmath>
 #include <cstdint>
 #include <cstring>
 #include <limits>
@@ -257,6 +265,81 @@ int GridEntityDoorIsTargetRoomArcade(lua_State* state);
 int ItemPoolGetLastPool(lua_State* state);
 int ItemPoolGetCollectible(lua_State* state);
 int ItemPoolIsPillIdentified(lua_State* state);
+
+namespace custom_pool = isaac::runtime::custom_item_pool;
+
+bool IsEngineMemoryReadable(std::uintptr_t address, std::size_t length) noexcept;
+
+#if defined(__SWITCH__)
+std::int32_t ResolveCustomPoolItemName(void*, const char* name,
+                                      std::size_t length) {
+    std::int32_t id =
+        LookupIsaacName(IsaacNameKind::Collectible, name, length);
+    if (id < 0) {
+        id = LookupModContentName(ModContentNameFamily::Collectible, name, length);
+    }
+    return id;
+}
+
+bool InspectCustomPoolCollectible(void*, std::int32_t id, bool* isSpecial) {
+    if (isSpecial == nullptr || id < 0) {
+        return false;
+    }
+    *isSpecial = false;
+    const std::uintptr_t base = EngineModuleBase();
+    if (base == 0 || base > UINTPTR_MAX - kGameManagerGlobalSlotOffset) {
+        return false;
+    }
+    std::uintptr_t managerSlot = 0;
+    std::uintptr_t manager = 0;
+    if (!engine_memory::ReadAt(base + kGameManagerGlobalSlotOffset, &managerSlot,
+                               &IsEngineMemoryReadable) ||
+        !engine_memory::ReadAt(managerSlot, &manager, &IsEngineMemoryReadable) ||
+        manager > UINTPTR_MAX - kManagerItemConfigOffset) {
+        return false;
+    }
+    const std::uintptr_t config = manager + kManagerItemConfigOffset;
+    std::uintptr_t begin = 0;
+    std::uintptr_t end = 0;
+    if (!engine_memory::ReadAt(config + kItemConfigCollectibleBeginOffset, &begin,
+                               &IsEngineMemoryReadable) ||
+        !engine_memory::ReadAt(config + kItemConfigCollectibleEndOffset, &end,
+                               &IsEngineMemoryReadable) ||
+        end < begin || ((end - begin) % sizeof(std::uintptr_t)) != 0) {
+        return false;
+    }
+    const std::uint64_t byteCount = end - begin;
+    const std::uint64_t count = byteCount / sizeof(std::uintptr_t);
+    if (static_cast<std::uint64_t>(id) >= count || count > 0x10000) {
+        return false;
+    }
+    const std::uintptr_t slot =
+        begin + static_cast<std::uintptr_t>(id) * sizeof(std::uintptr_t);
+    std::uintptr_t item = 0;
+    std::uint32_t storedId = 0;
+    std::uint8_t special = 0;
+    if (!engine_memory::ReadAt(slot, &item, &IsEngineMemoryReadable) ||
+        item == 0 ||
+        !engine_memory::ReadAt(item + kItemConfigItemIdOffset, &storedId,
+                               &IsEngineMemoryReadable) ||
+        storedId != static_cast<std::uint32_t>(id) ||
+        // `ItemConfig_Item.Special` is the boolean at +0xB4 used by the
+        // native picker's special-item retry path.
+        !engine_memory::ReadAt(item + 0xB4, &special, &IsEngineMemoryReadable)) {
+        return false;
+    }
+    *isSpecial = special != 0;
+    return true;
+}
+
+custom_pool::Bindings CustomPoolBindings() {
+    return custom_pool::Bindings{
+        nullptr,
+        &ResolveCustomPoolItemName,
+        &InspectCustomPoolCollectible,
+    };
+}
+#endif
 
 constexpr LuaHandlerBinding kLevelHandlers[] = {
     {0x03010001, &LevelGetStage},
@@ -2328,16 +2411,56 @@ int ItemPoolGetCollectible(lua_State* state) {
     if (ReadCurrentGameItemPool(GameOwnerSlot(), &itemPool) != GameItemPoolObservation::Success) {
         return PushNativeFallbackInteger(state, kFbItemPoolGetCollectible, 0);
     }
+    const std::uint32_t nativePoolType = static_cast<std::uint32_t>(poolType);
+    custom_pool::NativePoolEntry* customEntry = nullptr;
+    if (nativePoolType >=
+        static_cast<std::uint32_t>(xml_data::kFirstCustomItemPoolId)) {
+        const auto* record = xml_data::FindEntryById(
+            xml_data::XmlNodeType::ItemPool, static_cast<int>(nativePoolType));
+        if (record == nullptr || record->id != static_cast<int>(nativePoolType)) {
+            return luaL_error(state, "ItemPool:GetCollectible pool %u is not registered",
+                              nativePoolType);
+        }
+        if (!custom_item_pool_native::Ready()) {
+            return luaL_error(
+                state,
+                "ItemPool:GetCollectible custom-pool native substitution is unavailable");
+        }
+
+#if defined(__SWITCH__)
+        const custom_pool::Bindings bindings = CustomPoolBindings();
+        customEntry = custom_pool::AcquireNativePool(itemPool, nativePoolType, bindings);
+#else
+        const custom_pool::Bindings* bindings =
+            custom_pool::HostBindingsForTests();
+        if (bindings == nullptr) {
+            return luaL_error(
+                state, "ItemPool:GetCollectible custom-pool host bindings are unavailable");
+        }
+        customEntry = custom_pool::AcquireNativePool(itemPool, nativePoolType, *bindings);
+#endif
+        if (customEntry == nullptr) {
+            return luaL_error(state,
+                              "ItemPool:GetCollectible custom pool %u could not be loaded",
+                              nativePoolType);
+        }
+        // Native GetCollectible runs unchanged. The cold hooks replace only
+        // the Pool address selected at 0x3C6698/0x3C66EC.
+    }
     const std::uintptr_t method = ItemPoolGetCollectibleThunk();
     if (!ValidateItemPoolGetCollectibleBinding(method)) {
         return luaL_error(state, "ItemPool:GetCollectible native bindings are unavailable");
     }
+    // Lua argument/binding failures longjmp, so publish the borrowed stack
+    // frame only after every validation that can raise a Lua error.
+    custom_item_pool_native::ScopedPoolContext customContext;
+    if(customEntry)customContext.Activate(itemPool,nativePoolType,customEntry);
     using GetCollectibleFn = std::uint32_t (*)(void*, std::uint32_t, std::uint32_t, std::uint32_t,
                                                std::uint32_t);
     // PC's Lua wrapper forwards the low 32 integer bits. Room:GetSpawnSeed()
     // returns a signed int, so rejecting negative seeds aborts valid callbacks.
     const auto result = isaac::runtime::engine_call::AsFunction<GetCollectibleFn>(method)(
-        itemPool, static_cast<std::uint32_t>(poolType), static_cast<std::uint32_t>(seed),
+        itemPool, nativePoolType, static_cast<std::uint32_t>(seed),
         lua_toboolean(state, 3) ? 0u : 1u, static_cast<std::uint32_t>(defaultItem));
     lua_pushinteger(state, static_cast<lua_Integer>(result));
     return 1;

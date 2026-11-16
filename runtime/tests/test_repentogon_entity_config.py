@@ -22,7 +22,7 @@ extern "C" {
 #include <thread>
 #include <vector>
 using namespace isaac::runtime;
-static std::vector<unsigned char> moduleBytes,manager,entity,player,other;
+static std::vector<unsigned char> moduleBytes,manager,entity,player,other,sprite0,sprite1,sprite2,sprite3,sprite4;
 static std::uintptr_t managerPointer;
 static void* currentEntity{};static void* currentPlayer{};
 static int entityCalls{},playerCalls{};
@@ -78,24 +78,40 @@ static const RepentogonApiBinding extraApis[]={
  {{0x0E023009,ApiDomain::Isaac,"EntityConfigPlayer","IsHidden",{},0,ThreadAffinity::ManagedCallback,ApiMaturity::Experimental},RepentogonEntityConfigPlayerIsHidden},
  {{0x0E02300A,ApiDomain::Isaac,"EntityConfigPlayer","IsTainted",{},0,ThreadAffinity::ManagedCallback,ApiMaturity::Experimental},RepentogonEntityConfigPlayerIsTainted},
  {{0x0E02300B,ApiDomain::Isaac,"EntityConfigPlayer","GetName",{},0,ThreadAffinity::ManagedCallback,ApiMaturity::Experimental},RepentogonEntityConfigPlayerGetName},
+ {{0x0E02300C,ApiDomain::Isaac,"EntityConfigEntity","GetAnm2Path",{},0,ThreadAffinity::ManagedCallback,ApiMaturity::Experimental},RepentogonEntityConfigEntityGetAnm2Path},
+ {{0x0E02300D,ApiDomain::Isaac,"EntityConfigPlayer","GetModdedMenuBackgroundSprite",{},0,ThreadAffinity::ManagedCallback,ApiMaturity::Experimental},RepentogonEntityConfigPlayerGetModdedMenuBackgroundSprite},
+ {{0x0E02300E,ApiDomain::Isaac,"EntityConfigPlayer","GetModdedMenuPortraitSprite",{},0,ThreadAffinity::ManagedCallback,ApiMaturity::Experimental},RepentogonEntityConfigPlayerGetModdedMenuPortraitSprite},
+ {{0x0E02300F,ApiDomain::Isaac,"EntityConfigPlayer","GetModdedGameOverSprite",{},0,ThreadAffinity::ManagedCallback,ApiMaturity::Experimental},RepentogonEntityConfigPlayerGetModdedGameOverSprite},
+ {{0x0E023010,ApiDomain::Isaac,"EntityConfigPlayer","GetModdedCoopMenuSprite",{},0,ThreadAffinity::ManagedCallback,ApiMaturity::Experimental},RepentogonEntityConfigPlayerGetModdedCoopMenuSprite},
+ {{0x0E023011,ApiDomain::Isaac,"EntityConfigPlayer","GetModdedControlsSprite",{},0,ThreadAffinity::ManagedCallback,ApiMaturity::Experimental},RepentogonEntityConfigPlayerGetModdedControlsSprite},
+ {{0x0E023012,ApiDomain::Isaac,"EntityConfigEntity","GetEntityTags",{},0,ThreadAffinity::ManagedCallback,ApiMaturity::Experimental},RepentogonEntityConfigEntityGetEntityTags},
+ {{0x0E023013,ApiDomain::Isaac,"EntityConfigEntity","HasEntityTags",{},0,ThreadAffinity::ManagedCallback,ApiMaturity::Experimental},RepentogonEntityConfigEntityHasEntityTags},
 };
 static int Initialize(lua_State* L){RegisterRepentogonEntityConfigViews(L);return 0;}
 static const RepentogonBatch batch{"entity-config",apis,8,nullptr,0,nullptr,0,Initialize};
-static const RepentogonBatch extraBatch{"entity-config-extra",extraApis,4};
+static const RepentogonBatch extraBatch{"entity-config-extra",extraApis,std::size(extraApis)};
 static const RepentogonBatch batches[]={batch,extraBatch};
 static const RepentogonCatalog catalog{batches,2,nullptr};
 static void Run(lua_State* L,const char* text){if(luaL_dostring(L,text)){std::fprintf(stderr,"%s\n",lua_tostring(L,-1));std::exit(1);}}
 int main(){
  moduleBytes.assign(kGameManagerGlobalSlotOffset+0x100,0);manager.assign(kManagerEntityConfigOffset+0x100,0);
  entity.assign(0x1b0,0);player.assign(0x178,0);other.assign(0x1b0,0);
+ sprite0.assign(kSpriteObjectSize,0);sprite1.assign(kSpriteObjectSize,0);sprite2.assign(kSpriteObjectSize,0);sprite3.assign(kSpriteObjectSize,0);sprite4.assign(kSpriteObjectSize,0);
  managerPointer=reinterpret_cast<std::uintptr_t>(manager.data());
  Put(moduleBytes,kGameManagerGlobalSlotOffset,reinterpret_cast<std::uintptr_t>(&managerPointer));
  const unsigned char entityGuard[]={0x0a,0x8c,0x40,0xf8,0x29,0x2c,0x0c,0x53,0xca,0x02,0x00,0xb4,0x28,0x21,0x02,0x2a};
  const unsigned char playerGuard[]={0x81,0x01,0xf8,0x37,0x08,0xa4,0x41,0xa9,0x29,0x01,0x08,0xcb,0x29,0xfd,0x43,0xd3};
  std::memcpy(moduleBytes.data()+0x68684,entityGuard,16);std::memcpy(moduleBytes.data()+0x700cc,playerGuard,16);
  Put(entity,0x38,std::uint8_t{1});Put(entity,0x3c,12.5F);Put(entity,0x58,3.5F);
+ Put(entity,0x118,std::uint64_t{33});
  Text(player,0x08,"fiend");Text(player,0x20,"skin.png");Text(player,0x38,"name.png");
  Text(player,0x50,"portrait.png");Text(player,0x80,"extra.png");
+ Text(entity,0x90,"gfx/mgo/005.7407_toxic_wastepack.anm2");
+ Put(player,0x150,reinterpret_cast<std::uintptr_t>(sprite0.data()));
+ Put(player,0x158,reinterpret_cast<std::uintptr_t>(sprite1.data()));
+ Put(player,0x160,reinterpret_cast<std::uintptr_t>(sprite2.data()));
+ Put(player,0x168,reinterpret_cast<std::uintptr_t>(sprite3.data()));
+ Put(player,0x170,reinterpret_cast<std::uintptr_t>(sprite4.data()));
  currentEntity=entity.data();currentPlayer=player.data();
  Put(manager,kManagerEntityConfigOffset+0x18,reinterpret_cast<std::uintptr_t>(player.data()));
  Put(manager,kManagerEntityConfigOffset+0x20,reinterpret_cast<std::uintptr_t>(player.data())+0x178);
@@ -108,12 +124,20 @@ int main(){
 assert(REPENTOGON==nil)
 local e=EntityConfig.GetEntity(20,1,2);assert(type(e)=='userdata')
 assert(e:CanBeChampion() and e:GetStageHP()==3.5 and e:GetCollisionRadius()==12.5)
+assert(e:GetAnm2Path()=="gfx/mgo/005.7407_toxic_wastepack.anm2")
+assert(e:GetEntityTags()==33 and e:HasEntityTags(33) and e:HasEntityTags(1))
+assert(not e:HasEntityTags(3) and not e:HasEntityTags(0) and not e:HasEntityTags(-1))
 assert(EntityConfig.GetEntity(999)==nil)
 assert(EntityConfig.GetEntity(20):GetStageHP()==3.5)
 local p=EntityConfig.GetPlayer(1);assert(type(p)=='userdata')
 assert(p:GetName()=='fiend')
 assert(p:GetPortraitPath()=='portrait.png' and p:GetExtraPortraitPath()=='extra.png')
 assert(p:GetNameImagePath()=='name.png');
+assert(type(p:GetModdedMenuBackgroundSprite())=='userdata')
+assert(type(p:GetModdedMenuPortraitSprite())=='userdata')
+assert(type(p:GetModdedGameOverSprite())=='userdata')
+assert(type(p:GetModdedCoopMenuSprite())=='userdata')
+assert(type(p:GetModdedControlsSprite())=='userdata')
 assert(EntityConfig.GetMaxPlayerType()==0)
 assert(not p:IsHidden() and not p:IsTainted())
 change(6);assert(p:IsHidden() and not p:IsTainted())

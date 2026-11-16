@@ -6,6 +6,7 @@
 #include "infrastructure/memory/engine_field_access.hpp"
 #include "infrastructure/call/engine_call_access.hpp"
 #include "lib/util/sys/rw_pages.hpp"
+#include "program/custom_item_pool.hpp"
 #include <atomic>
 #include <cstring>
 
@@ -28,6 +29,7 @@ bool Guard(const HookTarget& t,std::uintptr_t offset,const std::array<std::uint8
 extern "C" void IsaacModRuntime_ModItemPoolPointerIntercept(void* pool,const char* path,bool append) {
     const auto base=s_Base.load(std::memory_order_acquire);
     if(!base)__builtin_trap();
+    if(!append)custom_item_pool::ResetState();
     const ModItemPoolBindings native{
         engine_call::AsFunction<ModItemPoolBindings::Load>(base+mod_itempools::kLoadOffset),
         &modmenu::LoadEngineModItemPools};

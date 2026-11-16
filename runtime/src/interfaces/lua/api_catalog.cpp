@@ -2985,6 +2985,10 @@ constexpr LuaApiDescriptor kDefaultApis[] = {
      ThreadAffinity::ManagedCallback, ApiMaturity::Experimental},
     {MakeId(ApiDomain::Isaac, 1, 0x0122), ApiDomain::Isaac, "EntityNPC", "AnimWalkFrame", kV1, 0,
      ThreadAffinity::ManagedCallback, ApiMaturity::Experimental},
+    {MakeId(ApiDomain::Isaac, 1, 0x0123), ApiDomain::Isaac, "Isaac", "GetNullItemIdByName", kV1, 0,
+     ThreadAffinity::ManagedCallback, ApiMaturity::Experimental},
+    {MakeId(ApiDomain::Isaac, 1, 0x0124), ApiDomain::Isaac, "Isaac", "GetPoolIdByName", kV1, 0,
+     ThreadAffinity::ManagedCallback, ApiMaturity::Experimental},
 
 };
 

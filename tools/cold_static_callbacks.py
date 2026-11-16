@@ -4,9 +4,13 @@ import struct
 try:
     from . import build_patches
     from . import extra_source_cold
+    from . import custom_item_pool_cold
+    from . import mgo_death_cold
 except ImportError:
     import build_patches
     import extra_source_cold
+    import custom_item_pool_cold
+    import mgo_death_cold
 
 BUILD_ID=bytes.fromhex('91C73FDD575061318D68886316AFEAC72388B2AB')+bytes(12)
 SITES=((0x2857A8,0x68CF40,0x394002A8),(0x3E0C88,0x68CDC0,0xF9400309),(0x269D50,0x68CDE0,0x7100A29F),(0x269D08,0x68CD00,0xB85FC3B4))
@@ -90,4 +94,6 @@ def build_static_callback_patch(nro:bytes)->bytes:
                         (gate,projectile_tail_gate(source,gate,original))))
     records.extend(stat_hud_conditional_records(nro))
     records.extend(extra_source_cold.cold_records(nro))
+    records.extend(custom_item_pool_cold.cold_records(nro))
+    records.extend(mgo_death_cold.records(nro))
     return build_patches.encode_ips(records)

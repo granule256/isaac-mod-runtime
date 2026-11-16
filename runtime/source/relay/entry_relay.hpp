@@ -421,7 +421,8 @@ constexpr EntryRelayFailure EvaluateEntryRelayPreconditions(std::uintptr_t targe
                                                             std::uintptr_t callback,
                                                             const void* expectedEntry16,
                                                             const std::uint8_t* currentEntry16,
-                                                            std::size_t nextSlotIndex) {
+                                                            std::size_t nextSlotIndex,
+                                                            std::size_t slotCapacity = kMaxRelays) {
     if (target == 0 || callback == 0 || expectedEntry16 == nullptr || currentEntry16 == nullptr ||
         (target & 0x3u) != 0 || (callback & 0x3u) != 0 ||
         (target % kPageBytes) + kEntryPatchBytes > kPageBytes) {
@@ -435,7 +436,7 @@ constexpr EntryRelayFailure EvaluateEntryRelayPreconditions(std::uintptr_t targe
         DecodeInputActionThunk(target, currentEntry16).managerSlot == 0) {
         return EntryRelayFailure::PcRelativeInstruction;
     }
-    if (nextSlotIndex >= kMaxRelays) {
+    if (nextSlotIndex >= slotCapacity) {
         return EntryRelayFailure::ArenaExhausted;
     }
     return EntryRelayFailure::None;

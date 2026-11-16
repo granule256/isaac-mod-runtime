@@ -36,6 +36,7 @@
 #include "interfaces/lua/owner_binding.hpp"
 #include "interfaces/lua/object_pointer_identity.hpp"
 #include "interfaces/lua/object_identity_registry.hpp"
+#include "interfaces/lua/repentogon_environment.hpp"
 #include "interfaces/lua/api_sequence_probe.hpp"
 #include "interfaces/lua/engine_call_trampoline.hpp"
 #include "interfaces/lua/entity_ref_api.hpp"
@@ -83,6 +84,7 @@
 // 三条的**运行时追加层**（模组 `content/items.xml` / `content/pocketitems.xml` 声明的自定义
 // 道具 / 饰品 / 卡牌）。与 401 同构：静态表先查（本体优先），未命中再落到这里。
 #include "program/mod_content_names.hpp"
+#include "program/xml_data_store.hpp"
 // 三条坐标变换的算术只有一份实现（`TransformWorldPosition` /
 // `TransformScreenToWorldPosition`，与 `Room:WorldToScreenPosition` 共用）——
 // 它住在 `remaining_api.cpp`（`Level`/`Room`/`ItemPool` 那个 TU），这里只声明。
@@ -143,6 +145,8 @@ namespace engine_call = isaac::runtime::engine_call;
 
 namespace isaac::runtime {
 int ExtendedItemConfigWrite(lua_State*);
+int IsaacGetNullItemIdByName(lua_State* state);
+int IsaacGetPoolIdByName(lua_State* state);
 
 // `Entity:TakeDamage` 的实现体住在文件后半段（它用到的几个校验助手在那之前才定义），
 // 而绑定表 `kEntityHandlers` 在文件前半段的匿名命名空间里 —— 所以这一份声明必须放在
@@ -722,6 +726,8 @@ constexpr LuaHandlerBinding kIsaacHandlers[] = {
     // 名字表一族（语料模组适配第二波 C 批）。
     // 表源 `tools/isaac_name_source/*.txt` → `program/isaac_name_tables.*`；逐条契约见实现处。
     {0x0E010079, &IsaacGetItemIdByName},
+    {0x0E010123, &IsaacGetNullItemIdByName},
+    {0x0E010124, &IsaacGetPoolIdByName},
     {0x0E01007A, &IsaacGetCardIdByName},
     {0x0E01007B, &IsaacGetPillEffectByName},
     {0x0E01007C, &IsaacGetPlayerTypeByName},
@@ -1543,7 +1549,9 @@ void RecordEnginePlayerLookup(std::uint32_t stage, std::uintptr_t first,
 #endif  // EXL_DIAGNOSTIC_PROBES
 }
 
-std::uintptr_t ResolveEntityPlayerBegin(std::uintptr_t* beginOut, std::size_t* countOut) noexcept {
+std::uintptr_t ResolveEntityPlayerBegin(std::uintptr_t* beginOut, std::size_t* countOut,
+                                       bool* readable = nullptr) noexcept {
+    if (readable) *readable = false;
     if (beginOut == nullptr || countOut == nullptr) {
         RecordEnginePlayerLookup(1, 0, 0);
         return 0;
@@ -1556,12 +1564,16 @@ std::uintptr_t ResolveEntityPlayerBegin(std::uintptr_t* beginOut, std::size_t* c
     // 两级解引用：槽里是**指针变量**，`*(u64*)槽` 才是 `Game*`。
     std::uintptr_t ownerSlot = 0;
     std::uintptr_t game = 0;
-    if (!ReadEngine(base + kGameOwnerGlobalSlotOffset, &ownerSlot) || ownerSlot == 0) {
+    const bool ownerRead = ReadEngine(base + kGameOwnerGlobalSlotOffset, &ownerSlot);
+    if (!ownerRead || ownerSlot == 0) {
+        if (readable) *readable = ownerRead;
         RecordEnginePlayerLookup(2, 0, 0);
         return 0;
     }
-    if (!ReadEngine(ownerSlot, &game) || game == 0 ||
+    const bool gameRead = ReadEngine(ownerSlot, &game);
+    if (!gameRead || game == 0 ||
         game > UINTPTR_MAX - kGamePlayerArrayEndOffset) {
+        if (readable) *readable = gameRead && game == 0;
         RecordEnginePlayerLookup(3, 0, 0);
         return 0;
     }
@@ -1596,6 +1608,7 @@ std::uintptr_t ResolveEntityPlayerBegin(std::uintptr_t* beginOut, std::size_t* c
         // 也不要答"有 1 个玩家"然后让 Mod 去索引一个 nil。
         *beginOut = 0;
         *countOut = 0;
+        if (readable) *readable = beginRead && endRead;
         RecordEnginePlayerLookup(0, 0, 0, 0);
         return 0;
     }
@@ -1610,6 +1623,7 @@ std::uintptr_t ResolveEntityPlayerBegin(std::uintptr_t* beginOut, std::size_t* c
     }
     *beginOut = begin;
     *countOut = count;
+    if (readable) *readable = beginRead && endRead;
     RecordEnginePlayerLookup(0, 0, 0, static_cast<std::uint32_t>(count));
     return begin;
 }
@@ -4672,22 +4686,21 @@ int EntityPlayerGetMainTwin(lua_State* state) {
 // 返回 1（压了一个值：RNG 句柄或 nil）。
 // 2026-10-09：返回引擎活引用，旧快照描述保留为历史。
 std::uintptr_t ResolvePlayerRngReference(const LuaRuntime::RngHandle* rng) noexcept {
-    std::uintptr_t players = 0;
-    std::size_t count = 0;
-    if (ResolveEntityPlayerBegin(&players, &count) == 0) { return 0; }
-    bool found = false;
-    for (std::size_t i = 0; i < count; ++i) {
-        std::uintptr_t current = 0;
-        if (ReadEngine(players + i * sizeof(std::uintptr_t), &current) && current == rng->owner) {
-            found = true; break;
-        }
-    }
+    // PlayerManager membership is a registry lookup, not object ownership.
+    // MC_POST_ENTITY_REMOVE can retire that entry before Lua runs while the
+    // EntityPlayer and its RNG vector are still alive. Validate the actual
+    // borrowed-owner state instead: exact player vtable, live entity, unchanged
+    // owning container, and an in-range element. This also avoids a per-access
+    // scan of the player list.
     std::uint8_t exists = 0;
-    if (!found || !IsEntityPlayer(rng->owner) ||
+    if (!IsEntityPlayer(rng->owner) ||
         !ReadEngine(rng->owner + kEntityExistsOffset, &exists) || exists == 0) { return 0; }
+    if (rng->owner > UINTPTR_MAX - rng->offset) { return 0; }
+    const std::uintptr_t vector = rng->owner + rng->offset;
+    if (vector > UINTPTR_MAX - sizeof(std::uintptr_t)) { return 0; }
     std::uintptr_t begin = 0, end = 0;
-    if (!ReadEngine(rng->owner + rng->offset, &begin) ||
-        !ReadEngine(rng->owner + rng->offset + 8, &end) || begin == 0 ||
+    if (!ReadEngine(vector, &begin) ||
+        !ReadEngine(vector + sizeof(std::uintptr_t), &end) || begin == 0 ||
         begin != rng->container || end < begin ||
         (end - begin) % kEntityPlayerRngVectorStride != 0 ||
         rng->index >= (end - begin) / kEntityPlayerRngVectorStride) { return 0; }
@@ -6983,8 +6996,8 @@ EnginePlayerArray ResolveEnginePlayerArray() noexcept {
     EnginePlayerArray result{};
     std::uintptr_t begin = 0;
     std::size_t count = 0;
-    if (ResolveEntityPlayerBegin(&begin, &count) == 0) {
-        return result;  // readable == false：调用方不得把它当成"真的没有玩家"
+    if (ResolveEntityPlayerBegin(&begin, &count, &result.readable) == 0 || !result.readable) {
+        return result;
     }
     // 只发布一个“从头开始每个元素都通过 Entity_Player 校验”的有效前缀。换局/退房过渡期里，
     // `players` 容器的 begin/end 可能已经更新而元素槽尚未清空；如果这里照抄容器 count，
@@ -7001,7 +7014,6 @@ EnginePlayerArray ResolveEnginePlayerArray() noexcept {
         ++validCount;
     }
     result.count = validCount;
-    result.readable = true;
     return result;
 }
 
@@ -9671,7 +9683,10 @@ int FieldApiHandler(lua_State* state) {
                                                 : 1;
     // 参数校验拆成"先个数、再类型"两段（重构）：原来那串嵌套三元表达式在加了
     // 「一个数值 + 一个整数」这一档之后已经读不清了，而判据没有变（逐支与原实现等价）。
-    bool argumentsValid = lua_gettop(state) == expectedArgumentCount;
+    const int argumentCount = lua_gettop(state);
+    const bool hasCacheEvaluationOption = wantsOrMaskArgument && argumentCount == 3 &&
+        RepentogonEnvironmentActive() && (lua_isnil(state, 3) || lua_isboolean(state, 3));
+    bool argumentsValid = argumentCount == expectedArgumentCount || hasCacheEvaluationOption;
     if (argumentsValid) {
         if (wantsColorModArgument) {
             argumentsValid = luaL_testudata(state, 2, LuaRuntime::kColorMetatable) != nullptr;
@@ -10051,16 +10066,26 @@ int FieldApiHandler(lua_State* state) {
             //   —— 与 `BoolBitWrite` / `BoolBitArrayOfWriteArg` 同一形态（批 250/292/300 定案）。
             // 读不到 / 接收者解析不到 ⇒ 什么都不写、也不抛错（返回 0 个值）：PC 上不存在
             //   "写失败"这回事，而"报错摘掉整条模组回调"比"这次没生效"严重得多。
-            // 只做"或"、不做别的：`AddCacheFlags` 的契约是"把这些位置上"，既有位不许被清 ——
-            //   用例专门在同一个字里摆别的位来抓"整格覆盖写"这类错法。
+            // REPENTOGON can request a native evaluation after the mask is published.
             std::uint32_t value = 0;
             if (!engine_memory::ReadField(receiver, row->offset, &value, &IsEngineMemoryReadable, 0)) {
                 return 0;
             }
             const std::uint32_t updated =
                 value | static_cast<std::uint32_t>(flagMask & 0xFFFFFFFFULL);
-            static_cast<void>(engine_memory::WriteField(receiver, row->offset, updated,
-                                                        &IsEngineMemoryWritable, 0));
+            if (engine_memory::WriteField(receiver, row->offset, updated,
+                                          &IsEngineMemoryWritable, 0) &&
+                hasCacheEvaluationOption && lua_toboolean(state, 3)) {
+                const auto method = EntityMethodByExpectedBytes(
+                    kEntityPlayerEvaluateItemsOffset, kEntityPlayerEvaluateItemsExpectedBytes);
+                if (method) {
+                    const std::uint64_t arguments[8]{receiver};
+                    const double floats[8]{};
+                    std::uint64_t ignored{};
+                    double ignoredFloat{};
+                    EngineCallTrampoline(method, arguments, floats, &ignored, &ignoredFloat);
+                }
+            }
             return 0;
         }
         case FieldKind::FloatMultiplyArg: {
@@ -13507,6 +13532,58 @@ std::uintptr_t ResolveContentConfigRoot(bool entityConfig) noexcept {
     return manager<=UINTPTR_MAX-kManagerEntityConfigOffset?manager+kManagerEntityConfigOffset:0;
 }
 
+int IsaacGetNullItemIdByName(lua_State* state) {
+    // REPENTOGON Isaac.md:257: returns the ItemConfig null-item id or -1.
+    // The engine keeps null items in their own vector<Item*> at ItemConfig+0x30.
+    std::size_t length = 0;
+    const char* name = luaL_checklstring(state, 1, &length);
+    const auto config = ResolveContentConfigRoot(false);
+    std::uintptr_t begin = 0;
+    std::uintptr_t end = 0;
+    if (!config ||
+        !ReadEngine(config + kItemConfigNullItemBeginOffset, &begin) ||
+        !ReadEngine(config + kItemConfigNullItemEndOffset, &end) ||
+        end < begin || ((end - begin) % sizeof(std::uintptr_t)) != 0 ||
+        (end != begin && (!IsEngineMemoryReadable(begin, end - begin)))) {
+        lua_pushinteger(state, -1);
+        return 1;
+    }
+    for (std::uintptr_t cursor = begin; cursor < end; cursor += sizeof(std::uintptr_t)) {
+        std::uintptr_t item = 0;
+        std::uint32_t id = 0;
+        if (!ReadEngine(cursor, &item) || !item ||
+            !ReadEngine(item + kItemConfigItemIdOffset, &id)) {
+            continue;
+        }
+        LibcxxStringView stored{};
+        if (!ResolveLibcxxString(item + kItemConfigItemNameOffset, false, &stored) ||
+            stored.size != length ||
+            std::memcmp(engine_memory::AsObject(stored.data), name, length) != 0) {
+            continue;
+        }
+        lua_pushinteger(state, static_cast<lua_Integer>(id));
+        return 1;
+    }
+    lua_pushinteger(state, -1);
+    return 1;
+}
+
+int IsaacGetPoolIdByName(lua_State* state) {
+    // REPENTOGON keeps the 31 native pools at fixed ids 0..30 and assigns
+    // modded pools from 31.  The native order is independent of the Switch
+    // base itempools.xml order, so resolve the public names explicitly.
+    std::size_t length = 0;
+    const char* name = luaL_checklstring(state, 1, &length);
+    const int baseId = xml_data::FindBaseItemPoolIdByName(name, length);
+    if (baseId >= 0) {
+        lua_pushinteger(state, baseId);
+        return 1;
+    }
+    const auto* pool = xml_data::FindItemPoolByName(name);
+    lua_pushinteger(state, pool ? pool->id : -1);
+    return 1;
+}
+
 int Api500PushConfigString(lua_State*state,std::uintptr_t address) {
     if(!PushLibcxxString(state,address,true))lua_pushnil(state);
     return 1;
@@ -13515,6 +13592,34 @@ int Api500PushConfigString(lua_State*state,std::uintptr_t address) {
 int ExtendedItemConfigWrite(lua_State* state) {
     const auto item=ItemConfigPointerArgument(state,1);const char* field=luaL_checkstring(state,2);
     const auto*handle=CheckItemConfigItemHandle(state,1);
+    if (item && handle && handle->beginOffset == kItemConfigCollectibleBeginOffset &&
+        RepentogonEnvironmentActive()) {
+        const auto offset = std::strcmp(field,"MaxCharges") == 0 ? kItemConfigItemMaxChargesOffset :
+            std::strcmp(field,"ChargeType") == 0 ? kItemConfigItemChargeTypeOffset : 0;
+        if (offset) {
+            const auto value = luaL_checkinteger(state,3);
+            if (value < INT32_MIN || value > INT32_MAX)
+                return luaL_argerror(state,3,"int32 expected");
+            if (!engine_memory::WriteField(item,offset,static_cast<std::int32_t>(value),
+                                           engine_memory::EngineMemoryWritable))
+                return luaL_error(state,"ItemConfigItem charge field is not writable");
+            return 0;
+        }
+    }
+    // These are the three libc++ strings exposed by ItemConfig_Item (and the
+    // card record shares the first string layout). Assign through the
+    // engine's own string assignment thunk instead of copying the C++ object.
+    if (item && handle && (std::strcmp(field,"Name")==0 ||
+                           std::strcmp(field,"Description")==0 ||
+                           std::strcmp(field,"GfxFileName")==0)) {
+        const std::uintptr_t offset = std::strcmp(field,"Name")==0
+            ? kItemConfigItemNameOffset
+            : std::strcmp(field,"Description")==0
+                ? kItemConfigItemDescriptionOffset
+                : kItemConfigItemGfxFileNameOffset;
+        Api500AssignConfigString(state,item+offset);
+        return 0;
+    }
     if(TryWriteApi500ConfigField(state,item,handle->beginOffset,field))return 0;
     if(item&&TryWriteExtendedItemConfigField(state,item,field))return 0;
     return luaL_error(state,"ItemConfigItem has no writable field named %s",field);
