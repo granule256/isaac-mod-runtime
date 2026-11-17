@@ -21,6 +21,8 @@ struct PanelState {
     std::uint32_t opened{}, closed{}, rendered{}, pausedUpdates{};
     std::uint32_t draft[kPanelTextCapacity]{};
     char draftUtf8[kPanelUtf8Capacity]{};
+    std::uint64_t historyOffset{}; // 0 = current draft, 1 = newest command
+    char historyDraftUtf8[kPanelUtf8Capacity]{};
 };
 inline PanelState g_ConsolePanel{};
 inline PanelState& Panel() noexcept { return g_ConsolePanel; }

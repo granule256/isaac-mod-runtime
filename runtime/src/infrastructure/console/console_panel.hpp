@@ -2,6 +2,7 @@
 
 #include "domain/console/console_commands.hpp"
 #include "infrastructure/console/console_bridge.hpp"
+#include "infrastructure/console/console_command_history.hpp"
 #include "infrastructure/console/console_panel_guards.hpp"
 #include "ports/console_autocomplete_port.hpp"
 
@@ -388,6 +389,45 @@ inline bool StorePanelDraftUtf8(const char* text) noexcept {
     panel.draft[written]=0;
     return true;
 }
+inline void ResetPanelHistoryNavigation() noexcept {
+    Panel().historyOffset=0;
+    Panel().historyDraftUtf8[0]=0;
+}
+inline bool MovePanelHistory(const PanelNativeEntries& ui,int delta) noexcept {
+    auto& panel=Panel();
+    CommandHistoryView history{};
+    if (!delta || !ReadCommandHistoryView(Storage().consoleObject,&history)) return false;
+    auto next=panel.historyOffset;
+    if (delta<0) {
+        if (next>=history.count) return false;
+        ++next;
+    } else {
+        if (!next) return false;
+        --next;
+    }
+    char selected[kPanelUtf8Capacity]{};
+    if (!next) {
+        CopyCompletionText(selected,sizeof(selected),panel.historyDraftUtf8,
+                           std::strlen(panel.historyDraftUtf8));
+    } else if (!CopyCommandHistoryEntry(history,next-1,selected,sizeof(selected))) {
+        return false;
+    }
+    // Keep the UTF-8 display and the system keyboard's 500-codepoint draft in sync.
+    std::size_t points{};
+    for (const auto* ch=selected;*ch;++ch)
+        if ((static_cast<unsigned char>(*ch)&0xc0U)!=0x80U) ++points;
+    if (points>=kPanelTextCapacity) return false;
+    if (!panel.historyOffset) {
+        CopyCompletionText(panel.historyDraftUtf8,sizeof(panel.historyDraftUtf8),
+                           panel.draftUtf8,std::strlen(panel.draftUtf8));
+    }
+    CopyCompletionText(panel.draftUtf8,sizeof(panel.draftUtf8),selected,std::strlen(selected));
+    static_cast<void>(StorePanelDraftUtf8(selected));
+    panel.historyOffset=next;
+    ClearPanelCompletions(ui);
+    SetPanelInput(ui,panel.draftUtf8);
+    return true;
+}
 inline bool ApplySelectedPanelCompletion(const PanelNativeEntries& ui) noexcept {
     auto& completions=Completions();
     if(completions.selected<0||
@@ -396,6 +436,7 @@ inline bool ApplySelectedPanelCompletion(const PanelNativeEntries& ui) noexcept 
     const auto& entry=(*completions.entries)[completions.selected];
     auto& panel=Panel();
     if(entry.text.size()>=sizeof(panel.draftUtf8))return false;
+    ResetPanelHistoryNavigation();
     CopyCompletionText(panel.draftUtf8,sizeof(panel.draftUtf8),
                        entry.text.data(),entry.text.size());
     static_cast<void>(StorePanelDraftUtf8(panel.draftUtf8));
@@ -556,6 +597,7 @@ inline bool VisitConsoleHistory(std::uintptr_t base,ConsoleHistoryVisitor visito
 
 inline void ClosePanelImmediately(const PanelNativeEntries& ui) noexcept {
     auto& p=Panel();
+    ResetPanelHistoryNavigation();
     const bool nativeUsable=NativePanelState()!=0 && ui.Ready() &&
                             ObjectFenceIntact(Storage());
     if(nativeUsable) {
@@ -676,6 +718,7 @@ inline void PanelFrame(const EngineEntries& entries,const PanelNativeEntries& ui
     const bool available=p.hooksReady && ui.Ready() && ConsoleSwitchEnabled() &&
                          HasUsableFirstPlayer(game) && State().fenceBroken==0;
     if (!available || (p.game!=0 && (p.game!=game || p.sessionEpoch!=g_ConsoleSessionEpoch.load(std::memory_order_relaxed)))) {
+        ResetPanelHistoryNavigation();
         if (NativePanelState()!=0) ClosePanelImmediately(ui);
         else ReleasePanelCompletions();
         core.comboHeldFrames=0;core.comboFired=false;core.pendingReady=false;
@@ -700,11 +743,13 @@ inline void PanelFrame(const EngineEntries& entries,const PanelNativeEntries& ui
         if (!core.comboFired && core.comboHeldFrames>=holdFrames) {
             core.comboFired=true;
             if (NativePanelState()==0 && EnsureConsoleObject(entries)) {
+                ResetPanelHistoryNavigation();
                 ui.show(core.consoleObject);
                 SetPanelInput(ui,p.draftUtf8);
                 static_cast<void>(RefreshPanelCompletions(ui,p.draftUtf8));
                 p.game=game;p.sessionEpoch=g_ConsoleSessionEpoch.load(std::memory_order_relaxed);p.waitRelease=true;justOpened=true;++p.opened;
             } else if (NativePanelState()!=0) {
+                ResetPanelHistoryNavigation();
                 ui.hide(core.consoleObject);p.waitRelease=true;++p.closed;
                 ReleasePanelCompletions();
             }
@@ -712,6 +757,7 @@ inline void PanelFrame(const EngineEntries& entries,const PanelNativeEntries& ui
     } else if (!combo) {core.comboHeldFrames=0;core.comboFired=false;}
 
     if (p.draftChanged) {
+        ResetPanelHistoryNavigation();
         static_cast<void>(Utf32ToUtf8(p.draft,kPanelTextCapacity,p.draftUtf8,sizeof(p.draftUtf8)));
         SetPanelInput(ui,p.draftUtf8);
         static_cast<void>(RefreshPanelCompletions(ui,p.draftUtf8));
@@ -752,16 +798,22 @@ inline void PanelFrame(const EngineEntries& entries,const PanelNativeEntries& ui
                 PrintPanel(ui,note,sizeof(note)-1);
             }
             std::memset(p.draft,0,sizeof(p.draft));p.draftUtf8[0]=0;SetPanelInput(ui,"");
+            ResetPanelHistoryNavigation();
             ClearPanelCompletions(ui);
         }
     }
     if (p.waitRelease && mask==0 && !touch.pressed && !p.keyboardOpen) p.waitRelease=false;
     if ((NativePanelState()==2 || NativePanelState()==3) && !justOpened && !p.keyboardOpen && !p.waitRelease && !combo) {
-        constexpr std::uint32_t completionUp=1U<<19,completionDown=1U<<20;
+        constexpr std::uint32_t historyUp=1U<<19,historyDown=1U<<20;
+        constexpr std::uint32_t completionPrevious=1U<<21,completionNext=1U<<22;
         bool completionHandled=false;
-        if ((risen&completionUp)!=0||(risen&completionDown)!=0) {
+        if ((risen&historyUp)!=0||(risen&historyDown)!=0) {
+            static_cast<void>(MovePanelHistory(ui,(risen&historyUp)!=0?-1:1));
+            completionHandled=true;
+        } else if ((risen&completionPrevious)!=0||(risen&completionNext)!=0) {
+            if (!CompletionCount()) static_cast<void>(RefreshPanelCompletions(ui,p.draftUtf8));
             static_cast<void>(MovePanelCompletionSelection(
-                (risen&completionUp)!=0?-1:1));
+                (risen&completionPrevious)!=0?-1:1));
             WritePanelCompletionSlots(ui);
             completionHandled=CompletionCount()!=0;
         }
@@ -780,6 +832,7 @@ inline void PanelFrame(const EngineEntries& entries,const PanelNativeEntries& ui
         }
         if (!completionHandled) {
             if ((risen&back)!=0 || shortBack) {
+                ResetPanelHistoryNavigation();
                 ClearPanelCompletions(ui);
                 ui.hide(core.consoleObject);p.waitRelease=true;++p.closed;
             } else if ((risen&confirm)!=0 || shortConfirm ||
