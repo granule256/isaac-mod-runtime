@@ -654,6 +654,8 @@ constexpr RepentogonApiBinding kApis[]={
       ApiMaturity::Experimental},RepentogonConsoleGetHistory},
     {{0x0E029003,ApiDomain::Isaac,"Console","RegisterCommand",{},0,ThreadAffinity::ManagedCallback,
       ApiMaturity::Experimental},RepentogonConsoleRegisterCommand},
+    {{0x0E029004,ApiDomain::Isaac,"Console","RegisterMacro",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonConsoleRegisterMacro},
     {{0x0E02A000,ApiDomain::Isaac,"Isaac","CreateTimer",{},0,ThreadAffinity::ManagedCallback,
       ApiMaturity::Experimental},RepentogonIsaacCreateTimer},
     {{0x0E02D000,ApiDomain::Isaac,"SaveStateManager","GetGameData",{},0,ThreadAffinity::ManagedCallback,

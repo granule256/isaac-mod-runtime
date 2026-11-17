@@ -6,6 +6,7 @@
 #include <array>
 #include <cstdio>
 #include <cstring>
+#include <string>
 #include <string_view>
 extern "C" {
 #include <lauxlib.h>
@@ -53,17 +54,19 @@ bool ParseLine(std::string_view line,std::int32_t* mode,bool* statHud,
  if(equals==std::string_view::npos)return false;
  const auto name=Trim(line.substr(0,equals));
  const auto value=Trim(line.substr(equals+1));
+ if(name==kAutofillName){
+  // REPENTOGONOptions::defstoi keeps signed/out-of-slider-range values
+  // and accepts a numeric prefix. Only the UI setter clamps to 1..1000.
+  try {*autofillLimit=std::stoi(std::string(value));}
+  catch (...) {*autofillLimit=console::kConsoleAutofillLimitDefault;}
+  return true;
+ }
  std::int32_t parsed{};
  if(!ParseInteger(value,&parsed))return false;
  if(name==kAnnouncerName){*mode=parsed;return true;}
  if(name==kStatHudName){
   if(parsed<0||parsed>1)return false;
   *statHud=parsed!=0;return true;
- }
- if(name==kAutofillName){
-  if(parsed<console::kConsoleAutofillLimitMinimum||
-     parsed>console::kConsoleAutofillLimitMaximum)return false;
-  *autofillLimit=parsed;return true;
  }
  return false;
 }

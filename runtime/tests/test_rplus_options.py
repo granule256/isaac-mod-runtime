@@ -49,14 +49,26 @@ int main(int argc,char**argv){
  Store store;SetSessionSaveFilePort(scene=="unavailable"?nullptr:&store);ClearRuntimeOptions();
  if(scene=="malformed"){store.exists=true;store.content="AnnouncerVoiceMode=2147483648\n";}
  if(scene=="malformed-stat"){store.exists=true;store.content="StatHUDPlanetarium=2\n";}
- if(scene=="malformed-autofill"){store.exists=true;store.content="ConsoleAutofillLimit=0\n";}
+ if(scene=="autofill-zero"){store.exists=true;store.content="ConsoleAutofillLimit=0\n";}
+ if(scene=="autofill-negative"){store.exists=true;store.content="ConsoleAutofillLimit=-1\n";}
+ if(scene=="autofill-large"){store.exists=true;store.content="ConsoleAutofillLimit=2000\n";}
+ if(scene=="autofill-prefix"){store.exists=true;store.content="ConsoleAutofillLimit=7ignored\n";}
+ if(scene=="autofill-invalid"){store.exists=true;store.content="ConsoleAutofillLimit=invalid\n";}
  if(scene=="raw"){store.exists=true;store.content="AnnouncerVoiceMode=-3\n";}
  if(scene=="stathud"){store.exists=true;store.content="StatHUDPlanetarium=0\n";}
  if(scene=="autofill"){store.exists=true;store.content="ConsoleAutofillLimit=37\n";}
  const auto loaded=LoadRuntimeOptions();
  if(scene=="unavailable")assert(loaded.code()==StatusCode::Unsupported);
- else if(scene=="malformed"||scene=="malformed-stat"||scene=="malformed-autofill")assert(loaded.code()==StatusCode::Corrupted);
+ else if(scene=="malformed"||scene=="malformed-stat")assert(loaded.code()==StatusCode::Corrupted);
  else assert(loaded.ok());
+ if(scene=="autofill-zero"||scene=="autofill-negative"||scene=="autofill-large"||
+    scene=="autofill-prefix"||scene=="autofill-invalid"){
+  const int expected=scene=="autofill-zero"?0:scene=="autofill-negative"?-1:
+                     scene=="autofill-large"?2000:scene=="autofill-prefix"?7:10;
+  assert(RuntimeOptionConsoleAutofillLimit()==expected);
+  assert(console::ConsoleAutofillLimit()==expected);
+  return 0;
+ }
  assert(TryPushRuntimeOption(nullptr,"Language")==0);
  assert(TryPushRuntimeOption(nullptr,"StatHUDPlanetarium")==0);
  assert(!TryWriteRuntimeOption(nullptr,"HUDOffset"));
@@ -218,6 +230,6 @@ class RuntimeOptionsConsumers(unittest.TestCase):
  @classmethod
  def tearDownClass(cls):cls.tmp.cleanup()
  def test_original_voiceover_rules_persistence_and_no_frame_io(self):
-  for scene in ('roundtrip','default','types','raw','stathud','autofill','preserve','replace','malformed','malformed-stat','malformed-autofill','unavailable'):
+  for scene in ('roundtrip','default','types','raw','stathud','autofill','preserve','replace','malformed','malformed-stat','autofill-zero','autofill-negative','autofill-large','autofill-prefix','autofill-invalid','unavailable'):
    with self.subTest(scene=scene):
     r=subprocess.run([str(self.binary),scene],text=True,capture_output=True);self.assertEqual(r.returncode,0,r.stdout+r.stderr)

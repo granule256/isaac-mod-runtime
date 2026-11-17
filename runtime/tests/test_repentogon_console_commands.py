@@ -66,14 +66,20 @@ int main() {
     def test_lua_register_command_matches_upstream_argument_coercion(self):
         driver = PREFIX + r'''
 #include "domain/console/console_commands.hpp"
+#include "infrastructure/console/console_completion_catalog.hpp"
 #include "interfaces/lua/repentogon_console_api.hpp"
+#include <array>
 #include <cstring>
 
+static lua_State* consoleState;
 static void Extensions(lua_State* state) noexcept {
+    consoleState=state;
     RegisterRepentogonConsoleApi(state);
     lua_getglobal(state, "Console");
     lua_getfield(state, -1, "RegisterCommand");
     lua_setglobal(state, "_register");
+    lua_getfield(state, -1, "RegisterMacro");
+    lua_setglobal(state, "_macro");
     lua_pop(state, 1);
 }
 
@@ -89,18 +95,29 @@ assert(AutocompleteType.CUSTOM == 18 and AutocompleteType.EFFECT == 19)
 _register("alpha", "desc", "help", 1, AutocompleteType.CUSTOM)
 _register("alpha", "ignored", "ignored", true, 0)
 _register("alphabet", "second", "second help", nil, "0")
+_macro("testmacro", {"g c1", 123})
+_macro("testmacro", {"g c2"})
+assert(not pcall(_macro, "bad", false))
 )lua";
     assert(LuaRuntime::InitializeFromBuffer(script, std::strlen(script),
                                              "@console-register.lua") ==
            LuaRuntime::LuaInitResult::Success);
     using namespace isaac::runtime::console;
-    assert(ConsoleCommandCount() == 2);
+    assert(ConsoleCommandCount() ==
+           std::size(kConsoleBuiltinCommandMetadata) + 2);
     const auto* alpha = FindConsoleCommand("alpha");
     assert(alpha && alpha->description == "desc" && alpha->showOnMenu &&
            alpha->autocompleteType == ConsoleAutocompleteType::Custom);
     const auto* alphabet = FindConsoleCommand("alphabet");
     assert(alphabet && !alphabet->showOnMenu &&
            alphabet->autocompleteType == ConsoleAutocompleteType::None);
+    const auto& macros = ConsoleRegisteredMacros();
+    assert(macros.size() == 2 && macros[0].name == "testmacro");
+    assert(macros[0].commands[1] == "123");
+    assert(macros[1].commands[0] == "g c2");
+    RegisterRepentogonConsoleApi(consoleState);
+    assert(FindConsoleCommand("alpha") &&
+           ConsoleRegisteredMacros().size() == 2);
     assert(LuaRuntime::ShutdownForModReload());
     ResetConsoleCommands();
     LuaRuntime::SetRuntimeExtensionInstaller(nullptr);
@@ -155,7 +172,8 @@ m:AddCallback(1120, function(_, command, params)
                 end
             end
         })
-        return {"one", {"two", "second"}, generated, 123}
+        return {"one", {"two", "second"}, generated, 123, "", true,
+                "nul\0tail", {"desc", "de\0tail"}}
 end, "custom")
 m:AddCallback(1120, function()
     error("string filter did not skip this callback")
@@ -165,12 +183,15 @@ end, "other")
                                              "@console-autocomplete.lua") ==
            LuaRuntime::LuaInitResult::Success);
     assert(LuaRuntime::DispatchConsoleAutocomplete("custom", 6, "a b", 3, &Collect, nullptr));
-    assert(entries.size() == 4);
+    assert(entries.size() == 8);
     assert(entries[0].text == "one" && entries[0].description.empty());
     assert(entries[1].text == "two" && entries[1].description == "second");
     assert(entries[2].text == std::string(4096, 'q'));
     assert(entries[2].description == "987654321");
     assert(entries[3].text == "123" && entries[3].description.empty());
+    assert(entries[4].text.empty() && entries[5].text.empty());
+    assert(entries[6].text == "nul");
+    assert(entries[7].text == "desc" && entries[7].description == "de");
     entries.clear();
     assert(!LuaRuntime::DispatchConsoleAutocomplete("missing", 7, "", 0, &Collect, nullptr));
     assert(entries.empty());
@@ -285,9 +306,9 @@ int main() {
     assert(Completions().selected == 7 && Completions().windowStart == 2);
     WritePanelCompletionSlots(ui);
     assert(std::string(EngineStringData(object+0x138),
-                       EngineStringSize(object+0x138)) == "weaken stage3");
+                       EngineStringSize(object+0x138)) == "weaken stage3 (desc)");
     assert(std::string(EngineStringData(object+0xc0),
-                       EngineStringSize(object+0xc0)) == "> weaken stage8");
+                       EngineStringSize(object+0xc0)) == "> weaken stage8 (desc)");
     assert(ApplySelectedPanelCompletion(ui));
     assert(std::string(Panel().draftUtf8) == "weaken stage8");
     assert(RefreshPanelCompletions(ui, (longCommand + " ").c_str()));
@@ -296,7 +317,7 @@ int main() {
            longCommand + " " + std::string(240,'x'));
     assert(AddPanelCompletion(
         std::string(kPanelCompletionTextCapacity,'y'),std::string_view{}));
-    assert(Completions().rejected == 1 && CompletionCount() == 1);
+    assert(Completions().rejected == 0 && CompletionCount() == 2);
     assert(ConsoleAutofillLimit() == 10);
     SetConsoleAutofillLimit(1);
     assert(RefreshPanelCompletions(ui, "al"));
@@ -306,9 +327,9 @@ int main() {
     assert(RefreshPanelCompletions(ui, "weaken "));
     assert(CompletionCount() == 4);
     SetConsoleAutofillLimit(0);
-    assert(ConsoleAutofillLimit() == kConsoleAutofillLimitMinimum);
+    assert(ConsoleAutofillLimit() == 0);
     SetConsoleAutofillLimit(2000);
-    assert(ConsoleAutofillLimit() == kConsoleAutofillLimitMaximum);
+    assert(ConsoleAutofillLimit() == 2000);
     SetConsoleAutofillLimit(kConsoleAutofillLimitDefault);
     const std::string oversizeInput(kPanelUtf8Capacity,'i');
     assert(!RefreshPanelCompletions(ui, oversizeInput.c_str()));

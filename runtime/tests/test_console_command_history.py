@@ -90,6 +90,7 @@ int main() {
  press(enter);frame();assert(!console::ConsolePaused()); // native Enter on empty input closes
  // Only the enabled extension consumes registered candidates and maps X to PC Tab.
  ui.extensionEnabled=[](){return true;};
+ console::SetConsoleCompletionCatalogProvider(nullptr,[]() noexcept {return true;});
  ui.fillOmnicomplete=[](void* p){for(unsigned i=0;i<6;++i)StableAssign(static_cast<unsigned char*>(p)+0xc0+i*24,"");};
  static_cast<void>(console::RegisterConsoleCommand("alpha","first","first",false,0));
  static_cast<void>(console::RegisterConsoleCommand("alphabet","second","second",false,0));
@@ -98,6 +99,9 @@ int main() {
  press(1u<<23);assert(input()=="alpha" && calls==2);
  press(1u<<23);assert(input()=="alphabet" && calls==2);
  press(1u<<23);assert(input()=="alpha" && console::CompletionCount()==2);
+ press(b);frame();open();
+ assert(input()=="alpha" && console::Completions().selected==0);
+ press(1u<<23);assert(input()=="alphabet" && calls==2);
  auto keyboardsBefore=keyboards;press(a);assert(keyboards==keyboardsBefore+1);
  console::KeyboardFinishedCallback(nullptr,nullptr);frame();assert(calls==2);
  assert(console::ObjectFenceIntact(console::Storage()) && failures==0);

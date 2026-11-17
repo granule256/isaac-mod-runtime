@@ -1,4 +1,5 @@
 #pragma once
+#include "domain/console/console_completion_rules.hpp"
 
 #include <algorithm>
 #include <cstddef>
@@ -39,7 +40,8 @@ enum class ConsoleCommandRegistration : std::uint8_t {
 };
 
 // REPENTOGONOptions [VanillaTweaks] ConsoleAutofillLimit:
-// default 10, UI range 1..1000. The central runtime-options owner is expected
+// default 10, UI range 1..1000. Persisted integers are not clamped on PC.
+// The central runtime-options owner is expected
 // to parse the persisted value and call SetConsoleAutofillLimit at load/change
 // boundaries; the panel itself never performs file I/O.
 inline constexpr std::int32_t kConsoleAutofillLimitDefault = 10;
@@ -52,14 +54,11 @@ inline std::int32_t& ConsoleAutofillLimitState() noexcept {
 }
 
 inline std::int32_t ConsoleAutofillLimit() noexcept {
-    const auto value = ConsoleAutofillLimitState();
-    return std::clamp(value, kConsoleAutofillLimitMinimum,
-                      kConsoleAutofillLimitMaximum);
+    return ConsoleAutofillLimitState();
 }
 
 inline void SetConsoleAutofillLimit(std::int32_t value) noexcept {
-    ConsoleAutofillLimitState() = std::clamp(
-        value, kConsoleAutofillLimitMinimum, kConsoleAutofillLimitMaximum);
+    ConsoleAutofillLimitState() = value;
 }
 
 struct ConsoleCommand {
@@ -68,7 +67,31 @@ struct ConsoleCommand {
     std::string helpText;
     bool showOnMenu{};
     ConsoleAutocompleteType autocompleteType{ConsoleAutocompleteType::None};
+    std::vector<std::string> aliases;
 };
+
+struct ConsoleMacro {
+    std::string name;
+    std::vector<std::string> commands;
+};
+
+inline std::vector<ConsoleMacro>& ConsoleRegisteredMacros() {
+    struct Storage {
+        alignas(std::vector<ConsoleMacro>) unsigned char bytes[sizeof(std::vector<ConsoleMacro>)]{};
+        std::vector<ConsoleMacro>* value{};
+    };
+    static Storage storage{};
+    if (!storage.value)
+        storage.value=::new (static_cast<void*>(storage.bytes)) std::vector<ConsoleMacro>();
+    return *storage.value;
+}
+
+inline std::uint64_t& ConsoleCommandRevision() noexcept {
+    // Reset generation, not insertion count: upstream set insertions leave
+    // the selected command and its expanded candidate cache intact.
+    static std::uint64_t value{};
+    return value;
+}
 
 inline std::vector<ConsoleCommand>& ConsoleCommands() {
     // The game thread owns this registry. POD storage avoids __cxa_guard's
@@ -86,6 +109,7 @@ inline std::vector<ConsoleCommand>& ConsoleCommands() {
 
 inline void ResetConsoleCommands() noexcept {
     ConsoleCommands().clear();
+    ++ConsoleCommandRevision();
 }
 
 inline ConsoleCommandRegistration RegisterConsoleCommand(
@@ -93,7 +117,8 @@ inline ConsoleCommandRegistration RegisterConsoleCommand(
     bool showOnMenu, std::uint32_t autocompleteType) {
     auto& commands = ConsoleCommands();
     for (const auto& command : commands) {
-        if (command.name == name) {
+        if (!ConsoleCommandLess(command.name, name) &&
+            !ConsoleCommandLess(name, command.name)) {
             return ConsoleCommandRegistration::Duplicate;
         }
     }
@@ -103,7 +128,11 @@ inline ConsoleCommandRegistration RegisterConsoleCommand(
         : ConsoleAutocompleteType::None;
     commands.push_back(ConsoleCommand{
         std::string(name), std::string(description), std::string(helpText),
-        showOnMenu, type});
+        showOnMenu, type, {}});
+    std::sort(commands.begin(), commands.end(),
+              [](const auto& left, const auto& right) {
+                  return ConsoleCommandLess(left.name, right.name);
+              });
     return ConsoleCommandRegistration::Added;
 }
 
@@ -118,7 +147,9 @@ inline const ConsoleCommand* ConsoleCommandAt(std::size_t index) noexcept {
 
 inline const ConsoleCommand* FindConsoleCommand(std::string_view name) noexcept {
     for (const auto& command : ConsoleCommands()) {
-        if (command.name == name) {
+        if (command.name == name ||
+            std::find(command.aliases.begin(), command.aliases.end(), name) !=
+                command.aliases.end()) {
             return &command;
         }
     }
@@ -159,7 +190,7 @@ inline std::string BuildConsoleHelp(std::string_view invocation, bool inGame) {
     }
     std::sort(visible.begin(), visible.end(),
               [](const ConsoleCommand* left, const ConsoleCommand* right) {
-                  return left->name < right->name;
+                  return ConsoleCommandLess(left->name, right->name);
               });
 
     std::string result;

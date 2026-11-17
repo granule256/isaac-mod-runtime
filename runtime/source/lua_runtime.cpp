@@ -8087,14 +8087,23 @@ int ConsoleAutocompleteProtected(lua_State* state) {
         } else if(lua_isstring(state,-1)) {
             text=lua_tolstring(state,-1,&textLength);
         }
-        if(text&&textLength&&!request->visitor(request->user,text,textLength,
-                                                description?description:"",
-                                                descriptionLength)) {
+        // ConsoleMega stores lua_tostring values as C strings, and inserts
+        // even a default empty entry for a non-string scalar.
+        if (text) {
+            if (const auto* end=static_cast<const char*>(std::memchr(text,0,textLength)))
+                textLength=static_cast<std::size_t>(end-text);
+        }
+        if (description) {
+            if (const auto* end=static_cast<const char*>(std::memchr(description,0,descriptionLength)))
+                descriptionLength=static_cast<std::size_t>(end-description);
+        }
+        if(!request->visitor(request->user,text?text:"",textLength,
+                             description?description:"",descriptionLength)) {
             request->delivered=true;
             lua_settop(state,table-1);
             return 0;
         }
-        if(text&&textLength)request->delivered=true;
+        request->delivered=true;
         lua_settop(state,table);
     }
     return 0;

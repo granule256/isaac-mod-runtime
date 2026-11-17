@@ -1,6 +1,7 @@
 #include "interfaces/lua/repentogon_console_api.hpp"
 
 #include "domain/console/console_commands.hpp"
+#include "infrastructure/console/console_completion_catalog.hpp"
 #include "infrastructure/console/console_panel.hpp"
 #include "interfaces/lua/owner_binding.hpp"
 #include "lua_runtime.hpp"
@@ -106,8 +107,26 @@ int RepentogonConsoleRegisterCommand(lua_State* state) {
     return 0;
 }
 
+int RepentogonConsoleRegisterMacro(lua_State* state) {
+    RequireGameThread(state, "Console.RegisterMacro");
+    const auto* name=luaL_checkstring(state,1);
+    luaL_checktype(state,2,LUA_TTABLE);
+    console::ConsoleMacro macro;
+    macro.name=name;
+    const auto count=lua_rawlen(state,2);
+    for (std::size_t index=1;index<=count;++index) {
+        lua_pushinteger(state,static_cast<lua_Integer>(index));
+        lua_gettable(state,2);
+        if (lua_isnil(state,-1)) break;
+        macro.commands.emplace_back(luaL_checkstring(state,-1));
+        lua_pop(state,1);
+    }
+    console::ConsoleRegisteredMacros().push_back(std::move(macro));
+    return 0;
+}
+
 int RegisterRepentogonConsoleApi(lua_State* state) {
-    console::ResetConsoleCommands();
+    console::EnsureBuiltinConsoleCommands();
     lua_newtable(state);
     static_cast<void>(AttachOwnerMethods(state, "Console", nullptr, 0));
     lua_setglobal(state, "Console");

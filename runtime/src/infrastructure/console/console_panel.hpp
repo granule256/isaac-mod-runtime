@@ -5,6 +5,8 @@
 #include "infrastructure/console/console_command_history.hpp"
 #include "infrastructure/console/console_panel_guards.hpp"
 #include "ports/console_autocomplete_port.hpp"
+#include "ports/console_completion_catalog_port.hpp"
+#include "infrastructure/console/console_completion_catalog.hpp"
 #include "application/repentogon/repentogon_settings.hpp"
 
 #include <algorithm>
@@ -78,6 +80,7 @@ inline std::uint32_t NativePanelState() noexcept {
     return value;
 }
 inline void SetPanelInput(const PanelNativeEntries& ui,const char* text) noexcept;
+inline const char* PanelInputText() noexcept;
 inline constexpr std::size_t kPanelCompletionCount=6;
 inline constexpr std::size_t kPanelCompletionTextCapacity=kPanelUtf8Capacity;
 inline constexpr std::array<std::uintptr_t,kPanelCompletionCount> kPanelCompletionOffsets={
@@ -86,6 +89,19 @@ struct PanelCompletionEntry {
     std::string text;
     std::string description;
 };
+struct PanelRawCompletionEntry : PanelCompletionEntry {
+    std::string sortKey;
+};
+struct PanelCompletionCache {
+    std::vector<PanelRawCompletionEntry> raw;
+    std::vector<std::size_t> ordered;
+    std::string command;
+    std::uint64_t revision{};
+    std::uint32_t sessionEpoch{};
+    AutocompleteDispatch dispatch{};
+    ConsoleCompletionCatalogProvider catalog{};
+    bool valid{};
+};
 struct PanelCompletionState {
     // The state itself stays POD. The candidate vector is created only when
     // an input change actually needs a new completion list.
@@ -93,6 +109,10 @@ struct PanelCompletionState {
     std::size_t windowStart{};
     int selected{-1};
     std::size_t rejected{};
+    PanelCompletionCache* cache{};
+    bool enhanced{}, refreshed{};
+    std::uint32_t sessionEpoch{};
+    std::uint64_t revision{};
 };
 inline PanelCompletionState& Completions() noexcept {
     static PanelCompletionState state{};
@@ -135,6 +155,10 @@ inline void ReleasePanelCompletions() noexcept {
     completions.windowStart=0;
     completions.selected=-1;
     completions.rejected=0;
+    delete completions.cache;
+    completions.cache=nullptr;
+    completions.enhanced=false;
+    completions.refreshed=false;
 }
 inline bool ContainsIgnoreCase(std::string_view text,std::string_view wanted) noexcept {
     if(wanted.empty())return true;
@@ -157,21 +181,14 @@ inline bool StartsWithIgnoreCase(std::string_view text,std::string_view prefix) 
 }
 inline bool AddPanelCompletion(std::string_view text,std::string_view description,
                                bool applyLimit=true) noexcept {
-    auto& completions=Completions();
     if(text.empty())return true;
-    if(text.size()>=kPanelCompletionTextCapacity) {
-        ++completions.rejected;
-        return true;
-    }
     auto* entries=PanelCompletionEntries();
     if(!entries)return false;
-    for(const auto& existing:*entries)
-        if(existing.text==text)return true;
     // Match ConsoleMega's candidate acceptance point: filtering happens first,
     // then the visible buffer is capped while entries are appended. The pinned
     // upstream condition is `size() > limit`, so the default of 10 admits 11.
-    if (applyLimit && CompletionCount() >
-        static_cast<std::size_t>(ConsoleAutofillLimit())) return true;
+    if (applyLimit && static_cast<std::int64_t>(CompletionCount()) >
+        ConsoleAutofillLimit()) return true;
     try {
         entries->push_back(PanelCompletionEntry{
             std::string(text),std::string(description)});
@@ -193,6 +210,8 @@ inline void WritePanelCompletionSlots(const PanelNativeEntries& ui) noexcept {
             if(static_cast<int>(entryIndex)==completions.selected)
                 display="> ";
             display+=entry.text;
+            if (!entry.description.empty())
+                display.append(" (").append(entry.description).push_back(')');
         }
         ui.assign(Storage().consoleObject+kPanelCompletionOffsets[index],
                   display.c_str());
@@ -209,68 +228,38 @@ inline bool SplitPanelAutocomplete(const char* input,char* command,
     std::size_t inputLength=0;
     while(inputLength<kPanelUtf8Capacity&&input[inputLength])++inputLength;
     if(inputLength==kPanelUtf8Capacity)return false;
-    std::size_t at=0;
-    while(input[at]&&std::isspace(static_cast<unsigned char>(input[at])))++at;
-    std::size_t written=0;
-    while(input[at]&&!std::isspace(static_cast<unsigned char>(input[at]))) {
-        if(written+1>=commandCapacity)return false;
-        command[written++]=input[at++];
-    }
-    command[written]='\0';
-    const bool separated=input[at]!=0;
-    while(input[at]&&std::isspace(static_cast<unsigned char>(input[at])))++at;
-    written=0;
-    bool pendingSpace=false;
-    for(;input[at];++at) {
-        if(std::isspace(static_cast<unsigned char>(input[at]))) {
-            pendingSpace=written!=0;
-            continue;
-        }
-        if(pendingSpace) {
-            if(written+1>=parameterCapacity)return false;
-            parameters[written++]=' ';
-        }
-        pendingSpace=false;
-        if(written+1>=parameterCapacity)return false;
-        parameters[written++]=input[at];
-    }
-    parameters[written]='\0';
-    if(hasArguments)*hasArguments=separated;
-    return true;
+    try {
+        const auto tokens=ParseConsoleCompletion(std::string_view(input,inputLength));
+        const auto args=JoinConsoleCompletionArguments(tokens);
+        if ((!tokens.empty() && tokens.front().size()>=commandCapacity) ||
+            args.size()>=parameterCapacity) return false;
+        if (!tokens.empty())
+            CopyCompletionText(command,commandCapacity,tokens.front().data(),tokens.front().size());
+        CopyCompletionText(parameters,parameterCapacity,args.data(),args.size());
+        if(hasArguments)*hasArguments=tokens.size()>=2 ||
+            (inputLength && !tokens.empty() && tokens.size()<3 &&
+             std::isspace(static_cast<unsigned char>(input[inputLength-1])));
+        return true;
+    } catch (...) { return false; }
 }
 struct PanelAutocompleteCollector {
-    std::string_view command;
-    std::string_view parameters;
+    std::vector<PanelRawCompletionEntry>* entries{};
 };
 inline bool CollectPanelAutocomplete(void* user,const char* text,std::size_t textLength,
                                      const char* description,
                                      std::size_t descriptionLength) noexcept {
     auto* collector=static_cast<PanelAutocompleteCollector*>(user);
-    if(!collector||!text||!textLength)return true;
-    if(collector->command.size()>=kPanelCompletionTextCapacity-1||
-       textLength>=kPanelCompletionTextCapacity-collector->command.size()-1) {
-        ++Completions().rejected;
-        return true;
-    }
-    std::string full;
+    if(!collector||!collector->entries||(!text&&textLength))return false;
     try {
-        full.reserve(collector->command.size()+1+textLength);
-        full.append(collector->command);
-        full.push_back(' ');
-        full.append(text,textLength);
+        PanelRawCompletionEntry entry;
+        entry.text.assign(text?text:"",textLength);
+        entry.description.assign(description?description:"",description?descriptionLength:0);
+        entry.sortKey=entry.text;
+        std::replace(entry.sortKey.begin(),entry.sortKey.end(),'.','-');
+        collector->entries->push_back(std::move(entry));
     } catch(...) {
         return false;
     }
-    const bool textMatches=StartsWithIgnoreCase(full,collector->command)&&
-        full.size()>collector->command.size()&&
-        full[collector->command.size()]==' '&&
-        StartsWithIgnoreCase(std::string_view(full).substr(
-            collector->command.size()+1),collector->parameters);
-    const std::string_view descriptionText=
-        description?std::string_view(description,descriptionLength):std::string_view{};
-    if(textMatches||
-       ContainsIgnoreCase(descriptionText,collector->parameters))
-        return AddPanelCompletion(full,descriptionText);
     return true;
 }
 inline bool DispatchPanelAutocomplete(const char* command,std::size_t commandLength,
@@ -290,51 +279,114 @@ inline bool RefreshPanelCompletions(const PanelNativeEntries& ui,
                                     const char* input) noexcept {
     if (!ui.extensionEnabled || !ui.extensionEnabled()) {
         ResetPanelCompletionState();
+        Completions().enhanced=false;
+        Completions().refreshed=false;
+        if (Completions().cache) Completions().cache->valid=false;
         if (ui.fillOmnicomplete) ui.fillOmnicomplete(Storage().consoleObject);
         return false;
     }
     ClearPanelCompletions(ui);
-    if(!input||!ui.assign)return false;
-    if(!*input) {
-        if(ui.fillOmnicomplete)ui.fillOmnicomplete(Storage().consoleObject);
-        return false;
-    }
-    char command[kPanelUtf8Capacity]{};
-    char parameters[kPanelUtf8Capacity]{};
-    bool hasArguments=false;
-    if(!SplitPanelAutocomplete(input,command,sizeof(command),parameters,
-                               sizeof(parameters),&hasArguments)) {
-        WritePanelCompletionSlots(ui);
-        return false;
-    }
-    if(!command[0]) {
+    if (!input || !ui.assign) return false;
+    std::size_t length=0;
+    while (length<kPanelUtf8Capacity && input[length]) ++length;
+    if (length==kPanelUtf8Capacity) return false;
+    try {
+        EnsureBuiltinConsoleCommands();
+        Completions().enhanced=true;
+        Completions().refreshed=true;
+        Completions().sessionEpoch=g_ConsoleSessionEpoch.load(std::memory_order_relaxed);
+        Completions().revision=ConsoleCommandRevision();
+        const std::string_view raw(input,length);
+        const auto tokens=ParseConsoleCompletion(raw);
+        if (tokens.empty()) return false;
+        if (tokens.size()==1) {
+            const bool inGame=ConsoleCompletionInGame();
+            for (const auto& command:ConsoleCommands())
+                if (command.name.starts_with(raw) && (inGame || command.showOnMenu))
+                    static_cast<void>(AddPanelCompletion(command.name,command.description,false));
+        }
+        const bool arguments=tokens.size()>=2 ||
+            (length && tokens.size()<3 &&
+             std::isspace(static_cast<unsigned char>(raw.back())));
+        if (arguments) {
+            const auto* definition=FindConsoleCommand(tokens.front());
+            if (!definition) {WritePanelCompletionSlots(ui);return CompletionCount()!=0;}
+            // Lua completion callbacks can register commands and reallocate the
+            // registry vector. Keep values across dispatch, never its pointers.
+            const std::string canonical=definition->name;
+            const auto type=definition->autocompleteType;
+            auto& state=Completions();
+            if (!state.cache) state.cache=new(std::nothrow) PanelCompletionCache();
+            if (!state.cache) return false;
+            auto& cache=*state.cache;
+            const auto parameters=JoinConsoleCompletionArguments(tokens);
+            const auto epoch=g_ConsoleSessionEpoch.load(std::memory_order_relaxed);
+            bool cached=cache.valid && cache.command==canonical &&
+                cache.revision==ConsoleCommandRevision() && cache.sessionEpoch==epoch &&
+                cache.dispatch==AutocompleteDispatchSlot() &&
+                cache.catalog==ConsoleCompletionCatalogSlot().collect &&
+                type!=ConsoleAutocompleteType::Custom;
+            if (!cached) {
+                cache.valid=false;
+                cache.raw.clear();cache.ordered.clear();
+                PanelAutocompleteCollector collector{&cache.raw};
+                if (type==ConsoleAutocompleteType::Custom) {
+                    static_cast<void>(DispatchPanelAutocomplete(tokens.front().data(),
+                        tokens.front().size(),parameters.data(),parameters.size(),
+                        &CollectPanelAutocomplete,&collector));
+                } else {
+                    static_cast<void>(CollectConsoleCompletionCatalog(
+                        type,&CollectPanelAutocomplete,&collector));
+                }
+                cache.ordered.reserve(cache.raw.size());
+                for (std::size_t i=0;i<cache.raw.size();++i) cache.ordered.push_back(i);
+                const auto less=[&](std::size_t a,std::size_t b) {
+                    return ConsoleCommandLess(cache.raw[a].sortKey,cache.raw[b].sortKey);
+                };
+                std::stable_sort(cache.ordered.begin(),cache.ordered.end(),
+                    less);
+                cache.ordered.erase(std::unique(cache.ordered.begin(),cache.ordered.end(),
+                    [&](std::size_t a,std::size_t b){return !less(a,b) && !less(b,a);}),
+                    cache.ordered.end());
+                cache.command=canonical;
+                cache.revision=ConsoleCommandRevision();cache.sessionEpoch=epoch;
+                cache.dispatch=AutocompleteDispatchSlot();
+                cache.catalog=ConsoleCompletionCatalogSlot().collect;cache.valid=true;
+            }
+            // ConsoleMega's initial CURSE visit returns before its generic cached
+            // filter. Subsequent edits of the same command use the generic path.
+            const bool freshCurse=!cached && type==ConsoleAutocompleteType::Curse;
+            for (const auto index:cache.ordered) {
+                const auto& entry=cache.raw[index];
+                std::string full=tokens.front()+" "+entry.text;
+                const bool prefix=freshCurse ? std::string_view(full).starts_with(raw) :
+                    StartsWithIgnoreCase(full,raw);
+                if (prefix || ContainsIgnoreCase(entry.description,parameters)) {
+                    if (!freshCurse && static_cast<std::int64_t>(CompletionCount())>ConsoleAutofillLimit()) break;
+                    if (!AddPanelCompletion(full,entry.description,false)) return false;
+                }
+            }
+            if (freshCurse && !CompletionCount() && tokens.size()==2) {
+                try {
+                    const int mask=std::stoi(tokens[1]);
+                    std::string description;
+                    for (const auto& entry:cache.raw) {
+                        if ((mask & std::stoi(entry.text))==0) continue;
+                        if (!description.empty()) description.append(" + ");
+                        description.append(entry.description);
+                    }
+                    static_cast<void>(AddPanelCompletion(tokens.front()+" "+std::to_string(mask),description,false));
+                } catch (const std::invalid_argument&) {
+                } catch (const std::out_of_range&) {}
+            }
+        }
         WritePanelCompletionSlots(ui);
         return CompletionCount()!=0;
-    }
-    if(!hasArguments) {
-        for(std::size_t index=0;index<ConsoleCommandCount();++index) {
-            const auto* definition=ConsoleCommandAt(index);
-            if(definition&&definition->name.starts_with(command))
-                static_cast<void>(AddPanelCompletion(
-                    definition->name,definition->description,false));
-        }
-    } else {
-        const auto* definition=FindConsoleCommand(command);
-        if(definition&&definition->autocompleteType==
-           ConsoleAutocompleteType::Custom) {
-            PanelAutocompleteCollector collector{command,parameters};
-            static_cast<void>(DispatchPanelAutocomplete(
-                command,std::strlen(command),parameters,std::strlen(parameters),
-                &CollectPanelAutocomplete,&collector));
-        }
-    }
-    if(!CompletionCount()) {
-        // Native slots are packed display rows, never executable extension candidates.
-        if(ui.fillOmnicomplete)ui.fillOmnicomplete(Storage().consoleObject);
+    } catch (...) {
+        if (Completions().cache) Completions().cache->valid=false;
+        ClearPanelCompletions(ui);
         return false;
     }
-    WritePanelCompletionSlots(ui);
-    return CompletionCount()!=0;
 }
 inline bool MovePanelCompletionSelection(int delta) noexcept {
     auto& completions=Completions();
@@ -357,6 +409,15 @@ inline bool MovePanelCompletionSelection(int delta) noexcept {
     if(completions.windowStart>count-visible)
         completions.windowStart=count-visible;
     return true;
+}
+inline void RestorePanelCompletions(const PanelNativeEntries& ui) noexcept {
+    const auto& state=Completions();
+    if (ui.extensionEnabled && ui.extensionEnabled() && state.enhanced &&
+        state.refreshed && state.revision==ConsoleCommandRevision() &&
+        state.sessionEpoch==g_ConsoleSessionEpoch.load(std::memory_order_relaxed))
+        WritePanelCompletionSlots(ui);
+    else
+        static_cast<void>(RefreshPanelCompletions(ui,PanelInputText()));
 }
 inline bool StorePanelDraftUtf8(const char* text) noexcept {
     auto& panel=Panel();
@@ -431,7 +492,28 @@ inline bool MovePanelHistory(const PanelNativeEntries& ui,int delta) noexcept {
         static_cast<void>(StorePanelDraftUtf8(text->c_str()));
     }
     SetPanelInput(ui,text->c_str());
-    static_cast<void>(RefreshPanelCompletions(ui,text->c_str()));
+    if (ui.extensionEnabled && ui.extensionEnabled())
+        ClearPanelCompletions(ui); // PC CallbackHistory suppresses CallbackEdit.
+    else
+        static_cast<void>(RefreshPanelCompletions(ui,text->c_str()));
+    return true;
+}
+inline bool InsertPanelCompletion(const PanelNativeEntries& ui,
+                                  std::string_view text,bool tab) noexcept {
+    // PC Tab inserts into inputBuf[1024]. Its mouse path copies the whole
+    // string; dynamic storage preserves that text without its strcpy overflow.
+    if (tab) text=text.substr(0,ConsoleCompletionUtf8Prefix(text,1023));
+    auto* owned=new(std::nothrow) std::string();
+    if (!owned) return false;
+    try {owned->assign(text);} catch (...) {delete owned;return false;}
+    ResetPanelHistoryNavigation();
+    PanelRecalledInput()=owned;
+    if (text.size()<sizeof(Panel().draftUtf8) && PanelDraftFitsKeyboard(owned->c_str())) {
+        CopyCompletionText(Panel().draftUtf8,sizeof(Panel().draftUtf8),text.data(),text.size());
+        static_cast<void>(StorePanelDraftUtf8(owned->c_str()));
+    }
+    SetPanelInput(ui,owned->c_str());
+    WritePanelCompletionSlots(ui);
     return true;
 }
 inline bool ApplySelectedPanelCompletion(const PanelNativeEntries& ui) noexcept {
@@ -440,29 +522,15 @@ inline bool ApplySelectedPanelCompletion(const PanelNativeEntries& ui) noexcept 
        static_cast<std::size_t>(completions.selected)>=CompletionCount()||
        !completions.entries)return false;
     const auto& entry=(*completions.entries)[completions.selected];
-    auto& panel=Panel();
-    if(entry.text.size()>=sizeof(panel.draftUtf8))return false;
-    ResetPanelHistoryNavigation();
-    CopyCompletionText(panel.draftUtf8,sizeof(panel.draftUtf8),
-                       entry.text.data(),entry.text.size());
-    static_cast<void>(StorePanelDraftUtf8(panel.draftUtf8));
-    SetPanelInput(ui,panel.draftUtf8);
-    ClearPanelCompletions(ui);
-    return true;
+    return InsertPanelCompletion(ui,entry.text,false);
 }
 inline bool CyclePanelCompletion(const PanelNativeEntries& ui) noexcept {
     if (!CompletionCount()) return false;
     auto& state=Completions();
-    state.selected=(state.selected+1)%static_cast<int>(CompletionCount());
+    static_cast<void>(MovePanelCompletionSelection(1));
     const auto& entry=(*state.entries)[state.selected];
-    if (entry.text.size()>=sizeof(Panel().draftUtf8) ||
-        !PanelDraftFitsKeyboard(entry.text.c_str())) return false;
-    ResetPanelHistoryNavigation();
-    CopyCompletionText(Panel().draftUtf8,sizeof(Panel().draftUtf8),entry.text.data(),entry.text.size());
-    static_cast<void>(StorePanelDraftUtf8(entry.text.c_str()));
-    SetPanelInput(ui,entry.text.c_str());
     // Like PC's extension Tab callback, keep the original candidate buffer while cycling.
-    return true;
+    return InsertPanelCompletion(ui,entry.text,true);
 }
 inline void PanelKeyboardChanged(const std::uint32_t* text,void*) noexcept {
     if (!Panel().keyboardOpen || text==nullptr) return;
@@ -709,6 +777,19 @@ inline bool PrintCustomConsoleHelp(const PanelNativeEntries& ui,const char* comm
     return true;
 }
 
+inline std::string FixPanelCompletionCommand(std::string_view input) {
+    while (!input.empty() && input.back()==' ') input.remove_suffix(1);
+    const auto tokens=ParseConsoleCompletion(input);
+    if (tokens.size()>=2 && tokens[1].size()>=2 && CompletionCount()) {
+        const auto* command=FindConsoleCommand(tokens.front());
+        if (command && command->autocompleteType==ConsoleAutocompleteType::Item &&
+            !(std::isalpha(static_cast<unsigned char>(tokens[1][0])) &&
+              std::isdigit(static_cast<unsigned char>(tokens[1][1]))))
+            return Completions().entries->front().text;
+    }
+    return std::string(input);
+}
+
 // 唯一的会话状态机。系统键盘回调只搬数据；全部原生UI/命令调用都在此游戏线程执行。
 inline void PanelFrame(const EngineEntries& entries,const PanelNativeEntries& ui,
                        std::uintptr_t base,std::uintptr_t kage,std::uint32_t mask,
@@ -764,11 +845,12 @@ inline void PanelFrame(const EngineEntries& entries,const PanelNativeEntries& ui
             if (NativePanelState()==0 && EnsureConsoleObject(entries)) {
                 ui.show(core.consoleObject);
                 SetPanelInput(ui,PanelInputText());
-                static_cast<void>(RefreshPanelCompletions(ui,PanelInputText()));
+                RestorePanelCompletions(ui);
                 p.game=game;p.sessionEpoch=g_ConsoleSessionEpoch.load(std::memory_order_relaxed);p.waitRelease=true;justOpened=true;++p.opened;
             } else if (NativePanelState()!=0) {
                 ui.hide(core.consoleObject);p.waitRelease=true;++p.closed;
-                ReleasePanelCompletions();
+                if (!ui.extensionEnabled || !ui.extensionEnabled())
+                    ReleasePanelCompletions();
             }
         }
     } else if (!combo) {core.comboHeldFrames=0;core.comboFired=false;}
@@ -784,7 +866,8 @@ inline void PanelFrame(const EngineEntries& entries,const PanelNativeEntries& ui
         !p.keyboardOpen && !p.waitRelease && !combo && (risen&(1U<<12));
     if (panelEnter && !*PanelInputText()) {
         ui.hide(core.consoleObject);p.waitRelease=true;++p.closed;
-        ReleasePanelCompletions();
+        if (!ui.extensionEnabled || !ui.extensionEnabled())
+            ReleasePanelCompletions();
     }
     if (p.keyboardFinished || (core.pendingReady && !p.keyboardOpen) ||
         (panelEnter && *PanelInputText())) {
@@ -800,6 +883,22 @@ inline void PanelFrame(const EngineEntries& entries,const PanelNativeEntries& ui
         }
         if (panelEnter) {
             command=PanelInputText();length=static_cast<std::uint32_t>(std::strlen(command));
+        }
+        std::string completionCommand;
+        if (command && length && ui.extensionEnabled && ui.extensionEnabled()) {
+            // A final keyboard result may arrive without a changed callback.
+            if (fromKeyboard && std::string_view(command,length)!=PanelInputText())
+                static_cast<void>(RefreshPanelCompletions(ui,command));
+            try {
+                completionCommand=FixPanelCompletionCommand(std::string_view(command,length));
+                command=completionCommand.c_str();
+                length=static_cast<std::uint32_t>(completionCommand.size());
+                if (!length) {
+                    ResetPanelHistoryNavigation();
+                    p.draftUtf8[0]=0;p.draft[0]=0;
+                    SetPanelInput(ui,"");
+                }
+            } catch (...) {command=nullptr;length=0;}
         }
         bool nonSpace=false;
         for (std::size_t i=0;command && i<length;++i) if(command[i]!=' ') {nonSpace=true;break;}
@@ -841,7 +940,6 @@ inline void PanelFrame(const EngineEntries& entries,const PanelNativeEntries& ui
             completionHandled=true;
         } else if (ui.extensionEnabled && ui.extensionEnabled() &&
                    (risen&completionTab)!=0) {
-            if (!CompletionCount()) static_cast<void>(RefreshPanelCompletions(ui,p.draftUtf8));
             completionHandled=CyclePanelCompletion(ui);
         }
         if (!completionHandled&&touchRise) {
@@ -854,7 +952,8 @@ inline void PanelFrame(const EngineEntries& entries,const PanelNativeEntries& ui
         }
         if (!completionHandled) {
             if ((risen&back)!=0 || shortBack) {
-                ClearPanelCompletions(ui);
+                if (!ui.extensionEnabled || !ui.extensionEnabled())
+                    ClearPanelCompletions(ui);
                 ui.hide(core.consoleObject);p.waitRelease=true;++p.closed;
             } else if ((risen&confirm)!=0 || shortConfirm ||
                        (touchRise&&PanelInputHit(touch,width,height))) {

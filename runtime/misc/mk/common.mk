@@ -113,7 +113,8 @@ CXXFLAGS  := $(CFLAGS) $(EXL_CXXFLAGS) -fno-rtti -fno-exceptions -std=gnu++23
 
 # Console completion catches allocation failures; unrelated units keep the
 # default exception policy and the existing unwind metadata.
-CONSOLE_EXCEPTION_OBJECTS := hook_manager.o isaac_api.o repentogon_console_api.o
+CONSOLE_EXCEPTION_OBJECTS := hook_manager.o isaac_api.o repentogon_console_api.o \
+    console_completion_data.o rplus_options.o
 $(CONSOLE_EXCEPTION_OBJECTS): CXXFLAGS += -fexceptions
 
 # The callback dispatcher and Lua API bindings execute every frame. Production
