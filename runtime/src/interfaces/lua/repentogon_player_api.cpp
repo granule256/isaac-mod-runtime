@@ -1,16 +1,21 @@
 #include "interfaces/lua/repentogon_player_api.hpp"
+#include "interfaces/lua/repentogon_player.guards.hpp"
 #include "interfaces/lua/api100_native.hpp"
+#include "interfaces/lua/api500_config.hpp"
+#include "interfaces/lua/vector_api.hpp"
 
 #include "infrastructure/call/engine_call_access.hpp"
 #include "infrastructure/memory/engine_field_access.hpp"
 #include "interfaces/lua/field_api.hpp"
 #include "interfaces/lua/isaac_api.hpp"
+#include "lua_object_handles.hpp"
 #include "interfaces/lua/sprite_api.hpp"
 #include "lua_runtime.hpp"
 #include "runtime_constants.hpp"
 
 #include <array>
 #include <cstdint>
+#include <cstring>
 
 extern "C" {
 #include <lauxlib.h>
@@ -45,6 +50,8 @@ RepentogonPlayerPointerHost g_MarkedTargetHost{};
 RepentogonPlayerIntHost g_IsLocalPlayerHost{};
 RepentogonPlayerAddActiveChargeHost g_AddActiveChargeHost{};
 RepentogonPlayerActiveMaxChargeHost g_ActiveMaxChargeHost{};
+RepentogonPlayerShootBlueCandleHost g_ShootBlueCandleHost{};
+RepentogonPlayerFireBrimstoneBallHost g_FireBrimstoneBallHost{};
 #endif
 
 std::uintptr_t Player(lua_State* state) {
@@ -64,7 +71,28 @@ std::uintptr_t MethodAddress(lua_State* state,const Method& method,const char* n
         luaL_error(state,"EntityPlayer:%s native binding is unavailable",name);
     return base+method.offset;
 }
+
 #endif
+
+void VerifyShootBlueCandleReturnPatch(lua_State* state) {
+    const auto base = LuaRuntime::EngineModuleBase();
+    const auto& source = repentogon::player::kShootBlueCandleReturnSourceOffset;
+    const auto& sourceGuard = repentogon::player::kShootBlueCandleReturnSourceGuard;
+    const auto& island = repentogon::player::kShootBlueCandleReturnIslandOffset;
+    const auto& islandGuard = repentogon::player::kShootBlueCandleReturnIslandGuard;
+    if (!base || base > UINTPTR_MAX - source ||
+        base > UINTPTR_MAX - island ||
+        !engine_call::VerifyEntryBytes(
+            base + source, sourceGuard.data(), sourceGuard.size(),
+            &engine_memory::EngineMemoryReadable) ||
+        !engine_call::VerifyEntryBytes(
+            base + island, islandGuard.data(), islandGuard.size(),
+            &engine_memory::EngineMemoryReadable)) {
+        luaL_error(
+            state,
+            "EntityPlayer:ShootBlueCandle return patch guard mismatch");
+    }
+}
 
 bool OptionalBoolean(lua_State* state, int index, bool fallback) {
     if (lua_isnoneornil(state, index)) return fallback;
@@ -227,6 +255,111 @@ int RepentogonEntitySetDead(lua_State* state) {
     return 0;
 }
 
+int RepentogonEntityPlayerShootBlueCandle(lua_State* state) {
+    const auto player = Player(state);
+    const auto& direction = *RequireVectorArgument(state, 2);
+    std::uintptr_t result = 0;
+    VerifyShootBlueCandleReturnPatch(state);
+#if defined(__SWITCH__)
+    using Fn = std::uintptr_t (*)(void*, const LuaRuntime::VectorHandle&);
+    result = engine_call::AsFunction<Fn>(
+        MethodAddress(state, {repentogon::player::kShootBlueCandleOffset,
+                              repentogon::player::kShootBlueCandleGuard},
+                      "ShootBlueCandle"))(
+        engine_memory::AsObject(player), direction);
+#else
+    if (!g_ShootBlueCandleHost) {
+        return luaL_error(state, "EntityPlayer:ShootBlueCandle host binding is unavailable");
+    }
+    result = g_ShootBlueCandleHost(engine_memory::AsObject(player), &direction);
+#endif
+    if (!result) {
+        lua_pushnil(state);
+    } else {
+        PushEntityCallbackArgument(state, result);
+    }
+    return 1;
+}
+
+int RepentogonEntityPlayerFireBrimstoneBall(lua_State* state) {
+    const auto player = Player(state);
+    const auto& position = *RequireVectorArgument(state, 2);
+    const auto& velocity = *RequireVectorArgument(state, 3);
+    LuaRuntime::VectorHandle offset{};
+    if (lua_type(state, 4) == LUA_TUSERDATA) {
+        offset = *RequireVectorArgument(state, 4);
+    }
+    std::uintptr_t result = 0;
+#if defined(__SWITCH__)
+    using Fn = void* (*)(void*, const LuaRuntime::VectorHandle&,
+                         const LuaRuntime::VectorHandle&,
+                         const LuaRuntime::VectorHandle&, std::uint32_t,
+                         std::uint32_t, void*);
+    result = engine_memory::AddressOf(
+        engine_call::AsFunction<Fn>(
+            MethodAddress(state, {repentogon::player::kFireBrimstoneBallOffset,
+                                  repentogon::player::kFireBrimstoneBallGuard},
+                          "FireBrimstoneBall"))(
+            engine_memory::AsObject(player), position, velocity, offset, 0, 0, nullptr));
+#else
+    if (!g_FireBrimstoneBallHost) {
+        return luaL_error(state, "EntityPlayer:FireBrimstoneBall host binding is unavailable");
+    }
+    result = g_FireBrimstoneBallHost(engine_memory::AsObject(player), &position,
+                                     &velocity, &offset, 0, 0, nullptr);
+#endif
+    if (!result) {
+        lua_pushnil(state);
+    } else {
+        PushEntityCallbackArgument(state, result);
+    }
+    return 1;
+}
+
+int RepentogonEntityPlayerSetHeadDirection(lua_State* state) {
+    const auto player = Player(state);
+    const auto direction = static_cast<std::int32_t>(luaL_checkinteger(state, 2));
+    const auto time = static_cast<std::int32_t>(luaL_checkinteger(state, 3));
+    const bool force = OptionalBoolean(state, 4, false);
+    if (direction < 0 || direction > 3) {
+        return luaL_argerror(state, 2, "Invalid Direction");
+    }
+
+    std::int32_t currentTime{};
+    if (!engine_memory::ReadField(
+            player, repentogon::player::kHeadDirectionTimeOffset, &currentTime,
+            engine_memory::EngineMemoryReadable)) {
+        return luaL_error(state, "EntityPlayer head direction lock is not readable");
+    }
+    if (!force && currentTime >= 0) return 0;
+
+    std::int32_t currentDirection{};
+    if (!engine_memory::ReadField(
+            player, repentogon::player::kHeadDirectionOffset, &currentDirection,
+            engine_memory::EngineMemoryReadable)) {
+        return luaL_error(state, "EntityPlayer head direction is not readable");
+    }
+    if (currentDirection != direction) {
+        if (!engine_memory::WriteField(
+                player, repentogon::player::kHeadDirectionOffset, direction,
+                engine_memory::EngineMemoryWritable)) {
+            return luaL_error(state, "EntityPlayer head direction is not writable");
+        }
+        static constexpr const char* kHeadAnimations[] = {
+            "HeadLeft", "HeadUp", "HeadRight", "HeadDown"};
+        lua_pushstring(state, kHeadAnimations[direction]);
+        lua_replace(state, 3);
+        Api500AssignConfigString(
+            state, player + repentogon::player::kHeadAnimOffset);
+    }
+    if (!engine_memory::WriteField(
+            player, repentogon::player::kHeadDirectionTimeOffset, time,
+            engine_memory::EngineMemoryWritable)) {
+        return luaL_error(state, "EntityPlayer head direction lock is not writable");
+    }
+    return 0;
+}
+
 #if !defined(__SWITCH__)
 void SetRepentogonPlayerGetHealthTypeHost(RepentogonPlayerIntHost value) noexcept {g_HealthTypeHost=value;}
 void SetRepentogonPlayerGetMarkedTargetHost(RepentogonPlayerPointerHost value) noexcept {g_MarkedTargetHost=value;}
@@ -235,5 +368,9 @@ void SetRepentogonPlayerAddActiveChargeHost(
     RepentogonPlayerAddActiveChargeHost value) noexcept {g_AddActiveChargeHost=value;}
 void SetRepentogonPlayerActiveMaxChargeHost(
     RepentogonPlayerActiveMaxChargeHost value) noexcept {g_ActiveMaxChargeHost=value;}
+void SetRepentogonPlayerShootBlueCandleHost(
+    RepentogonPlayerShootBlueCandleHost value) noexcept {g_ShootBlueCandleHost=value;}
+void SetRepentogonPlayerFireBrimstoneBallHost(
+    RepentogonPlayerFireBrimstoneBallHost value) noexcept {g_FireBrimstoneBallHost=value;}
 #endif
 }

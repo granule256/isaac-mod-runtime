@@ -8,6 +8,7 @@ from .test_support import lua_harness_objects, LUA_SOURCE_RELATIVE
 ROOT = Path(__file__).resolve().parents[2]
 DRIVER = r'''
 #include "interfaces/lua/entity_lifetime.hpp"
+#include "application/player/innate_collectibles.hpp"
 #include "lua_object_handles.hpp"
 extern "C" {
 #include "lua.h"
@@ -45,7 +46,10 @@ int main(){
  lua_settop(L,token);luaL_unref(L,LUA_REGISTRYINDEX,saved);
  lua_gc(L,LUA_GCCOLLECT,0);assert(!old->alive);
  // 关闭前重置opaque指针，状态关闭后清理不得碰旧Lua内存。
- ResetEntityLifetimeState();lua_close(L);RetireEntityLifetime(0x1234);
+ innate_collectibles::Change(0x5678,20,2);
+ ResetEntityLifetimeState();
+ assert(innate_collectibles::Count(0x5678,20)==0);
+ lua_close(L);RetireEntityLifetime(0x1234);
  L=lua_newstate(allocator,&a);assert(L);auto* again=PushEntityLifetimeToken(L,0x1234);assert(again->alive);
  ResetEntityLifetimeState();lua_close(L);
 }

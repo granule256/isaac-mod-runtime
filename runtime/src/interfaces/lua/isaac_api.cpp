@@ -51,6 +51,8 @@
 #include "game_observer.hpp"
 #include "interfaces/lua/input_api.hpp"
 #include "interfaces/lua/isaac_api.hpp"
+#include "interfaces/lua/repentogon_innate_collectible_api.hpp"
+#include "application/player/innate_collectibles.hpp"
 #include "infrastructure/call/engine_call_access.hpp"  // 引擎调用层（111：调引擎只在这里转换签名）
 #include "infrastructure/console/console_panel.hpp"
 #include "infrastructure/console/console_bridge.hpp"   // 游戏控制台（121：Isaac.ExecuteCommand 的真实现）
@@ -4134,7 +4136,7 @@ bool CallEntityPlayerHasCollectible(std::uintptr_t method, std::uintptr_t entity
     // ⇒ `(eCollectibleType, bool)`。第二个参数**原样透传**给引擎（PC 语义就是那个
     // `ignoreModifiers`），不做我们自己的解释 —— 这样"传什么"与 PC 完全一致。
     using HasCollectibleFn = bool (*)(void*, std::uint32_t, std::uint32_t);
-    return engine_call::AsFunction<HasCollectibleFn>(method)(
+    const bool native = engine_call::AsFunction<HasCollectibleFn>(method)(
         engine_memory::AsObject(entity), collectibleId, ignoreModifiers ? 1U : 0U);
 #else
     // 宿主构建没有引擎映像，也无法把一个 C++ 函数放到 `base + 0x27D3F4`，所以那一条 `bl` 由
@@ -4142,9 +4144,13 @@ bool CallEntityPlayerHasCollectible(std::uintptr_t method, std::uintptr_t entity
     // `this` 与 id""返回值原样变成 Lua 布尔"；设备构建不存在这条通路。
     static_cast<void>(method);
     const EntityPlayerHasCollectibleHostImplementation injected = g_HasCollectibleHostImplementation;
-    return injected != nullptr &&
+    const bool native = injected != nullptr &&
            injected(engine_memory::AsObject(entity), collectibleId, ignoreModifiers);
 #endif
+    // Lua calls the original entry directly; native engine callers use the
+    // separate GOT hook. Both paths must include the same innate copies.
+    return innate_collectibles::EffectiveHas(
+        entity, static_cast<std::int32_t>(collectibleId), native, ignoreModifiers);
 }
 
 // 拿不到实体或拿不到方法时返回 false（PC 的返回值是布尔，`if player:HasCollectible(x) then`
@@ -4977,27 +4983,29 @@ int EntityPlayerGetCollectibleNum(lua_State* state) {
         PushZero(state);
         return 1;
     }
+    const auto pushOwned = [&](std::uint32_t owned) {
+        const auto extra = lua_toboolean(state, 3) ? 0 : innate_collectibles::Count(
+            entity, static_cast<std::int32_t>(collectibleId));
+        lua_pushinteger(state, static_cast<lua_Integer>(owned) + extra);
+        return 1;
+    };
     std::uintptr_t begin = 0;
     std::uintptr_t end = 0;
     if (!ReadEngine(entity + kEntityPlayerCollectibleBeginOffset, &begin) ||
         !ReadEngine(entity + kEntityPlayerCollectibleEndOffset, &end) || begin == 0 ||
         end <= begin || ((end - begin) % sizeof(std::uint32_t)) != 0) {
-        PushZero(state);
-        return 1;
+        return pushOwned(0);
     }
     const std::size_t count = static_cast<std::size_t>((end - begin) / sizeof(std::uint32_t));
     if (static_cast<std::uint64_t>(collectibleId) >= count) {
-        PushZero(state);
-        return 1;
+        return pushOwned(0);
     }
     std::uint32_t owned = 0;
     if (!ReadEngine(begin + static_cast<std::uintptr_t>(collectibleId) * sizeof(std::uint32_t),
                     &owned)) {
-        PushZero(state);
-        return 1;
+        return pushOwned(0);
     }
-    lua_pushinteger(state, static_cast<lua_Integer>(owned));
-    return 1;
+    return pushOwned(owned);
 }
 
 // EID uses the effective multiplier for transformation progress. Counting held
@@ -13470,6 +13478,86 @@ void RegisterViewMetatables(lua_State* state) {
 }
 
 } // namespace
+
+#if !defined(__SWITCH__)
+static InnateCollectibleTestBindings g_InnateTestBindings{};
+void SetInnateCollectibleTestBindings(InnateCollectibleTestBindings bindings) noexcept {
+    g_InnateTestBindings = bindings;
+}
+#endif
+
+int RepentogonEntityPlayerAddInnateCollectible(lua_State* state) {
+    luaL_checkudata(state, 1, LuaRuntime::kEntityPlayerMetatable);
+    const auto player = ResolveEngineReceiver(state, FieldReceipt::EntityPlayer, 1);
+    if (!player) return luaL_error(state, "EntityPlayer reference is no longer available");
+    const auto id = static_cast<std::int32_t>(luaL_checkinteger(state, 2));
+    const auto amount = static_cast<std::int32_t>(luaL_optinteger(state, 3, 1));
+    // The legacy fourth boolean was read but unused upstream.
+    if (!lua_isnoneornil(state, 4) && !lua_isboolean(state, 4))
+        return luaL_argerror(state, 4, "boolean expected");
+    std::uintptr_t item{};
+#if !defined(__SWITCH__)
+    if (g_InnateTestBindings.collectible) item = g_InnateTestBindings.collectible(id);
+    else
+#endif
+    {
+        const auto config = ResolveItemConfig();
+        if (id < 0) {
+            std::uintptr_t owner{};
+            if (config) static_cast<void>(ReadProceduralItem(
+                static_cast<std::uint32_t>(id), &item, &owner));
+        } else {
+            ItemVectorView view{};
+            if (config && ReadItemVector(config, kItemConfigCollectibleBeginOffset,
+                                        kItemConfigCollectibleEndOffset, &view) &&
+                static_cast<std::uint32_t>(id) < view.count)
+                static_cast<void>(ReadEngine(
+                    view.begin + static_cast<std::size_t>(id) * sizeof(std::uintptr_t), &item));
+        }
+    }
+    if (!item) return luaL_error(state, "Invalid item");
+    std::uint32_t flags{};
+    std::uint8_t costume{};
+    if (!ReadEngine(item + kItemConfigItemCacheFlagsOffset, &flags) ||
+        !ReadEngine(item + kApi600ItemConfigShouldAddCostumeOnPickupFieldOffset, &costume))
+        return luaL_error(state, "ItemConfig innate collectible fields are unavailable");
+    using AddCostume = void (*)(void*, const void*, bool);
+    using Evaluate = void (*)(void*);
+    AddCostume add{};
+    Evaluate evaluate{};
+#if !defined(__SWITCH__)
+    add = g_InnateTestBindings.addCostume;
+    evaluate = g_InnateTestBindings.evaluate;
+#endif
+    if (!evaluate) {
+        const auto address = EntityMethodByExpectedBytes(
+            kEntityPlayerEvaluateItemsOffset, kEntityPlayerEvaluateItemsExpectedBytes);
+        if (!address) return luaL_error(state, "EntityPlayer EvaluateItems guard mismatch");
+        evaluate = engine_call::AsFunction<Evaluate>(address);
+    }
+    if (amount > 0 && costume && !add) {
+        constexpr std::array<std::uint8_t, 16> guard{
+            0xfd,0x7b,0xba,0xa9,0xfc,0x6f,0x01,0xa9,
+            0xfd,0x03,0x00,0x91,0xfa,0x67,0x02,0xa9};
+        const auto address = EntityMethodByExpectedBytes(kRPlusAddCostumeOffset, guard);
+        if (!address) return luaL_error(state, "EntityPlayer AddCostume guard mismatch");
+        add = engine_call::AsFunction<AddCostume>(address);
+    }
+    std::uint32_t pending{};
+    if (!ReadEngine(player + kEntityPlayerCacheFlagsOffset, &pending) ||
+        !engine_memory::EngineMemoryWritable(
+            player + kEntityPlayerCacheFlagsOffset, sizeof(pending)))
+        return luaL_error(state, "EntityPlayer cache flags are unavailable");
+    innate_collectibles::Change(player, id, amount);
+    if (amount > 0 && costume) add(engine_memory::AsObject(player), engine_memory::AsObject(item), false);
+    if (!ReadEngine(player + kEntityPlayerCacheFlagsOffset, &pending))
+        return luaL_error(state, "EntityPlayer cache flags are unavailable");
+    static_cast<void>(engine_memory::WriteField(
+        player, kEntityPlayerCacheFlagsOffset, pending | flags,
+        engine_memory::EngineMemoryWritable));
+    evaluate(engine_memory::AsObject(player));
+    return 0;
+}
 
 bool CollectibleConfigExistsForApi(std::int32_t id) noexcept {
     if (!LuaRuntime::IsOnGameThread()) return false;

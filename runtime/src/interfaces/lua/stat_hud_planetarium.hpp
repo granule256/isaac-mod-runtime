@@ -128,6 +128,7 @@ constexpr std::uint32_t TextResumeIndex(std::uint32_t compared,
                                         bool enabled) noexcept {
     if (compared >= 2) return 0;
     if (index == 9) return 1;
+    // Resume 2 is the general text path, not the index-7-only branch.
     if (index == 8) return enabled ? 2U : 1U;
     return 1;
 }

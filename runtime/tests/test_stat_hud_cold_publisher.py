@@ -29,7 +29,7 @@ int main(int argc,char**argv){
  binding.scratch=InternalScratchPolicy::ProvedDeadX16;
  binding.resumes[0]=site.source+4;binding.resumes[1]=site.source-24;
  binding.resumeCount=original==0x54ffff40?2:3;
- if(binding.resumeCount==3)binding.resumes[2]=site.source+16;
+ if(binding.resumeCount==3)binding.resumes[2]=site.source+32;
  const auto before=image;
  for(unsigned offset:{64u,128u,132u,136u,140u,192u,196u,200u}){
   image[offset]^=1;

@@ -1,4 +1,5 @@
 #include "interfaces/lua/entity_lifetime.hpp"
+#include "application/player/innate_collectibles.hpp"
 #include "lua_object_handles.hpp"
 #include "infrastructure/memory/engine_field_access.hpp"
 extern "C" {
@@ -133,6 +134,7 @@ void ReinitializeEntityLifetime(std::uintptr_t entity) noexcept {
     }
 }
 void RetireEntityLifetime(std::uintptr_t entity) noexcept {
+    innate_collectibles::ResetPlayer(entity);
     const TValue* slot{};
     if (auto* userdata = ExistingToken(entity, &slot)) {
         auto* token = static_cast<LuaRuntime::EntityLifetimeToken*>(static_cast<void*>(getudatamem(userdata)));
@@ -143,6 +145,7 @@ void RetireEntityLifetime(std::uintptr_t entity) noexcept {
     }
 }
 void ResetEntityLifetimeState() noexcept {
+    innate_collectibles::Reset();
     s_Map = nullptr;
     s_Registry = nullptr;
     s_MainState = nullptr;

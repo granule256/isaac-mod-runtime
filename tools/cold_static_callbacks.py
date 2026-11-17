@@ -48,6 +48,19 @@ def projectile_tail_gate(source:int,gate:int,original:int)->bytes:
     return struct.pack('<8IQ',0x10000110,0xC8DFFE10,0xB4000070,(0xAA1303E0 if (source,gate,original)==PROJECTILE_INIT_TAIL_SITE else 0xAA1C03E0),
                        0xD63F0200,original,branch(gate+24,source+4),0xD503201F,0)
 
+def player_candle_return_records(nro:bytes)->list[tuple[int,bytes]]:
+    source,island,original=0x2F215C,0x68CFA0,0xA94C4FF4
+    if len(nro)<island+12 or nro[0x40:0x60]!=BUILD_ID:
+        raise ValueError('Player candle NRO identity mismatch')
+    if nro[source:source+4]!=struct.pack('<I',original):
+        raise ValueError('Player candle epilogue mismatch')
+    if nro[island:island+12]!=bytes(12):
+        raise ValueError('Player candle return island is not empty')
+    # shoot_blue_candle ends with Effect::Update (void). Save the created
+    # effect as the result before the original epilogue restores x20/x19.
+    return [(source,struct.pack('<I',branch(source,island))),
+            (island,struct.pack('<3I',0xAA1403E0,original,branch(island+8,source+4)))]
+
 def stat_hud_conditional_records(nro:bytes)->list[tuple[int,bytes]]:
     if len(nro)<0x68CF90 or nro[0x40:0x60]!=BUILD_ID:
         raise ValueError('StatHUD NRO identity mismatch')
@@ -93,6 +106,7 @@ def build_static_callback_patch(nro:bytes)->bytes:
         records.extend(((source,struct.pack('<I',branch(source,gate))),
                         (gate,projectile_tail_gate(source,gate,original))))
     records.extend(stat_hud_conditional_records(nro))
+    records.extend(player_candle_return_records(nro))
     records.extend(extra_source_cold.cold_records(nro))
     records.extend(custom_item_pool_cold.cold_records(nro))
     records.extend(mgo_death_cold.records(nro))

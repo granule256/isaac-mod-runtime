@@ -195,7 +195,7 @@ InternalHookFailure TryInstallStatHudColdHook(const InternalHookBinding& binding
     if(!ValidInternalBinding(binding)||!BuildStatHudColdImages(site,fallback,gate,replay)||
        binding.resumeCount!=(site.original==0x54FFFF40U?2U:3U)||
        binding.resumes[0]!=site.source+4||binding.resumes[1]!=site.source-24||
-       (binding.resumeCount==3&&binding.resumes[2]!=site.source+16)||
+       (binding.resumeCount==3&&binding.resumes[2]!=site.source+32)||
        site.gate%0x1000+24>0x1000||fallback%0x1000+12>0x1000)
         return Failure::InvalidPlan;
     std::uint32_t jump{};

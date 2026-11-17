@@ -6,6 +6,7 @@
 #include "interfaces/lua/repentogon_runtime_api.hpp"
 #include "interfaces/lua/repentogon_persistent_api.hpp"
 #include "interfaces/lua/repentogon_player_api.hpp"
+#include "interfaces/lua/repentogon_innate_collectible_api.hpp"
 #include "interfaces/lua/repentogon_player_manager_api.hpp"
 #include "interfaces/lua/api600_player.hpp"
 #include "interfaces/lua/api700_player.hpp"
@@ -479,6 +480,14 @@ constexpr RepentogonApiBinding kApis[]={
       ApiMaturity::Experimental},RepentogonEntitySetDead},
     {{0x0E020012,ApiDomain::Isaac,"Entity","SetInvincible",{},0,ThreadAffinity::ManagedCallback,
       ApiMaturity::Experimental},RepentogonEntitySetInvincible},
+    {{0x0E020013,ApiDomain::Isaac,"EntityPlayer","ShootBlueCandle",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonEntityPlayerShootBlueCandle},
+    {{0x0E020014,ApiDomain::Isaac,"EntityPlayer","FireBrimstoneBall",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonEntityPlayerFireBrimstoneBall},
+    {{0x0E020015,ApiDomain::Isaac,"EntityPlayer","SetHeadDirection",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonEntityPlayerSetHeadDirection},
+    {{0x0E020016,ApiDomain::Isaac,"EntityPlayer","AddInnateCollectible",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonEntityPlayerAddInnateCollectible},
     {{0x04020001,ApiDomain::Room,"Room","SetWaterAmount",{},0,ThreadAffinity::ManagedCallback,
       ApiMaturity::Experimental},RepentogonRoomSetWaterAmount},
     {{0x04020002,ApiDomain::Room,"Room","SetWaterCurrent",{},0,ThreadAffinity::ManagedCallback,
