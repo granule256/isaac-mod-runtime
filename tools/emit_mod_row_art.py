@@ -86,6 +86,7 @@ import argparse
 import re
 import struct
 import sys
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -95,6 +96,7 @@ sys.path.insert(0, str(ROOT))
 #: 菜单动画补层那一套（`--menu-row-layer`）：工具函数复用同一份实现，绝不另抄一套。
 from tools.gamemenu_mod_row import (ArtError, DUMP_DIRECTORY_GLOB, discover_dump_root,  # noqa: E402
                                     emit_menu_anm2,
+                                    resolve_content_file,
                                     language_directory as row_language_directory)
 
 #: romfs 覆盖层根（部署包里的相对路径）。
@@ -232,6 +234,49 @@ def write_pair(directory: Path, entry: dict) -> list[Path]:
     return [pcx_path]
 
 
+def replace_mods_menu_tab(menu_xml: str, buttons_xml: str) -> str:
+    """Reuse the native Switch confirm icon, changing only the Tab hint layer."""
+    menu = ET.fromstring(menu_xml)
+    buttons = ET.fromstring(buttons_xml)
+    layer = menu.find("Content/Layers/Layer[@Name='WidgetTab']")
+    sheets = menu.find("Content/Spritesheets")
+    icon = buttons.find("Animations/Animation[@Name='Switch']/LayerAnimations/LayerAnimation/Frame")
+    if layer is None or sheets is None or icon is None:
+        raise ArtError("Mods menu Tab layer or native Switch confirm icon is missing")
+    keys = ('XCrop', 'YCrop', 'Width', 'Height', 'XPivot', 'YPivot')
+    if any(key not in icon.attrib for key in keys):
+        raise ArtError("Native Switch confirm icon has incomplete geometry")
+    frames = menu.findall(f".//LayerAnimation[@LayerId='{layer.get('Id')}']/Frame")
+    if not frames:
+        raise ArtError("Mods menu Tab layer has no frames")
+    sheet_id = str(max(int(sheet.get('Id')) for sheet in sheets) + 1)
+    ET.SubElement(sheets, 'Spritesheet', {'Path': '../buttons.png', 'Id': sheet_id})
+    layer.set('SpritesheetId', sheet_id)
+    for frame in frames:
+        # Preserve the old hint's center without resizing the native button art.
+        for axis, size in (('X', 'Width'), ('Y', 'Height')):
+            center = (float(frame.get(axis + 'Position')) - float(frame.get(axis + 'Pivot'))
+                      + float(frame.get(size)) / 2)
+            position = center + float(icon.get(axis + 'Pivot')) - float(icon.get(size)) / 2
+            frame.set(axis + 'Position', f'{position:g}')
+        for key in keys:
+            frame.set(key, icon.get(key))
+    return ET.tostring(menu, encoding='unicode') + '\n'
+
+
+def emit_mods_menu_anm2(directory: Path, dump_root: str, languages: list[str]) -> list[Path]:
+    buttons = Path(resolve_content_file(dump_root, 'en', 'gfx/ui/buttons.anm2')).read_text()
+    written = []
+    for language in languages:
+        relative = 'gfx/ui/main menu/modsmenu.anm2'
+        original = Path(resolve_content_file(dump_root, language, relative)).read_text()
+        target = directory / language_directory(language) / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(replace_mods_menu_tab(original, buttons), encoding='utf-8')
+        written.append(target)
+    return written
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="把『模组』那一行的图落成真实文件（.pcx，供引擎按文件名加载）",
@@ -244,7 +289,7 @@ def main() -> int:
                         help="额外把同一批文件往 `resources/`（英文根）复制一份")
     parser.add_argument("--menu-row-layer", action="store_true",
                         help="同时把 PC 那一层 `Item6` 补回菜单动画（`rp_patch/<语言根>/gfx/ui/"
-                             "main menu/gamemenu.anm2`）—— 这一行由**引擎自己**画")
+                             "main menu/gamemenu.anm2`），并生成模组页的 Switch A 键提示")
     parser.add_argument("--dump-root", default="auto",
                         help="游戏 dump 根（`--menu-row-layer` 要读里面的原版菜单动画与 PC 参考）；"
                              "`auto`（默认）= 按通配自己找，找不到就**跳过并大声提示**")
@@ -324,6 +369,10 @@ def main() -> int:
             if dump_root:
                 try:
                     written += emit_menu_anm2(str(romfs / RP_PATCH), dump_root, languages)
+                    mods_languages = list(languages)
+                    if args.also_english_root and 'en' not in mods_languages:
+                        mods_languages.append('en')
+                    written += emit_mods_menu_anm2(romfs / RP_PATCH, dump_root, mods_languages)
                 except ArtError as error:
                     print(f"✗ 菜单动画补层失败：{error}", file=sys.stderr)
                     return 1

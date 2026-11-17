@@ -84,6 +84,41 @@ def pcx_size(data: bytes) -> tuple[int, int]:
 
 
 class ModRowArtFilesTests(unittest.TestCase):
+    def test_mods_menu_tab_uses_switch_confirm_atlas(self):
+        from tools.emit_mod_row_art import replace_mods_menu_tab
+        menu = '''<AnimatedActor><Content><Spritesheets>
+          <Spritesheet Path="ModsMenu.png" Id="0"/><Spritesheet Path="SeedWidget.png" Id="1"/>
+          </Spritesheets><Layers><Layer Name="WidgetText" Id="12" SpritesheetId="1"/>
+          <Layer Name="WidgetTab" Id="13" SpritesheetId="1"/></Layers></Content>
+          <Animations><Animation Name="Main"><LayerAnimations>
+          <LayerAnimation LayerId="12"><Frame XCrop="256" YCrop="96"/></LayerAnimation>
+          <LayerAnimation LayerId="13"><Frame XPosition="125" YPosition="-46"
+          XPivot="16" YPivot="16" XCrop="0" YCrop="161" Width="40" Height="29"
+          XScale="100" YScale="100" Visible="true"/></LayerAnimation>
+          </LayerAnimations></Animation></Animations></AnimatedActor>'''
+        buttons = '''<AnimatedActor><Animations><Animation Name="Switch"><LayerAnimations>
+          <LayerAnimation LayerId="0"><Frame XCrop="64" YCrop="176" Width="32" Height="16"
+          XPivot="16" YPivot="8"/></LayerAnimation></LayerAnimations></Animation>
+          </Animations></AnimatedActor>'''
+        result = ET.fromstring(replace_mods_menu_tab(menu, buttons))
+        self.assertEqual(result.find("Content/Layers/Layer[@Id='13']").get('SpritesheetId'), '2')
+        self.assertEqual(result.find("Content/Spritesheets/Spritesheet[@Id='2']").get('Path'),
+                         '../buttons.png')
+        frame = result.find(".//LayerAnimation[@LayerId='13']/Frame")
+        self.assertEqual(tuple(frame.get(k) for k in ('XCrop', 'YCrop', 'Width', 'Height')),
+                         ('64', '176', '32', '16'))
+        self.assertEqual(float(frame.get('XPosition')), 129)
+        self.assertEqual(float(frame.get('YPosition')), -47.5)
+        self.assertEqual(frame.get('Visible'), 'true')
+        self.assertEqual(result.find(".//LayerAnimation[@LayerId='12']/Frame").attrib,
+                         {'XCrop': '256', 'YCrop': '96'})
+
+    def test_mods_menu_tab_rejects_missing_switch_icon(self):
+        from tools.emit_mod_row_art import replace_mods_menu_tab
+        from tools.gamemenu_mod_row import ArtError
+        with self.assertRaises(ArtError):
+            replace_mods_menu_tab('<AnimatedActor/>', '<AnimatedActor/>')
+
     @classmethod
     def setUpClass(cls):
         cls.temporary = tempfile.TemporaryDirectory(prefix="isaac-mod-row-art-")
