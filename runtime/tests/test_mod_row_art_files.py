@@ -98,6 +98,8 @@ class ModRowArtFilesTests(unittest.TestCase):
           </LayerAnimations></Animation></Animations></AnimatedActor>'''
         buttons = '''<AnimatedActor><Animations><Animation Name="Switch"><LayerAnimations>
           <LayerAnimation LayerId="0"><Frame XCrop="64" YCrop="176" Width="32" Height="16"
+          XPivot="16" YPivot="8"/><Frame XCrop="64" YCrop="160" Width="32" Height="16"
+          XPivot="16" YPivot="8"/><Frame XCrop="64" YCrop="144" Width="32" Height="16"
           XPivot="16" YPivot="8"/></LayerAnimation></LayerAnimations></Animation>
           </Animations></AnimatedActor>'''
         result = ET.fromstring(replace_mods_menu_tab(menu, buttons))
@@ -106,7 +108,7 @@ class ModRowArtFilesTests(unittest.TestCase):
                          '../buttons.png')
         frame = result.find(".//LayerAnimation[@LayerId='13']/Frame")
         self.assertEqual(tuple(frame.get(k) for k in ('XCrop', 'YCrop', 'Width', 'Height')),
-                         ('64', '176', '32', '16'))
+                         ('64', '144', '32', '16'))
         self.assertEqual(float(frame.get('XPosition')), 129)
         self.assertEqual(float(frame.get('YPosition')), -47.5)
         self.assertEqual(frame.get('Visible'), 'true')

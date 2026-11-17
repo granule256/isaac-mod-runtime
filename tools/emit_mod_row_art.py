@@ -240,7 +240,8 @@ def replace_mods_menu_tab(menu_xml: str, buttons_xml: str) -> str:
     buttons = ET.fromstring(buttons_xml)
     layer = menu.find("Content/Layers/Layer[@Name='WidgetTab']")
     sheets = menu.find("Content/Spritesheets")
-    icon = buttons.find("Animations/Animation[@Name='Switch']/LayerAnimations/LayerAnimation/Frame")
+    # Native Switch button frames are X, B, A, Y; confirmation uses A.
+    icon = buttons.find("Animations/Animation[@Name='Switch']/LayerAnimations/LayerAnimation/Frame[3]")
     if layer is None or sheets is None or icon is None:
         raise ArtError("Mods menu Tab layer or native Switch confirm icon is missing")
     keys = ('XCrop', 'YCrop', 'Width', 'Height', 'XPivot', 'YPivot')
