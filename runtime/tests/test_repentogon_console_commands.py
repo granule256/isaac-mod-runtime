@@ -250,7 +250,8 @@ int main() {
            ConsoleCommandRegistration::Added);
     assert(RegisterConsoleCommand(longCommand, "long", "long help", true, 18) ==
            ConsoleCommandRegistration::Added);
-    PanelNativeEntries ui{Show,Hide,Update,Render,Lines,Assign,Print,History,Fill};
+    PanelNativeEntries ui{Show,Hide,Update,Render,Lines,Assign,Print,History,Fill,
+        [](){return true;}};
     ConsolePanelHostBindings bindings{};
     bindings.dispatchAutocomplete=&Autocomplete;
     SetConsolePanelHostBindings(bindings);
@@ -258,6 +259,14 @@ int main() {
     assert(CompletionCount() == 2);
     assert((*Completions().entries)[0].text == "alpha");
     assert((*Completions().entries)[1].text == "alphabet");
+    assert(CyclePanelCompletion(ui));
+    assert(std::string(Panel().draftUtf8) == "alpha");
+    assert(CyclePanelCompletion(ui));
+    assert(std::string(Panel().draftUtf8) == "alphabet");
+    assert(CyclePanelCompletion(ui));
+    assert(std::string(Panel().draftUtf8) == "alpha");
+    assert(CompletionCount() == 2);
+    assert(RefreshPanelCompletions(ui, "al"));
     assert(MovePanelCompletionSelection(1));
     assert(Completions().selected == 0);
     assert(MovePanelCompletionSelection(1));

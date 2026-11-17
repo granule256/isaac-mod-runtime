@@ -13,98 +13,100 @@ DRIVER = r'''
 #include <map>
 static std::map<void*,std::string> strings;
 static void* StableAssign(void* object,const char* text) {
-    auto& owned=strings[object];owned=text;
-    assert(console::BuildBorrowedCommandString(owned.c_str(),owned.size(),
-        static_cast<unsigned char*>(object)));
-    return object;
+ auto& owned=strings[object];owned=text;
+ assert(console::BuildBorrowedCommandString(owned.c_str(),owned.size(),static_cast<unsigned char*>(object)));
+ return object;
+}
+static void NativeHints(void* object) {
+ const char* rows[]={"giveitem  goto  gridspawn","c1 Sad Onion  c2 Inner Eye","stage 1  stage 2","","native hint four","native hint five"};
+ for(unsigned i=0;i<6;++i)StableAssign(static_cast<unsigned char*>(object)+0xc0+i*0x18,rows[i]);
+}
+static std::uint64_t submittedOffset{};
+static void NativeHistory(void* object,const void* text) {
+ auto* p=static_cast<unsigned char*>(object);std::uintptr_t map{},cursorMap{},cursor{},block{};std::uint64_t start{};
+ std::memcpy(&map,p+0x88,8);std::memcpy(&cursorMap,p+0xb0,8);std::memcpy(&cursor,p+0xb8,8);std::memcpy(&start,p+0xa0,8);
+ std::memcpy(&block,reinterpret_cast<void*>(cursorMap),8);
+ submittedOffset=(cursorMap-map)/8*170+(cursor-block)/24-start;
+ History(object,text);
+ // Native AddHistoryEntry resets its iterator after insertion.
+ cursorMap=map+(start/170)*8;std::memcpy(&block,reinterpret_cast<void*>(cursorMap),8);cursor=block+(start%170)*24;
+ std::memcpy(p+0xb0,&cursorMap,8);std::memcpy(p+0xb8,&cursor,8);
 }
 int main() {
-    std::vector<unsigned char> module(kGameOwnerGlobalSlotOffset+16),game(kGamePlayerArrayEndOffset+16);
-    alignas(8) std::uintptr_t player=0x1000,gamePointer=memory::AddressOf(game.data());
-    writePointer(module,kGameOwnerGlobalSlotOffset,memory::AddressOf(&gamePointer));
-    writePointer(game,kGamePlayerArrayBeginOffset,memory::AddressOf(&player));
-    writePointer(game,kGamePlayerArrayEndOffset,memory::AddressOf(&player)+8);
-    moduleBase=memory::AddressOf(module.data());entries.consoleCtor=MockCtor;entries.consoleInit=MockInit;
-    entries.runCommand=MockConsoleRunCommand;entries.paramsCtor=Params;entries.openKeyboard=Keyboard;
-    console::PanelNativeEntries ui{Show,Hide,Update,Render,Lines,StableAssign,Print,History};
-    console::Panel().hooksReady=true;
-    const unsigned a=1u<<14,b=1u<<15,up=1u<<19,down=1u<<20,leftShoulder=1u<<21,rightShoulder=1u<<22;
-    auto frame=[&](unsigned mask=0){console::PanelFrame(entries,ui,moduleBase,1,mask,{},0,0,(mask&(a|b))==(a|b));};
-    auto press=[&](unsigned mask){frame();frame(mask);};
-    auto input=[&](){const auto* h=console::Storage().consoleObject+0x20;return std::string(console::EngineStringData(h),console::EngineStringSize(h));};
-    auto draft=[&](const char* text){console::CopyCompletionText(console::Panel().draftUtf8,console::kPanelUtf8Capacity,text,std::strlen(text));assert(console::StorePanelDraftUtf8(text));console::SetPanelInput(ui,text);};
-    for(int i=0;i<48;++i)frame(a|b);frame();assert(shown==1);
-    std::vector<unsigned char> block1(170*0x18),block2(170*0x18),outputBlock(85*0x30);
-    std::array<std::uintptr_t,2> map{memory::AddressOf(block1.data()),memory::AddressOf(block2.data())};
-    auto* object=console::Storage().consoleObject;
-    auto put=[&](std::size_t offset,auto value){std::memcpy(object+offset,&value,sizeof(value));};
-    put(0x88,memory::AddressOf(map.data()));put(0x90,memory::AddressOf(map.data())+sizeof(map));
-    put(0xa0,std::uint64_t{169});put(0xa8,std::uint64_t{3});
-    std::array<std::string,3> commands{"repeat 2","giveitem c1","stage 2"};
-    unsigned char* rows[]={block1.data()+169*0x18,block2.data(),block2.data()+0x18};
-    auto setRow=[&](unsigned index){assert(console::BuildBorrowedCommandString(commands[index].c_str(),commands[index].size(),rows[index]));};
-    for(unsigned i=0;i<commands.size();++i)setRow(i);
-    // Printed output lives in a different 0x30-byte-entry deque and must never be recalled.
-    std::uintptr_t outputMap=memory::AddressOf(outputBlock.data());
-    put(0x58,memory::AddressOf(&outputMap));put(0x60,memory::AddressOf(&outputMap)+8);
-    put(0x70,std::uint64_t{0});put(0x78,std::uint64_t{1});
-    assert(console::BuildBorrowedCommandString("printed output",14,outputBlock.data()));
-    static_cast<void>(console::RegisterConsoleCommand("debug","debug","debug",false,0));
-    static_cast<void>(console::RegisterConsoleCommand("giveitem","give","give",false,0));
-    static_cast<void>(console::RegisterConsoleCommand("goto","goto","goto",false,0));
-    static_cast<void>(console::RegisterConsoleCommand("grid","grid","grid",false,0));
-    draft("debug");assert(console::RefreshPanelCompletions(ui,"debug"));
-    press(up);assert(input()=="repeat 2" && std::string(console::Panel().draftUtf8)=="repeat 2");
-    assert(console::CompletionCount()==0 && console::Completions().selected==-1);
-    for(int i=0;i<25;++i)frame(up);assert(input()=="repeat 2"); // one press, one entry
-    press(up);assert(input()=="giveitem c1");press(up);assert(input()=="stage 2");
-    press(up);assert(input()=="stage 2"); // stop at oldest; no wrap
-    press(down);assert(input()=="giveitem c1");press(down);assert(input()=="repeat 2");
-    press(down);assert(input()=="debug");press(down);assert(input()=="debug");
-    assert(calls==0 && histories==0 && keyboards==0);
-    // Completion cycling remains available independently of command recall.
-    draft("g");assert(console::RefreshPanelCompletions(ui,"g"));
-    assert(console::CompletionCount()==3);
-    press(rightShoulder);assert(console::Completions().selected==0);
-    press(leftShoulder);assert(console::Completions().selected==2);
-    press(up);assert(input()=="repeat 2");
-    // Editing a recalled entry starts a new draft, never modifying saved history.
-    press(a);assert(console::Panel().keyboardOpen && console::Panel().draft[0]=='r');
-    const std::uint32_t edited[]={'e','d','i','t',0};console::PanelKeyboardChanged(edited,nullptr);
-    console::KeyboardFinishedCallback(nullptr,nullptr);frame();
-    assert(input()=="edit");press(up);assert(input()=="repeat 2");press(down);assert(input()=="edit");
-    assert(commands[0]=="repeat 2" && calls==0);
-    // Both byte and UTF-32 drafts retain a full 500-codepoint historical command.
-    commands[0].clear();for(int i=0;i<500;++i)commands[0]+="\xf0\x9f\x8c\xb1";setRow(0);
-    press(up);assert(input()==commands[0] && console::Panel().draft[499]==0x1f331 && console::Panel().draft[500]==0);
-    press(down);assert(input()=="edit");
-    commands[0]=std::string(2100,'x');setRow(0);press(up);assert(input()=="edit"); // no truncation
-    commands[0]=std::string(501,'x');setRow(0);press(up);assert(input()=="edit"); // keyboard limit too
-    commands[0]="repeat 2";setRow(0);
-    // Empty or invalid native deques do not clobber the current input.
-    put(0xa8,std::uint64_t{0});press(up);press(down);assert(input()=="edit");
-    put(0xa8,std::uint64_t{3});put(0xa0,UINT64_MAX);press(up);assert(input()=="edit");
-    put(0xa0,std::uint64_t{169});
-    // Closing/reopening cannot resurrect a stale saved draft/navigation position.
-    press(up);assert(input()=="repeat 2");press(b);frame();assert(!console::ConsolePaused());
-    for(int i=0;i<48;++i)frame(a|b);frame();assert(console::ConsolePaused());
-    press(down);assert(input()=="repeat 2");press(up);assert(input()=="repeat 2");
-    press(up);assert(input()=="giveitem c1");
-    assert(calls==0);
-    // Submitting a recalled/edited command resets navigation to the new history head.
-    press(a);const std::uint32_t submitted[]={'d','e','b','u','g',' ','3',0};
-    expected="debug 3";expectedLength=7;
-    console::KeyboardFinishedCallback(submitted,nullptr);frame();
-    assert(calls==1 && histories==1 && input().empty());
-    commands[0]="debug 3";setRow(0); // models native AddHistoryEntry inserting at the front
-    press(up);assert(input()=="debug 3");press(down);assert(input().empty());
-    assert(console::ObjectFenceIntact(console::Storage()) && calls==1);
+ std::vector<unsigned char> module(kGameOwnerGlobalSlotOffset+16),game(kGamePlayerArrayEndOffset+16);
+ alignas(8) std::uintptr_t player=0x1000,gamePointer=memory::AddressOf(game.data());
+ writePointer(module,kGameOwnerGlobalSlotOffset,memory::AddressOf(&gamePointer));writePointer(game,kGamePlayerArrayBeginOffset,memory::AddressOf(&player));writePointer(game,kGamePlayerArrayEndOffset,memory::AddressOf(&player)+8);
+ moduleBase=memory::AddressOf(module.data());entries.consoleCtor=MockCtor;entries.consoleInit=MockInit;entries.runCommand=MockConsoleRunCommand;entries.paramsCtor=Params;entries.openKeyboard=Keyboard;
+ console::PanelNativeEntries ui{Show,Hide,Update,Render,Lines,StableAssign,Print,NativeHistory,NativeHints};
+ console::Panel().hooksReady=true;
+ const unsigned a=1u<<14,b=1u<<15,up=1u<<19,down=1u<<20,enter=1u<<12;
+ auto frame=[&](unsigned mask=0){console::PanelFrame(entries,ui,moduleBase,1,mask,{},0,0,(mask&(a|b))==(a|b));};
+ auto press=[&](unsigned mask){frame();frame(mask);};
+ auto input=[&](){const auto* h=console::Storage().consoleObject+0x20;return std::string(console::EngineStringData(h),console::EngineStringSize(h));};
+ auto draft=[&](const char* text){console::ResetPanelHistoryNavigation();console::CopyCompletionText(console::Panel().draftUtf8,console::kPanelUtf8Capacity,text,std::strlen(text));assert(console::StorePanelDraftUtf8(text));console::SetPanelInput(ui,text);static_cast<void>(console::RefreshPanelCompletions(ui,text));};
+ auto open=[&](){frame();for(int i=0;i<48;++i)frame(a|b);frame();assert(console::ConsolePaused());};
+ open();
+ static_cast<void>(console::RegisterConsoleCommand("nativeprobe","extension","extension",false,18));
+ auto* object=console::Storage().consoleObject;
+ std::vector<unsigned char> block1(170*0x18),block2(170*0x18),outputBlock(85*0x30);
+ std::array<std::uintptr_t,2> map{memory::AddressOf(block1.data()),memory::AddressOf(block2.data())};
+ auto put=[&](std::size_t offset,auto value){std::memcpy(object+offset,&value,sizeof(value));};
+ put(0x88,memory::AddressOf(map.data()));put(0x90,memory::AddressOf(map.data())+sizeof(map));put(0xa0,std::uint64_t{169});put(0xa8,std::uint64_t{3});
+ put(0xb0,memory::AddressOf(map.data()));put(0xb8,memory::AddressOf(block1.data())+169*24);
+ std::array<std::string,3> commands{"cmd-a","cmd-b","cmd-c"};
+ unsigned char* rows[]={block1.data()+169*0x18,block2.data(),block2.data()+0x18};
+ auto setRow=[&](unsigned index){assert(console::BuildBorrowedCommandString(commands[index].c_str(),commands[index].size(),rows[index]));};
+ for(unsigned i=0;i<3;++i)setRow(i);
+ std::uintptr_t outputMap=memory::AddressOf(outputBlock.data());put(0x58,memory::AddressOf(&outputMap));put(0x60,memory::AddressOf(&outputMap)+8);put(0x70,std::uint64_t{0});put(0x78,std::uint64_t{1});assert(console::BuildBorrowedCommandString("printed output",14,outputBlock.data()));
+ auto hints=[&](){for(unsigned i=0;i<6;++i){const auto* h=object+0xc0+i*24;const char* expected[]={"giveitem  goto  gridspawn","c1 Sad Onion  c2 Inner Eye","stage 1  stage 2","","native hint four","native hint five"};assert(std::string(console::EngineStringData(h),console::EngineStringSize(h))==expected[i]);}assert(console::CompletionCount()==0);};
+ // Expected transitions were replayed from PC 1.7.9b.J835 ProcessInput @ 0x663550.
+ draft("draft");press(down);assert(input().empty());
+ draft("draft");press(up);assert(input()=="cmd-a");hints();
+ for(int i=0;i<25;++i)frame(up);assert(input()=="cmd-a"); // PC uses triggered edges, not repeat
+ press(up);assert(input()=="cmd-b");press(up);assert(input()=="cmd-c");press(up);assert(input()=="cmd-c");
+ press(down);assert(input()=="cmd-b");press(down);assert(input()=="cmd-a");press(down);assert(input().empty());press(down);assert(input().empty());
+ draft("draft");press(up);assert(input()=="cmd-a");
+ press(a);const std::uint32_t edited[]={'e','d','i','t','e','d',0};console::PanelKeyboardChanged(edited,nullptr);console::KeyboardFinishedCallback(nullptr,nullptr);frame();
+ assert(input()=="edited");press(up);assert(input()=="cmd-b");press(down);assert(input()=="cmd-a");press(down);assert(input().empty());
+ press(up);press(up);assert(input()=="cmd-b");press(b);frame();open();press(up);assert(input()=="cmd-c");
+ // Packed native hint rows are not selectable commands. L/R cannot turn them into input.
+ press(1u<<21);press(1u<<22);assert(input()=="cmd-c");hints();assert(calls==0);
+ press(down);press(down);press(down);assert(input().empty());
+ // A recalled command can exceed the system keyboard's limit without being truncated.
+ commands[0]=std::string(2100,'x');setRow(0);press(up);assert(input()==commands[0]);
+ auto beforeKeyboards=keyboards;press(a);assert(keyboards==beforeKeyboards && input()==commands[0]);
+ press(b);frame();open();assert(input()==commands[0]);press(down);assert(input().empty());
+ commands[0].clear();for(int i=0;i<500;++i)commands[0]+="\xf0\x9f\x8c\xb1";setRow(0);press(up);
+ assert(input()==commands[0] && console::Panel().draft[499]==0x1f331 && console::Panel().draft[500]==0);press(down);
+ // Plus submits full long history directly, without a system-keyboard truncation.
+ commands[0]=std::string(2100,'z');setRow(0);press(up);
+ expected=console::PanelInputText();expectedLength=2100;
+ press(enter);assert(calls==1 && histories==1 && input().empty());
+ // Plus maps to native Enter. Whitespace-only input is not submitted or cleared.
+ draft("   ");press(enter);assert(calls==1 && histories==1 && input()=="   ");
+ commands[0]="cmd-a";setRow(0);draft("");press(up);press(up);assert(input()=="cmd-b");
+ expected="cmd-b";expectedLength=5;press(enter);assert(calls==2 && histories==2 && submittedOffset==2 && input().empty());hints();
+ commands[0]="cmd-b";setRow(0);press(up);assert(input()=="cmd-b");press(down);assert(input().empty());
+ press(enter);frame();assert(!console::ConsolePaused()); // native Enter on empty input closes
+ // Only the enabled extension consumes registered candidates and maps X to PC Tab.
+ ui.extensionEnabled=[](){return true;};
+ ui.fillOmnicomplete=[](void* p){for(unsigned i=0;i<6;++i)StableAssign(static_cast<unsigned char*>(p)+0xc0+i*24,"");};
+ static_cast<void>(console::RegisterConsoleCommand("alpha","first","first",false,0));
+ static_cast<void>(console::RegisterConsoleCommand("alphabet","second","second",false,0));
+ open();draft("al");assert(console::CompletionCount()==2);
+ press(1u<<21);press(1u<<22);assert(input()=="al");
+ press(1u<<23);assert(input()=="alpha" && calls==2);
+ press(1u<<23);assert(input()=="alphabet" && calls==2);
+ press(1u<<23);assert(input()=="alpha" && console::CompletionCount()==2);
+ auto keyboardsBefore=keyboards;press(a);assert(keyboards==keyboardsBefore+1);
+ console::KeyboardFinishedCallback(nullptr,nullptr);frame();assert(calls==2);
+ assert(console::ObjectFenceIntact(console::Storage()) && failures==0);
 }
 '''
 
 
 class ConsoleCommandHistoryTests(unittest.TestCase):
-    def test_actual_panel_command_recall_and_draft_restore(self):
+    def test_actual_panel_native_pc_contract(self):
         with tempfile.TemporaryDirectory(prefix='console-history-') as folder:
             path = Path(folder)
             (path / 'stdfloat').write_text('#pragma once\nnamespace std{using float16_t=float;using float128_t=long double;}\n')

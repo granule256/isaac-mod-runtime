@@ -5,6 +5,7 @@
 #include "infrastructure/console/console_command_history.hpp"
 #include "infrastructure/console/console_panel_guards.hpp"
 #include "ports/console_autocomplete_port.hpp"
+#include "application/repentogon/repentogon_settings.hpp"
 
 #include <algorithm>
 #include <array>
@@ -46,6 +47,7 @@ struct PanelNativeEntries {
     void (*print)(void*,const void*,std::uint32_t,std::uint32_t){};
     void (*addHistory)(void*,const void*){};
     void (*fillOmnicomplete)(void*){};
+    bool (*extensionEnabled)(){};
     bool Ready() const noexcept {
         return show && hide && update && render && inputLines && assign && print && addHistory;
     }
@@ -66,6 +68,7 @@ inline bool ResolvePanelEntries(std::uintptr_t base, std::size_t size, PanelNati
     out->fillOmnicomplete=engine_call::ResolveFunction<decltype(out->fillOmnicomplete)>(
         base,size,native_panel::kFillOmnicompleteOffset,
         native_panel::kFillOmnicompleteBytes,&engine_memory::EngineMemoryReadable);
+    out->extensionEnabled=[](){return g_RepentogonSettings.StartupEnabled();};
 #undef CONSOLE_PANEL_ENTRY
     return out->Ready();
 }
@@ -285,8 +288,17 @@ inline bool DispatchPanelAutocomplete(const char* command,std::size_t commandLen
 }
 inline bool RefreshPanelCompletions(const PanelNativeEntries& ui,
                                     const char* input) noexcept {
+    if (!ui.extensionEnabled || !ui.extensionEnabled()) {
+        ResetPanelCompletionState();
+        if (ui.fillOmnicomplete) ui.fillOmnicomplete(Storage().consoleObject);
+        return false;
+    }
     ClearPanelCompletions(ui);
-    if(!input||!*input||!ui.assign)return false;
+    if(!input||!ui.assign)return false;
+    if(!*input) {
+        if(ui.fillOmnicomplete)ui.fillOmnicomplete(Storage().consoleObject);
+        return false;
+    }
     char command[kPanelUtf8Capacity]{};
     char parameters[kPanelUtf8Capacity]{};
     bool hasArguments=false;
@@ -294,23 +306,6 @@ inline bool RefreshPanelCompletions(const PanelNativeEntries& ui,
                                sizeof(parameters),&hasArguments)) {
         WritePanelCompletionSlots(ui);
         return false;
-    }
-    if(ui.fillOmnicomplete)ui.fillOmnicomplete(Storage().consoleObject);
-    std::array<PanelCompletionEntry,kPanelCompletionCount> native{};
-    std::size_t nativeCount{};
-    for(const auto offset:kPanelCompletionOffsets) {
-        const auto* header=Storage().consoleObject+offset;
-        const auto length=EngineStringSize(header);
-        if(!length)continue;
-        const auto* text=EngineStringData(header);
-        if(text&&nativeCount<native.size()) {
-            if(length>=kPanelCompletionTextCapacity) {
-                ++Completions().rejected;
-                continue;
-            }
-            native[nativeCount].text.assign(text,length);
-            ++nativeCount;
-        }
     }
     if(!command[0]) {
         WritePanelCompletionSlots(ui);
@@ -333,8 +328,10 @@ inline bool RefreshPanelCompletions(const PanelNativeEntries& ui,
                 &CollectPanelAutocomplete,&collector));
         }
     }
-    for(std::size_t index=0;index<nativeCount;++index) {
-        static_cast<void>(AddPanelCompletion(native[index].text,{},hasArguments));
+    if(!CompletionCount()) {
+        // Native slots are packed display rows, never executable extension candidates.
+        if(ui.fillOmnicomplete)ui.fillOmnicomplete(Storage().consoleObject);
+        return false;
     }
     WritePanelCompletionSlots(ui);
     return CompletionCount()!=0;
@@ -389,43 +386,52 @@ inline bool StorePanelDraftUtf8(const char* text) noexcept {
     panel.draft[written]=0;
     return true;
 }
+inline std::string*& PanelRecalledInput() noexcept {
+    static std::string* text{};
+    return text;
+}
+inline const char* PanelInputText() noexcept {
+    return PanelRecalledInput()?PanelRecalledInput()->c_str():Panel().draftUtf8;
+}
 inline void ResetPanelHistoryNavigation() noexcept {
-    Panel().historyOffset=0;
-    Panel().historyDraftUtf8[0]=0;
+    delete PanelRecalledInput();
+    PanelRecalledInput()=nullptr;
+}
+inline bool PanelDraftFitsKeyboard(const char* text) noexcept {
+    std::size_t points{};
+    for (const auto* ch=text;*ch;++ch)
+        if ((static_cast<unsigned char>(*ch)&0xc0U)!=0x80U) ++points;
+    return points<kPanelTextCapacity;
 }
 inline bool MovePanelHistory(const PanelNativeEntries& ui,int delta) noexcept {
     auto& panel=Panel();
     CommandHistoryView history{};
     if (!delta || !ReadCommandHistoryView(Storage().consoleObject,&history)) return false;
-    auto next=panel.historyOffset;
+    std::uint64_t current{};
+    if (!CommandHistoryOffset(history,&current)) return false;
+    auto next=current;
     if (delta<0) {
         if (next>=history.count) return false;
         ++next;
     } else {
-        if (!next) return false;
-        --next;
+        if (next) --next;
     }
-    char selected[kPanelUtf8Capacity]{};
-    if (!next) {
-        CopyCompletionText(selected,sizeof(selected),panel.historyDraftUtf8,
-                           std::strlen(panel.historyDraftUtf8));
-    } else if (!CopyCommandHistoryEntry(history,next-1,selected,sizeof(selected))) {
+    std::string selected;
+    if (next && !ReadCommandHistoryEntry(history,next-1,&selected)) {
         return false;
     }
-    // Keep the UTF-8 display and the system keyboard's 500-codepoint draft in sync.
-    std::size_t points{};
-    for (const auto* ch=selected;*ch;++ch)
-        if ((static_cast<unsigned char>(*ch)&0xc0U)!=0x80U) ++points;
-    if (points>=kPanelTextCapacity) return false;
-    if (!panel.historyOffset) {
-        CopyCompletionText(panel.historyDraftUtf8,sizeof(panel.historyDraftUtf8),
-                           panel.draftUtf8,std::strlen(panel.draftUtf8));
+    auto* text=new(std::nothrow) std::string();
+    if (!text) return false;
+    text->swap(selected);
+    if (!SetCommandHistoryOffset(history,next)) {delete text;return false;}
+    ResetPanelHistoryNavigation();
+    PanelRecalledInput()=text;
+    if (text->size()<sizeof(panel.draftUtf8) && PanelDraftFitsKeyboard(text->c_str())) {
+        CopyCompletionText(panel.draftUtf8,sizeof(panel.draftUtf8),text->data(),text->size());
+        static_cast<void>(StorePanelDraftUtf8(text->c_str()));
     }
-    CopyCompletionText(panel.draftUtf8,sizeof(panel.draftUtf8),selected,std::strlen(selected));
-    static_cast<void>(StorePanelDraftUtf8(selected));
-    panel.historyOffset=next;
-    ClearPanelCompletions(ui);
-    SetPanelInput(ui,panel.draftUtf8);
+    SetPanelInput(ui,text->c_str());
+    static_cast<void>(RefreshPanelCompletions(ui,text->c_str()));
     return true;
 }
 inline bool ApplySelectedPanelCompletion(const PanelNativeEntries& ui) noexcept {
@@ -442,6 +448,20 @@ inline bool ApplySelectedPanelCompletion(const PanelNativeEntries& ui) noexcept 
     static_cast<void>(StorePanelDraftUtf8(panel.draftUtf8));
     SetPanelInput(ui,panel.draftUtf8);
     ClearPanelCompletions(ui);
+    return true;
+}
+inline bool CyclePanelCompletion(const PanelNativeEntries& ui) noexcept {
+    if (!CompletionCount()) return false;
+    auto& state=Completions();
+    state.selected=(state.selected+1)%static_cast<int>(CompletionCount());
+    const auto& entry=(*state.entries)[state.selected];
+    if (entry.text.size()>=sizeof(Panel().draftUtf8) ||
+        !PanelDraftFitsKeyboard(entry.text.c_str())) return false;
+    ResetPanelHistoryNavigation();
+    CopyCompletionText(Panel().draftUtf8,sizeof(Panel().draftUtf8),entry.text.data(),entry.text.size());
+    static_cast<void>(StorePanelDraftUtf8(entry.text.c_str()));
+    SetPanelInput(ui,entry.text.c_str());
+    // Like PC's extension Tab callback, keep the original candidate buffer while cycling.
     return true;
 }
 inline void PanelKeyboardChanged(const std::uint32_t* text,void*) noexcept {
@@ -597,7 +617,6 @@ inline bool VisitConsoleHistory(std::uintptr_t base,ConsoleHistoryVisitor visito
 
 inline void ClosePanelImmediately(const PanelNativeEntries& ui) noexcept {
     auto& p=Panel();
-    ResetPanelHistoryNavigation();
     const bool nativeUsable=NativePanelState()!=0 && ui.Ready() &&
                             ObjectFenceIntact(Storage());
     if(nativeUsable) {
@@ -743,13 +762,11 @@ inline void PanelFrame(const EngineEntries& entries,const PanelNativeEntries& ui
         if (!core.comboFired && core.comboHeldFrames>=holdFrames) {
             core.comboFired=true;
             if (NativePanelState()==0 && EnsureConsoleObject(entries)) {
-                ResetPanelHistoryNavigation();
                 ui.show(core.consoleObject);
-                SetPanelInput(ui,p.draftUtf8);
-                static_cast<void>(RefreshPanelCompletions(ui,p.draftUtf8));
+                SetPanelInput(ui,PanelInputText());
+                static_cast<void>(RefreshPanelCompletions(ui,PanelInputText()));
                 p.game=game;p.sessionEpoch=g_ConsoleSessionEpoch.load(std::memory_order_relaxed);p.waitRelease=true;justOpened=true;++p.opened;
             } else if (NativePanelState()!=0) {
-                ResetPanelHistoryNavigation();
                 ui.hide(core.consoleObject);p.waitRelease=true;++p.closed;
                 ReleasePanelCompletions();
             }
@@ -763,7 +780,14 @@ inline void PanelFrame(const EngineEntries& entries,const PanelNativeEntries& ui
         static_cast<void>(RefreshPanelCompletions(ui,p.draftUtf8));
         p.draftChanged=false;
     }
-    if (p.keyboardFinished || (core.pendingReady && !p.keyboardOpen)) {
+    const bool panelEnter=(NativePanelState()==2 || NativePanelState()==3) &&
+        !p.keyboardOpen && !p.waitRelease && !combo && (risen&(1U<<12));
+    if (panelEnter && !*PanelInputText()) {
+        ui.hide(core.consoleObject);p.waitRelease=true;++p.closed;
+        ReleasePanelCompletions();
+    }
+    if (p.keyboardFinished || (core.pendingReady && !p.keyboardOpen) ||
+        (panelEnter && *PanelInputText())) {
         const bool fromKeyboard=p.keyboardOpen;
         p.keyboardFinished=false;p.keyboardOpen=false;p.waitRelease=true;
         const char* command{};std::uint32_t length{};
@@ -774,7 +798,12 @@ inline void PanelFrame(const EngineEntries& entries,const PanelNativeEntries& ui
             const auto state=NativePanelState();
             length=(state==2 || state==3)?p.completedLength:0;
         }
-        if ((fromKeyboard ? length!=0 : pending) && EnsureConsoleObject(entries)) {
+        if (panelEnter) {
+            command=PanelInputText();length=static_cast<std::uint32_t>(std::strlen(command));
+        }
+        bool nonSpace=false;
+        for (std::size_t i=0;command && i<length;++i) if(command[i]!=' ') {nonSpace=true;break;}
+        if ((fromKeyboard ? length!=0 : pending || panelEnter) && nonSpace && EnsureConsoleObject(entries)) {
             core.log.Append("> ",2);core.log.Append(command,length);core.log.Append("\n",1);
             // 原生AddHistoryEntry按当前输入去重、回显，并在RunCommand前加入命令deque。
             // repeat会跳过deque首项（自身），因此必须在执行之前登记。
@@ -799,28 +828,21 @@ inline void PanelFrame(const EngineEntries& entries,const PanelNativeEntries& ui
             }
             std::memset(p.draft,0,sizeof(p.draft));p.draftUtf8[0]=0;SetPanelInput(ui,"");
             ResetPanelHistoryNavigation();
-            ClearPanelCompletions(ui);
+            static_cast<void>(RefreshPanelCompletions(ui,""));
         }
     }
     if (p.waitRelease && mask==0 && !touch.pressed && !p.keyboardOpen) p.waitRelease=false;
     if ((NativePanelState()==2 || NativePanelState()==3) && !justOpened && !p.keyboardOpen && !p.waitRelease && !combo) {
         constexpr std::uint32_t historyUp=1U<<19,historyDown=1U<<20;
-        constexpr std::uint32_t completionPrevious=1U<<21,completionNext=1U<<22;
+        constexpr std::uint32_t completionTab=1U<<23; // Switch X maps to extension Tab.
         bool completionHandled=false;
         if ((risen&historyUp)!=0||(risen&historyDown)!=0) {
             static_cast<void>(MovePanelHistory(ui,(risen&historyUp)!=0?-1:1));
             completionHandled=true;
-        } else if ((risen&completionPrevious)!=0||(risen&completionNext)!=0) {
+        } else if (ui.extensionEnabled && ui.extensionEnabled() &&
+                   (risen&completionTab)!=0) {
             if (!CompletionCount()) static_cast<void>(RefreshPanelCompletions(ui,p.draftUtf8));
-            static_cast<void>(MovePanelCompletionSelection(
-                (risen&completionPrevious)!=0?-1:1));
-            WritePanelCompletionSlots(ui);
-            completionHandled=CompletionCount()!=0;
-        }
-        if (!completionHandled&&Completions().selected>=0&&
-            ((risen&confirm)!=0||shortConfirm)) {
-            completionHandled=ApplySelectedPanelCompletion(ui);
-            p.waitRelease=true;
+            completionHandled=CyclePanelCompletion(ui);
         }
         if (!completionHandled&&touchRise) {
             const auto hit=PanelCompletionHit(touch,width,height);
@@ -832,14 +854,16 @@ inline void PanelFrame(const EngineEntries& entries,const PanelNativeEntries& ui
         }
         if (!completionHandled) {
             if ((risen&back)!=0 || shortBack) {
-                ResetPanelHistoryNavigation();
                 ClearPanelCompletions(ui);
                 ui.hide(core.consoleObject);p.waitRelease=true;++p.closed;
             } else if ((risen&confirm)!=0 || shortConfirm ||
                        (touchRise&&PanelInputHit(touch,width,height))) {
-                p.keyboardFinished=false;p.keyboardOpen=true;
-                if (!RequestKeyboard(entries,kage,&PanelKeyboardChanged,p.draft))
-                    p.keyboardOpen=false;
+                if (PanelDraftFitsKeyboard(PanelInputText())) {
+                    static_cast<void>(StorePanelDraftUtf8(PanelInputText()));
+                    p.keyboardFinished=false;p.keyboardOpen=true;
+                    if (!RequestKeyboard(entries,kage,&PanelKeyboardChanged,p.draft))
+                        p.keyboardOpen=false;
+                }
             }
         }
     }
