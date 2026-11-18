@@ -17,6 +17,24 @@ inline constexpr std::uintptr_t kPlanetariumStatIndex = 8;
 inline constexpr std::uintptr_t kPlanetariumStatValueOffset =
     kPlanetariumStatIndex * kStatEntryStride;
 inline constexpr std::uintptr_t kStatTimerOffset = 0x10;
+inline constexpr std::uintptr_t kDualityFlagOffset = 0x2f8;
+inline constexpr std::uintptr_t kRowSpacingSelectorOffset = 0x228;
+inline constexpr int kPlanetariumAnimationFrame = 8;
+inline constexpr int kLastPlainIconFrame = 7;
+inline constexpr float kNormalRowSpacing = 12.0F;
+inline constexpr float kAlternateRowSpacing = 14.0F;
+static_assert(kRowSpacingSelectorOffset ==
+              kPlayerPointerOffset + kPlayerSlotStride);
+
+struct Vector2 {
+    float x{};
+    float y{};
+};
+
+struct NativeSpriteCalls {
+    void (*setFrame)(void*, int){};
+    void (*render)(void*, const void*, const void*, const void*){};
+};
 
 struct NativeCalls {
     void* game{};
@@ -25,6 +43,8 @@ struct NativeCalls {
     bool (*unlocked)(void*, std::uint32_t){};
     std::uint32_t gameFrame{};
     bool gameFrameValid{};
+    bool foundHud{};
+    bool foundHudValid{};
 };
 
 struct FrameState {
@@ -38,6 +58,7 @@ struct FrameCache {
     void* persistentGameData{};
     std::uint32_t gameFrame{};
     bool optionEnabled{};
+    bool foundHud{};
     bool valid{};
     bool enabled{};
     float chancePercent{};
@@ -56,13 +77,15 @@ inline bool PrepareFrame(void* self, bool optionEnabled, const NativeCalls& nati
                  g_frameCache.game == native.game &&
                  g_frameCache.persistentGameData == native.persistentGameData &&
                  g_frameCache.gameFrame == native.gameFrame &&
-                 g_frameCache.optionEnabled == optionEnabled;
+                 g_frameCache.optionEnabled == optionEnabled &&
+                 g_frameCache.foundHud == native.foundHud;
     }
     if (cached) {
         next.enabled = g_frameCache.enabled;
         next.chancePercent = g_frameCache.chancePercent;
     } else {
-        next.enabled = optionEnabled && native.persistentGameData != nullptr &&
+        next.enabled = optionEnabled && native.foundHudValid && native.foundHud &&
+                       native.persistentGameData != nullptr &&
                        native.unlocked != nullptr &&
                        native.unlocked(native.persistentGameData, 406);
         if (next.enabled && native.game != nullptr && native.planetariumChance != nullptr) {
@@ -73,8 +96,8 @@ inline bool PrepareFrame(void* self, bool optionEnabled, const NativeCalls& nati
         }
         if (native.gameFrameValid) {
             g_frameCache = {self, native.game, native.persistentGameData,
-                            native.gameFrame, optionEnabled, true, next.enabled,
-                            next.chancePercent};
+                            native.gameFrame, optionEnabled, native.foundHud, true,
+                            next.enabled, next.chancePercent};
         }
     }
     const auto base = engine_memory::AddressOf(self);
@@ -107,6 +130,43 @@ inline bool PrepareFrame(void* self, bool optionEnabled, const NativeCalls& nati
         }
     }
     g_frame = next;
+    return true;
+}
+
+inline bool RenderNoDualityPlanetariumIcon(void* self, const void* renderOffset,
+                                           const NativeSpriteCalls& native) noexcept {
+    if (!g_frame.enabled || self == nullptr || renderOffset == nullptr ||
+        native.setFrame == nullptr || native.render == nullptr) {
+        return false;
+    }
+    const auto base = engine_memory::AddressOf(self);
+    if (base == 0) return false;
+    std::uint8_t duality = 0;
+    if (!engine_memory::ReadField(base, kDualityFlagOffset, &duality,
+                                  engine_memory::EngineMemoryReadable) ||
+        duality != 0) {
+        return false;
+    }
+    std::uintptr_t spacingSelector = 0;
+    std::uintptr_t player = 0;
+    if (!engine_memory::ReadField(base, kRowSpacingSelectorOffset, &spacingSelector,
+                                  engine_memory::EngineMemoryReadable) ||
+        !engine_memory::ReadField(base, kPlayerPointerOffset, &player,
+                                  engine_memory::EngineMemoryReadable) ||
+        (player == 0 && spacingSelector == 0)) {
+        return false;
+    }
+    Vector2 position{};
+    if (!engine_memory::ReadAt(engine_memory::AddressOf(renderOffset), &position,
+                               engine_memory::EngineMemoryReadable)) {
+        return false;
+    }
+    position.y += static_cast<float>(kPlanetariumAnimationFrame) *
+                  (spacingSelector == 0 ? kNormalRowSpacing : kAlternateRowSpacing);
+    constexpr Vector2 zero{};
+    native.setFrame(self, kPlanetariumAnimationFrame);
+    native.render(self, &position, &zero, &zero);
+    native.setFrame(self, kLastPlainIconFrame);
     return true;
 }
 

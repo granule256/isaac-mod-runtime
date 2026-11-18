@@ -63,6 +63,8 @@ int main() {
     calls.unlocked = &Unlocked;
     calls.gameFrame = 100;
     calls.gameFrameValid = true;
+    calls.foundHud = true;
+    calls.foundHudValid = true;
     assert(stat_hud::PrepareFrame(hud.data(), true, calls));
     assert(stat_hud::Enabled());
     assert(chanceCalls == 1 && unlockedCalls == 1);
@@ -94,6 +96,11 @@ int main() {
     std::memcpy(&unchanged, engine_memory::AsObject(StatSlot(hud, 0)),
                 sizeof(unchanged));
     assert(unchanged == 100.0F);
+    calls.gameFrame = 102;
+    calls.foundHud = false;
+    assert(stat_hud::PrepareFrame(hud.data(), true, calls));
+    assert(!stat_hud::Enabled());
+    assert(chanceCalls == 3 && unlockedCalls == 3);
     stat_hud::RestoreFrame(hud.data(), saved);
     assert(!stat_hud::Enabled());
     (void)base;
@@ -102,12 +109,77 @@ int main() {
 '''
 
 
+NO_DUALITY_DRIVER = r'''
+#include "interfaces/lua/stat_hud_planetarium.hpp"
+#include "infrastructure/memory/engine_field_access.hpp"
+#include <cassert>
+#include <cstring>
+#include <vector>
+
+using namespace isaac::runtime;
+
+struct Calls {
+    int setFrames[4]{};
+    int setFrameCount{};
+    int renderCount{};
+    stat_hud::Vector2 position{};
+};
+
+static Calls g_calls{};
+
+static void SetFrame(void*, int frame) {
+    ++g_calls.setFrameCount;
+    g_calls.setFrames[g_calls.setFrameCount - 1] = frame;
+}
+
+static void Render(void*, const void* position, const void*, const void*) {
+    ++g_calls.renderCount;
+    std::memcpy(&g_calls.position, position, sizeof(g_calls.position));
+}
+
+int main() {
+    std::vector<unsigned char> hud(0x400);
+    const stat_hud::Vector2 renderPosition{40.0F, 15.0F};
+    const stat_hud::NativeSpriteCalls calls{&SetFrame, &Render};
+    const std::uintptr_t player = 0x1000;
+    std::memcpy(engine_memory::AsObject(engine_memory::AddressOf(hud.data()) +
+                                        stat_hud::kPlayerPointerOffset),
+                &player, sizeof(player));
+
+    stat_hud::g_frame = {true, 1.0F};
+    assert(stat_hud::RenderNoDualityPlanetariumIcon(hud.data(), &renderPosition, calls));
+    assert(g_calls.setFrameCount == 2);
+    assert(g_calls.setFrames[0] == 8 && g_calls.setFrames[1] == 7);
+    assert(g_calls.renderCount == 1);
+    assert(g_calls.position.x == 40.0F && g_calls.position.y == 111.0F);
+
+    *static_cast<unsigned char*>(engine_memory::AsObject(
+        engine_memory::AddressOf(hud.data()) + stat_hud::kDualityFlagOffset)) = 1;
+    assert(!stat_hud::RenderNoDualityPlanetariumIcon(hud.data(), &renderPosition, calls));
+    assert(g_calls.renderCount == 1);
+
+    *static_cast<unsigned char*>(engine_memory::AsObject(
+        engine_memory::AddressOf(hud.data()) + stat_hud::kDualityFlagOffset)) = 0;
+    *static_cast<unsigned char*>(engine_memory::AsObject(
+        engine_memory::AddressOf(hud.data()) + stat_hud::kRowSpacingSelectorOffset)) = 1;
+    assert(stat_hud::RenderNoDualityPlanetariumIcon(hud.data(), &renderPosition, calls));
+    assert(g_calls.position.x == 40.0F && g_calls.position.y == 127.0F);
+
+    stat_hud::g_frame = {};
+    const int renders = g_calls.renderCount;
+    assert(!stat_hud::RenderNoDualityPlanetariumIcon(hud.data(), &renderPosition, calls));
+    assert(g_calls.renderCount == renders);
+    return 0;
+}
+'''
+
+
 class StatHudPlanetariumTests(unittest.TestCase):
-    def test_value_text_gate_and_restore(self):
+    def run_driver(self, driver: str):
         with tempfile.TemporaryDirectory(prefix="isaac-stathud-planetarium-") as folder:
             work = Path(folder)
             source = work / "driver.cpp"
-            source.write_text(DRIVER, encoding="utf-8")
+            source.write_text(driver, encoding="utf-8")
             binary = work / "driver"
             command = [
                 "c++", "-std=c++23", "-Wall", "-Wextra", "-Werror",
@@ -118,6 +190,12 @@ class StatHudPlanetariumTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             result = subprocess.run([str(binary)], text=True, capture_output=True)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_value_text_gate_and_restore(self):
+        self.run_driver(DRIVER)
+
+    def test_plain_icon_path_renders_native_frame8_at_expected_row(self):
+        self.run_driver(NO_DUALITY_DRIVER)
 
 
 if __name__ == "__main__":
