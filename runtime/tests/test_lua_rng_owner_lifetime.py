@@ -1,4 +1,4 @@
-"""Borrowed player RNG lifetimes follow owner/container state, not registry membership."""
+"""Borrowed player RNG lifetimes follow the owning vector, not Entity.Exists."""
 
 import subprocess
 import tempfile
@@ -79,9 +79,15 @@ mod:AddCallback(ModCallbacks.MC_POST_UPDATE, function()
         saved:Next()
         assert(saved:GetSeed() == 124)
     elseif step == 3 then
-        assert(not pcall(function() return saved:GetSeed() end))
+        -- MC_POST_ENTITY_REMOVE runs after Exists is cleared, while the
+        -- EntityPlayer and its RNG vector are still alive.
+        assert(saved:GetSeed() == 124)
+        saved:Next()
+        assert(saved:GetSeed() == 125)
     elseif step == 4 then
         assert(not pcall(function() return saved:GetSeed() end))
+        assert(not pcall(function() return saved:SetSeed(42, 1) end))
+        assert(not pcall(function() return saved:Next() end))
     end
 end)
 )lua";
@@ -107,23 +113,20 @@ end)
     WriteAt<std::uintptr_t>(g_PlayerArrayBytes, 0, 0);
     if (!run()) return 3;
 
-    // Re-adding the owner must not make an old vector pointer valid after the
-    // owning vector reallocates.
-    WriteAt<std::uintptr_t>(g_PlayerArrayBytes, 0, AddressOf(g_PlayerBytes));
+    // MC_POST_ENTITY_REMOVE ordering clears Exists before Lua runs, but the
+    // owning vector is still alive. PC's GetCollectibleRNG does not depend on
+    // Entity.Exists, so the borrowed RNG must remain usable here.
+    WriteAt<std::uint8_t>(g_PlayerBytes, kEntityExistsOffset, 0);
+    if (!run()) return 4;
+
+    // The owning vector reallocating is the actual end of this borrowed
+    // reference. Exists is irrelevant to that lifetime rule.
     std::vector<unsigned char> replacement = rngVector;
     WriteAt<std::uintptr_t>(g_PlayerBytes, kEntityPlayerCollectibleRngVectorOffset,
                             AddressOf(replacement));
     WriteAt<std::uintptr_t>(g_PlayerBytes,
                             kEntityPlayerCollectibleRngVectorOffset + sizeof(std::uintptr_t),
                             AddressOf(replacement) + replacement.size());
-    if (!run()) return 4;
-
-    WriteAt<std::uintptr_t>(g_PlayerBytes, kEntityPlayerCollectibleRngVectorOffset,
-                            AddressOf(rngVector));
-    WriteAt<std::uintptr_t>(g_PlayerBytes,
-                            kEntityPlayerCollectibleRngVectorOffset + sizeof(std::uintptr_t),
-                            AddressOf(rngVector) + rngVector.size());
-    WriteAt<std::uint8_t>(g_PlayerBytes, kEntityExistsOffset, 0);
     if (!run()) return 5;
     return 0;
 }
@@ -145,7 +148,7 @@ class RngOwnerLifetimeTests(unittest.TestCase):
     def tearDownClass(cls):
         cls.temporary.cleanup()
 
-    def test_removed_registry_entry_does_not_expire_live_owner_rng(self):
+    def test_exists_clear_does_not_expire_live_owner_rng(self):
         result = subprocess.run([str(self.binary)], capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 

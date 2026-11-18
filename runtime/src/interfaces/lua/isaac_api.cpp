@@ -4692,15 +4692,14 @@ int EntityPlayerGetMainTwin(lua_State* state) {
 // 返回 1（压了一个值：RNG 句柄或 nil）。
 // 2026-10-09：返回引擎活引用，旧快照描述保留为历史。
 std::uintptr_t ResolvePlayerRngReference(const LuaRuntime::RngHandle* rng) noexcept {
-    // PlayerManager membership is a registry lookup, not object ownership.
-    // MC_POST_ENTITY_REMOVE can retire that entry before Lua runs while the
-    // EntityPlayer and its RNG vector are still alive. Validate the actual
-    // borrowed-owner state instead: exact player vtable, live entity, unchanged
-    // owning container, and an in-range element. This also avoids a per-access
-    // scan of the player list.
-    std::uint8_t exists = 0;
-    if (!IsEntityPlayer(rng->owner) ||
-        !ReadEngine(rng->owner + kEntityExistsOffset, &exists) || exists == 0) { return 0; }
+    // PC's GetCollectibleRNG binding (0x59FFC0) only validates the owning
+    // vector and index; it never consults Entity.Exists. MC_POST_ENTITY_REMOVE
+    // is dispatched after Exists is cleared, while the player and its vectors
+    // are still alive, so requiring Exists here expires a valid borrowed RNG.
+    // Keep the actual lifetime boundary: exact player vtable, unchanged owning
+    // container, and an in-range element. This also avoids a per-access scan of
+    // the player list.
+    if (!IsEntityPlayer(rng->owner)) { return 0; }
     if (rng->owner > UINTPTR_MAX - rng->offset) { return 0; }
     const std::uintptr_t vector = rng->owner + rng->offset;
     if (vector > UINTPTR_MAX - sizeof(std::uintptr_t)) { return 0; }
