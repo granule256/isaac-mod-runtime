@@ -17,7 +17,8 @@ struct GuardCache {std::uintptr_t base{};bool valid{};};
 template<std::size_t N> bool Guard(std::uintptr_t base,std::uintptr_t offset,
     const std::array<std::uint8_t,N>& bytes) noexcept {
     return base && base<=UINTPTR_MAX-offset-N && engine_memory::EngineMemoryReadable(base+offset,N) &&
-        std::memcmp(engine_memory::AsObject(base+offset),bytes.data(),N)==0;
+        engine_call::VerifyEntryBytes(base+offset,bytes.data(),N,
+                                      &engine_memory::EngineMemoryReadable);
 }
 template<std::size_t N> bool CachedGuard(GuardCache& cache,std::uintptr_t offset,
     const std::array<std::uint8_t,N>& bytes) noexcept {

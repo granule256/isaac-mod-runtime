@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include "ports/use_item_image_port.hpp"
 namespace isaac::runtime::use_item_boundary {
 inline constexpr std::array<std::uint8_t,32> kBuildId={0x91,0xC7,0x3F,0xDD,0x57,0x50,0x61,0x31,0x8D,0x68,0x88,0x63,0x16,0xAF,0xEA,0xC7,0x23,0x88,0xB2,0xAB,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00};
 struct Site {std::uintptr_t source,gate;std::uint32_t original;bool defaultDischarge;};
@@ -22,6 +23,10 @@ constexpr std::uint32_t Branch(std::uintptr_t from,std::uintptr_t to)noexcept{
 }
 inline bool ImageMatches(const std::uint8_t* image,std::size_t size)noexcept{
  if(!image||size<kFunction+kLength||size<0x68CF00||std::memcmp(image+0x40,kBuildId.data(),kBuildId.size()))return false;
+ UseItemImageOverlay overlay{};
+ if(const auto verifier=UseItemImageVerifierSlot();verifier&&!verifier(image,size,&overlay))return false;
+ if(overlay.source && ((overlay.source&3U)||overlay.source<kFunction||
+    overlay.source>kFunction+kLength-4))return false;
  for(const auto& site:kSites){
   std::uint32_t actual{};std::memcpy(&actual,image+site.source,4);
   const std::array<std::uint32_t,6> gate={0x100000D0U,0xC8DFFE10U,0xB4000050U,0xD61F0200U,
@@ -39,6 +44,9 @@ inline bool ImageMatches(const std::uint8_t* image,std::size_t size)noexcept{
   if(next<kSites.size()&&at==kSites[next].source){
    const auto word=kSites[next++].original;
    for(unsigned i=0;i<4;++i)hash=(hash^static_cast<std::uint8_t>(word>>(i*8)))*1099511628211ULL;
+   at+=4;
+  }else if(overlay.source&&at==overlay.source){
+   for(unsigned i=0;i<4;++i)hash=(hash^static_cast<std::uint8_t>(overlay.original>>(i*8)))*1099511628211ULL;
    at+=4;
   }else hash=(hash^image[at++])*1099511628211ULL;
  }
