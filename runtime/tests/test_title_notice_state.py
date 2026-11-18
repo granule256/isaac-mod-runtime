@@ -134,6 +134,29 @@ int main() {
     { State s;s.SetSeenVersion(true);step(s);step(s,Right);step(s);step(s,Confirm);settle(s);
       step(s,Right);step(s,0,12);step(s,Back);
       check(s.phase==Phase::Closing,"manual reopen closes from any page without viewing all"); }
+    { State s;s.SetSeenVersion(true);step(s);step(s,Up);step(s);step(s,Confirm);step(s);
+      step(s,Down);step(s);step(s,Down);step(s);
+      check(s.Settings().selected()==title::Row::DailyChallenge,"down selects daily challenge row");
+      step(s,Confirm);
+      check(s.Settings().PeekAction()==title::Action::ToggleDailyChallenge,
+            "daily challenge row toggles the online setting");
+      static_cast<void>(s.Settings().ConsumeAction());
+      step(s);step(s,Up);
+      check(s.Settings().selected()==title::Row::Repentogon,"up moves from daily challenge to RE PENT OG");
+      step(s);step(s,Up);
+      check(s.Settings().selected()==title::Row::Console,"up stops at console row");
+      title::SettingView view{};
+      view.dailyOnlineRequested=true;
+      view.dailyOnlineAvailable=false;
+      check(title::DisplayValueFor(view,title::Row::DailyChallenge)==
+            title::DisplayValue::Unavailable,"missing config disables daily online");
+      view.dailyOnlineAvailable=true;
+      view.dailyOnlineActive=true;
+      check(title::DisplayValueFor(view,title::Row::DailyChallenge)==
+            title::DisplayValue::On,"available persisted online is enabled");
+      view.dailyOnlineSaveFailed=true;
+      check(title::DisplayValueFor(view,title::Row::DailyChallenge)==
+            title::DisplayValue::SaveFailed,"daily online reports write failure"); }
     { Save save;bool seen=true;check(ReadSeenVersion(save,"v1",&seen).ok()&&!seen,"missing marker needs notice");
       check(WriteSeenVersion(save,"v1").ok(),"persist release version");
       check(ReadSeenVersion(save,"v1",&seen).ok()&&seen,"same version accepted");

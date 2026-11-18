@@ -14,13 +14,14 @@ enum Key : unsigned {
 };
 
 enum class Focus : std::uint8_t { None, Notice, Settings };
-enum class Row : std::uint8_t { Console, Repentogon, Count };
+enum class Row : std::uint8_t { Console, Repentogon, DailyChallenge, Count };
 enum class Action : std::uint8_t {
     None,
     OpenNotice,
     OpenSettings,
     ToggleConsole,
     ToggleRepentogon,
+    ToggleDailyChallenge,
 };
 
 // The title screen owns both entries and their single modal. Input is edge based:
@@ -89,11 +90,19 @@ struct State {
                 return;
             }
             if (pressed & Up) {
-                row_ = Row::Console;
+                if (row_ != Row::Console)
+                    row_ = static_cast<Row>(static_cast<std::uint8_t>(row_) - 1U);
             } else if (pressed & Down) {
-                row_ = Row::Repentogon;
+                if (static_cast<std::uint8_t>(row_) + 1U <
+                    static_cast<std::uint8_t>(Row::Count))
+                    row_ = static_cast<Row>(static_cast<std::uint8_t>(row_) + 1U);
             } else if (pressed & Confirm) {
-                action_ = row_ == Row::Console ? Action::ToggleConsole : Action::ToggleRepentogon;
+                switch (row_) {
+                case Row::Console: action_ = Action::ToggleConsole; break;
+                case Row::Repentogon: action_ = Action::ToggleRepentogon; break;
+                case Row::DailyChallenge: action_ = Action::ToggleDailyChallenge; break;
+                case Row::Count: break;
+                }
             }
             return;
         }
@@ -154,6 +163,10 @@ struct SettingView {
     bool repentogonPending{};
     bool repentogonSaveFailed{};
     bool repentogonReloadRequired{};
+    bool dailyOnlineRequested{};
+    bool dailyOnlineAvailable{};
+    bool dailyOnlineActive{};
+    bool dailyOnlineSaveFailed{};
 };
 
 enum class DisplayValue : std::uint8_t {
@@ -168,6 +181,13 @@ enum class DisplayValue : std::uint8_t {
 };
 
 [[nodiscard]] inline DisplayValue DisplayValueFor(const SettingView& view, Row row) noexcept {
+    if (row == Row::DailyChallenge) {
+        if (!view.dailyOnlineAvailable) return DisplayValue::Unavailable;
+        if (view.dailyOnlineSaveFailed) return DisplayValue::SaveFailed;
+        if (view.dailyOnlineRequested != view.dailyOnlineActive)
+            return DisplayValue::Unavailable;
+        return view.dailyOnlineActive ? DisplayValue::On : DisplayValue::Off;
+    }
     const bool requested =
         row == Row::Console ? view.consoleRequested : view.repentogonRequested;
     const bool active = row == Row::Console ? view.consoleActive : view.repentogonActive;
@@ -262,14 +282,14 @@ struct Layout {
     float paperScale;
     float textScale;
     float titleY;
-    float rowY[2];
+    float rowY[3];
     float footerY;
     float rowLeft;
     float valueRight;
 };
 
 // Keep text at native size; only the blank paper is scaled.
-inline constexpr Layout kRuntimeSettingsLayout{0.90F, 1.0F, -62.0F, {-30.0F, 3.0F}, 50.0F,
+inline constexpr Layout kRuntimeSettingsLayout{0.90F, 1.0F, -58.0F, {-30.0F, -7.0F, 16.0F}, 58.0F,
                                                -103.0F, 116.0F};
 
 } // namespace isaac::runtime::title

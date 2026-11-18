@@ -32,11 +32,14 @@ DEFAULT_UI = {"entry": "兼容层说明", "footer_locked": "请先读完 | L/R �
 DEFAULT_SETTINGS_UI = {
     "entry": "Runtime Settings", "header": "Runtime Settings",
     "console": "Console", "repentogon": "REPENTOGON",
+    "daily_challenge": "Daily Challenge",
     "footer": "A: toggle  B: close",
     "on": "On", "off": "Off",
+    "offline": "Offline", "online": "Online",
     "on_saving": "On - saving", "off_saving": "Off - saving",
     "on_reload": "On - restart required", "off_reload": "Off - restart required",
     "save_failed": "Save failed", "unavailable": "Unavailable",
+    "daily_help": "Online uses the service; offline stays local.",
 }
 SETTINGS_UI = {
     "en": DEFAULT_SETTINGS_UI,
@@ -99,7 +102,8 @@ SETTINGS_HINTS = {
 for _code, _copy in SETTINGS_HINTS.items():
     _short, _footer, _console, _rgon, _saving, _on, _off, _failed, _unavailable = _copy
     SETTINGS_UI[_code].update(entry_short=_short, footer=_footer, console_help=_console,
-        repentogon_help=_rgon, on_saving=_saving, off_saving=_saving, on_reload=_on,
+        repentogon_help=_rgon, daily_help="Online uses the service; offline stays local.",
+        on_saving=_saving, off_saving=_saving, on_reload=_on,
         off_reload=_off, save_failed=_failed, unavailable=_unavailable)
 
 # Atlas-local crops; the notice booklet above this block keeps its original art.
@@ -114,17 +118,22 @@ SETTINGS_FRAMES = {
     "SettingsConsoleSelected": (452, 62, 112, 18, 0, 0),
     "SettingsRepentogon": (336, 84, 144, 18, 0, 0),
     "SettingsRepentogonSelected": (484, 84, 144, 18, 0, 0),
-    "SettingsOn": (336, 106, 48, 24, 0, 0),
-    "SettingsOff": (388, 106, 48, 24, 0, 0),
-    "SettingsOnSaving": (336, 140, 264, 18, 0, 0),
-    "SettingsOffSaving": (336, 160, 264, 18, 0, 0),
-    "SettingsOnReload": (336, 180, 264, 18, 0, 0),
-    "SettingsOffReload": (336, 200, 264, 18, 0, 0),
-    "SettingsSaveFailed": (336, 220, 264, 18, 0, 0),
-    "SettingsUnavailable": (336, 240, 264, 18, 0, 0),
-    "SettingsConsoleHelp": (336, 260, 264, 18, 0, 0),
-    "SettingsRepentogonHelp": (336, 280, 264, 18, 0, 0),
-    "SettingsFooter": (336, 300, 264, 18, 0, 0),
+    "SettingsDailyChallenge": (336, 106, 144, 18, 0, 0),
+    "SettingsDailyChallengeSelected": (484, 106, 144, 18, 0, 0),
+    "SettingsOn": (336, 130, 48, 24, 0, 0),
+    "SettingsOff": (388, 130, 48, 24, 0, 0),
+    "SettingsOnline": (336, 160, 72, 24, 0, 0),
+    "SettingsOffline": (412, 160, 72, 24, 0, 0),
+    "SettingsOnSaving": (336, 190, 264, 18, 0, 0),
+    "SettingsOffSaving": (336, 210, 264, 18, 0, 0),
+    "SettingsOnReload": (336, 230, 264, 18, 0, 0),
+    "SettingsOffReload": (336, 250, 264, 18, 0, 0),
+    "SettingsSaveFailed": (336, 270, 264, 18, 0, 0),
+    "SettingsUnavailable": (336, 290, 264, 18, 0, 0),
+    "SettingsConsoleHelp": (336, 310, 264, 18, 0, 0),
+    "SettingsRepentogonHelp": (336, 330, 264, 18, 0, 0),
+    "SettingsDailyChallengeHelp": (336, 350, 264, 18, 0, 0),
+    "SettingsFooter": (336, 370, 264, 18, 0, 0),
 }
 SETTINGS_INK = (27, 24, 21, 255)
 
@@ -404,8 +413,10 @@ def validate_labels(content: dict, font: Font) -> None:
     settings_ui = {**DEFAULT_SETTINGS_UI, **content.get("settings_ui", {})}
     labels.extend((settings_ui[key], limit, f"settings {key}") for key, limit in (
         ("entry", 192), ("entry_short", 184), ("header", 256), ("console", 104),
-        ("repentogon", 136), ("footer", 256), ("on", 40), ("off", 40),
+        ("repentogon", 136), ("daily_challenge", 136), ("footer", 256),
+        ("on", 40), ("off", 40), ("online", 64), ("offline", 64),
         ("console_help", 256), ("repentogon_help", 256), ("on_saving", 256),
+        ("daily_help", 256),
         ("off_saving", 256), ("on_reload", 256), ("off_reload", 256),
         ("save_failed", 256), ("unavailable", 256)))
     for text, limit, name in labels:
@@ -422,8 +433,8 @@ def render_asset(content: dict, font: Font, basename: str = "nnotice",
     pages = paginate(content, font)
     support_y = ((len(pages) + 1) // 2) * PAPER_HEIGHT
     settings_y = support_y + 65
-    atlas = Image(672, settings_y + 320,
-                  bytearray(672 * (settings_y + 320) * 4))
+    atlas = Image(672, settings_y + 400,
+                  bytearray(672 * (settings_y + 400) * 4))
     for index, lines in enumerate(pages):
         x, y = (index % 2) * PAPER_WIDTH, (index // 2) * PAPER_HEIGHT
         (paper_art.paint if paper_art else paper)(atlas, x, y, PAPER_WIDTH, PAPER_HEIGHT)
@@ -504,7 +515,8 @@ def render_asset(content: dict, font: Font, basename: str = "nnotice",
         text = prefix + settings_ui[key]
         tx = x + (width - font.width(text)) // 2 if name not in (
             "SettingsConsole", "SettingsConsoleSelected", "SettingsRepentogon",
-            "SettingsRepentogonSelected") else x + 3
+            "SettingsRepentogonSelected", "SettingsDailyChallenge",
+            "SettingsDailyChallengeSelected") else x + 3
         ty = settings_y + y + (height - font.line_height) // 2
         color = MUTED if muted else SETTINGS_INK
         draw_text(atlas, font, text, tx, ty, color)
@@ -513,10 +525,12 @@ def render_asset(content: dict, font: Font, basename: str = "nnotice",
 
     label("SettingsTooltip", "entry_short", bold=True, prefix="A  ")
     label("SettingsHeader", "header", bold=True)
-    for name, key in (("SettingsConsole", "console"), ("SettingsRepentogon", "repentogon")):
+    for name, key in (("SettingsConsole", "console"), ("SettingsRepentogon", "repentogon"),
+                      ("SettingsDailyChallenge", "daily_challenge")):
         label(name, key, muted=True)
         label(name + "Selected", key, bold=True)
-    for name, key in (("SettingsOn", "on"), ("SettingsOff", "off")):
+    for name, key in (("SettingsOn", "on"), ("SettingsOff", "off"),
+                      ("SettingsOnline", "online"), ("SettingsOffline", "offline")):
         x, y, width, height, _, _ = SETTINGS_FRAMES[name]
         # Brackets use the same ink as the selection arrow and stay close to the label.
         for bx in (x + 3, x + width - 5):
@@ -529,6 +543,7 @@ def render_asset(content: dict, font: Font, basename: str = "nnotice",
                       ("OnReload", "on_reload"), ("OffReload", "off_reload"),
                       ("SaveFailed", "save_failed"), ("Unavailable", "unavailable"),
                       ("ConsoleHelp", "console_help"), ("RepentogonHelp", "repentogon_help"),
+                      ("DailyChallengeHelp", "daily_help"),
                       ("Footer", "footer")):
         label("Settings" + name, key, muted=name == "Footer")
     if max(atlas.width, atlas.height) > 4096:

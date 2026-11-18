@@ -106,7 +106,8 @@ class TitleNoticeLocaleTests(unittest.TestCase):
                     anm = ET.parse(path).getroot()
                     self.assertEqual(anm.find('./Content/Spritesheets/Spritesheet').get('Path'), f'nnotice_{code}.pcx')
                     self.assertTrue(path.with_suffix('.pcx').is_file())
-                    self.assertEqual(len(anm.findall('./Animations/Animation')), int(count) * 5 + 28)
+                    self.assertEqual(len(anm.findall('./Animations/Animation')),
+                                     int(count) * 5 + 7 + len(b.SETTINGS_FRAMES))
                     for frame in anm.findall('.//LayerAnimation/Frame'):
                         a = frame.attrib
                         self.assertLessEqual(int(a['XCrop']) + int(a['Width']), locale['atlas_width'])
