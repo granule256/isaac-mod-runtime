@@ -47,8 +47,12 @@ constexpr uintptr_t kDescriptorCandidateWord50Offset = 0x50;
 constexpr uintptr_t kRoomRenderScrollOffsetOffset = 0x1938;
 constexpr uintptr_t kGameToScreenAdjustOffset = 0x24F9B0;
 
-bool IsReadableNonExecutableMapping(uintptr_t address, size_t length) {
+template<bool UseDispatchCache>
+bool CheckReadableNonExecutableMapping(uintptr_t address, size_t length) {
     if (length == 0 || address > UINTPTR_MAX - length) return false;
+    if constexpr (UseDispatchCache) {
+        if (isaac::runtime::EngineGuardLookupNonExecutable(address, length)) return true;
+    }
     MemoryInfo info{};
     u32 pageInfo = 0;
     if (R_FAILED(svcQueryMemory(&info, &pageInfo, address)) || info.size == 0 ||
@@ -56,8 +60,16 @@ bool IsReadableNonExecutableMapping(uintptr_t address, size_t length) {
         return false;
     }
     const uintptr_t end = address + length;
-    return address >= info.addr && end <= info.addr + info.size &&
-           (info.perm & Perm_R) != 0 && (info.perm & Perm_X) == 0;
+    const uintptr_t stop = info.addr + info.size;
+    if (address < info.addr || end > stop || (info.perm & Perm_R) == 0 || (info.perm & Perm_X) != 0) {
+        return false;
+    }
+    if constexpr (UseDispatchCache) isaac::runtime::EngineGuardRememberNonExecutable(info.addr, stop);
+    return true;
+}
+
+bool IsReadableNonExecutableMapping(uintptr_t address, size_t length) {
+    return CheckReadableNonExecutableMapping<false>(address, length);
 }
 
 bool IsMappedRxModuleCodeWindow(uintptr_t address, size_t length) {
@@ -161,18 +173,20 @@ GameIsPausedObservation ObserveGameIsPaused(uintptr_t ownerSlot, uintptr_t isPau
 GameLevelStageObservation ReadCurrentGameLevelStage(uintptr_t ownerSlot, std::uint32_t* stage) {
     uintptr_t owner = 0;
     uintptr_t game = 0;
+    // Reuse only permission proofs. The owner chain and stage are read live.
+    constexpr auto readable = &CheckReadableNonExecutableMapping<true>;
     if (stage == nullptr ||
-        !engine_memory::LoadPointer(ownerSlot, &owner, &IsReadableNonExecutableMapping)) {
+        !engine_memory::LoadPointer(ownerSlot, &owner, readable)) {
         return GameLevelStageObservation::OwnerUnreadable;
     }
     if (owner == 0) return GameLevelStageObservation::OwnerNull;
-    if (!engine_memory::LoadPointer(owner, &game, &IsReadableNonExecutableMapping)) {
+    if (!engine_memory::LoadPointer(owner, &game, readable)) {
         return GameLevelStageObservation::OwnerUnreadable;
     }
     if (game == 0) return GameLevelStageObservation::GameNull;
     // 原判据对 base 用的是 8 字节对齐（`alignof(uintptr_t)`）而字段是 4 字节 —— 逐条照旧。
     std::uint32_t value = 0;
-    if (!engine_memory::ReadField(game, kLevelStageOffset, &value, &IsReadableNonExecutableMapping,
+    if (!engine_memory::ReadField(game, kLevelStageOffset, &value, readable,
                                  alignof(uintptr_t))) {
         return GameLevelStageObservation::GameUnreadable;
     }

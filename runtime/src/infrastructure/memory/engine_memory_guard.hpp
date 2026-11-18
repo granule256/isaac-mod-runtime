@@ -183,6 +183,17 @@ inline EngineReadableRegionCache& EngineGuardWritableRegionCache() noexcept {
     return cache;
 }
 
+// A readable mapping may be executable; keep the stronger proof separate.
+inline EngineReadableRegionCache& EngineGuardNonExecutableRegionCache() noexcept {
+    static EngineReadableRegionCache cache;
+    return cache;
+}
+
+inline void EngineGuardClearNonExecutableRegions() noexcept {
+    auto& cache = EngineGuardNonExecutableRegionCache();
+    if (cache.count.load(std::memory_order_acquire) != 0) cache.Clear();
+}
+
 // 派发作用域标志：只有派发期间才允许用缓存。
 //
 // 与缓存同因：写侧是游戏线程，读侧可能来自宿主插件的线程，普通 `bool` 会构成数据竞争。
@@ -208,6 +219,7 @@ inline void EngineGuardSetCacheEnabled(bool enabled) noexcept {
     // 切换一定要丢掉旧条目：否则"关掉缓存"的那一相还会命中上一相留下的区间。
     EngineGuardRegionCache().Clear();
     EngineGuardWritableRegionCache().Clear();
+    EngineGuardClearNonExecutableRegions();
 }
 
 // 派发代际 —— 每进一次派发窗口 +1。
@@ -221,6 +233,7 @@ inline std::atomic<std::uint32_t>& EngineGuardDispatchEpoch() noexcept {
 inline void EngineGuardEnterDispatch() noexcept {
     EngineGuardRegionCache().Clear();
     EngineGuardWritableRegionCache().Clear();
+    EngineGuardClearNonExecutableRegions();
     EngineGuardDispatchEpoch().fetch_add(1, std::memory_order_acq_rel);   //
     EngineGuardDispatchActive().store(1U, std::memory_order_release);
 }
@@ -229,6 +242,7 @@ inline void EngineGuardLeaveDispatch() noexcept {
     EngineGuardDispatchActive().store(0U, std::memory_order_release);
     EngineGuardRegionCache().Clear();
     EngineGuardWritableRegionCache().Clear();
+    EngineGuardClearNonExecutableRegions();
 }
 
 // 调用点（设备侧）用法：
@@ -398,6 +412,17 @@ inline bool EngineGuardLookupCached(std::uintptr_t address, std::size_t length) 
 inline void EngineGuardRememberReadable(std::uintptr_t begin, std::uintptr_t end) noexcept {
     if (EngineGuardDispatchActive().load(std::memory_order_acquire) != 0 && EngineGuardCacheEnabled()) {
         EngineGuardRegionCache().Insert(begin, end);
+    }
+}
+
+inline bool EngineGuardLookupNonExecutable(std::uintptr_t address, std::size_t length) noexcept {
+    return EngineGuardDispatchActive().load(std::memory_order_acquire) != 0 && EngineGuardCacheEnabled() &&
+           EngineGuardNonExecutableRegionCache().Covers(address, length);
+}
+
+inline void EngineGuardRememberNonExecutable(std::uintptr_t begin, std::uintptr_t end) noexcept {
+    if (EngineGuardDispatchActive().load(std::memory_order_acquire) != 0 && EngineGuardCacheEnabled()) {
+        EngineGuardNonExecutableRegionCache().Insert(begin, end);
     }
 }
 
