@@ -95,6 +95,11 @@ int main() {
  static_cast<void>(console::RegisterConsoleCommand("alpha","first","first",false,0));
  static_cast<void>(console::RegisterConsoleCommand("alphabet","second","second",false,0));
  open();draft("al");assert(console::CompletionCount()==2);
+ // ConsoleMega clears suggestions at the boundary but replaces the draft only
+ // when the history position changes. Native mode above clears the draft.
+ press(down);assert(input()=="al" && console::CompletionCount()==0);
+ press(up);assert(input()=="cmd-b");press(down);assert(input().empty());
+ draft("al");assert(console::CompletionCount()==2);
  press(1u<<21);press(1u<<22);assert(input()=="al");
  press(1u<<23);assert(input()=="alpha" && calls==2);
  press(1u<<23);assert(input()=="alphabet" && calls==2);

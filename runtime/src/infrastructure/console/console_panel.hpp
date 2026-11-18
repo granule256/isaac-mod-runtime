@@ -465,9 +465,12 @@ inline bool PanelDraftFitsKeyboard(const char* text) noexcept {
     return points<kPanelTextCapacity;
 }
 inline bool MovePanelHistory(const PanelNativeEntries& ui,int delta) noexcept {
+    if (!delta) return false;
+    const bool enhanced=ui.extensionEnabled && ui.extensionEnabled();
+    if (enhanced) ClearPanelCompletions(ui); // ConsoleMega clears suggestions even at the boundary.
     auto& panel=Panel();
     CommandHistoryView history{};
-    if (!delta || !ReadCommandHistoryView(Storage().consoleObject,&history)) return false;
+    if (!ReadCommandHistoryView(Storage().consoleObject,&history)) return false;
     std::uint64_t current{};
     if (!CommandHistoryOffset(history,&current)) return false;
     auto next=current;
@@ -477,6 +480,7 @@ inline bool MovePanelHistory(const PanelNativeEntries& ui,int delta) noexcept {
     } else {
         if (next) --next;
     }
+    if (enhanced && next==current) return false;
     std::string selected;
     if (next && !ReadCommandHistoryEntry(history,next-1,&selected)) {
         return false;
@@ -492,10 +496,7 @@ inline bool MovePanelHistory(const PanelNativeEntries& ui,int delta) noexcept {
         static_cast<void>(StorePanelDraftUtf8(text->c_str()));
     }
     SetPanelInput(ui,text->c_str());
-    if (ui.extensionEnabled && ui.extensionEnabled())
-        ClearPanelCompletions(ui); // PC CallbackHistory suppresses CallbackEdit.
-    else
-        static_cast<void>(RefreshPanelCompletions(ui,text->c_str()));
+    if (!enhanced) static_cast<void>(RefreshPanelCompletions(ui,text->c_str()));
     return true;
 }
 inline bool InsertPanelCompletion(const PanelNativeEntries& ui,
