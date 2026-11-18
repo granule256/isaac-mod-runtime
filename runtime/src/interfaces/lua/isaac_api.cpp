@@ -7319,12 +7319,8 @@ int IsaacFindByType(lua_State* state) {
         if (entity == 0 || !IsEngineMemoryReadable(entity, kEntitySnapshotSpan)) {
             return false;
         }
-        std::uintptr_t vtable = 0;
-        if (!ReadEngineUnchecked(entity, &vtable) || !IsEntityVtableInRange(vtable)) {
-            return false;
-        }
-        // 多怪物反复查询时，类型不符即可排除；通配字段也无需读取。
-        // 全跨度/vptr 校验仍逐实体执行，不缓存可能在本回调中变化的身份。
+        // Reject non-matching types before validating the vtable. The full
+        // readable-span check above still covers every field read.
         std::uint32_t value = 0;
         if (!ReadEngineUnchecked(entity + kEntityTypeOffset, &value) ||
             static_cast<lua_Integer>(value) != type) {
@@ -7338,6 +7334,10 @@ int IsaacFindByType(lua_State* state) {
         if (subType >= 0 &&
             (!ReadEngineUnchecked(entity + kEntitySubTypeOffset, &value) ||
              static_cast<lua_Integer>(value) != subType)) {
+            return false;
+        }
+        std::uintptr_t vtable = 0;
+        if (!ReadEngineUnchecked(entity, &vtable) || !IsEntityVtableInRange(vtable)) {
             return false;
         }
         std::uint64_t flags = 0;

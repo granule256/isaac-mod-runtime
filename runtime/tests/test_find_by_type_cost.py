@@ -36,7 +36,7 @@ std::vector<std::uintptr_t>live,effects,players;std::set<std::uintptr_t>seen;
 unsigned spatialReads=0,pointerChecks=0;
 unsigned effectTableReads=0,playerVectorReads=0;
 std::array<std::array<unsigned char,0x348>,256> crowd{};
-bool measuring=false;unsigned fieldReads=0,unneededReads=0;
+bool measuring=false;unsigned fieldReads=0,unneededReads=0,vtableReads=0;
 int requestedType=0,requestedVariant=-1,requestedSubType=-1;
 bool IsEngineMemoryReadable(std::uintptr_t p,std::size_t){return p!=0;}
 bool IsEntityVtableInRange(std::uintptr_t p){return p==0x1234;}
@@ -47,6 +47,7 @@ template<class T>bool ReadEngineUnchecked(std::uintptr_t p,T*v){
    ++fieldReads;auto offset=(p-begin)%0x348;
    const auto& e=crowd[(p-begin)/0x348];std::uint32_t type,variant,sub;
    std::memcpy(&type,e.data()+0x38,4);std::memcpy(&variant,e.data()+0x3c,4);std::memcpy(&sub,e.data()+0x40,4);
+   if(offset==0) ++vtableReads;
    if((offset==0x3c&&(type!=requestedType||requestedVariant<0))||
       (offset==0x40&&(type!=requestedType||(requestedVariant>=0&&variant!=requestedVariant)||requestedSubType<0))||
       (offset==0x1b8&&(type!=requestedType||(requestedVariant>=0&&variant!=requestedVariant)||(requestedSubType>=0&&sub!=requestedSubType))))++unneededReads;
@@ -115,7 +116,8 @@ int main(){
   {"shaggoth_marker",256,16,1000,1809,4,2},
   {"cordend_explosions",256,64,1000,1,-1,2},
   {"organization_variants",256,64,160,470,-1,0},
-  {"same_type_different_subtype",256,16,1000,1809,4,3}
+  {"same_type_different_subtype",256,16,1000,1809,4,3},
+  {"flow_room_absent_type",100,64,5,100,-1,2}
  };
  for(const auto&s:scenarios){
   live.clear();effects.clear();players.clear();
@@ -132,12 +134,16 @@ int main(){
    auto ptr=addr(e);live.push_back(ptr);if(type==1000&&i%3==0)effects.push_back(ptr);
   }
   // Independent reference follows the native live-array order.
+  unsigned filterMatches=0;
   for(auto ptr:live){
    const auto*e=reinterpret_cast<const unsigned char*>(ptr);std::uintptr_t vptr;unsigned type,variant,sub;std::uint64_t flags;
    std::memcpy(&vptr,e,8);std::memcpy(&type,e+0x38,4);std::memcpy(&variant,e+0x3c,4);std::memcpy(&sub,e+0x40,4);std::memcpy(&flags,e+0x1b8,8);
-   if(vptr==0x1234&&type==s.type&&(s.variant<0||variant==s.variant)&&(s.sub<0||sub==s.sub)&&!(flags&(1ULL<<46)))expected.push_back(ptr);
+   if(type==s.type&&(s.variant<0||variant==s.variant)&&(s.sub<0||sub==s.sub)){
+    ++filterMatches;
+    if(vptr==0x1234&&!(flags&(1ULL<<46)))expected.push_back(ptr);
+   }
   }
-  fieldReads=unneededReads=effectTableReads=playerVectorReads=0;requestedType=s.type;requestedVariant=s.variant;requestedSubType=s.sub;measuring=true;
+  fieldReads=unneededReads=vtableReads=effectTableReads=playerVectorReads=0;requestedType=s.type;requestedVariant=s.variant;requestedSubType=s.sub;measuring=true;
   for(unsigned q=0;q<s.queries;++q){
    lua_pushcfunction(L,IsaacFindByType);lua_pushinteger(L,s.type);lua_pushinteger(L,s.variant);lua_pushinteger(L,s.sub);lua_pushboolean(L,q%2);lua_pushboolean(L,0);
    if(lua_pcall(L,5,1,0)){std::fprintf(stderr,"%s",lua_tostring(L,-1));return 5;}
@@ -147,7 +153,7 @@ int main(){
   }
   measuring=false;
   if(effectTableReads||playerVectorReads)return 8;
-  std::printf("{\"scenario\":\"%s\",\"candidates\":%u,\"queries\":%u,\"field_reads\":%u,\"unneeded_reads\":%u,\"extra_source_reads\":%u}\n",s.name,s.count,s.queries,fieldReads,unneededReads,effectTableReads+playerVectorReads);
+  std::printf("{\"scenario\":\"%s\",\"candidates\":%u,\"queries\":%u,\"field_reads\":%u,\"unneeded_reads\":%u,\"extra_source_reads\":%u,\"vtable_reads\":%u,\"required_vtable_reads\":%u}\n",s.name,s.count,s.queries,fieldReads,unneededReads,effectTableReads+playerVectorReads,vtableReads,filterMatches*s.queries);
  }
  lua_close(L);return 0;}
 '''
@@ -164,3 +170,4 @@ int main(){
     with self.subTest(scenario=cost['scenario']):
      self.assertEqual(cost['unneeded_reads'],0)
      self.assertEqual(cost['extra_source_reads'],0)
+     self.assertEqual(cost['vtable_reads'],cost['required_vtable_reads'])
