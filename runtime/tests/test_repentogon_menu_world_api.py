@@ -366,6 +366,9 @@ assert(not pcall(Isaac.GetCompletionMark,0,12))
         Address(menuManager) + kMenuGamePage + kMenuGameContinueWidget));
     assert(isaac::runtime::RepentogonMenuWorldSpriteAlive(
         Address(game) + kGameRoomTransition + 0x48));
+    const auto pause = Address(game) + 0x1AE128;
+    assert(isaac::runtime::RepentogonMenuWorldSpriteAlive(pause + 0x80B90 + 8));
+    assert(!isaac::runtime::RepentogonMenuWorldSpriteAlive(pause + 0x8B90 + 8));
     assert(!isaac::runtime::RepentogonMenuWorldSpriteAlive(
         Address(menuManager) + kMenuSavePage + kMenuSaveDeletePopup + 8));
 

@@ -55,8 +55,8 @@ constexpr std::uintptr_t kPauseMainSprite = 0x30;
 constexpr std::uintptr_t kPauseStatsSprite = 0x188;
 // PauseScreen::Render uses the My Stuff ANM2 at 0x433138.
 constexpr std::uintptr_t kPauseMyStuffSprite = 0x2E0;
-// The CompletionWidget used at 0x433018 embeds its ANM2 at +8.
-constexpr std::uintptr_t kPauseCompletionSprite = 0x8B90 + 8;
+// PauseScreen::Render forms the widget offset from (8 << 16) | 0xB90.
+constexpr std::uintptr_t kPauseCompletionSprite = 0x80B90 + 8;
 constexpr std::uintptr_t kCompletionCounterId = 0x439844;
 constexpr std::array<std::uint8_t, 16> kCompletionCounterIdGuard = {
     0x3f,0xa0,0x00,0x71,0x6d,0x00,0x00,0x54,
