@@ -805,12 +805,15 @@ inline void PanelFrame(const EngineEntries& entries,const PanelNativeEntries& ui
     p.previousMask=mask;
     const bool touchRise=touch.pressed&&!p.touchHeld;
     p.touchHeld=touch.pressed;
+    constexpr std::uint32_t submit=1U<<12,confirm=1U<<14,back=1U<<15;
+    // Held movement must not prolong capture after the console closes.
+    const bool releaseReady=!(mask&(submit|confirm|back)) && !touch.pressed && !combo;
     // 没打开且无操作时不读Game/玩家、不做svc查询；保持原有关闭态帧开销。
     if (triggerBlocked) {core.comboHeldFrames=0;core.comboFired=true;}
     if (NativePanelState()==0 && !p.keyboardOpen && !core.pendingReady &&
         (!combo || triggerBlocked)) {
         core.comboHeldFrames=0;core.comboFired=triggerBlocked;State().triggerHeld=0;
-        if (!mask && !touch.pressed) p.waitRelease=false;
+        if (releaseReady) p.waitRelease=false;
         g_ConsolePaused.store(0,std::memory_order_relaxed);
         g_ConsoleInputCaptured.store(p.waitRelease,std::memory_order_relaxed);
         return;
@@ -824,11 +827,10 @@ inline void PanelFrame(const EngineEntries& entries,const PanelNativeEntries& ui
         else ReleasePanelCompletions();
         core.comboHeldFrames=0;core.comboFired=false;core.pendingReady=false;
         if (p.keyboardFinished) {p.keyboardOpen=false;p.keyboardFinished=false;}
-        if (mask==0 && !touch.pressed && !p.keyboardOpen) p.waitRelease=false;
+        if (releaseReady && !p.keyboardOpen) p.waitRelease=false;
         g_ConsoleInputCaptured.store(p.waitRelease||p.keyboardOpen,std::memory_order_relaxed);
         return;
     }
-    constexpr std::uint32_t confirm=1U<<14,back=1U<<15;
     const auto holdFrames=core.controls.holdTenths*6U;
     // 单A/B兼任开启键时，短按在松开时交给编辑/返回，长按仍切换控制台。
     const bool singleKey=core.controls.second==isaac::runtime::kConsoleNoSecondButton ||
@@ -864,7 +866,7 @@ inline void PanelFrame(const EngineEntries& entries,const PanelNativeEntries& ui
         p.draftChanged=false;
     }
     const bool panelEnter=(NativePanelState()==2 || NativePanelState()==3) &&
-        !p.keyboardOpen && !p.waitRelease && !combo && (risen&(1U<<12));
+        !p.keyboardOpen && !p.waitRelease && !combo && (risen&submit);
     if (panelEnter && !*PanelInputText()) {
         ui.hide(core.consoleObject);p.waitRelease=true;++p.closed;
         if (!ui.extensionEnabled || !ui.extensionEnabled())
@@ -873,7 +875,8 @@ inline void PanelFrame(const EngineEntries& entries,const PanelNativeEntries& ui
     if (p.keyboardFinished || (core.pendingReady && !p.keyboardOpen) ||
         (panelEnter && *PanelInputText())) {
         const bool fromKeyboard=p.keyboardOpen;
-        p.keyboardFinished=false;p.keyboardOpen=false;p.waitRelease=true;
+        p.keyboardFinished=false;p.keyboardOpen=false;
+        if (fromKeyboard || NativePanelState()!=0) p.waitRelease=true;
         const char* command{};std::uint32_t length{};
         const bool pending=TakePendingCommand(&command,&length);
         if (fromKeyboard) {
@@ -931,7 +934,7 @@ inline void PanelFrame(const EngineEntries& entries,const PanelNativeEntries& ui
             static_cast<void>(RefreshPanelCompletions(ui,""));
         }
     }
-    if (p.waitRelease && mask==0 && !touch.pressed && !p.keyboardOpen) p.waitRelease=false;
+    if (p.waitRelease && releaseReady && !p.keyboardOpen) p.waitRelease=false;
     if ((NativePanelState()==2 || NativePanelState()==3) && !justOpened && !p.keyboardOpen && !p.waitRelease && !combo) {
         constexpr std::uint32_t historyUp=1U<<19,historyDown=1U<<20;
         constexpr std::uint32_t completionTab=1U<<23; // Switch X maps to extension Tab.

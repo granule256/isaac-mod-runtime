@@ -52,7 +52,9 @@ int main(){
  console::KeyboardFinishedCallback(command,nullptr);frame(a);frame(a);assert(calls==1&&console::ConsolePaused()&&histories==1);
  assert(printed.find("debug 3")!=std::string::npos&&printed.find("ok")!=std::string::npos);
  frame();frame(b);assert(hidden==1&&!console::ConsolePaused()&&console::ConsoleCapturesInput());
- frame(b);assert(console::ConsoleCapturesInput());frame();assert(!console::ConsoleCapturesInput());
+ const unsigned right=(1u<<1)|(1u<<18);
+ frame(b|right);assert(console::ConsoleCapturesInput());
+ frame(right);assert(!console::ConsoleCapturesInput());
  // 重开、关闭总开关不遗留暂停，不执行键盘迟到结果。
  for(int i=0;i<48;++i)frame(a|b);frame();frame(a);assert(keyboards==3);
  console::Storage().switchEnabled=false;frame();console::KeyboardFinishedCallback(command,nullptr);frame();assert(!console::ConsolePaused()&&calls==1);
@@ -70,6 +72,11 @@ int main(){
  std::vector<std::uint32_t> longText(501,'x');longText[500]=0;std::string longCommand(500,'x');
  expected=longCommand.c_str();expectedLength=500;
  console::KeyboardFinishedCallback(longText.data(),nullptr);expected=console::Panel().completedUtf8;frame();assert(calls==2&&console::Panel().completedLength==500&&histories==2);
+ frame(b);frame();assert(!console::ConsoleCapturesInput());
+ auto& core=console::Storage();
+ std::memcpy(core.pendingCommand,"debug 3",8);core.pendingLength=7;core.pendingReady=true;
+ expected="debug 3";expectedLength=7;
+ frame(b|right);assert(calls==3&&!console::ConsoleCapturesInput());
  const auto previousUpdates=updates,previousHidden=hidden;
  console::Storage().consoleObject[kConsoleObjectSize-1]=0;frame();
  assert(console::State().fenceBroken==1&&updates==previousUpdates&&hidden==previousHidden&&!console::ConsolePaused());
