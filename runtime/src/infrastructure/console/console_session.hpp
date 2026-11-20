@@ -9,6 +9,7 @@
 #include "infrastructure/call/engine_call_access.hpp"
 #include "infrastructure/console/console_bridge.hpp"
 #include "infrastructure/console/console_panel.hpp"
+#include "console_lifecycle_hook.hpp"
 #include "interfaces/lua/touch_pointer.hpp"
 #include "infrastructure/memory/engine_field_access.hpp"
 #include "lua_runtime_state.hpp"
@@ -183,6 +184,7 @@ inline void SessionFrameUpdate() noexcept {
 
 // 只从Game::Render返回处调用，保持游戏逻辑画布与上下文；不在最终Present外侧画。
 inline void SessionRenderOverlay() noexcept {
+    if (NativePanelState() != 0) PrepareConsoleFontRendering();
     RenderPanel(SessionPanelEntries());
     if(RepentogonImGuiVisible()) {
         const auto base=LuaRuntime::EngineModuleBase();

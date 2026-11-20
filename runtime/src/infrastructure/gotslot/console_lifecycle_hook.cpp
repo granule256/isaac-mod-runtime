@@ -1,16 +1,20 @@
 #include "console_lifecycle_hook.hpp"
 #include "infrastructure/console/console_panel_guards.hpp"
 #include "infrastructure/console/console_panel_storage.hpp"
+#include "lua_runtime_state.hpp"
 #include "runtime_constants.hpp"
 #include "infrastructure/memory/engine_field_access.hpp"
 #include "infrastructure/call/engine_call_access.hpp"
 #include "lib/util/sys/rw_pages.hpp"
+#include <cstdlib>
 #include <cstring>
 
 namespace isaac::runtime {
 namespace {
+namespace native = console::native_panel;
 using console::GameFrameFunction;
 std::atomic<std::uintptr_t> s_ConsoleBase{};
+std::atomic<LuaRuntime::FontDrawStringFn> s_OriginalFontDraw{};
 bool Window(const HookTarget& t,std::uintptr_t offset,std::size_t size) noexcept {
     const auto limit=t.imageSize?t.imageSize:t.codeSize;
     return t.base && offset<=limit && size<=limit-offset && t.base<=UINTPTR_MAX-offset-size &&
@@ -38,6 +42,64 @@ GameFrameFunction Original(std::uintptr_t offset) noexcept {
     if(!base)__builtin_trap();
     return engine_call::AsFunction<GameFrameFunction>(base+offset);
 }
+
+bool HasMultibyteUtf8(const char* text) noexcept {
+    if (!text) return false;
+    bool multibyte = false;
+    const auto* bytes = reinterpret_cast<const unsigned char*>(text);
+    while (*bytes) {
+        const auto lead = *bytes++;
+        if (lead < 0x80) continue;
+        if (lead < 0xC2 || lead > 0xF4) return false;
+        const unsigned length = lead < 0xE0 ? 1 : lead < 0xF0 ? 2 : 3;
+        const auto first = *bytes;
+        if ((lead == 0xE0 && first < 0xA0) || (lead == 0xED && first >= 0xA0) ||
+            (lead == 0xF0 && first < 0x90) || (lead == 0xF4 && first >= 0x90))
+            return false;
+        for (unsigned i = 0; i < length; ++i)
+            if ((*bytes++ & 0xC0) != 0x80) return false;
+        multibyte = true;
+    }
+    return multibyte;
+}
+
+void* ConsoleCjkFont() noexcept {
+    // The console and font belong to the single Repentance module in the process.
+    static void* font{};
+    static bool attempted{};
+    if (attempted) return font;
+    const auto construct = LuaRuntime::FontCtorThunk();
+    const auto destroy = LuaRuntime::FontDestructorThunk();
+    const auto load = LuaRuntime::FontLoadThunk();
+    if (!construct || !destroy || !load) return nullptr;
+    attempted = true;
+    void* allocation = std::malloc(kFontObjectSize + 15);
+    if (!allocation) return nullptr;
+    const auto address = (engine_memory::AddressOf(allocation) + 15) & ~std::uintptr_t{15};
+    auto* object = engine_memory::AsObject(address);
+    construct(object);
+    if (!load(object, "font/cjk/lanapixel.fnt", nullptr)) {
+        destroy(object);
+        std::free(allocation);
+        return nullptr;
+    }
+    font = object;
+    return font;
+}
+
+bool TryDrawConsoleUtf8(std::uintptr_t returnOffset, const char* text, float x, float y,
+                       const void* color, int width, bool center) noexcept {
+    bool consoleCall = false;
+    for (const auto site : native::kConsoleFontDrawSites)
+        consoleCall |= returnOffset == site + 4;
+    if (!consoleCall || !HasMultibyteUtf8(text)) return false;
+    const auto draw = LuaRuntime::FontDrawStringUTF8Thunk();
+    if (!draw) return false;
+    auto* font = ConsoleCjkFont();
+    if (!font) return false;
+    draw(font, text, x, y, color, width, center);
+    return true;
+}
 }
 extern "C" void IsaacModRuntime_ConsoleGameInput(void* game) {
     console::RunConsoleGameInput(game,Original(console::native_panel::kGameInputOffset));
@@ -53,6 +115,47 @@ extern "C" void IsaacModRuntime_ConsoleGameInterpolate(void* game) {
     // Manager在正常Game::Update之外调用；Room::Interpolate还会执行玩家Update。
     console::RunConsoleGameUpdate(game,Original(console::native_panel::kGameInterpolateOffset));
 }
+extern "C" void IsaacModRuntime_ConsoleFontDraw(void* font, const char* text, float x, float y,
+                                               const void* color, int width, bool center) {
+    const auto base = s_ConsoleBase.load(std::memory_order_acquire);
+    if (!base) __builtin_trap();
+    const auto caller = engine_memory::AddressOf(__builtin_return_address(0));
+    if (TryDrawConsoleUtf8(caller - base, text, x, y, color, width, center)) return;
+    const auto draw = s_OriginalFontDraw.load(std::memory_order_acquire);
+    draw(font, text, x, y, color, width, center);
+}
+
+bool InstallConsoleFontDraw(const HookTarget& t, LuaRuntime::FontDrawStringFn original) noexcept {
+    namespace n=console::native_panel;
+    if (!original || !Guard(t,n::kFontDrawPltOffset,n::kFontDrawPltBytes) ||
+        !Window(t,n::kFontDrawGot,sizeof(std::uintptr_t))) return false;
+    for (const auto site : n::kConsoleFontDrawSites) {
+        const auto branch = 0x94000000U | static_cast<std::uint32_t>((n::kFontDrawPltOffset-site)/4);
+        const std::array<std::uint8_t,4> bytes{
+            static_cast<std::uint8_t>(branch),static_cast<std::uint8_t>(branch>>8),
+            static_cast<std::uint8_t>(branch>>16),static_cast<std::uint8_t>(branch>>24)};
+        if (!Guard(t,site,bytes)) return false;
+    }
+    const auto slot = t.base + n::kFontDrawGot;
+    const auto previous=__atomic_load_n(static_cast<const std::uintptr_t*>(engine_memory::AsObject(slot)),__ATOMIC_ACQUIRE);
+    if (previous != engine_call::AddressOfFunction(original) && previous != t.base+kPltResolverOffset)
+        return false;
+    s_OriginalFontDraw.store(original,std::memory_order_release);
+    return Exchange(slot,previous,engine_call::AddressOfFunction(&IsaacModRuntime_ConsoleFontDraw));
+}
+
+void console::PrepareConsoleFontRendering() noexcept {
+    static bool attempted{};
+    if (attempted || !Panel().hooksReady) return;
+    const auto base = s_ConsoleBase.load(std::memory_order_acquire);
+    const auto draw = LuaRuntime::FontDrawStringThunk();
+    if (!base || !draw) return;
+    attempted = true;
+    // The lifecycle installer has already checked the module build ID.
+    static_cast<void>(InstallConsoleFontDraw(
+        {base,kGameModuleRangeCheckSize,kGameModuleRangeCheckSize,kTargetBuildId}, draw));
+}
+
 Status InstallConsoleLifecycleHook(const HookTarget& t) noexcept {
     namespace n=console::native_panel;
     if(t.buildId!=kTargetBuildId || console::Panel().hooksReady ||

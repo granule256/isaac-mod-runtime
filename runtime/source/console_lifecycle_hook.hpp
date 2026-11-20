@@ -6,6 +6,7 @@ Status InstallConsoleLifecycleHook(const HookTarget&) noexcept;
 namespace console {
 using GameFrameFunction=void(*)(void*);
 void RenderConsoleAfterGame() noexcept;
+void PrepareConsoleFontRendering() noexcept;
 inline void RunConsoleGameInput(void* game,GameFrameFunction original) noexcept {
     if (!ConsoleCapturesInput()) original(game);
 }
