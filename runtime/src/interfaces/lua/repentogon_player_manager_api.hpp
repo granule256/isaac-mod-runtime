@@ -10,6 +10,7 @@ namespace isaac::runtime {
 int RepentogonPlayerManagerGetPlayers(lua_State* state);
 int RepentogonPlayerManagerFirstCollectibleOwner(lua_State* state);
 int RepentogonPlayerManagerFirstTrinketOwner(lua_State* state);
+int RepentogonPlayerManagerGetNumCollectibles(lua_State* state);
 int RepentogonPlayerManagerAnyoneHasCollectible(lua_State* state);
 int RepentogonPlayerManagerAnyoneHasTrinket(lua_State* state);
 int RepentogonPlayerManagerAnyoneIsPlayerType(lua_State* state);

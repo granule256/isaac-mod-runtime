@@ -11,6 +11,7 @@ SOURCE = Path(__file__).resolve().parents[1] / 'source'
 DRIVER = PREFIX + r'''
 #include "interfaces/lua/isaac_api.hpp"
 #include "interfaces/lua/repentogon_player_manager_api.hpp"
+#include "application/player/innate_collectibles.hpp"
 #include "lua_object_handles.hpp"
 #include "runtime_constants.hpp"
 #include <algorithm>
@@ -19,6 +20,17 @@ static std::vector<unsigned char> moduleBytes,ownerSlot,managerSlot,manager;
 static std::vector<unsigned char> game,playerList,player,backup;
 static std::vector<unsigned char> collectibles,trinkets;
 static std::vector<unsigned char> item5,item6,trinket7,trinket8;
+static std::uint32_t playerCounts[8]{0,0,0,0,0,2,1,0};
+static std::uint32_t backupCounts[8]{0,0,0,0,0,9,3,0};
+static int SeedInnate(lua_State*) {
+ innate_collectibles::Change(reinterpret_cast<std::uintptr_t>(player.data()),5,4);
+ innate_collectibles::Change(reinterpret_cast<std::uintptr_t>(backup.data()),6,2);
+ return 0;
+}
+static void Extensions(lua_State* state) noexcept {
+ lua_pushcfunction(state,SeedInnate);
+ lua_setglobal(state,"_testSeedInnate");
+}
 extern "C" std::uint32_t g_HostEngineCallTrampolineCalls;
 extern "C" std::uintptr_t g_HostEngineCallTrampolineLastTarget;
 static void Seed(void* object,std::uint32_t seed,std::uint32_t shift) {
@@ -69,6 +81,12 @@ int main(){
  std::memcpy(playerList.data(),&playerAddress,8);
  const auto backupAddress=reinterpret_cast<std::uintptr_t>(backup.data());
  std::memcpy(player.data()+0x2588,&backupAddress,sizeof(backupAddress));
+ for(auto [entity,counts]:{std::pair{player.data(),playerCounts},std::pair{backup.data(),backupCounts}}){
+  const auto first=reinterpret_cast<std::uintptr_t>(counts);
+  const auto last=first+sizeof(playerCounts);
+  std::memcpy(entity+kEntityPlayerCollectibleBeginOffset,&first,sizeof(first));
+  std::memcpy(entity+kEntityPlayerCollectibleEndOffset,&last,sizeof(last));
+ }
  const auto begin=reinterpret_cast<std::uintptr_t>(playerList.data());
  std::memcpy(game.data()+kGamePlayerArrayBeginOffset,&begin,8);
  const auto end=begin+8;std::memcpy(game.data()+kGamePlayerArrayEndOffset,&end,8);
@@ -119,6 +137,7 @@ int main(){
  SetEntityPlayerHasCollectibleHostImplementation(&Has);
  SetRepentogonPlayerManagerTrinketHost(&Trinket);
  SetRepentogonPlayerManagerTrinketMultiplierHost(&Multiplier);
+ LuaRuntime::SetRuntimeExtensionInstaller(&Extensions);
  const auto players=isaac::runtime::ResolveEnginePlayerArray();
  assert(players.readable&&players.count==1);
  const char* script=R"lua(
@@ -157,6 +176,17 @@ assert(PlayerManager.FirstTrinketOwner(8)==nil)
 assert(not pcall(PlayerManager.FirstTrinketOwner,7,1))
 assert(PlayerManager.AnyoneHasCollectible(5,false))
 assert(PlayerManager.AnyoneHasCollectible(6,false)==true) -- backup with LazShared tag
+assert(PlayerManager.GetNumCollectibles(5)==2) -- no LazShared tag, exclude backup's nine
+assert(PlayerManager.GetNumCollectibles(6)==4)
+_testSeedInnate()
+assert(p:GetCollectibleNum(5)==6)
+assert(PlayerManager.GetNumCollectibles(5)==6)
+assert(PlayerManager.GetNumCollectibles(5,true)==2)
+assert(PlayerManager.GetNumCollectibles(6)==6) -- main + tagged backup + innate modifiers
+assert(PlayerManager.GetNumCollectibles(6,true)==4)
+assert(PlayerManager.GetNumCollectibles(6,nil)==6)
+assert(PlayerManager.GetNumCollectibles(7)==0)
+assert(not pcall(PlayerManager.GetNumCollectibles,5,1))
 assert(PlayerManager.AnyoneHasTrinket(7,true))
 assert(PlayerManager.AnyoneHasTrinket(7,false)) -- backup multiplier
 assert(not PlayerManager.AnyoneHasTrinket(8,true))

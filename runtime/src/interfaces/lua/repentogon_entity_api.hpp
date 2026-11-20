@@ -8,6 +8,8 @@ extern "C" {
 
 namespace isaac::runtime {
 int RepentogonEntitySetInvincible(lua_State* state);
+int RepentogonEntityGetBossStatusEffectCooldown(lua_State* state);
+int RepentogonEntitySetBossStatusEffectCooldown(lua_State* state);
 
 struct RepentogonEntityVector {
     float x{},y{};

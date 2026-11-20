@@ -146,6 +146,29 @@ int RepentogonPlayerManagerFirstTrinketOwner(lua_State* state) {
     return FirstOwner(state,true);
 }
 
+int RepentogonPlayerManagerGetNumCollectibles(lua_State* state) {
+    const auto id = ItemId(state);
+    if (!lua_isnoneornil(state, 2) && !lua_isboolean(state, 2))
+        return luaL_argerror(state, 2, "ignoreModifiers must be boolean");
+    const bool ignore = lua_toboolean(state, 2);
+    const auto players = ResolveEnginePlayerArray();
+    if (!players.readable) return luaL_error(state, "PlayerManager player list is unavailable");
+    const bool shared = players.count != 0 && ItemHasLazSharedTag(false, id);
+    std::int64_t count = 0;
+    for (std::size_t i = 0; i < players.count; ++i) {
+        const auto player = ResolveEnginePlayerAt(i);
+        if (!player) break;
+        count += EntityPlayerCollectibleCountForApi(player, id, ignore);
+        std::uintptr_t backup = 0;
+        if (shared && engine_memory::ReadField(player, kBackupPlayerOffset, &backup,
+                engine_memory::EngineMemoryReadable) && IsEnginePlayerPointer(backup)) {
+            count += EntityPlayerCollectibleCountForApi(backup, id, ignore);
+        }
+    }
+    lua_pushinteger(state, count);
+    return 1;
+}
+
 int RepentogonPlayerManagerAnyoneHasCollectible(lua_State* state) {
     const auto id=ItemId(state);
     if (lua_gettop(state)>=2 && !lua_isboolean(state,2))

@@ -4966,6 +4966,24 @@ int EntityPlayerGetModelingClayEffect(lua_State* state) {
 // 数据来源：`Entity_Player` 的"每收藏品计数数组"——一对 `begin/end` 指针（元素为 32 位整数），
 // 见 `runtime_constants.hpp` 的 `kEntityPlayerCollectibleBeginOffset/EndOffset`。
 // 口径与同族一致：**任何一步不成立都保守返回 0**，绝不报错（报错会摘掉整条回调）。
+std::int64_t ReadPlayerCollectibleCount(
+    std::uintptr_t player, std::uint32_t id, bool ignoreModifiers) noexcept {
+    const auto extra = ignoreModifiers ? 0 : innate_collectibles::Count(
+        player, static_cast<std::int32_t>(id));
+    std::uintptr_t begin = 0, end = 0;
+    if (!ReadEngine(player + kEntityPlayerCollectibleBeginOffset, &begin) ||
+        !ReadEngine(player + kEntityPlayerCollectibleEndOffset, &end) || begin == 0 ||
+        end <= begin || (end - begin) % sizeof(std::uint32_t) != 0 ||
+        id >= (end - begin) / sizeof(std::uint32_t)) {
+        return extra;
+    }
+    std::uint32_t owned = 0;
+    if (!ReadEngine(begin + static_cast<std::uintptr_t>(id) * sizeof(owned), &owned)) {
+        return extra;
+    }
+    return static_cast<std::int64_t>(owned) + extra;
+}
+
 int EntityPlayerGetCollectibleNum(lua_State* state) {
     auto* handle = CheckEntityHandle(state, 1);
     const int argumentCount = lua_gettop(state);
@@ -4982,29 +5000,9 @@ int EntityPlayerGetCollectibleNum(lua_State* state) {
         PushZero(state);
         return 1;
     }
-    const auto pushOwned = [&](std::uint32_t owned) {
-        const auto extra = lua_toboolean(state, 3) ? 0 : innate_collectibles::Count(
-            entity, static_cast<std::int32_t>(collectibleId));
-        lua_pushinteger(state, static_cast<lua_Integer>(owned) + extra);
-        return 1;
-    };
-    std::uintptr_t begin = 0;
-    std::uintptr_t end = 0;
-    if (!ReadEngine(entity + kEntityPlayerCollectibleBeginOffset, &begin) ||
-        !ReadEngine(entity + kEntityPlayerCollectibleEndOffset, &end) || begin == 0 ||
-        end <= begin || ((end - begin) % sizeof(std::uint32_t)) != 0) {
-        return pushOwned(0);
-    }
-    const std::size_t count = static_cast<std::size_t>((end - begin) / sizeof(std::uint32_t));
-    if (static_cast<std::uint64_t>(collectibleId) >= count) {
-        return pushOwned(0);
-    }
-    std::uint32_t owned = 0;
-    if (!ReadEngine(begin + static_cast<std::uintptr_t>(collectibleId) * sizeof(std::uint32_t),
-                    &owned)) {
-        return pushOwned(0);
-    }
-    return pushOwned(owned);
+    lua_pushinteger(state, ReadPlayerCollectibleCount(
+        entity, static_cast<std::uint32_t>(collectibleId), lua_toboolean(state, 3)));
+    return 1;
 }
 
 // EID uses the effective multiplier for transformation progress. Counting held
@@ -14203,6 +14201,11 @@ bool EntityPlayerHasCollectibleForApi(
     std::uintptr_t player, std::uint32_t collectibleId, bool ignoreModifiers) noexcept {
     return CallEntityPlayerHasCollectible(
         HasCollectibleMethod(), player, collectibleId, ignoreModifiers);
+}
+
+std::int64_t EntityPlayerCollectibleCountForApi(
+    std::uintptr_t player, std::uint32_t collectibleId, bool ignoreModifiers) noexcept {
+    return player ? ReadPlayerCollectibleCount(player, collectibleId, ignoreModifiers) : 0;
 }
 
 std::uint64_t ItemConfigItemTagsForApi(bool trinket, std::uint32_t id) noexcept {

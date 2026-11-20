@@ -66,6 +66,8 @@ int main(){
  std::memcpy(moduleBytes.data()+kGameOwnerGlobalSlotOffset,&gameAddress,sizeof(gameAddress));
  std::memcpy(game.data()+kGameRoomPointerOffset,&roomAddress,sizeof(roomAddress));
  SetIdentity(entity,base+kEntityNpcVtableOffset,20,1);SetIdentity(minecart,base+kEntityNpcVtableOffset,20,965);SetIdentity(slot,base+kEntitySlotVtableOffset,6,1);SetIdentity(pickup,base+kEntityPickupVtableOffset,5,100);
+ const std::int32_t statusFields[]{91,239,54};
+ std::memcpy(entity.data()+0x29c,statusFields,sizeof(statusFields));
  SetIdentity(ghost,base+kEntityEffectVtableOffset,kEntityTypeEffect,191);
  const std::uint32_t initSeed=1234;std::memcpy(pickup.data()+kEntityInitSeedOffset,&initSeed,sizeof(initSeed));
  const auto animationAddress=Address(animation);std::memcpy(pickup.data()+kEntitySpriteOffset+kAnim2AnimationArrayOffset,&animationAddress,sizeof(animationAddress));
@@ -92,6 +94,11 @@ int main(){
 entity:SetInvincible(true);assert(entity:IsInvincible())
 entity:SetInvincible(false);assert(not entity:IsInvincible())
 assert(not pcall(function() entity:SetInvincible(1) end))
+assert(entity:GetBossStatusEffectCooldown()==239)
+assert(pickup:GetBossStatusEffectCooldown()==0)
+assert(select('#',entity:SetBossStatusEffectCooldown(-7))==0)
+assert(entity:GetBossStatusEffectCooldown()==-7)
+assert(not pcall(entity.SetBossStatusEffectCooldown,entity,0.5))
 local car=entity:GiveMinecart(Vector(3,4),Vector(5,6));assert(car and car.Type==20 and car.Variant==965)
 assert(entity:GetMinecart():ToNPC().Type==20)
 assert(entity:ToSlot()==nil)
@@ -119,6 +126,8 @@ assert(not pcall(function()pickup:InitFlipState(1,true,2)end))
   char error[2048]{};static_cast<void>(LuaRuntime::CopyLastLuaErrorText(error,sizeof(error)));std::fprintf(stderr,"%s\n",error);return 1;
  }
  if(calls!=4){std::fprintf(stderr,"native calls=%u\n",calls);return 1;}
+ const std::int32_t updatedStatusFields[]{91,-7,54};
+ assert(std::memcmp(entity.data()+0x29c,updatedStatusFields,sizeof(updatedStatusFields))==0);
  assert(LuaRuntime::ShutdownForModReload());
  isaac::runtime::pickup_flip::SetNativeTestBindings({});SetRepentogonEntityNativeTestBindings({});
  repentogon::SetNativePort(nullptr);SetSessionSaveFilePort(nullptr);LuaRuntime::SetRuntimeExtensionInstaller(nullptr);

@@ -24,6 +24,8 @@ namespace {
 constexpr std::uint8_t kGiveMinecartGuard[]={0xff,0x03,0x01,0xd1,0xfd,0x7b,0x01,0xa9,0xfd,0x43,0x00,0x91,0xf6,0x57,0x02,0xa9};
 #endif
 constexpr std::uintptr_t kEntityMinecartHandleOffset=0x3c8;
+// AddFreeze sets this timer to 240 for bosses; Entity::Update decrements the same s32.
+constexpr std::uintptr_t kEntityBossStatusEffectCooldownOffset=0x2a0;
 constexpr std::uintptr_t kEntitySlotPrizeCollectibleOffset=0x570;
 constexpr std::uintptr_t kEntityPickupCycleCountOffset=0x604;
 constexpr std::uintptr_t kEntityPickupCycleListOffset=0x5e4;
@@ -100,6 +102,21 @@ int RepentogonEntitySetInvincible(lua_State* state) {
     if (!engine_memory::WriteField(entity,kEntityIsInvincibleOffset,value,
                                    engine_memory::EngineMemoryWritable))
         return luaL_error(state,"Entity invincibility flag is not writable");
+    return 0;
+}
+
+int RepentogonEntityGetBossStatusEffectCooldown(lua_State* state) {
+    lua_pushinteger(state, Read<std::int32_t>(state, Entity(state),
+        kEntityBossStatusEffectCooldownOffset, "Entity boss status effect cooldown"));
+    return 1;
+}
+
+int RepentogonEntitySetBossStatusEffectCooldown(lua_State* state) {
+    const auto entity = Entity(state);
+    const auto value = static_cast<std::int32_t>(luaL_checkinteger(state, 2));
+    if (!engine_memory::WriteField(entity, kEntityBossStatusEffectCooldownOffset, value,
+            engine_memory::EngineMemoryWritable))
+        return luaL_error(state, "Entity boss status effect cooldown is not writable");
     return 0;
 }
 
