@@ -889,10 +889,16 @@ inline void PanelFrame(const EngineEntries& entries,const PanelNativeEntries& ui
             command=PanelInputText();length=static_cast<std::uint32_t>(std::strlen(command));
         }
         std::string completionCommand;
-        if (command && length && ui.extensionEnabled && ui.extensionEnabled()) {
-            // A final keyboard result may arrive without a changed callback.
-            if (fromKeyboard && std::string_view(command,length)!=PanelInputText())
-                static_cast<void>(RefreshPanelCompletions(ui,command));
+        const bool enhanced=command && length && ui.extensionEnabled && ui.extensionEnabled();
+        if (enhanced && fromKeyboard) {
+            // Accept the applet's final text as an edit. Only panel Enter submits it.
+            ResetPanelHistoryNavigation();
+            CopyCompletionText(p.draftUtf8,sizeof(p.draftUtf8),command,length);
+            static_cast<void>(StorePanelDraftUtf8(p.draftUtf8));
+            SetPanelInput(ui,p.draftUtf8);
+            static_cast<void>(RefreshPanelCompletions(ui,p.draftUtf8));
+            length=0;
+        } else if (enhanced) {
             try {
                 completionCommand=FixPanelCompletionCommand(std::string_view(command,length));
                 command=completionCommand.c_str();
@@ -964,7 +970,8 @@ inline void PanelFrame(const EngineEntries& entries,const PanelNativeEntries& ui
                 if (PanelDraftFitsKeyboard(PanelInputText())) {
                     static_cast<void>(StorePanelDraftUtf8(PanelInputText()));
                     p.keyboardFinished=false;p.keyboardOpen=true;
-                    if (!RequestKeyboard(entries,kage,&PanelKeyboardChanged,p.draft))
+                    const bool enhanced=ui.extensionEnabled && ui.extensionEnabled();
+                    if (!RequestKeyboard(entries,kage,enhanced?nullptr:&PanelKeyboardChanged,p.draft))
                         p.keyboardOpen=false;
                 }
             }

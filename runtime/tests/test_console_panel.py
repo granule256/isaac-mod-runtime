@@ -77,6 +77,24 @@ int main(){
  std::memcpy(core.pendingCommand,"debug 3",8);core.pendingLength=7;core.pendingReady=true;
  expected="debug 3";expectedLength=7;
  frame(b|right);assert(calls==3&&!console::ConsoleCapturesInput());
+ // Enhanced keyboard confirmation fills the panel even without a textChanged event.
+ ui.extensionEnabled=[](){return true;};
+ console::RegisterConsoleCommand("probeedit","","",true,0);
+ for(int i=0;i<48;++i)frame(a|b);frame();frame(a);
+ const std::uint32_t prefix[]={'p','r','o','b','e','e',0};
+ auto& keyboard=console::NativeKeyboardParamsStorage().prefix;
+ expected="probee";expectedLength=6;
+ keyboard.finished(prefix,keyboard.userData);frame(1u<<12);frame(1u<<12);
+ assert(histories==3&&calls==3&&std::string(console::PanelInputText())=="probee");
+ assert(console::CompletionCount()==1);
+ frame();frame(a);keyboard.finished(nullptr,keyboard.userData);frame();
+ assert(histories==3&&calls==3&&std::string(console::PanelInputText())=="probee");
+ frame(1u<<23);assert(std::string(console::PanelInputText())=="probeedit");
+ expected="probeedit";expectedLength=9;
+ frame();frame(1u<<12);frame(1u<<12);assert(calls==4&&histories==4);
+ frame();frame(a);console::InvalidateConsoleSession();frame();
+ keyboard.finished(prefix,keyboard.userData);frame();
+ assert(!console::ConsolePaused()&&!*console::PanelInputText()&&calls==4&&histories==4);
  const auto previousUpdates=updates,previousHidden=hidden;
  console::Storage().consoleObject[kConsoleObjectSize-1]=0;frame();
  assert(console::State().fenceBroken==1&&updates==previousUpdates&&hidden==previousHidden&&!console::ConsolePaused());
