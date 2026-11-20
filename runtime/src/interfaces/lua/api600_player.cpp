@@ -193,6 +193,23 @@ int Api600MultiShotParamsSetNumTears(lua_State*L){
  auto*p=static_cast<Api600MultiShotParams*>(luaL_checkudata(L,1,kMulti));
  Put(p->bytes,kApi600MultiShotNumTearsOffset,static_cast<std::int16_t>(luaL_checkinteger(L,2)));return 0;
 }
+int Api600MultiShotParamsGetNumEyesActive(lua_State*L){
+ if(lua_gettop(L)!=1)return luaL_error(L,"MultiShotParams:GetNumEyesActive accepts no arguments");
+ if(lua_rawlen(L,1)!=sizeof(Api600MultiShotParams))return luaL_argerror(L,1,"MultiShotParams expected");
+ const auto*p=static_cast<const Api600MultiShotParams*>(luaL_checkudata(L,1,kMulti));
+ lua_pushinteger(L,At<std::int32_t>(p->bytes,kApi600MultiShotNumEyesActiveOffset));return 1;
+}
+int Api600MultiShotParamsGetMultiEyeAngle(lua_State*L){
+ if(lua_rawlen(L,1)!=sizeof(Api600MultiShotParams))return luaL_argerror(L,1,"MultiShotParams expected");
+ const auto*p=static_cast<const Api600MultiShotParams*>(luaL_checkudata(L,1,kMulti));
+ lua_pushnumber(L,At<float>(p->bytes,kApi600MultiShotMultiEyeAngleOffset));return 1;
+}
+int Api600MultiShotParamsGetNumRandomDirTears(lua_State*L){
+ if(lua_gettop(L)!=1)return luaL_error(L,"MultiShotParams:GetNumRandomDirTears accepts no arguments");
+ if(lua_rawlen(L,1)!=sizeof(Api600MultiShotParams))return luaL_argerror(L,1,"MultiShotParams expected");
+ const auto*p=static_cast<const Api600MultiShotParams*>(luaL_checkudata(L,1,kMulti));
+ lua_pushinteger(L,At<std::int16_t>(p->bytes,kApi600MultiShotNumRandomDirTearsOffset));return 1;
+}
 int Api600MultiShotParamsGetNumLanesPerEye(lua_State*L){
  if(lua_gettop(L)!=1)return luaL_error(L,"MultiShotParams:GetNumLanesPerEye accepts no arguments");
  if(lua_rawlen(L,1)!=sizeof(Api600MultiShotParams))return luaL_argerror(L,1,"MultiShotParams expected");

@@ -28,8 +28,16 @@ static std::int64_t Local(void* p){assert(p==player.data());++calls;return 1;}
 static isaac::runtime::Api600MultiShotParams Multi(void* p,std::int32_t weapon){
  assert(p==player.data()&&weapon==1);++calls;
  isaac::runtime::Api600MultiShotParams value{};
- const std::uint32_t lanes=37;
- std::memcpy(value.bytes+0x14,&lanes,4);
+ const std::int16_t tears=5;
+ const std::int16_t lanes=37;
+ const std::int32_t eyes=2;
+ const float eyeAngle=17.5F;
+ const std::int16_t randomTears=3;
+ std::memcpy(value.bytes+0x00,&tears,sizeof(tears));
+ std::memcpy(value.bytes+0x02,&lanes,sizeof(lanes));
+ std::memcpy(value.bytes+0x14,&eyes,sizeof(eyes));
+ std::memcpy(value.bytes+0x18,&eyeAngle,sizeof(eyeAngle));
+ std::memcpy(value.bytes+0x20,&randomTears,sizeof(randomTears));
  return value;
 }
 static int Mutate(lua_State*){
@@ -85,7 +93,14 @@ assert(not pcall(function()player:SetDead(1)end))
 local pocket=player:GetPocketItem(0)
 assert(pocket:GetSlot()==41 and pocket:GetType()==2)
 local params=player:GetMultiShotParams()
+assert(params:GetNumTears()==5)
 assert(params:GetNumLanesPerEye()==37)
+assert(params:GetNumEyesActive()==2)
+assert(params:GetMultiEyeAngle()==17.5)
+assert(params:GetMultiEyeAngle(WeaponType.WEAPON_TEARS)==17.5)
+assert(params:GetNumRandomDirTears()==3)
+params:SetNumTears(0x100000001)
+assert(params:GetNumTears()==1)
 local lanes=params.GetNumLanesPerEye
 assert(not pcall(lanes,_shortParams()))
 assert(not pcall(function()pocket:GetSlot(1)end))
