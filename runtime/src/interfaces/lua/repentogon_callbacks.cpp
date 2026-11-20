@@ -794,6 +794,10 @@ constexpr RepentogonApiBinding kApis[]={
       ApiMaturity::Experimental},RepentogonRoomSetBackdropType},
     {{0x04020012,ApiDomain::Room,"Room","SetRail",{},0,ThreadAffinity::ManagedCallback,
       ApiMaturity::Experimental},RepentogonRoomSetRail},
+    {{0x0E020127,ApiDomain::Isaac,"MultiShotParams","IsShootingSideways",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},Api600MultiShotParamsIsShootingSideways},
+    {{0x0E020128,ApiDomain::Isaac,"MultiShotParams","IsShootingBackwards",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},Api600MultiShotParamsIsShootingBackwards},
 };
 // A bounded read-only ID map addresses the cached states, not the ordinary ID array.
 constexpr auto MakeStateIndices() noexcept {
