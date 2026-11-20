@@ -5,6 +5,7 @@
 #include "interfaces/lua/isaac_api.hpp"
 #include "interfaces/lua/lua_integer_argument.hpp"
 #include "interfaces/lua/owner_binding.hpp"
+#include "lua_object_handles.hpp"
 #include "lua_runtime.hpp"
 #include "runtime_constants.hpp"
 
@@ -97,13 +98,52 @@ bool ItemHasLazSharedTag(bool trinket,std::uint32_t id) {
     return (ItemConfigItemTagsForApi(trinket,id)&kLazSharedTag)!=0;
 }
 
-bool BackupPlayer(lua_State* state,std::uintptr_t player,bool trinket,
-                  std::uint32_t id,bool ignore) {
+std::uintptr_t MatchingBackup(lua_State* state,std::uintptr_t player,bool trinket,
+                              std::uint32_t id,bool ignore) {
     std::uintptr_t backup{};
     if (!player || !engine_memory::ReadField(player,kBackupPlayerOffset,&backup,
-            engine_memory::EngineMemoryReadable) || !backup) return false;
-    return PlayerHasQuery(state,backup,id,trinket,ignore);
+            engine_memory::EngineMemoryReadable) || !backup) return 0;
+    return PlayerHasQuery(state,backup,id,trinket,ignore)?backup:0;
 }
+
+int FirstOwner(lua_State* state,bool trinket) {
+    const auto id=ItemId(state);
+    int option=2;
+    // The older trinket signature accepted an unused RNG before the flag.
+    if (trinket && (lua_isnil(state,2) ||
+                    luaL_testudata(state,2,LuaRuntime::kRngMetatable))) option=3;
+    if (!lua_isnoneornil(state,option) && !lua_isboolean(state,option))
+        return luaL_argerror(state,option,"lazSharedGlobalTag must be boolean");
+    const bool useBackup=lua_isnoneornil(state,option)||lua_toboolean(state,option);
+    const auto players=ResolveEnginePlayerArray();
+    if (!players.readable) return luaL_error(state,"PlayerManager player list is unavailable");
+    bool checkedTag=false,shared=false;
+    for (std::size_t i=0;i<players.count;++i) {
+        const auto player=ResolveEnginePlayerAt(i);
+        auto owner=player;
+        if (!PlayerHasQuery(state,player,id,trinket,false)) {
+            if (!checkedTag) {
+                shared=useBackup&&ItemHasLazSharedTag(trinket,id);
+                checkedTag=true;
+            }
+            owner=shared?MatchingBackup(state,player,trinket,id,false):0;
+        }
+        if (owner) {
+            PushEntityCallbackArgument(state,owner);
+            return 1;
+        }
+    }
+    lua_pushnil(state);
+    return 1;
+}
+}
+
+int RepentogonPlayerManagerFirstCollectibleOwner(lua_State* state) {
+    return FirstOwner(state,false);
+}
+
+int RepentogonPlayerManagerFirstTrinketOwner(lua_State* state) {
+    return FirstOwner(state,true);
 }
 
 int RepentogonPlayerManagerAnyoneHasCollectible(lua_State* state) {
@@ -117,7 +157,7 @@ int RepentogonPlayerManagerAnyoneHasCollectible(lua_State* state) {
         const auto player=ResolveEnginePlayerAt(i);
         if (PlayerHasQuery(state,player,id,false,ignore) ||
             (ItemHasLazSharedTag(false,id) &&
-             BackupPlayer(state,player,false,id,ignore))) {
+             MatchingBackup(state,player,false,id,ignore))) {
             lua_pushboolean(state,1);
             return 1;
         }
@@ -137,7 +177,7 @@ int RepentogonPlayerManagerAnyoneHasTrinket(lua_State* state) {
         const auto player=ResolveEnginePlayerAt(i);
         if (PlayerHasQuery(state,player,id,true,ignore) ||
             (ItemHasLazSharedTag(true,id) &&
-             BackupPlayer(state,player,true,id,ignore))) {
+             MatchingBackup(state,player,true,id,ignore))) {
             lua_pushboolean(state,1);
             return 1;
         }

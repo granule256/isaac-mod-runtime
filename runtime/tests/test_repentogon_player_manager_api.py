@@ -51,7 +51,7 @@ int main(){
  game.assign(kGamePlayerArrayCapacityOffset+8,0);
  playerList.assign(8,0);player.assign(0x3000,0);backup.assign(0x3000,0);
  collectibles.assign(8*sizeof(std::uintptr_t),0);
- trinkets.assign(8*sizeof(std::uintptr_t),0);
+ trinkets.assign(9*sizeof(std::uintptr_t),0);
  item5.assign(0x100,0);item6.assign(0x100,0);
  trinket7.assign(0x100,0);trinket8.assign(0x100,0);
  const auto base=reinterpret_cast<std::uintptr_t>(moduleBytes.data());
@@ -140,6 +140,21 @@ local item=Isaac.GetItemConfig():GetCollectible(5)
 item.MaxCharges=13;item.ChargeType=2
 assert(item.MaxCharges==13 and item.ChargeType==2)
 assert(not pcall(function() item.MaxCharges=1.5 end))
+assert(GetPtrHash(PlayerManager.FirstCollectibleOwner(5))==GetPtrHash(p))
+assert(GetPtrHash(PlayerManager.FirstCollectibleOwner(5,false))==GetPtrHash(p))
+local backupOwner=PlayerManager.FirstCollectibleOwner(6)
+assert(backupOwner and backupOwner:GetPlayerType()==p:GetPlayerType())
+assert(GetPtrHash(backupOwner)~=GetPtrHash(p))
+assert(PlayerManager.FirstCollectibleOwner(6,false)==nil)
+assert(PlayerManager.FirstCollectibleOwner(7)==nil)
+assert(not pcall(PlayerManager.FirstCollectibleOwner,5,1))
+assert(GetPtrHash(PlayerManager.FirstTrinketOwner(7))==GetPtrHash(backupOwner))
+assert(GetPtrHash(PlayerManager.FirstTrinketOwner(7,nil,true))==GetPtrHash(backupOwner))
+assert(GetPtrHash(PlayerManager.FirstTrinketOwner(7,RNG(),true))==GetPtrHash(backupOwner))
+assert(PlayerManager.FirstTrinketOwner(7,false)==nil)
+assert(PlayerManager.FirstTrinketOwner(7,RNG(),false)==nil)
+assert(PlayerManager.FirstTrinketOwner(8)==nil)
+assert(not pcall(PlayerManager.FirstTrinketOwner,7,1))
 assert(PlayerManager.AnyoneHasCollectible(5,false))
 assert(PlayerManager.AnyoneHasCollectible(6,false)==true) -- backup with LazShared tag
 assert(PlayerManager.AnyoneHasTrinket(7,true))

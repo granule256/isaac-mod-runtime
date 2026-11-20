@@ -18,6 +18,7 @@ int RepentogonEntityGetMinecart(lua_State* state);
 int RepentogonEntityToSlot(lua_State* state);
 int RepentogonEntitySlotGetPrizeCollectible(lua_State* state);
 int RepentogonEntityPickupGetCollectibleCycle(lua_State* state);
+int RepentogonEntityPickupGetPickupGhost(lua_State* state);
 int RepentogonEntityPickupRemoveCollectibleCycle(lua_State* state);
 int RepentogonEntityPickupGetFlipCollectible(lua_State* state);
 int RepentogonEntityPickupInitFlipState(lua_State* state);

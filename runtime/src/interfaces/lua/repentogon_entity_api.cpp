@@ -31,6 +31,8 @@ constexpr std::uintptr_t kEntityPickupFlipStateOffset=0x610;
 constexpr std::uintptr_t kEntityPickupFlipSubtype=0x8;
 // handle_collision +0x5e0 -> QueueItem arg4; DropCollectible restores it from the active slot.
 constexpr std::uintptr_t kEntityPickupVarDataOffset=0x5e0;
+// UpdatePickupGhosts loads and updates this EntityEffect pointer.
+constexpr std::uintptr_t kEntityPickupGhostOffset=0x5c8;
 constexpr std::uint32_t kEntityTypeSlot=6;
 constexpr std::uint32_t kEntityPickupVariantCollectible=100;
 
@@ -142,6 +144,23 @@ int RepentogonEntitySlotGetPrizeCollectible(lua_State* state) {
     const auto slot=Slot(state);
     if(lua_gettop(state)!=1)return luaL_error(state,"EntitySlot:GetPrizeCollectible accepts no arguments");
     lua_pushinteger(state,Read<std::int32_t>(state,slot,kEntitySlotPrizeCollectibleOffset,"EntitySlot prize collectible"));
+    return 1;
+}
+
+int RepentogonEntityPickupGetPickupGhost(lua_State* state) {
+    const auto ghost=Read<std::uintptr_t>(state,Pickup(state),kEntityPickupGhostOffset,"pickup ghost");
+    const auto base=LuaRuntime::EngineModuleBase();
+    std::uintptr_t vtable{};
+    std::uint32_t type{};
+    if (!ghost || base>UINTPTR_MAX-kEntityEffectVtableOffset ||
+        !engine_memory::ReadField(ghost,0,&vtable,engine_memory::EngineMemoryReadable) ||
+        vtable!=base+kEntityEffectVtableOffset ||
+        !engine_memory::ReadField(ghost,kEntityTypeOffset,&type,engine_memory::EngineMemoryReadable) ||
+        type!=kEntityTypeEffect) {
+        lua_pushnil(state);
+        return 1;
+    }
+    PushEntity(state,ghost);
     return 1;
 }
 
