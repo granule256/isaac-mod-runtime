@@ -18,7 +18,7 @@ namespace guards=content_names;
 enum class Family : std::uint8_t {Pill,Entity};
 struct Entry {
     std::uint32_t hash{},offset{},length{},next{};
-    std::int32_t type{},variant{},pill{};
+    std::int32_t type{},variant{},subtypeOrPill{};
     Family family{};std::uint8_t padding[3]{};
 };
 static_assert(sizeof(Entry)==32);
@@ -109,7 +109,7 @@ template<class Visitor> bool WalkEntities(const Roots& roots,Visitor visit) noex
         if(!node||node==end||budget==0)return false;
         --budget;
         EntityPrefix value{};if(!Read(node,&value))return false;
-        Name name{};if(!StringView(value.name,node+0x38,&name)||!visit(name,value.type,value.variant))return false;
+        Name name{};if(!StringView(value.name,node+0x38,&name)||!visit(name,value.type,value.variant,value.subtype))return false;
         if(!NextNode(node,value.links,end,&budget,&node))return false;
     }
     return node==end;
@@ -137,14 +137,14 @@ const Entry* Find(const Cache& cache,Family family,const char* name,std::size_t 
     }
     return nullptr;
 }
-bool Insert(Cache& cache,Family family,const Name& name,std::int32_t type,std::int32_t variant,std::int32_t pill) noexcept {
+bool Insert(Cache& cache,Family family,const Name& name,std::int32_t type,std::int32_t variant,std::int32_t subtypeOrPill) noexcept {
     const auto* bytes=static_cast<const char*>(engine_memory::AsObject(name.data));
     const auto hash=Hash(family,bytes,name.size);
     if(Find(cache,family,bytes,name.size,hash))return true; // 首个按PC遍历顺序命中者保留。
     if(cache.count>=cache.capacity||name.size>cache.nameCapacity-cache.nameSize)return false;
     const auto bucket=hash&(cache.bucketCount-1);auto& entry=cache.entries[cache.count];
     entry={hash,static_cast<std::uint32_t>(cache.nameSize),static_cast<std::uint32_t>(name.size),
-        cache.buckets[bucket],type,variant,pill,family,{0,0,0}};
+        cache.buckets[bucket],type,variant,subtypeOrPill,family,{0,0,0}};
     if(name.size)std::memcpy(cache.names+cache.nameSize,bytes,name.size);
     cache.nameSize+=name.size;cache.buckets[bucket]=static_cast<std::uint32_t>(++cache.count);return true;
 }
@@ -173,7 +173,7 @@ bool RefreshRuntimeContentNames() noexcept {
     std::size_t bytes{};
     const auto measure=[&bytes](const Name& name)noexcept{if(name.size>UINT32_MAX-bytes)return false;bytes+=name.size;return true;};
     if(!WalkPills(roots,[&](const Name& name,std::int32_t)noexcept{return measure(name);})||
-       !WalkEntities(roots,[&](const Name& name,std::int32_t,std::int32_t)noexcept{return measure(name);}))return false;
+       !WalkEntities(roots,[&](const Name& name,std::int32_t,std::int32_t,std::int32_t)noexcept{return measure(name);}))return false;
     std::size_t buckets=1;
     if(capacity>SIZE_MAX/2)return false;
     while(buckets<capacity*2){if(buckets>SIZE_MAX/2)return false;buckets*=2;}
@@ -193,15 +193,16 @@ bool RefreshRuntimeContentNames() noexcept {
     cache.capacity=capacity;cache.nameCapacity=bytes;cache.bucketCount=buckets;cache.bytes=allocation;
     cache.itemRoot=roots.item;cache.entityRoot=roots.entity;
     if(!WalkPills(roots,[&](const Name& name,std::int32_t id)noexcept{return Insert(cache,Family::Pill,name,0,0,id);})||
-       !WalkEntities(roots,[&](const Name& name,std::int32_t type,std::int32_t variant)noexcept{return Insert(cache,Family::Entity,name,type,variant,0);}))return false;
+       !WalkEntities(roots,[&](const Name& name,std::int32_t type,std::int32_t variant,std::int32_t subtype)noexcept{return Insert(cache,Family::Entity,name,type,variant,subtype);}))return false;
     Roots after{};if(!ReadRoots(&after)||after.item!=roots.item||after.entity!=roots.entity||
         after.pillBegin!=roots.pillBegin||after.pillEnd!=roots.pillEnd||
         std::memcmp(&after.tree,&roots.tree,sizeof(TreeHeader)))return false;
     cache.ready=true;g_Cache=cache;static_cast<void>(memory.release());return true;
 }
-int RuntimeGetPillEffectByName(lua_State* state){const auto* entry=Lookup(state,Family::Pill);lua_pushinteger(state,entry?entry->pill:-1);return 1;}
+int RuntimeGetPillEffectByName(lua_State* state){const auto* entry=Lookup(state,Family::Pill);lua_pushinteger(state,entry?entry->subtypeOrPill:-1);return 1;}
 int RuntimeGetEntityTypeByName(lua_State* state){const auto* entry=Lookup(state,Family::Entity);lua_pushinteger(state,entry?entry->type:0);return 1;}
 int RuntimeGetEntityVariantByName(lua_State* state){const auto* entry=Lookup(state,Family::Entity);lua_pushinteger(state,entry?entry->variant:-1);return 1;}
+int RuntimeGetEntitySubTypeByName(lua_State* state){const auto* entry=Lookup(state,Family::Entity);lua_pushinteger(state,entry?entry->subtypeOrPill:0);return 1;}
 RuntimeContentNameStats RuntimeContentNameStatsSnapshot() noexcept {return {g_Cache.count,g_Cache.nameSize,g_Cache.bytes,g_Refreshes,g_Cache.ready};}
 #if !defined(__SWITCH__)
 void SetRuntimeContentNameAllocationFailureForTest(bool fail) noexcept {g_FailAllocation=fail;}

@@ -13,6 +13,7 @@
 #include "interfaces/lua/entity_lifetime.hpp"
 #include "interfaces/lua/compatibility_adapter_runtime.hpp"
 #include "interfaces/lua/repentogon_environment.hpp"
+#include "interfaces/lua/repentogon_pickup_loot_list.hpp"
 #include "application/callback/extended_callback_runtime.hpp"
 #include "application/repentogon/repentogon_settings.hpp"
 #include "infrastructure/native/world_content_mutations.hpp"
@@ -4881,6 +4882,11 @@ void ParseRepentogonReturn(lua_State* state,void* opaque) {
     auto& context=*static_cast<RepentogonReturnContext*>(opaque);
     const auto& event=*context.event;
     const auto id=event.id;
+    if(id==1334&&event.lootList) {
+        context.result.hasObject=isaac::runtime::MoveRepentogonPickupLootListToNative(
+            state,lua_absindex(state,-1),event.lootList);
+        return;
+    }
     if(id==1251&&event.multiShot) {
         context.result.hasObject=isaac::runtime::ReadApi600MultiShotParamsSnapshot(state,-1,event.multiShot);
         return;
@@ -5003,7 +5009,7 @@ void ParseRepentogonReturn(lua_State* state,void* opaque) {
     }
     const bool entityRender=id>=1080&&id<=1089;
     const bool gridPre=id>=1400&&id<=1462&&(id&1)==0;
-    const bool pre=entityRender||gridPre||(id>=1160&&id<=1169)||id==1026||id==1030||id==1218||id==1201||id==1216||id==1069||id==1484||id==1481||id==1064||id==1050||id==1051||id==1012||id==1123||id==1004||id==1118||id==1119||id==1131||id==1171||id==1265;
+    const bool pre=entityRender||gridPre||(id>=1160&&id<=1169)||id==1026||id==1030||id==1218||id==1201||id==1216||id==1069||id==1484||id==1481||id==1064||id==1050||id==1051||id==1012||id==1123||id==1004||id==1118||id==1119||id==1131||id==1171||id==1265||id==1335;
     if(!pre)return;
     if(lua_isboolean(state,-1)) {
         context.result.hasBoolean=true;context.result.boolean=lua_toboolean(state,-1)!=0;
@@ -5040,7 +5046,18 @@ isaac::runtime::repentogon::Result DispatchRepentogonCallback(
     LuaCallbackInvoker invoker{0,false,false};
     WeaponCallbackScope weapon;
     auto filter=CallbackRegistry::kNoCallbackFilter;
+    CardRngScope lootRngScope{};
     switch(event.kind) {
+        case EventKind::PickupLootList: {
+            std::uint32_t type{},variant{};
+            if(!ReadEntityIdentity(event.object,&type,&variant)||!event.lootList||
+                !g_CardRngScopes.Enter(lootRngScope,event.lootRng))return {};
+            filter=variant;
+            invoker.arguments.AddEntity(event.object);
+            invoker.arguments.AddBoolean(event.low);
+            invoker.arguments.AddBorrowedRng(lootRngScope.pointer,lootRngScope.token);
+            break;
+        }
         case EventKind::PlayerGridCollision:
             filter=event.first;
             invoker.arguments.AddEntity(event.object);
@@ -5187,6 +5204,13 @@ isaac::runtime::repentogon::Result DispatchRepentogonCallback(
             break;
         case EventKind::FiredEntity:
             invoker.arguments.AddEntity(event.object);
+            break;
+        case EventKind::TrinketAdded:
+            filter=event.first;
+            invoker.arguments.AddEntity(event.object);
+            invoker.arguments.AddInteger(static_cast<std::uint32_t>(event.first));
+            invoker.arguments.AddBoolean(event.low);
+            invoker.arguments.AddBoolean(event.second!=0);
             break;
         case EventKind::CollectibleRemoved:
             filter=event.first;
@@ -5341,7 +5365,13 @@ isaac::runtime::repentogon::Result DispatchRepentogonCallback(
     CallbackDispatcher dispatcher{g_CallbackRegistry,invoker};
     const bool menuRenderMaskScope=event.id==1023;
     if(menuRenderMaskScope)BeginRepentogonMainMenuRenderInputMaskScope();
+    const auto previousLootRng=lootRngScope.pointer
+        ? SetRepentogonPickupLootListDropRng(lootRngScope.pointer) : 0;
     static_cast<void>(dispatcher.DispatchFiltered(event.id,ThreadAffinity::Any,filter));
+    if(lootRngScope.pointer) {
+        static_cast<void>(SetRepentogonPickupLootListDropRng(previousLootRng));
+        g_CardRngScopes.Leave(lootRngScope);
+    }
     if(menuRenderMaskScope)EndRepentogonMainMenuRenderInputMaskScope();
     if(invoker.batchFailed) {repentogon::Result failed{};failed.failed=true;return failed;}
     if(context.soundChanged)*event.sound=context.sound;

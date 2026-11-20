@@ -52,7 +52,7 @@ int main(int argc,char**argv){
  const auto cfg=AddressOf(manager)+kManagerEntityConfigOffset,end=cfg+8;
  const std::string entityNames[]={"Duplicate Entity","Crippling Hands Helper","Duplicate Entity","Long Loaded Entity Configuration Name"};
  const std::int32_t types[]={23,1000,1001,1000},variants[]={1,2002,0,2003};
- for(unsigned i=0;i<4;++i){nodes[i].assign(0x1d8,0);Word(nodes[i],0x20,(types[i]<<20)|(variants[i]<<8));Word(nodes[i],0x28,types[i]);Word(nodes[i],0x2c,variants[i]);Word(nodes[i],0x30,0);Name(nodes[i],0x38,entityNames[i],entityLong[i]);}
+ for(unsigned i=0;i<4;++i){nodes[i].assign(0x1d8,0);Word(nodes[i],0x20,(types[i]<<20)|(variants[i]<<8));Word(nodes[i],0x28,types[i]);Word(nodes[i],0x2c,variants[i]);Word(nodes[i],0x30,i==1?7:0);Name(nodes[i],0x38,entityNames[i],entityLong[i]);}
  WriteWord(nodes[1],0,AddressOf(nodes[0]));WriteWord(nodes[1],8,AddressOf(nodes[2]));WriteWord(nodes[1],16,end);
  WriteWord(nodes[0],16,AddressOf(nodes[1]));WriteWord(nodes[2],0,AddressOf(nodes[3]));WriteWord(nodes[2],16,AddressOf(nodes[1]));WriteWord(nodes[3],16,AddressOf(nodes[2]));
  WriteWord(manager,kManagerEntityConfigOffset,AddressOf(nodes[0]));WriteWord(manager,kManagerEntityConfigOffset+8,AddressOf(nodes[1]));WriteWord(manager,kManagerEntityConfigOffset+16,4);
@@ -75,6 +75,9 @@ int main(int argc,char**argv){
    if(isaac::runtime::RuntimeContentNameStatsSnapshot().refreshes!=stats.refreshes)return 8;
   }else if(!isaac::runtime::RefreshRuntimeContentNames())return 3;
  }
+ LuaRuntime::SetRuntimeExtensionInstaller(+[](lua_State* l) noexcept {
+  lua_pushcfunction(l,isaac::runtime::RuntimeGetEntitySubTypeByName);lua_setglobal(l,"_subtype");
+ });
  std::string script=R"lua(local m=RegisterMod('loaded-config-names',1);_names={count=0};m:AddCallback(1,function()
  )lua";
  if(!built||scene=="clear")script+=R"lua(assert(not pcall(function()Isaac.GetPillEffectByName('Estrogen Up')end));assert(not pcall(function()Isaac.GetEntityVariantByName('Crippling Hands Helper')end)))lua";
@@ -83,6 +86,7 @@ int main(int argc,char**argv){
   script+="assert(Isaac.GetPillEffectByName('Estrogen Up')=="+std::to_string((scene=="reload"||scene=="lazy")?68:67)+")\n";
   script+="assert(Isaac.GetEntityTypeByName('Crippling Hands Helper')==1000 and Isaac.GetEntityVariantByName('Crippling Hands Helper')=="+std::to_string((scene=="reload"||scene=="lazy")?2001:2002)+")\n";
   script+=R"lua(
+	  assert(_subtype('Crippling Hands Helper')==7 and _subtype('Missing')==0)
   assert(Isaac.GetPillEffectByName('#HEALTH_UP')==1 and Isaac.GetPillEffectByName('#health_up')==-1)
   assert(Isaac.GetPillEffectByName('Same Pill')==79)
   assert(Isaac.GetPillEffectByName('Long Native Pill Effect Name')==77 and Isaac.GetPillEffectByName(42)==81)

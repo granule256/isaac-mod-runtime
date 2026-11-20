@@ -20,7 +20,7 @@ enum class EventKind {
     PlayerAddHearts, ShopItemPrice, ItemText, PlayerLifecycle, NpcTarget,
     UseCard, MusicPlay, PickupMorph, WeaponFired, CustomCache, PickupVoid,
     PlayerHudHearts, LegacyMultiShot, PlayerGridCollision, ActiveMaxCharge,
-    PlayerHeartLimit, PlayerHealthType
+    PlayerHeartLimit, PlayerHealthType, TrinketAdded, PickupLootList
 };
 struct Event {
     std::uint32_t id{};
@@ -39,6 +39,7 @@ struct Event {
     Api600MultiShotParams* multiShot{};
     const char* customCacheTag{};
     double customCacheValue{};
+    std::uintptr_t lootList{}, lootRng{};
 };
 struct Result {
     bool hasBoolean{}, boolean{}, hasOffset{}; Vector offset{};

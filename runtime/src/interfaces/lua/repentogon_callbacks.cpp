@@ -1,4 +1,5 @@
 #include "interfaces/lua/repentogon_callbacks.hpp"
+#include "interfaces/lua/repentogon_pickup_loot_list.hpp"
 #include "interfaces/lua/repentogon_environment.hpp"
 #include "interfaces/lua/rng_api.hpp"
 #include "interfaces/lua/procedural_item_api.hpp"
@@ -13,6 +14,7 @@
 #include "interfaces/lua/repentogon_entity_api.hpp"
 #include "interfaces/lua/repentogon_entity_config_api.hpp"
 #include "interfaces/lua/repentogon_sprite_api.hpp"
+#include "interfaces/lua/rplus_content_names.hpp"
 #include "interfaces/lua/repentogon_menu_world_api.hpp"
 #include "interfaces/lua/repentogon_character_menu_api.hpp"
 #include "interfaces/lua/repentogon_color_modifier_api.hpp"
@@ -91,6 +93,7 @@ constexpr RepentogonCallbackBinding kCallbacks[]={
     {1090,"MC_POST_SLOT_RENDER"},
     {1091,"MC_POST_PLAYERHUD_RENDER_HEARTS"},
     {1095,"MC_POST_TRIGGER_COLLECTIBLE_REMOVED"},
+    {1096,"MC_POST_TRIGGER_TRINKET_ADDED"},
     {1098,"MC_POST_TRIGGER_WEAPON_FIRED"},
     {1099,"MC_POST_LEVEL_LAYOUT_GENERATED"},
     {1101,"MC_POST_GRID_ENTITY_SPAWN"},
@@ -217,14 +220,20 @@ constexpr RepentogonCallbackBinding kCallbacks[]={
     {1216,"MC_PRE_COMPLETION_MARKS_RENDER"},
     {1217,"MC_POST_COMPLETION_MARKS_RENDER"},
     {1333,"MC_PRE_RENDER_CUSTOM_CHARACTER_MENU"},
+    {1334,"MC_PRE_PICKUP_GET_LOOT_LIST"},
+    {1335,"MC_PRE_PICKUP_UPDATE_GHOST_PICKUPS"},
     {1271,"MC_POST_ROOM_TRANSITION_UPDATE"},
     {1484,"MC_PRE_ITEM_TEXT_DISPLAY"},
     {1481,"MC_PRE_PLAYER_REVIVE"},
     {1482,"MC_POST_PLAYER_REVIVE"},
     {1222,"MC_NPC_PICK_TARGET"},
+    {1038,"MC_PRE_RENDER_PLAYER_HEAD"},
+    {1039,"MC_PRE_RENDER_PLAYER_BODY"},
+    {1045,"MC_POST_RENDER_PLAYER_HEAD"},
+    {1046,"MC_POST_RENDER_PLAYER_BODY"},
 };
 constexpr auto kCallbackCount=sizeof(kCallbacks)/sizeof(kCallbacks[0]);
-static_assert(kCallbackCount==178);
+static_assert(kCallbackCount==185);
 constexpr RepentogonEnumBinding kEnums[]={
     {"AnimRenderFlags","GLITCH",1<<1},
     {"AnimRenderFlags","COLOROFFSET_CHAMPION",1<<4},
@@ -380,6 +389,8 @@ constexpr RepentogonEnumBinding kEnums[]={
     {"CompletionType","DELIRIUM",12},
 };
 constexpr RepentogonApiBinding kApis[]={
+    {{0x0E03001B,ApiDomain::Isaac,"Isaac","GetEntitySubTypeByName",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RuntimeGetEntitySubTypeByName},
     {{0x0E03001A,ApiDomain::Isaac,"Sprite","SetRenderFlags",{},0,ThreadAffinity::ManagedCallback,
       ApiMaturity::Experimental},RepentogonSpriteSetRenderFlags},
     {{0x0E025019,ApiDomain::Isaac,"AnimationFrame","GetPos",{},0,ThreadAffinity::ManagedCallback,
@@ -866,6 +877,7 @@ int Initialize(lua_State* state) {
     RegisterRepentogonWeaponApi(state);
     RegisterRepentogonMinimapApi(state);
     RegisterRepentogonPlayerHudHearts(state);
+    RegisterRepentogonPickupLootList(state);
     static_cast<void>(RegisterCustomCacheApi(state));
     return 0;
 }

@@ -10,6 +10,7 @@ void InvalidateRuntimeContentNames() noexcept;
 int RuntimeGetPillEffectByName(lua_State*);
 int RuntimeGetEntityTypeByName(lua_State*);
 int RuntimeGetEntityVariantByName(lua_State*);
+int RuntimeGetEntitySubTypeByName(lua_State*);
 struct RuntimeContentNameStats {
     std::size_t entries{},nameBytes{},allocationBytes{};
     std::uint64_t refreshes{};

@@ -180,6 +180,8 @@ static const RepentogonCallbackBinding expected[]={
 {1216,"MC_PRE_COMPLETION_MARKS_RENDER"},
 {1217,"MC_POST_COMPLETION_MARKS_RENDER"},
 {1333,"MC_PRE_RENDER_CUSTOM_CHARACTER_MENU"},
+{1334,"MC_PRE_PICKUP_GET_LOOT_LIST"},
+{1335,"MC_PRE_PICKUP_UPDATE_GHOST_PICKUPS"},
 {1271,"MC_POST_ROOM_TRANSITION_UPDATE"},
 {1020,"MC_HUD_UPDATE"},
 {1021,"MC_POST_HUD_UPDATE"},
@@ -204,6 +206,7 @@ static const RepentogonCallbackBinding expected[]={
 {1090,"MC_POST_SLOT_RENDER"},
 {1091,"MC_POST_PLAYERHUD_RENDER_HEARTS"},
 {1095,"MC_POST_TRIGGER_COLLECTIBLE_REMOVED"},
+{1096,"MC_POST_TRIGGER_TRINKET_ADDED"},
 {1098,"MC_POST_TRIGGER_WEAPON_FIRED"},
     {1099,"MC_POST_LEVEL_LAYOUT_GENERATED"},
     {1101,"MC_POST_GRID_ENTITY_SPAWN"},
@@ -322,6 +325,10 @@ static const RepentogonCallbackBinding expected[]={
 {1259,"MC_POST_FIRE_TECH_LASER"},
 {1260,"MC_POST_FIRE_TECH_X_LASER"},
 {1265,"MC_PRE_PICKUP_VOIDED"},
+{1038,"MC_PRE_RENDER_PLAYER_HEAD"},
+{1039,"MC_PRE_RENDER_PLAYER_BODY"},
+{1045,"MC_POST_RENDER_PLAYER_HEAD"},
+{1046,"MC_POST_RENDER_PLAYER_BODY"},
 
 };
 int main(int argc,char** argv){
@@ -370,7 +377,7 @@ m:AddCallback(id,function(_,p,tag,value)
 end)
 )lua";
     }else if(mode=="catalog"){
-        script+="assert(type(EntityConfig.GetEntity)=='function' and type(MenuManager.GetActiveMenu)=='function' and type(RoomTransition.GetVersusScreenSprite)=='function');assert(type(Isaac.GetGiantBookIdByName)=='function')\n";
+        script+="assert(type(EntityConfig.GetEntity)=='function' and type(MenuManager.GetActiveMenu)=='function' and type(RoomTransition.GetVersusScreenSprite)=='function');assert(type(Isaac.GetGiantBookIdByName)=='function' and type(Isaac.GetEntitySubTypeByName)=='function')\n";
         script+=R"lua(
 local names={'SPECIAL_ROOMS','BASEMENT','CELLAR','BURNING_BASEMENT','CAVES','CATACOMBS','FLOODED_CAVES','DEPTHS','NECROPOLIS','DANK_DEPTHS','WOMB','UTERO','SCARRED_WOMB','BLUE_WOMB','SHEOL','CATHEDRAL','DARK_ROOM','CHEST'}
 local menus={'TITLE','SAVES','GAME','DAILYRUN','CHARACTER','SPECIALSEEDS','CHALLENGE','COLLECTION','STATS','OPTIONS','CONTROLS','KEYCONFIG','ENDINGS','BESTIARY','MODCHALLENGES','MODS','SEED'}
@@ -439,6 +446,15 @@ for _,id in ipairs({1255,1258,1259,1260})do
  m:AddCallback(id,function(_,...)assert(select('#',...)==1);local entity=...;assert(type(entity)=='userdata');calls=calls+1;return false end)
 end
 m:AddCallback(1259,function()error('post-fire has no variant filter')end,7)
+)lua";
+    }else if(mode=="trinket_added"){
+        script+=R"lua(
+assert(ModCallbacks.MC_POST_TRIGGER_TRINKET_ADDED==1096)
+m:AddCallback(1096,function(_,player,id,first,innate)
+ assert(player:ToPlayer()==player and id==32771 and first==true and innate==false)
+ calls=calls+1
+end,32771)
+m:AddCallback(1096,function()error('wrong trinket filter')end,32772)
 )lua";
     }else if(mode=="sound"){
         script+=R"lua(
@@ -632,6 +648,13 @@ local f;f=function()m:RemoveCallback(1400,f);calls=calls+1 end;m:AddCallback(140
             send(1103,EventKind::Boolean);Check();
             for(auto id:{1255,1258,1259,1260})send(id,EventKind::FiredEntity);
             Check();assert(Number("calls")==5);
+        }else if(mode=="trinket_added"){
+            type=1;std::memcpy(entity+kEntityTypeOffset,&type,4);
+            const auto playerVtable=Address(module.data())+kEntityPlayerVtableOffset;
+            std::memcpy(entity,&playerVtable,sizeof(playerVtable));
+            Event trinket{1096,EventKind::TrinketAdded,Address(entity)};
+            trinket.first=32771;trinket.low=true;
+            Dispatch(trinket);Check();assert(Number("calls")==1);
         }else if(mode=="sound"){
             send(1030,EventKind::Sound);Check();assert(sound.id==8&&sound.loop&&sound.pan==-0.5f);
             send(1031,EventKind::Sound);Check();assert(Number("calls")==2);
@@ -857,7 +880,7 @@ ipairs=originalIpairs
     def test_native_catalog_delivery_and_lifecycle(self):
         with tempfile.TemporaryDirectory(prefix='repentogon-native-') as tmp:
             binary=test_support.build_lua_harness(source_root=SOURCE,workdir=Path(tmp),harness_source=RUNTIME_DRIVER)
-            for mode in ('sprite_cleanup','off','none','ready_fail','install_fail','catalog','custom_cache','reverie','render','booleans','filter','post_fire','sound','sound_error','level_boss','bulk_callbacks','remaining_phases','change_room_invalid','change_room_non_integer','nested','error','pause','pause_error','bad_vector','remove_all','reset','empty'):
+            for mode in ('sprite_cleanup','off','none','ready_fail','install_fail','catalog','custom_cache','reverie','render','booleans','filter','post_fire','trinket_added','sound','sound_error','level_boss','bulk_callbacks','remaining_phases','change_room_invalid','change_room_non_integer','nested','error','pause','pause_error','bad_vector','remove_all','reset','empty'):
                 with self.subTest(mode=mode):
                     result=subprocess.run([str(binary),mode],capture_output=True,text=True)
                     self.assertEqual(result.returncode,0,result.stdout+result.stderr)
