@@ -89,6 +89,7 @@ constexpr RepentogonCallbackBinding kCallbacks[]={
     {1088,"MC_PRE_BOMB_RENDER"},
     {1089,"MC_PRE_SLOT_RENDER"},
     {1090,"MC_POST_SLOT_RENDER"},
+    {1091,"MC_POST_PLAYERHUD_RENDER_HEARTS"},
     {1095,"MC_POST_TRIGGER_COLLECTIBLE_REMOVED"},
     {1098,"MC_POST_TRIGGER_WEAPON_FIRED"},
     {1099,"MC_POST_LEVEL_LAYOUT_GENERATED"},
@@ -223,7 +224,7 @@ constexpr RepentogonCallbackBinding kCallbacks[]={
     {1222,"MC_NPC_PICK_TARGET"},
 };
 constexpr auto kCallbackCount=sizeof(kCallbacks)/sizeof(kCallbacks[0]);
-static_assert(kCallbackCount==177);
+static_assert(kCallbackCount==178);
 constexpr RepentogonEnumBinding kEnums[]={
     {"ModCallbacks","MC_HUD_POST_UPDATE",1021},
     {"StbType","SPECIAL_ROOMS",0},
