@@ -19,6 +19,17 @@ extern "C" bool ProbeBatchLife(int mode) {
  const int top=lua_gettop(g_LuaState);
  LuaCallbackInvoker invoker{0x12345678,true,false};
  isaac::runtime::CallbackDispatcher dispatcher{g_CallbackRegistry,invoker};
+ if(mode==8||mode==9){
+  const bool isolate=mode==8;
+  isaac::runtime::g_ExtendedCallbackDelivery=isolate;
+  const auto r=dispatcher.Dispatch(isaac::runtime::kCallbackPostNewRoom,isaac::runtime::ThreadAffinity::Any);
+  if(r.failed!=1||r.invoked!=(isolate?1u:0u)||lua_gettop(g_LuaState)!=top)return false;
+  if(!TakeCallbackError())return false;
+  LuaErrorHistoryEntryView errors[2]{};
+  return CopyLuaErrorHistory(errors,2)==1 && errors[0].owner==0x10002 &&
+   errors[0].callbackId==isaac::runtime::kCallbackPostNewRoom &&
+   std::strstr(errors[0].text,"room observer failed");
+ }
  if(mode==0){
   const auto owner=isaac::runtime::ModHandle{3,1};
   const auto r=dispatcher.DispatchOwner(owner,1,isaac::runtime::ThreadAffinity::Any);
@@ -119,9 +130,17 @@ int main(int argc,char** argv){
  if(mode==4)script=R"lua(local m=RegisterMod('diag-oom',1);_probe={count=0};for i=1,100 do local token=setmetatable({},{__gc=function() _probe.count=_probe.count+1 end});local fn=function() return token end;m:AddCallback(1,fn);m:RemoveCallback(1,fn) end)lua";
  if(mode==5)script=R"lua(local m=RegisterMod('matcher-oom',1);_probe={count=0};m:AddCallback(1,function() _probe.count=_probe.count+1 end);setmetatable(Isaac.GetCallbacks(1),{__matchParams=function() local allocated=string.rep('x',1000000);assert(#allocated==1000000);return true end}))lua";
  if(mode==6)script=R"lua(local m=RegisterMod('float-id',1);_probe={count=0};m:AddCallback(1.0,function() _probe.count=_probe.count+1 end);Isaac.RunCallback(1.0))lua";
+ if(mode==8||mode==9)script=R"lua(
+  local first=RegisterMod('first-room-observer',1)
+  local second=RegisterMod('next-room-observer',1)
+  local id=ModCallbacks.MC_POST_NEW_ROOM
+  _probe={count=0}
+  first:AddCallback(id,function() error('room observer failed') end)
+  second:AddCallback(id,function(self) assert(self==second);_probe.count=_probe.count+1 end)
+ )lua";
  if(!script||LuaRuntime::InitializeFromBuffer(script,std::strlen(script),"@batch-life.lua")!=LuaRuntime::LuaInitResult::Success)return 1;
  if(!ProbeBatchLife(mode))return 2;if(LuaRuntime::TakeCallbackError())return 3;
- double count=0;if(mode<3||mode>=4){if(LuaRuntime::ReadLuaTableNumber("_probe","count",&count)!=0)return 4;const double expected=mode==0||mode==5?1:mode==1?2048:mode==2||mode==7?256:mode==6?2:100;if(count!=expected)return 5;}
+ double count=0;if(mode<3||mode>=4){if(LuaRuntime::ReadLuaTableNumber("_probe","count",&count)!=0)return 4;const double expected=mode==0||mode==5||mode==8?1:mode==1?2048:mode==2||mode==7?256:mode==6?2:mode==9?0:100;if(count!=expected)return 5;}
  return 0;
 }
 '''
@@ -146,4 +165,6 @@ class CallbackBatchLifecycleTests(unittest.TestCase):
  def test_matcher_oom_restores_scope_and_recovers_next_dispatch(self):self.run_mode(5)
  def test_integral_float_id_preserves_registration_and_perf_metadata(self):self.run_mode(6)
  def test_paced_gc_keeps_native_callback_return_rooted(self):self.run_mode(7)
+ def test_repentogon_room_listener_error_does_not_skip_next_mod(self):self.run_mode(8)
+ def test_vanilla_room_listener_error_keeps_stock_dispatch(self):self.run_mode(9)
 if __name__=='__main__':unittest.main()

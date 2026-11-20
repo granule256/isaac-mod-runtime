@@ -4278,7 +4278,7 @@ private:
 struct BatchObservation {
     isaac::runtime::CallbackBatchResult* result;
     std::uint32_t callbackId{0};
-    bool extension{false};
+    bool isolateErrors{false};
     std::uint32_t lastOwner{0};
     std::uint32_t depth{0};
     std::uint32_t failureOwner{0};
@@ -4329,6 +4329,13 @@ bool IsObservedExtension(std::uint32_t id) noexcept {
     return id>=1000&&isaac::runtime::g_ExtendedCallbackDelivery&&isaac::runtime::repentogon::FindCallbackState(id);
 }
 
+bool ShouldIsolateListenerErrors(std::uint32_t id) noexcept {
+    // REPENTOGON protects each room listener independently. Keep the stock
+    // batch behavior when the environment is off, and the fast path for other built-ins.
+    if (id == isaac::runtime::kCallbackPostNewRoom) return isaac::runtime::g_ExtendedCallbackDelivery;
+    return IsObservedExtension(id);
+}
+
 // Run inside the per-listener protection, before a non-nil value can stop
 // traversal. Other selected IDs have no upstream type-check entry.
 void ValidateObservedExtensionReturn(lua_State* state,std::uint32_t id) {
@@ -4377,7 +4384,7 @@ int InvokeObservedCallback(lua_State* state) {
     g_ErrorContextCallbackId = integral && callbackId >= 0 &&
         static_cast<std::uint64_t>(callbackId) <= UINT32_MAX
         ? static_cast<std::uint32_t>(callbackId) : UINT32_MAX;
-    const bool extension=IsObservedExtension(g_ErrorContextCallbackId);
+    const bool isolateErrors=ShouldIsolateListenerErrors(g_ErrorContextCallbackId);
     const int count=lua_gettop(state);
     lua_pushcfunction(state,InvokeObservedProtected);lua_insert(state,1);
     auto* observation=g_ActiveCallbackBatch;
@@ -4391,7 +4398,7 @@ int InvokeObservedCallback(lua_State* state) {
             if(status==LUA_OK) {
                 ++observation->result->invoked;
                 if(!lua_isnil(state,-1))observation->lastOwner=g_ErrorContextOwner;
-            } else if(extension) {
+            } else if(isolateErrors) {
                 ++observation->result->failed;
             } else {
                 observation->failureOwner=g_ErrorContextOwner;
@@ -4400,12 +4407,12 @@ int InvokeObservedCallback(lua_State* state) {
             }
         }
     }
-    if(status!=LUA_OK&&extension) {
+    if(status!=LUA_OK&&isolateErrors) {
         CaptureLuaErrorTop(state);g_CallbackError.store(true,std::memory_order_release);
         lua_pop(state,1);lua_pushnil(state);
     }
     g_ErrorContextOwner=previousOwner;g_ErrorContextCallbackId=previousId;
-    return status==LUA_OK||extension?1:lua_error(state);
+    return status==LUA_OK||isolateErrors?1:lua_error(state);
 }
 
 // 原生 runner 的未完成调用由外层保护收尾；手动/嵌套 Lua 派发保留独立保护。
@@ -4429,7 +4436,7 @@ int InvokeObservedNativeCallback(lua_State* state) {
     // InvokeCore checked integrity once for this batch. Reuse its fixed event id
     // instead of parsing and checking the same values for every listener.
     const auto id = observation->callbackId;
-    if (observation->extension) return InvokeObservedCallback(state);
+    if (observation->isolateErrors) return InvokeObservedCallback(state);
     const auto previousOwner = g_ErrorContextOwner, previousId = g_ErrorContextCallbackId;
     g_ErrorContextOwner = 0;
     g_ErrorContextCallbackId = id;
@@ -4521,7 +4528,7 @@ struct LuaCallbackInvoker final : isaac::runtime::ICallbackInvoker {
                      const isaac::runtime::ModHandle* owner = nullptr) noexcept override {
         *result={};
         if(!isaac::runtime::BuiltinCallbackEnabled(id))return true;
-        BatchObservation observation{result, id, IsObservedExtension(id)};
+        BatchObservation observation{result, id, ShouldIsolateListenerErrors(id)};
         const auto previous=g_ActiveCallbackBatch;g_ActiveCallbackBatch=&observation;
         batchMode=true;batchFilter=filter;ownerBatch=owner!=nullptr;
         batchOwner=owner?static_cast<std::uint32_t>(owner->index)|(static_cast<std::uint32_t>(owner->generation)<<16):0;
