@@ -15,6 +15,7 @@ constexpr std::string_view kMaxBombs = "maxbombs";
 constexpr std::string_view kTearsCap = "tearscap";
 constexpr std::string_view kStatMultiplier = "statmultiplier";
 constexpr std::string_view kHealthType = "healthtype";
+constexpr std::int32_t kDeepPockets = 416;
 
 bool IsSpace(char value) noexcept { return value == ' '; }
 
@@ -54,6 +55,8 @@ void Store::Reset() {
              kTearsCap, kStatMultiplier}) {
         knownTags_.emplace(tag);
     }
+    // Like PC REPENTOGON, re-evaluate the coin cap when Deep Pockets changes.
+    RegisterItemTags(ItemKind::Collectible, kDeepPockets, kMaxCoins);
 }
 
 void Store::ResetPlayers() noexcept {
