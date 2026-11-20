@@ -99,6 +99,12 @@ int TearNewIndex(lua_State*L){auto*p=luaL_checkudata(L,1,kTear);const auto*f=Tea
  switch(f->kind){case Kind::Int:Put(p,f->offset,Int(L,3));break;case Kind::Float:Put(p,f->offset,static_cast<float>(luaL_checknumber(L,3)));break;case Kind::Color:{EngineColorMod c{};if(!FillEngineColorMod(L,3,&c))return luaL_argerror(L,3,"expected Color");Put(p,f->offset,c);break;}case Kind::Flags:{BitSet128Value b{};if(!Flags(L,3,&b))return luaL_argerror(L,3,"expected BitSet128 or integer");Put(p,f->offset,b);break;}}return 0;}
 int OpaqueIndex(lua_State*L){luaL_checkudata(L,1,kMulti);return NativeClassMethodIndex(L);}
 int OpaqueNewIndex(lua_State*L){luaL_checkudata(L,1,kMulti);return luaL_error(L,"MultiShotParams has no public writable fields");}
+// Switch GetMultiShotParams writes backwards at +0x1d (Mom's Eye) and sideways at +0x1e (Loki's Horns).
+int MultiShotFlag(lua_State*L,unsigned offset){
+ if(lua_rawlen(L,1)!=sizeof(Api600MultiShotParams))return luaL_argerror(L,1,"MultiShotParams expected");
+ const auto*p=static_cast<const Api600MultiShotParams*>(luaL_checkudata(L,1,kMulti));
+ lua_pushboolean(L,At<std::uint8_t>(p->bytes,offset)!=0);return 1;
+}
 int PosVelIndex(lua_State*L){const auto*p=static_cast<Api600PosVel*>(luaL_checkudata(L,1,kPosVel));const char*n=lua_tostring(L,2);if(n&&!std::strcmp(n,"Position"))PushLuaVector(L,p->positionX,p->positionY);else if(n&&!std::strcmp(n,"Velocity"))PushLuaVector(L,p->velocityX,p->velocityY);else lua_pushnil(L);return 1;}
 int PosVelNewIndex(lua_State*L){auto*p=static_cast<Api600PosVel*>(luaL_checkudata(L,1,kPosVel));const char*n=lua_tostring(L,2);if(n&&!std::strcmp(n,"Position")){const auto v=*RequireVectorArgument(L,3);p->positionX=v.x;p->positionY=v.y;}else if(n&&!std::strcmp(n,"Velocity")){const auto v=*RequireVectorArgument(L,3);p->velocityX=v.x;p->velocityY=v.y;}else return luaL_error(L,"unknown PosVel field");return 0;}
 struct DescRef{LuaRuntime::EntityLifetimeToken*lifetime;std::uintptr_t entity,base;};
@@ -146,6 +152,8 @@ PlayerField Find(std::uintptr_t p,const char*n){
 std::uintptr_t Weapon(lua_State*L,std::uintptr_t p){auto w=Read<std::uintptr_t>(L,p,0x1758);return w?w:Read<std::uintptr_t>(L,p,0x1760);}
 void Type(lua_State*L,const char*mt,lua_CFunction index,lua_CFunction write,NativeObjectIdentityResolver identity){luaL_newmetatable(L,mt);if(!RegisterNativeObjectIdentity(L,-1,identity))luaL_error(L,"native identity resolver conflicts for %s",mt);lua_pushcfunction(L,index);lua_setfield(L,-2,"__index");lua_pushcfunction(L,write);lua_setfield(L,-2,"__newindex");lua_pop(L,1);}
 }
+int Api600MultiShotParamsIsShootingBackwards(lua_State*L){return MultiShotFlag(L,0x1d);}
+int Api600MultiShotParamsIsShootingSideways(lua_State*L){return MultiShotFlag(L,0x1e);}
 #if !defined(__SWITCH__)
 void SetApi600PlayerNativeTestBindings(Api600PlayerNativeTestBindings v)noexcept{g_Tests=v;}
 #endif

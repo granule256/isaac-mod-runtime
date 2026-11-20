@@ -33,6 +33,8 @@ int Api600MultiShotParamsGetNumLanesPerEye(lua_State*);
 int Api600MultiShotParamsSetNumLanesPerEye(lua_State*);
 int Api600MultiShotParamsGetSpreadAngle(lua_State*);
 int Api600MultiShotParamsSetSpreadAngle(lua_State*);
+int Api600MultiShotParamsIsShootingBackwards(lua_State*);
+int Api600MultiShotParamsIsShootingSideways(lua_State*);
 bool PushApi600MultiShotParamsSnapshot(
     lua_State*, const Api600MultiShotParams&);
 bool ReadApi600MultiShotParamsSnapshot(
