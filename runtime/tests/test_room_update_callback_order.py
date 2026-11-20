@@ -71,12 +71,24 @@ int main(int argc,char**argv){
  loadFromEntity=mode=="player_load"||mode=="effect_load"||mode=="peffect_load"||mode=="startup_load";
  static_cast<void>(kScriptTemplate);static_cast<void>(&HarnessHasCollectible);static_cast<void>(&BuildPrelude);
  CreateBlocks();FillEntities();PublishLists();PublishGame();PublishEntityList(g_RoomBytes,true);
+ if(mode=="peffect_type")
+   WriteAt<std::uint32_t>(g_Entities[kPlayer],kEntityPlayerTypeOffset,58);
  LuaRuntime::ObserveGameThread();LuaRuntime::SetEngineModuleBase(g_EngineBase);
  LuaRuntime::SetGameBindings(g_EngineBase+kGameOwnerGlobalSlotOffset,0);
  std::string script=mode=="reentry"?"requestReentry=true\n":"";
  if(mode=="startup_load")script+="startupLoad=true;requestStartupLoad=true\n";
  if(loadFromEntity&&mode!="startup_load")script+="entityLoadTest=true\n";
  if(mode=="peffect_load")script+="requestPeffectLoad=true\n";
+ if(mode=="peffect_type")script+=R"lua(
+ local m=RegisterMod('player filter regression',1)
+ peffectType=0;peffectVariant=0;playerUpdateVariant=0
+ m:AddCallback(4,function(_,player)
+   assert(player:GetPlayerType()==58 and player.Variant==0)
+   peffectType=peffectType+1
+ end,58)
+ m:AddCallback(4,function()peffectVariant=peffectVariant+1 end,0)
+ m:AddCallback(31,function()playerUpdateVariant=playerUpdateVariant+1 end,0)
+ )lua";
  if(mode=="late_listener")script+="lateListener=true\n";
  if(mode=="player_load")script+="requestEntityLoad=true\n";
  if(mode=="effect_load")script+="requestEffectLoad=true\n";
@@ -127,6 +139,10 @@ int main(int argc,char**argv){
  assert(LuaRuntime::InitializeFromBuffer(script.data(),script.size(),"@room-grid-tracker.lua")==LuaRuntime::LuaInitResult::Success);
  InstallRoomOrderInputs();isaac::runtime::SetManagedUpdateSnapshotReaderForTest(Snapshot);
  LuaRuntime::NoteGameStarted(false);if(!Dispatch())return 1;
+ if(mode=="peffect_type"){
+   assert(Number("peffectType",1)&&Number("peffectVariant",0)&&Number("playerUpdateVariant",1));
+   return 0;
+ }
  if(mode=="startup_load"){
    assert(Number("rooms",1)&&Number("levels",1)&&Number("started",0)&&Number("updates",0));
    ++nativeFrame;if(!Dispatch())return 11;
@@ -227,6 +243,7 @@ class RoomUpdateCallbackOrderTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
     def test_player_effect_update_stops_before_destination_player_update(self): self.check_mode('peffect_load')
+    def test_player_effect_update_filters_by_player_type_not_variant(self): self.check_mode('peffect_type')
     def test_new_room_entity_listener_runs_in_the_first_update(self): self.check_mode('late_listener')
     def test_startup_room_callback_can_load_a_stable_destination(self): self.check_mode('startup_load')
     def test_player_update_can_load_another_room_without_mislabeling_events(self): self.check_mode('player_load')
