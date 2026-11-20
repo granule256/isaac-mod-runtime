@@ -27,6 +27,8 @@ int RPlusPlayerGetTearMovementInheritance(lua_State*);
 int RPlusPlayerRemoveCostume(lua_State*);
 int RPlusPlayerSetPill(lua_State*);
 int RPlusPlayerSetPocketActiveItem(lua_State*);
+bool RPlusFlushDeferredPocketActivePoolRemovals() noexcept;
+void RPlusResetDeferredPocketActivePoolRemovals() noexcept;
 int RPlusPlayerThrowBlueSpider(lua_State*);
 int RPlusPlayerWillPlayerRevive(lua_State*);
 int RPlusProjectileHasProjectileFlags(lua_State*);
@@ -66,7 +68,10 @@ enum class RPlusMethodsNative : unsigned {
     Count
 };
 #if !defined(__SWITCH__)
-struct RPlusMethodsNativeTestBindings {std::uintptr_t methods[static_cast<unsigned>(RPlusMethodsNative::Count)]{};};
+struct RPlusMethodsNativeTestBindings {
+    std::uintptr_t methods[static_cast<unsigned>(RPlusMethodsNative::Count)]{};
+    bool (*itemPoolRemoveCollectible)(void*,std::int32_t,bool,bool) noexcept{};
+};
 void SetRPlusMethodsNativeTestBindings(RPlusMethodsNativeTestBindings) noexcept;
 #endif
 }

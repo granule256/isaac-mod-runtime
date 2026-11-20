@@ -9,9 +9,11 @@
 #include "interfaces/lua/field_api.hpp"
 #include "infrastructure/call/engine_call_access.hpp"
 #include "infrastructure/memory/engine_field_access.hpp"
+#include "game_observer.hpp"
 #include "lua_runtime.hpp"
 #include "lua_object_handles.hpp"
 #include "runtime_constants.hpp"
+#include <array>
 #include <cstring>
 extern "C" {
 #include <lauxlib.h>
@@ -22,6 +24,10 @@ namespace guards=rplus_methods;
 using Vec2=LuaRuntime::VectorHandle;
 struct Cache {std::uintptr_t base{};bool valid{};};
 Cache g_Native[static_cast<unsigned>(RPlusMethodsNative::Count)]{},g_Aim{},g_Countdown{},g_Grid{},g_Hearts{},g_Award{};
+constexpr std::uintptr_t kItemPoolPocketRemovedBitsOffset=0x8f0;
+constexpr std::size_t kDeferredPocketRemovalCapacity=16;
+std::array<std::int32_t,kDeferredPocketRemovalCapacity> g_DeferredPocketRemovals{};
+std::size_t g_DeferredPocketRemovalCount{};
 #if !defined(__SWITCH__)
 RPlusMethodsNativeTestBindings g_Tests{};
 #endif
@@ -83,6 +89,50 @@ int AddFlags(lua_State* state,const char* field) {
     else lua_pushvalue(state,2);
     lua_arith(state,LUA_OPBOR);lua_setfield(state,1,field);return 0;
 }
+bool RemovedTargetInRange(const void* pool,std::int32_t id) noexcept {
+    if(!pool||id<=0)return false;
+    const auto address=engine_memory::AddressOf(pool);
+    std::size_t count{},capacity{};
+    if(!engine_memory::ReadField(address,kItemPoolPocketRemovedBitsOffset+8,&count,
+           engine_memory::EngineMemoryReadable)||
+       !engine_memory::ReadField(address,kItemPoolPocketRemovedBitsOffset+16,&capacity,
+           engine_memory::EngineMemoryReadable))return false;
+    const auto word=static_cast<std::uintptr_t>(static_cast<std::uint32_t>(id))/64U;
+    return static_cast<std::uintptr_t>(id)<count&&word<capacity;
+}
+bool RemovedBitsReady(const void* pool,std::int32_t id) noexcept {
+    if(!RemovedTargetInRange(pool,id))return false;
+    std::uintptr_t bits{};
+    const auto word=static_cast<std::uintptr_t>(static_cast<std::uint32_t>(id))/64U;
+    const auto byteOffset=word*sizeof(std::uint64_t);
+    const auto address=engine_memory::AddressOf(pool);
+    return engine_memory::ReadField(address,kItemPoolPocketRemovedBitsOffset,&bits,
+               engine_memory::EngineMemoryReadable)&&
+        bits&&bits<=UINTPTR_MAX-byteOffset&&
+        engine_memory::EngineMemoryReadable(bits+byteOffset,sizeof(std::uint64_t));
+}
+bool ItemPoolRemoveFunctionReady() noexcept {
+#if !defined(__SWITCH__)
+    if(g_Tests.itemPoolRemoveCollectible)return true;
+#endif
+    const auto base=LuaRuntime::EngineModuleBase();
+    std::uint32_t entry{};
+    return base&&base<=UINTPTR_MAX-kItemPoolRemoveCollectibleOffset-sizeof(entry)&&
+        engine_memory::ReadAt(base+kItemPoolRemoveCollectibleOffset,&entry,
+            engine_memory::EngineMemoryReadable)&&
+        entry==kItemPoolRemoveCollectibleEntryWord;
+}
+void RemoveCollectibleFromItemPool(void* pool,std::int32_t id) noexcept {
+    using Fn=bool (*)(void*,std::int32_t,bool,bool);
+#if !defined(__SWITCH__)
+    if(g_Tests.itemPoolRemoveCollectible) {
+        static_cast<void>(g_Tests.itemPoolRemoveCollectible(pool,id,false,false));
+        return;
+    }
+#endif
+    static_cast<void>(engine_call::AsFunction<Fn>(
+        LuaRuntime::EngineModuleBase()+kItemPoolRemoveCollectibleOffset)(pool,id,false,false));
+}
 }
 #if !defined(__SWITCH__)
 void SetRPlusMethodsNativeTestBindings(RPlusMethodsNativeTestBindings value) noexcept {g_Tests=value;}
@@ -139,7 +189,33 @@ int RPlusPlayerGetMaxTrinkets(lua_State* state){auto* p=Player(state);using Fn=s
 int RPlusPlayerGetTearMovementInheritance(lua_State* state){auto* p=Player(state);const auto& direction=Vector(state,2);using Fn=Vec2 (*)(const void*,const Vec2&,bool);const auto value=METHOD(Fn,GetTearMovementInheritance)(p,direction,lua_toboolean(state,3)!=0);PushLuaVector(state,value.x,value.y);return 1;}
 int RPlusPlayerRemoveCostume(lua_State* state){auto* p=Player(state);auto* item=Item(state,2);using Fn=void (*)(void*,const void*);METHOD(Fn,RemoveCostume)(p,item);return 0;}
 int RPlusPlayerSetPill(lua_State* state){auto* p=Player(state);const auto slot=Int(state,2),pill=Int(state,3);using Fn=void (*)(void*,std::int32_t,std::int32_t);METHOD(Fn,SetPill)(p,slot,pill);return 0;}
-int RPlusPlayerSetPocketActiveItem(lua_State* state){auto* p=Player(state);const auto id=Int(state,2),slot=IntOr(state,3,2);using Fn=void (*)(void*,std::int32_t,std::uint32_t,bool);METHOD(Fn,SetPocketActiveItem)(p,id,static_cast<std::uint32_t>(slot),lua_toboolean(state,4)!=0);return 0;}
+int RPlusPlayerSetPocketActiveItem(lua_State* state) {
+    auto* p=Player(state);
+    const auto id=Int(state,2),slot=IntOr(state,3,2);
+    const bool requestedKeep=lua_toboolean(state,4)!=0;
+    bool keepInPools=requestedKeep;
+    bool deferPoolRemoval=false;
+    if(!requestedKeep&&id!=0) {
+        void* pool{};
+        const bool rangeKnown=ReadCurrentGameItemPool(LuaRuntime::GameOwnerSlot(),&pool)==
+                GameItemPoolObservation::Success&&pool&&RemovedTargetInRange(pool,id);
+        if(!rangeKnown) {
+            // id=0 clears the slot natively without touching the pool; invalid
+            // IDs cannot be removed and must not leave a permanent pending item.
+            keepInPools=true;
+        } else if(!RemovedBitsReady(pool,id)) {
+            if(g_DeferredPocketRemovalCount>=g_DeferredPocketRemovals.size())
+                return luaL_error(state,"deferred pocket item pool removals are exhausted");
+            keepInPools=true;
+            deferPoolRemoval=true;
+        }
+    }
+    using Fn=void (*)(void*,std::int32_t,std::uint32_t,bool);
+    METHOD(Fn,SetPocketActiveItem)(p,id,static_cast<std::uint32_t>(slot),keepInPools);
+    if(deferPoolRemoval)
+        g_DeferredPocketRemovals[g_DeferredPocketRemovalCount++]=id;
+    return 0;
+}
 int RPlusPlayerThrowBlueSpider(lua_State* state){auto* p=Player(state);const auto& pos=Vector(state,2);const auto& target=Vector(state,3);using Fn=void* (*)(void*,const Vec2&,const Vec2&);return PushEntity(state,METHOD(Fn,ThrowBlueSpider)(p,pos,target));}
 int RPlusPlayerWillPlayerRevive(lua_State* state){auto* p=Player(state);using Fn=bool (*)(void*);lua_pushboolean(state,METHOD(Fn,WillPlayerRevive)(p));return 1;}
 int RPlusProjectileHasProjectileFlags(lua_State* state){lua_getfield(state,1,"ProjectileFlags");lua_pushvalue(state,2);lua_arith(state,LUA_OPBAND);lua_pushinteger(state,0);const bool has=lua_compare(state,-2,-1,LUA_OPEQ)==0;lua_pushboolean(state,has);return 1;}
@@ -151,4 +227,30 @@ int RPlusDoorBar(lua_State* state){auto* door=Receiver(state,FieldReceipt::GridE
 int RPlusPathFindGridPath(lua_State* state){auto* path=Receiver(state,FieldReceipt::PathFinder,LuaRuntime::kPathFinderMetatable);const auto& pos=Vector(state,2);const auto speed=static_cast<float>(luaL_checknumber(state,3));const auto marker=Int(state,4);using Fn=void (*)(void*,const Vec2&,float,std::int32_t,bool);METHOD(Fn,FindGridPath)(path,pos,speed,marker,lua_toboolean(state,5)!=0);return 0;}
 int RPlusRoomGetAwardSeed(lua_State* state){luaL_checkudata(state,1,LuaRuntime::kRoomMetatable);CheckGuard(state,g_Award,guards::kAwardSeedReaderEntry,guards::kAwardSeedReaderGuard);const auto desc=ResolveEngineReceiver(state,FieldReceipt::RoomDescriptor,1);if(!desc){lua_pushinteger(state,0);return 1;}lua_pushinteger(state,Read<std::uint32_t>(state,desc,kRPlusAwardSeedOffset));return 1;}
 #undef METHOD
+}
+
+namespace isaac::runtime {
+bool RPlusFlushDeferredPocketActivePoolRemovals() noexcept {
+    if(g_DeferredPocketRemovalCount==0)return true;
+    void* pool{};
+    if(ReadCurrentGameItemPool(LuaRuntime::GameOwnerSlot(),&pool)!=GameItemPoolObservation::Success||!pool)
+        return false;
+    std::size_t kept{};
+    for(std::size_t i=0;i<g_DeferredPocketRemovalCount;++i)
+        if(RemovedTargetInRange(pool,g_DeferredPocketRemovals[i]))
+            g_DeferredPocketRemovals[kept++]=g_DeferredPocketRemovals[i];
+    g_DeferredPocketRemovalCount=kept;
+    if(g_DeferredPocketRemovalCount==0)return true;
+    for(std::size_t i=0;i<g_DeferredPocketRemovalCount;++i)
+        if(!RemovedBitsReady(pool,g_DeferredPocketRemovals[i]))return false;
+    if(!ItemPoolRemoveFunctionReady())return false;
+    for(std::size_t i=0;i<g_DeferredPocketRemovalCount;++i)
+        RemoveCollectibleFromItemPool(pool,g_DeferredPocketRemovals[i]);
+    g_DeferredPocketRemovalCount=0;
+    return true;
+}
+
+void RPlusResetDeferredPocketActivePoolRemovals() noexcept {
+    g_DeferredPocketRemovalCount=0;
+}
 }

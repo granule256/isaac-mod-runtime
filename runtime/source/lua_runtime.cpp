@@ -14,6 +14,7 @@
 #include "interfaces/lua/compatibility_adapter_runtime.hpp"
 #include "interfaces/lua/repentogon_environment.hpp"
 #include "interfaces/lua/repentogon_pickup_loot_list.hpp"
+#include "interfaces/lua/rplus_methods_api.hpp"
 #include "application/callback/extended_callback_runtime.hpp"
 #include "application/repentogon/repentogon_settings.hpp"
 #include "infrastructure/native/world_content_mutations.hpp"
@@ -5397,6 +5398,7 @@ bool DispatchPostGameStarted(bool isSave) {
         return false;
     }
     const ManagedEngineDispatchScope dispatchScope;
+    if (!isaac::runtime::RPlusFlushDeferredPocketActivePoolRemovals()) return false;
     // 2026-10-07（-fix）：`IsContinued` 必须压 布尔 —— 老式写法
     //   `LuaCallbackInvoker{0,false,false, isSave?1:0, true}` 走 `AddInteger`，
     //   而 Lua 里 `0` 是 truthy ⇒ 新开局时模组判 `if isContinued then` 会走成"继续存档"。
@@ -8006,6 +8008,7 @@ bool ShutdownForModReload() noexcept {
     g_InPreGetCollectibleDispatch = false;
     g_InPostEntityKillDispatch = false;
     g_CardRngScopes = {};
+    isaac::runtime::RPlusResetDeferredPocketActivePoolRemovals();
     g_ErrorContextOwner = 0;
     g_ErrorContextCallbackId = isaac::runtime::kNoCallbackDispatched;
     g_PreparationStep.store(0,std::memory_order_relaxed);
