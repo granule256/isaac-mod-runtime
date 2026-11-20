@@ -5813,11 +5813,16 @@ void DispatchPlayerEntityEvents(EntityEventScan* scan, std::uintptr_t entity,
     DispatchPlayerInitialization(scan, entity, filter);
     // `MC_POST_PEFFECT_UPDATE` 在 PC 上是"玩家身上的效果每帧更新"，实参就是那个玩家。
     if (!scan->renderPhase && scan->registered.Has(isaac::runtime::kCallbackPostPeffectUpdate)) {
-        LuaCallbackInvoker invoker = LuaCallbackInvoker::ForEntity(entity);
-        isaac::runtime::CallbackDispatcher dispatcher{g_CallbackRegistry, invoker};
         if (!scan->CurrentWorld()) return;
-        static_cast<void>(dispatcher.DispatchFiltered(isaac::runtime::kCallbackPostPeffectUpdate,
-                                              isaac::runtime::ThreadAffinity::Any, filter));
+        // This event filters by character type, not the entity variant.
+        std::int32_t playerType{};
+        if (isaac::runtime::engine_memory::ReadField(entity, kEntityPlayerTypeOffset, &playerType,
+                isaac::runtime::engine_memory::EngineMemoryReadable)) {
+            LuaCallbackInvoker invoker = LuaCallbackInvoker::ForEntity(entity);
+            isaac::runtime::CallbackDispatcher dispatcher{g_CallbackRegistry, invoker};
+            static_cast<void>(dispatcher.DispatchFiltered(isaac::runtime::kCallbackPostPeffectUpdate,
+                                                  isaac::runtime::ThreadAffinity::Any, playerType));
+        }
     }
     if (!scan->renderPhase && scan->registered.Has(isaac::runtime::kCallbackPostPlayerUpdate)) {
         LuaCallbackInvoker invoker = LuaCallbackInvoker::ForEntity(entity);
