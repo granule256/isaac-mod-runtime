@@ -218,6 +218,9 @@ int Api600MultiShotParamsGetNumRandomDirTears(lua_State*L){
  const auto*p=static_cast<const Api600MultiShotParams*>(luaL_checkudata(L,1,kMulti));
  lua_pushinteger(L,At<std::int16_t>(p->bytes,kApi600MultiShotNumRandomDirTearsOffset));return 1;
 }
+int Api600MultiShotParamsIsCrossEyed(lua_State*L){
+ return MultiShotFlag(L,kApi600MultiShotIsCrossEyedOffset);
+}
 int Api600MultiShotParamsGetNumLanesPerEye(lua_State*L){
  if(lua_gettop(L)!=1)return luaL_error(L,"MultiShotParams:GetNumLanesPerEye accepts no arguments");
  if(lua_rawlen(L,1)!=sizeof(Api600MultiShotParams))return luaL_argerror(L,1,"MultiShotParams expected");

@@ -32,11 +32,14 @@ static isaac::runtime::Api600MultiShotParams Multi(void* p,std::int32_t weapon){
  const std::int16_t lanes=37;
  const std::int32_t eyes=2;
  const float eyeAngle=17.5F;
+ const float spreadAngle=2.5F;
  const std::int16_t randomTears=3;
  std::memcpy(value.bytes+0x00,&tears,sizeof(tears));
  std::memcpy(value.bytes+0x02,&lanes,sizeof(lanes));
+ std::memcpy(value.bytes+0x04,&spreadAngle,sizeof(spreadAngle));
  std::memcpy(value.bytes+0x14,&eyes,sizeof(eyes));
  std::memcpy(value.bytes+0x18,&eyeAngle,sizeof(eyeAngle));
+ value.bytes[0x1c]=1;
  std::memcpy(value.bytes+0x20,&randomTears,sizeof(randomTears));
  return value;
 }
@@ -99,6 +102,10 @@ assert(params:GetNumEyesActive()==2)
 assert(params:GetMultiEyeAngle()==17.5)
 assert(params:GetMultiEyeAngle(WeaponType.WEAPON_TEARS)==17.5)
 assert(params:GetNumRandomDirTears()==3)
+assert(params:GetSpreadAngle(WeaponType.WEAPON_TEARS)==2.5)
+assert(params:IsCrossEyed()==true)
+params:SetSpreadAngle(WeaponType.WEAPON_TEARS, 40)
+assert(params:GetSpreadAngle(WeaponType.WEAPON_TEARS)==40)
 params:SetNumTears(0x100000001)
 assert(params:GetNumTears()==1)
 local lanes=params.GetNumLanesPerEye
