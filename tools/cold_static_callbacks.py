@@ -1,5 +1,6 @@
 """加载前安装诅咒/拾取选择中继；运行中仅发布64bit slot，不热改LDR/CMP。"""
 from __future__ import annotations
+import hashlib
 import struct
 try:
     from . import build_patches
@@ -87,6 +88,29 @@ def stat_hud_conditional_records(nro:bytes)->list[tuple[int,bytes]]:
                         (gate,image),(fallback,replay)))
     return records
 
+def challenge_achievement_records(nro: bytes) -> list[tuple[int, bytes]]:
+    start, end = 0x439500, 0x439654
+    if (nro[0x40:0x60] != BUILD_ID or hashlib.sha256(nro[start:end]).hexdigest() !=
+            'a9ce86f22feadfc46476d5b8add60e2680fc23a5ccad81731bf838f716100662'):
+        raise ValueError('Unexpected native challenge achievement scan')
+    # A prerequisite outside PGD's achievement range is not satisfied. Exit to
+    # the next challenge, just as for a locked prerequisite, without indexing PGD.
+    # X0 already points to the current ChallengeParam, so reuse its vector end
+    # instead of calling the pure GetChallengeParams getter again at 0x4395C0.
+    return [(0x439598, bytes.fromhex(
+        '092047a9'  # ldp x9, x8, [x0, #112] (prerequisite begin/end)
+        '2a7974b8'  # ldr w10, [x9, x20, lsl #2]
+        '4a050051'  # sub w10, w10, #1
+        '5ff10971'  # cmp w10, #636 (valid achievement IDs are 1..637)
+        '28fdff54'  # b.hi 0x43954C
+        '6a020a8b'  # add x10, x19, x10
+        '4aa54039'  # ldrb w10, [x10, #41] (PGD + id + 40)
+        'cafcff34'  # cbz w10, 0x43954C
+        'f4031b2a'  # mov w20, w27
+        '03000014'  # b 0x4395C8 (original vector count and loop advance)
+    ))]
+
+
 def build_static_callback_patch(nro:bytes)->bytes:
     if len(nro)<0x68CCA0 or nro[0x40:0x60]!=BUILD_ID:raise ValueError('固定NRO身份不符')
     records=[]
@@ -110,4 +134,5 @@ def build_static_callback_patch(nro:bytes)->bytes:
     records.extend(extra_source_cold.cold_records(nro))
     records.extend(custom_item_pool_cold.cold_records(nro))
     records.extend(mgo_death_cold.records(nro))
+    records.extend(challenge_achievement_records(nro))
     return build_patches.encode_ips(records)
