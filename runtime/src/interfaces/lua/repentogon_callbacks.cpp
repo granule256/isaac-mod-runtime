@@ -226,6 +226,13 @@ constexpr RepentogonCallbackBinding kCallbacks[]={
 constexpr auto kCallbackCount=sizeof(kCallbacks)/sizeof(kCallbacks[0]);
 static_assert(kCallbackCount==178);
 constexpr RepentogonEnumBinding kEnums[]={
+    {"AnimRenderFlags","GLITCH",1<<1},
+    {"AnimRenderFlags","COLOROFFSET_CHAMPION",1<<4},
+    {"AnimRenderFlags","STATIC",1<<5},
+    {"AnimRenderFlags","IGNORE_GAME_TIME",1<<6},
+    {"AnimRenderFlags","GOLDEN",1<<7},
+    {"AnimRenderFlags","ENABLE_LAYER_LIGHTING",1<<10},
+    {"AnimRenderFlags","ENABLE_NULL_LAYER_LIGHTING",1<<11},
     {"ModCallbacks","MC_HUD_POST_UPDATE",1021},
     {"StbType","SPECIAL_ROOMS",0},
     {"StbType","BASEMENT",1},
@@ -373,6 +380,8 @@ constexpr RepentogonEnumBinding kEnums[]={
     {"CompletionType","DELIRIUM",12},
 };
 constexpr RepentogonApiBinding kApis[]={
+    {{0x0E03001A,ApiDomain::Isaac,"Sprite","SetRenderFlags",{},0,ThreadAffinity::ManagedCallback,
+      ApiMaturity::Experimental},RepentogonSpriteSetRenderFlags},
     {{0x0E025019,ApiDomain::Isaac,"AnimationFrame","GetPos",{},0,ThreadAffinity::ManagedCallback,
       ApiMaturity::Experimental},RepentogonAnimationFrameGetPos},
     {{0x0E02501A,ApiDomain::Isaac,"LayerState","SetCropOffset",{},0,ThreadAffinity::ManagedCallback,

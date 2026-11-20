@@ -32,6 +32,9 @@ constexpr std::uintptr_t kAnim2MainStateOffset = 0x30;
 constexpr std::uintptr_t kAnimationStateDataOffset = 0x08;
 constexpr std::uintptr_t kAnimationStateLayerFramesOffset = 0x10;
 constexpr std::uintptr_t kAnim2LayerStatesOffset = 0xa8;
+// RenderFrame at 0x88a4 combines ANM2+0x150 with the per-layer flags.
+constexpr std::uintptr_t kAnim2RenderFlagsOffset = 0x150;
+static_assert(kAnim2RenderFlagsOffset + sizeof(std::uint32_t) <= kSpriteObjectSize);
 // ANM2::GetNullFrame(char const*) @0xBBD0 advances x0 by 0x30 before calling
 // AnimationState::GetNullFrame, and reads state._animData through [ANM2+0x38].
 // AnimationState::GetLayerPosition @0x84B0 reads the same +8 data pointer,
@@ -987,6 +990,15 @@ void PromoteSpriteClassTable(lua_State* state) {
 }
 
 } // namespace
+
+int RepentogonSpriteSetRenderFlags(lua_State* state) {
+    RequireGameThread(state);
+    auto* sprite = ResolveSpriteAt(state, 1, "Sprite:SetRenderFlags");
+    const auto flags = static_cast<std::uint32_t>(luaL_checkinteger(state, 2));
+    WriteOrError(state, engine_memory::AddressOf(sprite) + kAnim2RenderFlagsOffset,
+                 flags, "Sprite render flags");
+    return 0;
+}
 
 int RepentogonSpriteGetLayerFrameData(lua_State* state) {
     RequireGameThread(state);

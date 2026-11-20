@@ -9,6 +9,7 @@ namespace xml_data {struct XmlChildGroup;}
 void ApplyRepentogonXmlLayerTints(lua_State*, int spriteIndex, const xml_data::XmlChildGroup&);
 
 int RepentogonSpriteGetLayerFrameData(lua_State* state);
+int RepentogonSpriteSetRenderFlags(lua_State* state);
 int RepentogonSpriteGetNullFrame(lua_State* state);
 int RepentogonSpriteGetCurrentAnimationData(lua_State* state);
 int RepentogonSpriteGetAnimationData(lua_State* state);

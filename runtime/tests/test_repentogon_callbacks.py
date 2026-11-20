@@ -383,6 +383,10 @@ for name,value in pairs(achievements) do assert(Achievement[name]==value, name) 
 assert(EventCounter.DONATION_MACHINE_COUNTER==20 and EventCounter.GREED_DONATION_MACHINE_COUNTER==115)
 assert(Dimension.CURRENT==-1 and Dimension.NORMAL==0)
 assert(Dimension.KNIFE_PUZZLE==1 and Dimension.MIRROR==1 and Dimension.MINESHAFT==1 and Dimension.DEATH_CERTIFICATE==2)
+assert(AnimRenderFlags.GLITCH==2 and AnimRenderFlags.COLOROFFSET_CHAMPION==16)
+assert(AnimRenderFlags.STATIC==32 and AnimRenderFlags.IGNORE_GAME_TIME==64)
+assert(AnimRenderFlags.GOLDEN==128 and AnimRenderFlags.ENABLE_LAYER_LIGHTING==1024)
+assert(AnimRenderFlags.ENABLE_NULL_LAYER_LIGHTING==2048)
 )lua";
         for(const auto& c:expected)script+="assert(ModCallbacks."+std::string(c.name)+"=="+std::to_string(c.id)+");m:AddCallback("+std::to_string(c.id)+",function()calls=calls+1 end)\n";
     }else if(mode=="reverie"){
