@@ -32,7 +32,7 @@ int CreateSpriteHandle(lua_State* state);
 
 // `GridEntity:GetSprite()` / `GridEntityRock:GetSprite()` 的句柄。
 // 调用方已经用 `IsLiveGridEntityPointer` 校验过，这里只建句柄 + 打**非拥有**标记
-// （`kSpriteSourceEngineGridEntity`：与 `Entity:GetSprite()` 那条**释放语义完全相同**，
+// （与 `Entity:GetSprite()` 那条**释放语义完全相同**，
 // 只是重新解析时换用网格实体的存活判据与 `kGridEntitySpriteOffset`）。
 int PushEngineGridEntitySpriteHandle(lua_State* state, void* gridEntity);
 
@@ -168,7 +168,7 @@ void EndCallbackSpriteScope(lua_State*,int reference) noexcept;
 void PushCallbackSpriteHandle(lua_State*,std::uintptr_t sprite,int scopeReference);
 void* ResolveSpriteArgument(lua_State*,int index);
 // 只读身份查询复用同一来源/寿命检查，失效返回空，不触发Lua长跳。
-void* TryResolveSpriteArgument(lua_State*,int index) noexcept;
+void* TryResolveSpriteArgument(lua_State*, int index, bool* validHandle = nullptr) noexcept;
 }
 
 // 2026-10-15订正：GetDefaultAnimationName/GetDefaultAnimation共读ANM2+0x18真实声明；

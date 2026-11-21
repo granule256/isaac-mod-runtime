@@ -48,7 +48,6 @@ using LuaRuntime::ColorHandle;
 using LuaRuntime::kColorMetatable;
 using LuaRuntime::kSpriteMetatable;
 using LuaRuntime::kSpriteSourceEngineEntity;
-using LuaRuntime::kSpriteSourceEngineGridEntity;
 using LuaRuntime::kSpriteSourceEnginePlayerHeld;
 using LuaRuntime::kSpriteSourceRuntimeOwned;
 using LuaRuntime::SpriteHandle;
@@ -108,6 +107,32 @@ bool WriteEngine(std::uintptr_t address, const T& value) noexcept {
 // 校验实体活着 → `owner + kEntitySpriteOffset`），句柄里缓存的地址只当身份。
 struct CallbackSpriteLifetime { bool active{}; };
 struct CallbackSpriteHandle { SpriteHandle base{}; CallbackSpriteLifetime* lifetime{}; bool persistent{}; };
+// Grid sprites borrow the inline ANM2 and never replay cached property writes.
+constexpr std::uint64_t kGridSpriteBorrowTag = 0x4752494453505254ULL;
+struct GridSpriteBorrow { std::uint64_t tag; void* owner; };
+static_assert(sizeof(GridSpriteBorrow) == 16 && sizeof(GridSpriteBorrow) < sizeof(SpriteHandle));
+struct SpriteReceiver {
+    SpriteHandle* full{};
+    const GridSpriteBorrow* grid{};
+};
+
+SpriteReceiver ReadSpriteReceiver(lua_State* state, int index, void* raw) noexcept {
+    if (!raw) return {};
+    const auto bytes = lua_rawlen(state, index);
+    if (bytes >= sizeof(SpriteHandle)) return {static_cast<SpriteHandle*>(raw), nullptr};
+    if (bytes == sizeof(GridSpriteBorrow)) {
+        std::uint64_t tag{};
+        std::memcpy(&tag, raw, sizeof(tag));
+        if (tag == kGridSpriteBorrowTag) return {nullptr, static_cast<const GridSpriteBorrow*>(raw)};
+    }
+    return {};
+}
+
+SpriteReceiver CheckSpriteReceiver(lua_State* state, int index) {
+    const auto receiver = ReadSpriteReceiver(state, index, luaL_checkudata(state, index, kSpriteMetatable));
+    if (!receiver.full && !receiver.grid) luaL_argerror(state, index, "invalid Sprite handle");
+    return receiver;
+}
 constexpr char kCallbackSpriteCache[]="IsaacRuntime.CallbackSpriteCache";
 
 // REPENTOGON returns &_heldSprite. Switch constructs the inline ANM2 at
@@ -150,16 +175,6 @@ void* ResolveSpriteObject(const SpriteHandle* handle) noexcept {
         }
         return engine_memory::AsObject(owner + kEntitySpriteOffset);
     }
-    // 网格实体借出的 sprite（`GridEntity:GetSprite()`）。同一个形状，
-    // 只换存活判据与偏移 —— 网格实体随时可能被销毁（石头炸掉、换房间重建），
-    // 所以每次访问都要重新算 `owner + kGridEntitySpriteOffset`。
-    if (handle->source == kSpriteSourceEngineGridEntity) {
-        const std::uintptr_t owner = engine_memory::AddressOf(handle->owner);
-        if (!IsLiveGridEntityPointer(owner)) {
-            return nullptr;
-        }
-        return engine_memory::AsObject(owner + kGridEntitySpriteOffset);
-    }
     if (handle->source == kSpriteSourceEnginePlayerHeld) {
         const auto player = engine_memory::AddressOf(handle->owner);
         // Player D2 destroys this ANM2 before base Entity D2 dispatches remove
@@ -171,6 +186,15 @@ void* ResolveSpriteObject(const SpriteHandle* handle) noexcept {
         return engine_memory::AsObject(ReadablePlayerHeldSprite(player));
     }
     return handle->sprite;
+}
+
+void* ResolveSpriteObject(const SpriteReceiver& receiver) noexcept {
+    if (receiver.grid) {
+        const auto owner = engine_memory::AddressOf(receiver.grid->owner);
+        if (!IsLiveGridEntityPointer(owner)) return nullptr;
+        return engine_memory::AsObject(owner + kGridEntitySpriteOffset);
+    }
+    return ResolveSpriteObject(receiver.full);
 }
 
 // 动画名的字节上限。libc++ 的 `std::string` 可能是长串（数据在引擎堆上，指针来自引擎内存），
@@ -319,18 +343,18 @@ void ReleaseSpriteStorage(void* sprite) noexcept {
 }
 
 int ResolveSprite(lua_State* state, const char* apiName, void** sprite) {
-    auto* handle = static_cast<SpriteHandle*>(luaL_checkudata(state, 1, kSpriteMetatable));
-    void* resolved = ResolveSpriteObject(handle);
+    const auto receiver = CheckSpriteReceiver(state, 1);
+    void* resolved = ResolveSpriteObject(receiver);
     if (resolved == nullptr) {
         // 两种失效原因分开报，否则真机日志会把"实体没了"误读成"我们自己把 Sprite 释放了"。
-        if (handle->source == kSpriteSourceEngineEntity ||
-            handle->source == kSpriteSourceEnginePlayerHeld) {
+        if (receiver.full && (receiver.full->source == kSpriteSourceEngineEntity ||
+                              receiver.full->source == kSpriteSourceEnginePlayerHeld)) {
             return luaL_error(
                 state, "%s: the engine entity this Sprite belongs to is no longer alive", apiName);
         }
         // 网格实体那条同样把原因说清楚（否则真机日志会把"网格实体没了"
         // 误读成"我们自己把 Sprite 释放了"）。
-        if (handle->source == kSpriteSourceEngineGridEntity) {
+        if (receiver.grid) {
             return luaL_error(
                 state, "%s: the engine grid entity this Sprite belongs to is no longer alive",
                 apiName);
@@ -410,11 +434,11 @@ bool ApplyCachedSpriteProperties(void* sprite, const SpriteHandle* handle,
         return false;
     }
     const std::uintptr_t base = engine_memory::AddressOf(sprite);
-    if (handle->hasScale != 0 && property == SpriteProperty::Scale) {
+    if (property == SpriteProperty::Scale && handle->hasScale != 0) {
         return WriteEngine<float>(base + kSpriteScaleOffset, handle->scaleX) &&
                WriteEngine<float>(base + kSpriteScaleOffset + sizeof(float), handle->scaleY);
     }
-    if (handle->hasColor != 0 && property == SpriteProperty::Color) {
+    if (property == SpriteProperty::Color && handle->hasColor != 0) {
         const ColorHandle color{handle->colorRed, handle->colorGreen, handle->colorBlue,
                                 handle->colorAlpha, handle->colorOffsetRed,
                                 handle->colorOffsetGreen, handle->colorOffsetBlue};
@@ -423,31 +447,28 @@ bool ApplyCachedSpriteProperties(void* sprite, const SpriteHandle* handle,
         return WriteEngine<EngineColorMod>(base + kSpriteColorOffset,
                                           EngineColorModFromHandle(color));
     }
-    if (handle->hasFlipX != 0 && property == SpriteProperty::FlipX) {
+    if (property == SpriteProperty::FlipX && handle->hasFlipX != 0) {
         return WriteEngine<std::uint8_t>(base + kSpriteFlipXOffset, handle->flipX);
     }
     return false;
 }
 
 // 保留宿主绘制观察入口；不把Lua视图缓存重新写回引擎。
-void ObserveSpriteProperties(void* sprite, const SpriteHandle* handle) noexcept {
 #if !defined(__SWITCH__)
+void ObserveSpriteProperties(lua_State* state, void* sprite) noexcept {
     const SpritePropertyApplyHostImplementation apply = g_PropertyApplyHostImplementation;
-    if (apply != nullptr) {
-        apply(sprite, handle);
+    if (apply) {
+        const auto receiver = ReadSpriteReceiver(state, 1, lua_touserdata(state, 1));
+        if (receiver.full) apply(sprite, receiver.full);
     }
-#else
-    static_cast<void>(sprite);
-    static_cast<void>(handle);
-#endif
-
 }
+#endif
 
 // 把缓存的 `Scale` 压成一张 `{X, Y}` 表？不：PC 的 `Sprite.Scale` 读出来就是 `Vector`，
 // 所以这里原样产出 `Vector` userdata（与 `EntityPlayer.Position` 同一做法：新对象，
 // 不共享同一块 userdata）。
-void PushCachedScale(lua_State* state, const SpriteHandle* handle) {
-    void* sprite = ResolveSpriteObject(handle);
+void PushCachedScale(lua_State* state, const SpriteReceiver& receiver) {
+    void* sprite = ResolveSpriteObject(receiver);
     VectorHandle value{};
     if (sprite == nullptr || !ReadEngine(engine_memory::AddressOf(sprite) +
                                          kSpriteScaleOffset, &value)) {
@@ -457,8 +478,8 @@ void PushCachedScale(lua_State* state, const SpriteHandle* handle) {
     PushLuaVector(state, value.x, value.y);
 }
 
-void PushCachedColor(lua_State* state, const SpriteHandle* handle) {
-    void* sprite = ResolveSpriteObject(handle);
+void PushCachedColor(lua_State* state, const SpriteReceiver& receiver) {
+    void* sprite = ResolveSpriteObject(receiver);
     EngineColorMod value{};
     if (sprite == nullptr || !ReadEngine(engine_memory::AddressOf(sprite) +
                                          kSpriteColorOffset, &value)) {
@@ -1146,7 +1167,6 @@ int SpriteRender(lua_State* state) {
     if (const int error = ResolveSprite(state, "Sprite:Render", &sprite); error != 0) {
         return error;
     }
-    auto* handle = static_cast<SpriteHandle*>(luaL_checkudata(state, 1, kSpriteMetatable));
     const int argumentCount = lua_gettop(state);
     if (argumentCount < 2 || argumentCount > 4) {
         return luaL_error(state, "Sprite:Render accepts a position and optional clamps");
@@ -1161,7 +1181,9 @@ int SpriteRender(lua_State* state) {
     }
     // 绘制前先把 Mod 写的 Scale/Color/FlipX 交给应用入口（设备侧目前是空操作，
     // 见 `ApplyCachedSpriteProperties` 的注释）。
-    ObserveSpriteProperties(sprite, handle);
+#if !defined(__SWITCH__)
+    ObserveSpriteProperties(state, sprite);
+#endif
     method(sprite, position, topLeft, bottomRight);
     return 0;
 }
@@ -1257,7 +1279,6 @@ int SpriteRenderLayer(lua_State* state) {
     if (const int error = ResolveSprite(state, "Sprite:RenderLayer", &sprite); error != 0) {
         return error;
     }
-    auto* handle = static_cast<SpriteHandle*>(luaL_checkudata(state, 1, kSpriteMetatable));
     const int argumentCount = lua_gettop(state);
     if (argumentCount < 3 || argumentCount > 5 || !isaac::runtime::IsIntegerArgument(state, 2)) {
         return luaL_error(state,
@@ -1273,7 +1294,9 @@ int SpriteRenderLayer(lua_State* state) {
         return luaL_error(state, "Sprite:RenderLayer native binding is unavailable");
     }
     // 与 `Sprite:Render` 同一步：绘制前把 Mod 写的三个属性交给应用入口。
-    ObserveSpriteProperties(sprite, handle);
+#if !defined(__SWITCH__)
+    ObserveSpriteProperties(state, sprite);
+#endif
     method(sprite, layerId, position, topLeft, bottomRight);
     return 0;
 }
@@ -1378,33 +1401,13 @@ int PushEnginePlayerHeldSpriteHandle(lua_State* state, std::uintptr_t player) {
     return PushEntityOwnedSpriteHandle(state, player, sprite, kSpriteSourceEnginePlayerHeld);
 }
 
-// `GridEntity:GetSprite()` / `GridEntityRock:GetSprite()` 的句柄。
-// 与 `PushEngineEntitySpriteHandle` **逐字同形**，只有两处不同：
-//   * `kGridEntitySpriteOffset`（`0x48`，网格实体的内嵌 ANM2）；
-//   * `kSpriteSourceEngineGridEntity`（`ResolveSpriteObject` 据此换用网格实体的存活判据）。
-// 调用方（`remaining_api.cpp` 的 `GridEntityGetSprite`）已经用 `IsLiveGridEntityPointer`
-//   校验过句柄。
+// Each call creates a distinct Lua view of the engine's inline ANM2.
 int PushEngineGridEntitySpriteHandle(lua_State* state, void* gridEntity) {
     if (gridEntity == nullptr) {
         return luaL_error(state, "GridEntity:GetSprite requires a live grid entity");
     }
-    auto* handle = static_cast<SpriteHandle*>(lua_newuserdata(state, sizeof(SpriteHandle)));
-    handle->lifetime=nullptr;
-    handle->sprite = engine_memory::AsObject(engine_memory::AddressOf(gridEntity) +
-                                             kGridEntitySpriteOffset);
-    handle->owner = gridEntity;
-    handle->source = kSpriteSourceEngineGridEntity;
-    // 三个缓存属性的初值与 `Entity:GetSprite()` / `Sprite()` 同一套（PC 的对象默认值）。
-    handle->scaleX = 1.0F;
-    handle->scaleY = 1.0F;
-    handle->colorRed = 1.0F;
-    handle->colorGreen = 1.0F;
-    handle->colorBlue = 1.0F;
-    handle->colorAlpha = 1.0F;
-    handle->flipX = 0;
-    handle->hasScale = 0;
-    handle->hasColor = 0;
-    handle->hasFlipX = 0;
+    auto* handle = static_cast<GridSpriteBorrow*>(lua_newuserdata(state, sizeof(GridSpriteBorrow)));
+    *handle = {kGridSpriteBorrowTag, gridEntity};
     luaL_getmetatable(state, kSpriteMetatable);
     lua_setmetatable(state, -2);
     return 1;
@@ -1706,22 +1709,21 @@ void PushSpriteDefaultAnimationName(lua_State* state, void* sprite) {
 // 439 更正：属性读取原生对象；下方保留的PushCached命名是历史名称。
 // `__index`：先读取三个属性，再落到元表 `__methods` 里的方法（与 `Vector` 同一形态：
 // `__index` 必须是函数才能同时服务字段与方法）。
-void* TryResolveSpriteArgument(lua_State* state,int index) noexcept {
-    auto* handle=static_cast<SpriteHandle*>(luaL_testudata(state,index,kSpriteMetatable));
-    if (!handle || lua_rawlen(state,index)<sizeof(SpriteHandle)) return nullptr;
-    void* sprite=ResolveSpriteObject(handle);
+void* TryResolveSpriteArgument(lua_State* state, int index, bool* validHandle) noexcept {
+    const auto receiver = ReadSpriteReceiver(state, index, luaL_testudata(state, index, kSpriteMetatable));
+    if (validHandle) *validHandle = receiver.full || receiver.grid;
+    void* sprite = ResolveSpriteObject(receiver);
     return sprite && IsEngineMemoryReadable(engine_memory::AddressOf(sprite),kSpriteObjectSize)?sprite:nullptr;
 }
 
 void* ResolveSpriteArgument(lua_State* state,int index) {
-    auto* handle=static_cast<SpriteHandle*>(luaL_checkudata(state,index,kSpriteMetatable));
-    void* sprite=ResolveSpriteObject(handle);
+    void* sprite = ResolveSpriteObject(CheckSpriteReceiver(state, index));
     if(!sprite)luaL_error(state,"Sprite reference is no longer available");
     return sprite;
 }
 
 int SpriteIndex(lua_State* state) {
-    auto* handle = static_cast<SpriteHandle*>(luaL_checkudata(state, 1, kSpriteMetatable));
+    const auto receiver = CheckSpriteReceiver(state, 1);
     if (lua_type(state, 2) != LUA_TSTRING) {
         lua_pushnil(state);
         return 1;
@@ -1729,21 +1731,21 @@ int SpriteIndex(lua_State* state) {
     const char* field = lua_tostring(state, 2);
     if(const int pushed=TryPushExtendedSpriteField(state,field))return pushed;
     if(std::strcmp(field,"PlaybackSpeed")==0) {
-        void* sprite=ResolveSpriteObject(handle);float value{};
+        void* sprite=ResolveSpriteObject(receiver);float value{};
         if(!sprite || !ReadEngine(engine_memory::AddressOf(sprite)+kSpritePlaybackSpeedOffset,&value))
             return luaL_error(state,"Sprite.PlaybackSpeed requires a readable live sprite");
         lua_pushnumber(state,value);return 1;
     }
     if (std::strcmp(field, kSpriteScaleField) == 0) {
-        PushCachedScale(state, handle);
+        PushCachedScale(state, receiver);
         return 1;
     }
     if (std::strcmp(field, kSpriteColorField) == 0) {
-        PushCachedColor(state, handle);
+        PushCachedColor(state, receiver);
         return 1;
     }
     if (std::strcmp(field, kSpriteFlipXField) == 0) {
-        void* sprite = ResolveSpriteObject(handle);
+        void* sprite = ResolveSpriteObject(receiver);
         std::uint8_t value = 0;
         if (sprite == nullptr || !ReadEngine(engine_memory::AddressOf(sprite) +
                                              kSpriteFlipXOffset, &value)) {
@@ -1773,7 +1775,7 @@ int SpriteIndex(lua_State* state) {
 // Vector/Color values retain their typed checks. FlipX follows PC's boolean
 // setter (0x839C10): nil/false clear it; every other Lua value sets it.
 int SpriteNewIndex(lua_State* state) {
-    auto* handle = static_cast<SpriteHandle*>(luaL_checkudata(state, 1, kSpriteMetatable));
+    const auto receiver = CheckSpriteReceiver(state, 1);
     if (lua_type(state, 2) != LUA_TSTRING) {
         return luaL_error(state, "Sprite fields are Scale, Color and FlipX");
     }
@@ -1781,7 +1783,7 @@ int SpriteNewIndex(lua_State* state) {
     if(TryWriteExtendedSpriteField(state,field))return 0;
     if(std::strcmp(field,"PlaybackSpeed")==0) {
         const float value=static_cast<float>(luaL_checknumber(state,3));
-        void* sprite=ResolveSpriteObject(handle);
+        void* sprite=ResolveSpriteObject(receiver);
         if(!sprite || !WriteEngine(engine_memory::AddressOf(sprite)+kSpritePlaybackSpeedOffset,value))
             return luaL_error(state,"Sprite.PlaybackSpeed requires a writable live sprite");
         return 0;
@@ -1792,10 +1794,12 @@ int SpriteNewIndex(lua_State* state) {
         if (!ReadVectorPair(state, 3, &x, &y)) {
             return luaL_error(state, "Sprite.Scale must be a Vector");
         }
+        SpriteHandle write{};
+        auto* handle = receiver.full ? receiver.full : &write;
         handle->scaleX = x;
         handle->scaleY = y;
         handle->hasScale = 1;
-        if (!ApplyCachedSpriteProperties(ResolveSpriteObject(handle), handle,
+        if (!ApplyCachedSpriteProperties(ResolveSpriteObject(receiver), handle,
                                           SpriteProperty::Scale)) {
             return luaL_error(state, "Sprite.Scale requires a writable live sprite");
         }
@@ -1806,15 +1810,17 @@ int SpriteNewIndex(lua_State* state) {
         if (color == nullptr) {
             return luaL_error(state, "Sprite.Color must be a KColor");
         }
-        handle->colorRed = color->red;
-        handle->colorGreen = color->green;
-        handle->colorBlue = color->blue;
-        handle->colorAlpha = color->alpha;
-        handle->colorOffsetRed = color->offsetRed;
-        handle->colorOffsetGreen = color->offsetGreen;
-        handle->colorOffsetBlue = color->offsetBlue;
-        handle->hasColor = 1;
-        void* sprite=ResolveSpriteObject(handle);
+        if (auto* handle = receiver.full) {
+            handle->colorRed = color->red;
+            handle->colorGreen = color->green;
+            handle->colorBlue = color->blue;
+            handle->colorAlpha = color->alpha;
+            handle->colorOffsetRed = color->offsetRed;
+            handle->colorOffsetGreen = color->offsetGreen;
+            handle->colorOffsetBlue = color->offsetBlue;
+            handle->hasColor = 1;
+        }
+        void* sprite=ResolveSpriteObject(receiver);
         if (!sprite || !WriteEngine(engine_memory::AddressOf(sprite)+kSpriteColorOffset,
                                    EngineColorModFromHandle(*color))) {
             return luaL_error(state, "Sprite.Color requires a writable live sprite");
@@ -1822,9 +1828,11 @@ int SpriteNewIndex(lua_State* state) {
         return 0;
     }
     if (std::strcmp(field, kSpriteFlipXField) == 0) {
+        SpriteHandle write{};
+        auto* handle = receiver.full ? receiver.full : &write;
         handle->flipX = lua_toboolean(state, 3) != 0 ? 1 : 0;
         handle->hasFlipX = 1;
-        if (!ApplyCachedSpriteProperties(ResolveSpriteObject(handle), handle,
+        if (!ApplyCachedSpriteProperties(ResolveSpriteObject(receiver), handle,
                                           SpriteProperty::FlipX)) {
             return luaL_error(state, "Sprite.FlipX requires a writable live sprite");
         }
@@ -1889,7 +1897,9 @@ void PushCallbackSpriteHandle(lua_State* state,std::uintptr_t sprite,int scopeRe
     }
 }
 int DestroySpriteHandle(lua_State* state) {
-    auto* handle = static_cast<SpriteHandle*>(luaL_checkudata(state, 1, kSpriteMetatable));
+    const auto receiver = CheckSpriteReceiver(state, 1);
+    if (receiver.grid) return 0;
+    auto* handle = receiver.full;
     // 引擎实体借出的 `Sprite`（`Entity:GetSprite()`）：这块 `ANM2` 是引擎实体的成员，
     // 不是本模块分配的。所以这里**什么都不做** —— 既不调 `~ANM2()`（那会把引擎对象的成员拆掉），
     // 也不 `free`（`handle->sprite` 不是 malloc 基址，`ReleaseSpriteStorage` 会把
@@ -1899,7 +1909,6 @@ int DestroySpriteHandle(lua_State* state) {
     // "释放后句柄还能用"不会带来任何可观察行为；反过来，真实的实体 sprite 只能由引擎释放。
     // 这条分支就是所有权标记存在的唯一理由（去掉它 = 每次 GC 都踩一次引擎内存）。
     if (handle->source == kSpriteSourceEngineEntity ||
-        handle->source == kSpriteSourceEngineGridEntity ||
         handle->source == kSpriteSourceEnginePlayerHeld ||
         handle->source == LuaRuntime::kSpriteSourceEngineGridExtra ||
         handle->source == LuaRuntime::kSpriteSourceEngineConfig ||

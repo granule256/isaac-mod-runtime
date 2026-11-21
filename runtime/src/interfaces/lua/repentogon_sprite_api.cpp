@@ -204,11 +204,12 @@ T* CheckView(lua_State* state, int index, const char* metatable, const char* nam
 }
 
 void* ResolveSpriteAt(lua_State* state, int index, const char* name) {
-    if (lua_rawlen(state, index) < sizeof(LuaRuntime::SpriteHandle)) {
+    bool validHandle = false;
+    void* sprite = TryResolveSpriteArgument(state, index, &validHandle);
+    if (!validHandle) {
         luaL_error(state, "%s owner Sprite is invalid", name);
         return nullptr;
     }
-    void* sprite = TryResolveSpriteArgument(state, index);
     if (sprite == nullptr) {
         luaL_error(state, "%s owner Sprite is no longer available", name);
         return nullptr;

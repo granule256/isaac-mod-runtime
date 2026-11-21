@@ -272,13 +272,10 @@ struct EntityRefHandle {
 //     成员**（`Entity + kEntitySpriteOffset`，实体自己拥有这块内存、自己负责析构）。
 //     `__gc` **绝不能**调 `~ANM2()`、**绝不能** `free` —— 那会把引擎的实体对象拆掉/把一块
 //     不是 malloc 基址的地址交给 `free`。
-//   * `kSpriteSourceEngineGridEntity`—— `GridEntity:GetSprite()` /
-//     `GridEntityRock:GetSprite()` 借出来的对象：**同一个形状**，只是来源对象是**网格实体**
-//     （`GridEntity + kGridEntitySpriteOffset` 那个内嵌 `ANM2`）⇒ 释放语义与上一条**完全一样**
-//     （什么都不做），重新解析时的存活判据换成 `IsLiveGridEntityPointer`（网格实体随时可能
-//     被销毁：石头炸掉、换房间重建）。
+//   * `GridEntity:GetSprite()` 使用独立的紧凑借用句柄（见 sprite_api.cpp），
+//     也不析构内嵌 ANM2；每次解析时重新检查网格实体是否存活。
 //
-// 因此 `source` 是"析构时放不放手"的唯一依据，也是"每次访问要不要重新解析"的依据：
+// 完整句柄的 `source` 决定是否析构和如何重新解析：
 // 引擎对象随时可能随实体消失，所以 `owner`（来源实体指针）也要存下来，每次访问都
 // **重新校验**实体仍然活着，再重新算出 `owner + kEntitySpriteOffset`（句柄里的 `sprite`
 // 只当身份缓存，不作为解引用依据，避免句柄跨帧后指向已释放的实体）。
@@ -365,9 +362,6 @@ struct SpriteHandle {
 // `SpriteHandle::source` 的取值（放在结构体之后，避免读取顺序上的疑问）。
 inline constexpr std::uint8_t kSpriteSourceRuntimeOwned = 0;
 inline constexpr std::uint8_t kSpriteSourceEngineEntity = 1;
-// 来源是网格实体（`GridEntity:GetSprite()`）—— 释放语义与
-// `kSpriteSourceEngineEntity` 相同（都不放手），只有"重新解析时的存活判据 + 偏移"不同。
-inline constexpr std::uint8_t kSpriteSourceEngineGridEntity = 2;
 // EntityConfig owns its five modded-character menu ANM2 objects but does not
 // expose them through the callback-sprite validator.  This source is borrowed
 // from the engine config and is only checked for readability on resolution.

@@ -60,7 +60,6 @@ CATALOG = ROOT / "runtime" / "src" / "interfaces" / "lua" / "api_catalog.cpp"
 REMAINING_API = ROOT / "runtime" / "src" / "interfaces" / "lua" / "remaining_api.cpp"
 SPRITE_API = ROOT / "runtime" / "src" / "interfaces" / "lua" / "sprite_api.cpp"
 SPRITE_HEADER = ROOT / "runtime" / "src" / "interfaces" / "lua" / "sprite_api.hpp"
-HANDLES = ROOT / "runtime" / "source" / "lua_object_handles.hpp"
 ISAAC_HEADER = ROOT / "runtime" / "src" / "interfaces" / "lua" / "isaac_api.hpp"
 CONSTANTS = ROOT / "runtime" / "source" / "runtime_constants.hpp"
 WORKLIST_TOOL = ROOT / "tools" / "build_api_restore_worklist.py"
@@ -75,6 +74,7 @@ HARNESS = r'''
 #include "lua_runtime.hpp"
 #include "game_observer.hpp"
 #include "runtime_constants.hpp"
+#include "interfaces/lua/sprite_api.hpp"
 
 #include <cstdint>
 #include <cstring>
@@ -130,6 +130,18 @@ void PublishFakeRoom() {
     LuaRuntime::SetEngineModuleBase(AddressOf(g_ModuleBytes));
 }
 
+int CheckGridSpritePayload(lua_State* state) {
+    lua_pushinteger(state, lua_rawlen(state, 1));
+    lua_pushboolean(state, isaac::runtime::TryResolveSpriteArgument(state, 1) ==
+        reinterpret_cast<void*>(AddressOf(g_GridBytes) + kGridEntitySpriteOffset));
+    return 2;
+}
+
+void InstallProbe(lua_State* state) noexcept {
+    lua_pushcfunction(state, CheckGridSpritePayload);
+    lua_setglobal(state, "checkGridSpritePayload");
+}
+
 }  // namespace
 
 GameRoomObservation ReadCurrentGameRoom(uintptr_t, void** room) {
@@ -160,6 +172,7 @@ int main(int argc, char** argv) {
     }
     PublishFakeRoom();
     LuaRuntime::SetGameBindings(AddressOf(g_OwnerSlotBytes), 0x2222);
+    LuaRuntime::SetRuntimeExtensionInstaller(InstallProbe);
 
     const char* script = nullptr;
     if (std::strcmp(scenario, "sprite") == 0) {
@@ -168,6 +181,16 @@ int main(int argc, char** argv) {
             " local function err(f) return tostring(select(2, pcall(f))) end"
             " local grid = Game():GetRoom():GetGridEntity(GRID_INDEX)"
             " local sprite = grid:GetSprite()"
+            " local other = grid:GetSprite()"
+            " local bytes, resolves = checkGridSpritePayload(sprite)"
+            " print('B298 payload=' .. bytes .. ' resolves=' .. tostring(resolves))"
+            " assert(not rawequal(sprite, other) and getmetatable(sprite)==getmetatable(other))"
+            " sprite.FlipX = true; assert(other.FlipX == true)"
+            " sprite.Scale = Vector(2,3); assert(other.Scale.X == 2 and other.Scale.Y == 3)"
+            " sprite.Color = Color(0.25,0.5,0.75,1); assert(other.Color.G == 0.5)"
+            " sprite = nil; collectgarbage('collect'); sprite = other"
+            " assert(sprite:IsLoaded())"
+            " print('B298 independent=yes livewrites=yes')"
             " print('B298 kind=' .. type(grid) .. ',' .. type(sprite))"
             // ★★ 内嵌 ANM2 的 +0x149 = 1 ⇒ 纯读那一格的方法必须答 true
             " print('B298 loaded=' .. tostring(sprite:IsLoaded()))"
@@ -232,6 +255,11 @@ class GridEntitySpriteBatch298Tests(unittest.TestCase):
         self.assertIn("B298 arity=false", out)
         self.assertIn("GridEntity:GetSprite accepts no arguments", out)
 
+    def test_grid_sprite_payload_is_small_and_retains_live_view_semantics(self):
+        out = self.run_scenario("sprite")
+        self.assertIn("B298 payload=16 resolves=true", out)
+        self.assertIn("B298 independent=yes livewrites=yes", out)
+
     def test_dead_grid_entity_yields_nil_and_the_old_handle_revalidates(self):
         """★★ 网格实体没了（vptr 被改坏）之后：
 
@@ -253,7 +281,6 @@ class GridEntitySpriteBatch298Tests(unittest.TestCase):
         remaining = REMAINING_API.read_text(encoding="utf-8")
         sprite = SPRITE_API.read_text(encoding="utf-8")
         sprite_header = SPRITE_HEADER.read_text(encoding="utf-8")
-        handles = HANDLES.read_text(encoding="utf-8")
         isaac_header = ISAAC_HEADER.read_text(encoding="utf-8")
         constants = CONSTANTS.read_text(encoding="utf-8")
 
@@ -275,22 +302,18 @@ class GridEntitySpriteBatch298Tests(unittest.TestCase):
                                     r"kGridEntityVtableRangeEndOffset\s*=\s*0xA382A8;")
 
         #: 新的 Sprite 来源（句柄的**所有权**标记 + 三处分支）。
-        self.assertIn("kSpriteSourceEngineGridEntity = 2", handles)
         self.assertIn("PushEngineGridEntitySpriteHandle", sprite_header)
         self.assertIn("int PushEngineGridEntitySpriteHandle(lua_State* state, void* gridEntity)",
                       sprite)
         #: 三处按来源分支的地方都要认它（漏任一处都是真事故：__gc 会去 free 引擎内存）。
         #: 四处**代码**位置各断言一次（不数总次数 —— 注释里也会出现这个名字）。
-        self.assertIn("using LuaRuntime::kSpriteSourceEngineGridEntity;", sprite)
-        self.assertIn("if (handle->source == kSpriteSourceEngineGridEntity) {\n"
-                      "        const std::uintptr_t owner = engine_memory::AddressOf(handle->owner);\n"
-                      "        if (!IsLiveGridEntityPointer(owner)) {", sprite)
-        self.assertIn("handle->source = kSpriteSourceEngineGridEntity;", sprite)
-        # 核非拥有分支本身，允许同一早退条件加入新增的额外网格Sprite来源。
+        self.assertIn("if (!IsLiveGridEntityPointer(owner)) return nullptr;", sprite)
+        self.assertIn("*handle = {kGridSpriteBorrowTag, gridEntity};", sprite)
         gc = sprite.split("int DestroySpriteHandle(", 1)[1].split("std::size_t AttachSpriteMethods", 1)[0]
+        self.assertIn("if (receiver.grid) return 0;", gc)
         nonowning = re.search(r"if\s*\(([^{}]*source[^{}]*)\)\s*\{\s*return 0;\s*\}", gc)
         self.assertIsNotNone(nonowning)
-        for source in ("kSpriteSourceEngineEntity", "kSpriteSourceEngineGridEntity", "kSpriteSourceEngineGridExtra"):
+        for source in ("kSpriteSourceEngineEntity", "kSpriteSourceEngineGridExtra"):
             self.assertIn(source, nonowning.group(1))
         #: 网格实体存活判据的导出声明与实现。
         self.assertIn("bool IsLiveGridEntityPointer(std::uintptr_t candidate) noexcept;",

@@ -2193,8 +2193,7 @@ int GridEntityGetRng(lua_State* state) {
 // ⇒ 两条 API 在我们的实现里读同一个偏移，所以 `rock:GetSprite()` 走同一段代码就对了
 // （`ToRock()` 压的本来就是基类 `GridEntity` 视图）。完整证据见 `runtime_constants.hpp`
 // 的段。
-// 交出去的 `Sprite` 句柄指向引擎网格实体内部的内存 ⇒ 打 `kSpriteSourceEngineGridEntity`
-// 标记（`__gc` 不放手），每次访问重新做存活判据（网格实体会随炸石头/换房间销毁）。
+// Sprite 句柄非拥有；每次访问重新验证网格实体，GC 不析构内嵌 ANM2。
 // 降级：拿不到网格实体（句柄为空 / 已失效）⇒ 返回 nil、不报错（与 `Entity:GetSprite`
 // 同一口径：报错会把整条模组回调摘掉，而 nil 至少让 `if sprite then` 走另一条路）。
 int GridEntityGetSprite(lua_State* state) {
