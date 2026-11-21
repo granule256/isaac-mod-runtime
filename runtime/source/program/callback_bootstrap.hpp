@@ -1,7 +1,7 @@
 #pragma once
 // PC Callbacks（main.lua SHA ae0efa…）；默认匹配内联，执行仍读取共享表。
 namespace isaac::runtime {
-inline constexpr char kPcCallbackBootstrap[] = R"pc(local invoke, changed, ownerMatches, nativeInvoke, nextMatching, extendedPolicy = ...
+inline constexpr char kPcCallbackBootstrap[] = R"pc(local invoke, changed, ownerMatches, nativeInvoke, nextMatching, extendedPolicy, nativeDefault = ...
 nativeInvoke = nativeInvoke or invoke
 local debug_getinfo = debug.getinfo
 local diagnostic_pcall = pcall
@@ -43,7 +43,7 @@ local function InvokeRender(invoke, id, entry, offset, entity, ignored, ...)
     return nil, offset
 end
 
-local function MakeRunner(invoke, nextMatching)
+local function MakeRunner(invoke, nextMatching, nativeDefault)
  return function(callbackId, param, ...)
     local callbacks = Callbacks[callbackId]
     if callbacks then
@@ -51,6 +51,9 @@ local function MakeRunner(invoke, nextMatching)
         local useDefault = matchFunc == originalDefaultMatch
         local iterator, iteratorState, iteratorIndex = ipairs(callbacks)
         if iterator == standardIterator and iteratorState == callbacks and iteratorIndex == 0 then
+          if nativeDefault and useDefault and (callbackId == 1 or callbackId == 13) then
+            return nativeDefault(callbacks, callbackId, param, ...)
+          end
           if nextMatching and useDefault and param and param ~= -1 then
             local index = 0
             while true do
@@ -269,8 +272,8 @@ local function MakeExtensionRunner(invoke, nextMatching)
         if death then return true end
     end
 end
-local function SelectRunner(invoke,nextMatching)
-    local ordinary=MakeRunner(invoke,nextMatching)
+local function SelectRunner(invoke,nextMatching,nativeDefault)
+    local ordinary=MakeRunner(invoke,nextMatching,nativeDefault)
     if not extendedPolicy then return ordinary end
     local extension=MakeExtensionRunner(invoke,nextMatching)
     return function(id,param,...)
@@ -279,7 +282,7 @@ local function SelectRunner(invoke,nextMatching)
     end
 end
 _RunCallback=SelectRunner(invoke)
-local RunNative=SelectRunner(nativeInvoke,nextMatching)
+local RunNative=SelectRunner(nativeInvoke,nextMatching,nativeDefault)
 
 function _UnloadMod(mod)
 	Isaac.RunCallback(ModCallbacks.MC_PRE_MOD_UNLOAD, mod)

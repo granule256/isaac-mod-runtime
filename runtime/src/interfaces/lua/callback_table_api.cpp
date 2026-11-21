@@ -165,6 +165,66 @@ int NextMatchingCallback(lua_State* state) {
         return 2;
     }
 }
+
+// Called by the protected native runner after it has verified the live
+// matcher and ipairs result. Keep entry/Param access and short-circuit
+// behavior identical to the Lua loop, even when a listener mutates the list.
+int RunNativeDefaultCallbacks(lua_State* state) {
+    const int count = lua_gettop(state);
+    if (!lua_checkstack(state, count + 3))
+        return luaL_error(state, "not enough memory preparing callback arguments");
+    lua_pushinteger(state, -1);
+    const int minusOne = count + 1;
+    lua_pushvalue(state, lua_upvalueindex(2));
+    const int parameterKey = count + 2;
+    const bool wildcard = !lua_toboolean(state, 3) ||
+        lua_compare(state, 3, minusOne, LUA_OPEQ);
+    const bool integerFilter = lua_isinteger(state, 3);
+    const int entry = count + 3;
+    for (lua_Unsigned index = 1;; ++index) {
+        bool plainEntry = false;
+        bool matches = false;
+        if ((wildcard || integerFilter) && ttistable(state->ci->func + 1) &&
+            ttisstring(state->ci->func + parameterKey)) {
+            // No Lua calls while these pointers are live. Re-read the list
+            // after each listener, since it may rearrange or replace entries.
+            const auto* slot = luaH_getint(hvalue(state->ci->func + 1),
+                                          static_cast<lua_Integer>(index));
+            if (ttistable(slot) && hvalue(slot)->metatable == nullptr) {
+                const auto* parameter = luaH_getstr(hvalue(slot),
+                                                    tsvalue(state->ci->func + parameterKey));
+                plainEntry = true;
+                matches = wildcard || l_isfalse(parameter) ||
+                    luaV_rawequalobj(parameter, state->ci->func + minusOne) ||
+                    luaV_rawequalobj(parameter, state->ci->func + 3);
+                if (!matches) continue;
+                setobj2s(state, state->top, slot);
+                ++state->top;
+            }
+        }
+        if (!plainEntry) {
+            lua_geti(state, 1, static_cast<lua_Integer>(index));
+            if (lua_isnil(state, -1)) return 0;
+            lua_pushvalue(state, parameterKey);
+            lua_gettable(state, entry);
+            matches = wildcard || !lua_toboolean(state, -1) ||
+                lua_compare(state, -1, minusOne, LUA_OPEQ) ||
+                lua_compare(state, 3, -1, LUA_OPEQ);
+            lua_pop(state, 1);
+        }
+        if (matches) {
+            lua_pushvalue(state, lua_upvalueindex(1));
+            lua_pushvalue(state, 2);
+            lua_pushvalue(state, entry);
+            for (int argument = 4; argument <= count; ++argument)
+                lua_pushvalue(state, argument);
+            lua_call(state, count - 1, 1);
+            if (!lua_isnil(state, -1)) return 1;
+            lua_pop(state, 1);
+        }
+        lua_pop(state, 1);
+    }
+}
 }
 bool BuiltinCallbackEnabled(std::uint32_t id) noexcept {
     return id<=kCallbackMaximumId
@@ -212,7 +272,10 @@ void RegisterCallbackBootstrap(lua_State* state,lua_CFunction invoke,lua_CFuncti
     lua_pushcfunction(state,nativeInvoke?nativeInvoke:invoke);
     lua_pushliteral(state,"Param");lua_pushcclosure(state,NextMatchingCallback,1);
     if(g_ExtendedCallbackCount)lua_pushcfunction(state,ExtendedPolicy);else lua_pushnil(state);
-    lua_call(state,6,5);
+    lua_pushcfunction(state,nativeInvoke?nativeInvoke:invoke);
+    lua_pushliteral(state,"Param");
+    lua_pushcclosure(state,RunNativeDefaultCallbacks,2);
+    lua_call(state,7,5);
     lua_pushvalue(state,-1);stored->runRef=luaL_ref(state,LUA_REGISTRYINDEX);
     lua_pushvalue(state,-4);stored->tableRef=luaL_ref(state,LUA_REGISTRYINDEX);
     lua_pushvalue(state,-3);stored->unloadRef=luaL_ref(state,LUA_REGISTRYINDEX);
