@@ -2910,7 +2910,10 @@ bool PushEntityNpcField(lua_State* state, std::uintptr_t entity, const char* fie
 
 // 方法表查找：先本类型的 `__methods`，`EntityPlayer` 再回落到 `Entity` 的（PC 里就是继承）。
 bool PushMethodFrom(lua_State* state, const char* metatable, const char* field) {
-    if (luaL_getmetatable(state, metatable) != LUA_TTABLE) {
+    if (metatable == nullptr) {
+        // The entity index handler already validated this receiver's metatable.
+        if (!lua_getmetatable(state, 1)) return false;
+    } else if (luaL_getmetatable(state, metatable) != LUA_TTABLE) {
         lua_pop(state, 1);
         return false;
     }
@@ -3072,6 +3075,14 @@ int IndexEntity(lua_State* state, EntityView view) {
              (field[0] == 'V' && std::strcmp(field, "Variant") == 0) ||
              (field[0] == 'S' && std::strcmp(field, "SubType") == 0)) &&
             PushEntityField(state, entity, field, view == EntityView::Player)) return 1;
+        if (view == EntityView::Player &&
+            (std::strcmp(field, "ControllerIndex") == 0 ||
+             std::strcmp(field, "FrameCount") == 0 ||
+             std::strcmp(field, "Position") == 0 ||
+             std::strcmp(field, "Velocity") == 0) &&
+            PushEntityField(state, entity, field, true)) {
+            return 1;
+        }
         if(const int pushed=TryPushApi400EffectMethod(state,entity,field))return pushed;
         if(const int pushed=TryPushApi400EntityField(state,entity,field))return pushed;
         if(const int pushed=TryPushRPlusEntityField(state,entity,field))return pushed;
@@ -3113,7 +3124,7 @@ int IndexEntity(lua_State* state, EntityView view) {
         }
         g_LastEntityStringFieldHead.store(head, std::memory_order_relaxed);
     }
-    if (PushMethodFrom(state, metatable, field)) {
+    if (PushMethodFrom(state, view == EntityView::Player ? nullptr : metatable, field)) {
         return 1;
     }
     if (view != EntityView::Base) {
