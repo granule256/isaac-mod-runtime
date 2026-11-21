@@ -15,6 +15,8 @@ extern isaac::runtime::RuntimePerfCallbackBucket g_RuntimePerfCallbackBuckets[];
 }
 '''
 SCENARIO = r'''
+    LuaRuntime::FrameTraceBeforePresent();
+    LuaRuntime::FrameTraceAfterRender(-1);
     g_RuntimePerfCallbackBuckets[511].count = 2;
     g_RuntimePerfCaptureRequest = 1;
     LuaRuntime::BeginGcFrame(1);

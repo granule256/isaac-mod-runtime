@@ -143,6 +143,8 @@ extern "C" {
 #include "interfaces/lua/runtime_perf.hpp"
 #include "interfaces/lua/runtime_profiler.hpp"
 #include "interfaces/lua/runtime_perf_snapshot.hpp"
+#include "interfaces/lua/runtime_frame_trace.hpp"
+#include <new>
 #include "interfaces/lua/owner_binding.hpp"
 
 // ============================================================================
@@ -181,6 +183,13 @@ __attribute__((visibility("hidden"))) std::uint64_t g_RuntimePerfBucketOverflow{
     isaac::runtime::kRuntimePerfApiBucketCount, kModOwnerNameSlots, kModOwnerNameCapacity,
     &g_RuntimePerfLayout, &g_RuntimePerfCaptureRequest, &g_RuntimePerfCaptureDone,
     &g_RuntimePerfAttributionUntil, &g_RuntimePerfSnapshot, &g_ModOwnerNames[0][0]
+};
+[[gnu::visibility("hidden")]] std::uint64_t g_RuntimeFrameTraceRequest{};
+[[gnu::visibility("hidden")]] isaac::runtime::RuntimeFrameTrace* g_RuntimeFrameTrace{};
+[[gnu::used, gnu::visibility("hidden")]] extern const isaac::runtime::RuntimeFrameTraceLayout g_RuntimeFrameTraceLayout{
+    isaac::runtime::kRuntimeFrameTraceMagic, 2, sizeof(isaac::runtime::RuntimeFrameTraceLayout),
+    sizeof(isaac::runtime::RuntimeFrameRow), isaac::runtime::kRuntimeFrameTraceCapacity,
+    &g_RuntimeFrameTraceLayout, &g_RuntimeFrameTraceRequest, &g_RuntimeFrameTrace
 };
 // 按 API 接口 分开的耗时桶（与上面回调桶是两张独立的表）。
 __attribute__((visibility("hidden"))) isaac::runtime::RuntimePerfCallbackBucket
@@ -3901,6 +3910,51 @@ std::uint64_t GcBudgetClock(void*) {
 }
 }
 
+[[gnu::visibility("hidden")]] bool g_FrameTraceActive{};
+
+int EnterFrameTracePhase(isaac::runtime::RuntimeFramePhase next) noexcept {
+    auto* trace = g_RuntimeFrameTrace;
+    if (!trace || !trace->active) return -1;
+    if (trace->phase == next) return -2;
+    return static_cast<int>(trace->Enter(next, isaac::runtime::RuntimePerfTick()));
+}
+
+void LeaveFrameTracePhase(int previous) noexcept {
+    auto* trace = g_RuntimeFrameTrace;
+    if (previous < 0 || !trace || !trace->active) return;
+    trace->Leave(static_cast<isaac::runtime::RuntimeFramePhase>(previous),
+                 isaac::runtime::RuntimePerfTick());
+}
+
+void FrameTraceAfterRender(int previous) noexcept {
+    // The first capture can start in the render body, after the entry marker.
+    if (previous == -1) previous = static_cast<int>(isaac::runtime::RuntimeFramePhase::Unknown);
+    LeaveFrameTracePhase(previous);
+}
+
+void FrameTraceBeforePresent() noexcept {
+    const auto request = __atomic_load_n(&g_RuntimeFrameTraceRequest, __ATOMIC_ACQUIRE);
+    auto* trace = g_RuntimeFrameTrace;
+    if ((!trace || !trace->active) && (!request || (trace && request == trace->completedUntil))) return;
+    const auto now = isaac::runtime::RuntimePerfTick();
+    if (!now) return;
+    const auto validRequest = request > now && request - now <= isaac::runtime::RuntimePerfTicksPerSecond() * 15U;
+    if (!trace || !trace->active) {
+        if (!validRequest) return;
+        if (!trace) {
+            trace = new (std::nothrow) isaac::runtime::RuntimeFrameTrace{};
+            if (!trace) return;
+            __atomic_store_n(&g_RuntimeFrameTrace, trace, __ATOMIC_RELEASE);
+        }
+        __asm__ __volatile__("" : : "r"(&g_RuntimeFrameTraceLayout));
+    }
+    lua_GCBudgetInfo gc{};
+    if (g_LuaState) lua_gc_budgetinfo(g_LuaState, &gc);
+    trace->Boundary(now, validRequest || request == trace->until ? request : 0, gc.ticks);
+    g_FrameTraceActive = trace->active;
+    if (trace->active) trace->BeginSubmit(now);
+}
+
 void BeginGcFrame(std::uint64_t serial) noexcept {
     const auto request = __atomic_load_n(&g_RuntimePerfCaptureRequest, __ATOMIC_ACQUIRE);
     if (request != g_RuntimePerfCaptureDone) {
@@ -4746,8 +4800,12 @@ private:
         // 同 TU 的 file-local 计数（不碰数据 GOT），只读一次 `cntpct_el0`
         // （物理计数器；`cntvct_el0` 在 EL0 会被禁止读，的真机崩溃就是它）。
         // 三个桥接实参：invoker、登记项、是否收集结果；真正实参在保护内准备。
+        // Outside the protected call so a Lua error cannot skip scope restoration.
+        const auto tracePhase = !previousManagedScope && g_FrameTraceActive
+            ? EnterFrameTracePhase(isaac::runtime::RuntimeFramePhase::Lua) : -1;
         const int callbackStatus = lua_pcallk(g_LuaState, 3, collecting ? 1 : 0, 0, 0,
                                              nullptr);
+        if (tracePhase >= 0) LeaveFrameTracePhase(tracePhase);
         if(callbackSpriteScope!=LUA_NOREF) {
             isaac::runtime::EndCallbackSpriteScope(g_LuaState,callbackSpriteScope);
             callbackSpriteScope=LUA_NOREF;
@@ -7967,6 +8025,10 @@ bool ShutdownForModReload() noexcept {
     }
     g_Ready.store(false,std::memory_order_release);
     // lua_close负责完整运行Font/Sprite和其它userdata终结器；绑定仍须有效。
+    if (g_FrameTraceActive) {
+        g_RuntimeFrameTrace->Finish(isaac::runtime::RuntimeFrameFinish::VmReset);
+        g_FrameTraceActive = false;
+    }
     isaac::runtime::ResetEntityLifetimeState();
     isaac::runtime::ResetCompatibilityAdapters(state);
     isaac::runtime::console::SetAutocompleteDispatch(nullptr);

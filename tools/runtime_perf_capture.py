@@ -3,6 +3,7 @@
 import argparse
 import base64
 import json
+import math
 from pathlib import Path
 import re
 import struct
@@ -27,6 +28,37 @@ LAYOUT = struct.Struct('<16Q')
 LAYOUT_FIELDS = ('magic version descriptorBytes snapshotBytes headerBytes bucketBytes '
                  'callbackCapacity apiCapacity ownerCount ownerStride self request done '
                  'attributionUntil snapshot owners').split()
+TRACE_LAYOUT = struct.Struct('<8Q')
+TRACE_MAGIC = 0x3145434152544652
+TRACE_ROW = struct.Struct('<7Q')
+TRACE_PHASES = ('native_update', 'lua_managed', 'native_render', 'submit_tail', 'unknown')
+
+
+def summarize_frame_trace(raw, frequency, target_hz=60):
+    if not raw or len(raw) % TRACE_ROW.size or frequency <= 0 or target_hz <= 0:
+        raise ValueError('invalid frame trace extent or clock')
+    scale = 1000 / frequency
+    rows = list(TRACE_ROW.iter_unpack(raw))
+    if any(row[0] == 0 or sum(row[1:6]) != row[0] for row in rows):
+        raise ValueError('invalid frame trace phase totals')
+    intervals = sorted(r[0] * scale for r in rows)
+
+    def group(items):
+        n = len(items)
+        return dict(frames=n, mean_phase_ms={
+            name: sum(r[i] for r in items) * scale / n
+            for i, name in enumerate(TRACE_PHASES, 1)} if n else {},
+            mean_budgeted_gc_ms=sum(r[-1] for r in items) * scale / n if n else None)
+
+    return dict(boundary='engine pre-Present (not display scanout)',
+                phase_scope='exclusive wall time at covered hooks; Lua includes engine calls from Lua; '
+                            'submit tail ends at original render return and is not GPU time',
+                gc_scope='budgeted GC overlay; already included in phase totals',
+                budget_ms=1000 / target_hz, covered_seconds=sum(r[0] for r in rows) / frequency,
+                all_frames=group(rows),
+                over_budget=group([r for r in rows if r[0] * target_hz > frequency]),
+                p95_ms=intervals[math.ceil(.95 * len(rows)) - 1],
+                p99_ms=intervals[math.ceil(.99 * len(rows)) - 1], max_ms=intervals[-1])
 
 
 def validate_layout(raw, sdk, symbols):
@@ -302,6 +334,59 @@ class PerfReader:
             raise RuntimeError('SaltyNX presentation counter unavailable')
         return dict(time=time.monotonic(), presents=struct.unpack_from('<Q', raw, 165)[0])
 
+    def capture_frame_trace(self, seconds):
+        address = self.address('g_RuntimeFrameTraceLayout')
+        expected = (address, self.address('g_RuntimeFrameTraceRequest'), self.address('g_RuntimeFrameTrace'))
+        if any(self.syms[name][1] != size for name, size in (
+                ('g_RuntimeFrameTraceLayout', TRACE_LAYOUT.size),
+                ('g_RuntimeFrameTraceRequest', 8), ('g_RuntimeFrameTrace', 8))):
+            raise RuntimeError('ELF frame trace descriptor size mismatch')
+        magic, version, size, row_size, capacity, *pointers = TRACE_LAYOUT.unpack(
+            self.read(address, TRACE_LAYOUT.size))
+        if ((magic, version, size, row_size) != (TRACE_MAGIC, 2, TRACE_LAYOUT.size, TRACE_ROW.size)
+                or tuple(pointers) != expected or not 0 < capacity <= 512):
+            raise RuntimeError('live frame trace layout mismatch; no trace writes performed')
+        request, storage = expected[1:]
+        _, snapshot = self.capture()
+        header = snapshot['header']
+        tick, frequency = header['tick'], header['tickFrequency']
+        if not tick or not frequency or header['flags'] & 3 != 3:
+            raise RuntimeError('runtime timer/VM is not ready for frame tracing')
+        if self.q(request) > tick:
+            raise RuntimeError('another frame trace is active')
+        until = tick + max(1, round(seconds * frequency))
+
+        def write(value):
+            if self.current_pid() != self.pid:
+                raise RuntimeError('application changed; frame trace write aborted')
+            self.transport.call('mem.write', addr=hex(request),
+                                data=base64.b64encode(struct.pack('<Q', value)).decode(),
+                                confirm='I-KNOW-THIS-WRITES-MEMORY')
+
+        write(until)
+        try:
+            expiry = time.monotonic() + seconds + 3
+            while time.monotonic() < expiry:
+                if self.current_pid() != self.pid or self.q(request) != until:
+                    raise RuntimeError('frame trace process/request changed')
+                buffer = self.q(storage)
+                if buffer and self.q(buffer) == until:
+                    count, reason = struct.unpack('<2Q', self.read(buffer + 8, 16))
+                    if reason not in (1, 2):
+                        raise RuntimeError('frame trace was superseded or crossed a Lua VM reset')
+                    if not 0 < count <= capacity:
+                        raise RuntimeError('frame trace did not capture a complete frame')
+                    raw = self.read(buffer + 24, count * row_size)
+                    if (self.current_pid() != self.pid or self.q(request) != until
+                            or self.q(storage) != buffer or self.q(buffer) != until):
+                        raise RuntimeError('frame trace changed during readback')
+                    return raw, frequency, ('deadline' if reason == 1 else 'capacity')
+                time.sleep(.15)
+            raise TimeoutError('no completed pre-Present trace; check that gameplay is rendering')
+        finally:
+            if self.current_pid() == self.pid and self.q(request) == until:
+                write(0)
+
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
@@ -310,13 +395,28 @@ def main():
     parser.add_argument('--seconds', type=float, default=8)
     parser.add_argument('--callback-details', action='store_true',
                         help='sample per-(owner,event) callback costs during the requested windows')
+    parser.add_argument('--frame-trace', action='store_true',
+                        help='capture bounded per-frame phase timing; not an uninstrumented benchmark')
     parser.add_argument('--output', type=Path, required=True)
     args = parser.parse_args()
     if not 0 < args.seconds <= 3600:
         parser.error('--seconds must be in (0, 3600]')
     if args.callback_details and args.seconds > 30:
         parser.error('detailed callback windows must not exceed 30 seconds')
+    if args.frame_trace and (args.callback_details or not 1 <= args.seconds <= 12):
+        parser.error('--frame-trace requires a 1 to 12 second window and no --callback-details')
     reader = PerfReader(NxcTransport(args.nxc_package), args.elf)
+    if args.frame_trace:
+        clocks = reader.transport.call('clk.list')
+        raw, frequency, reason = reader.capture_frame_trace(args.seconds)
+        if reader.transport.call('clk.list') != clocks:
+            raise RuntimeError('device clocks changed during frame trace')
+        report = dict(clocks=clocks, requested_seconds=args.seconds, finish_reason=reason,
+                      **summarize_frame_trace(raw, frequency))
+        args.output.with_suffix('.frames.bin').write_bytes(raw)
+        args.output.write_text(json.dumps(report, ensure_ascii=False, indent=2) + '\n')
+        print(json.dumps(report, ensure_ascii=False, indent=2))
+        return
     owners = reader.owners()
     clocks = reader.transport.call('clk.list')
     if args.callback_details:

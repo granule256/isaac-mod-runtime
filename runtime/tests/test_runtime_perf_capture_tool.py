@@ -21,6 +21,16 @@ def snapshot(tick, count, overflow=0, generation=1):
 
 
 class RuntimePerfCaptureToolTests(unittest.TestCase):
+    def test_frame_trace_keeps_gc_as_overlay_and_exposes_unknown_time(self):
+        rows = struct.pack('<14Q', 20, 2, 12, 1, 1, 4, 3, 10, 2, 1, 1, 1, 5, 0)
+        report = perf.summarize_frame_trace(rows, 1000)
+        self.assertEqual(report['over_budget']['frames'], 1)
+        self.assertEqual(report['over_budget']['mean_phase_ms']['lua_managed'], 12)
+        self.assertEqual(report['over_budget']['mean_budgeted_gc_ms'], 3)
+        self.assertEqual(report['max_ms'], 20)
+        with self.assertRaisesRegex(ValueError, 'phase totals'):
+            perf.summarize_frame_trace(struct.pack('<7Q', 1, 2, 3, 4, 5, 6, 0), 1000)
+
     def test_coverage_is_explicit_and_owner_is_not_a_directory_index(self):
         report = perf.summarize(snapshot(1000, 10), snapshot(2000, 110, 25), {2: 'StageAPI'})
         self.assertEqual(report['callback_calls_per_second'], 100)

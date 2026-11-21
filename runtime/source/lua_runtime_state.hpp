@@ -14,12 +14,20 @@ extern "C" {
 namespace isaac::runtime {
 class CallbackRegistry;
 struct ModHandle;
+enum class RuntimeFramePhase : unsigned;
 } // namespace isaac::runtime
 
 namespace LuaRuntime {
 
 // Called once at the top-level native Manager iteration. Does no Lua work.
 void BeginGcFrame(std::uint64_t serial) noexcept;
+
+// Game-thread markers; no timers or buffers are touched while disabled.
+[[gnu::visibility("hidden")]] extern bool g_FrameTraceActive;
+int EnterFrameTracePhase(isaac::runtime::RuntimeFramePhase phase) noexcept;
+void LeaveFrameTracePhase(int previous) noexcept;
+void FrameTraceBeforePresent() noexcept;
+void FrameTraceAfterRender(int previous) noexcept;
 
 // 仅在原生控制台同步命令的作用域内捕获，普通Lua print保持原stdout路径。
 [[nodiscard]] bool ConsoleCommandOutputActive() noexcept;
