@@ -5457,6 +5457,7 @@ bool DispatchPostGameStarted(bool isSave) {
     }
     const ManagedEngineDispatchScope dispatchScope;
     if (!isaac::runtime::RPlusFlushDeferredPocketActivePoolRemovals()) return false;
+    isaac::runtime::EndGameOverSfx();
     // 2026-10-07（-fix）：`IsContinued` 必须压 布尔 —— 老式写法
     //   `LuaCallbackInvoker{0,false,false, isSave?1:0, true}` 走 `AddInteger`，
     //   而 Lua 里 `0` 是 truthy ⇒ 新开局时模组判 `if isContinued then` 会走成"继续存档"。
@@ -5913,7 +5914,11 @@ void DispatchPlayerEntityEvents(EntityEventScan* scan, std::uintptr_t entity,
         if (!scan->CurrentWorld()) return;
         // This event filters by character type, not the entity variant.
         std::int32_t playerType{};
-        if (isaac::runtime::engine_memory::ReadField(entity, kEntityPlayerTypeOffset, &playerType,
+        std::uint8_t dead{};
+        // Death animation still has a valid player entity, but no live item-effect update.
+        if (isaac::runtime::engine_memory::ReadField(entity, kEntityIsDeadOffset, &dead,
+                isaac::runtime::engine_memory::EngineMemoryReadable) && !dead &&
+            isaac::runtime::engine_memory::ReadField(entity, kEntityPlayerTypeOffset, &playerType,
                 isaac::runtime::engine_memory::EngineMemoryReadable)) {
             LuaCallbackInvoker invoker = LuaCallbackInvoker::ForEntity(entity);
             isaac::runtime::CallbackDispatcher dispatcher{g_CallbackRegistry, invoker};
@@ -6395,6 +6400,9 @@ void AddPlayerArgument(CallbackArguments* arguments, std::uintptr_t player) noex
 }  // namespace
 
 void DispatchPreGameExit(bool shouldSave) {
+    struct EndSfxOnExit {
+        ~EndSfxOnExit() { isaac::runtime::EndGameOverSfx(); }
+    } endSfx;
     // 主菜单关闭游戏也会走系统退出入口。重载后未进局的 VM 只有默认配置，
     // 此时派发会让 EID 等模组把默认值覆盖到原有存档。
     if (!IsReady() || g_LuaState == nullptr || !g_GameStartedInCurrentVm) {
@@ -7145,6 +7153,7 @@ void DispatchPostGameEnd(bool isGameOver) {
         !isaac::runtime::ShouldDispatchManagedCallbacks()) {
         return;
     }
+    if (isGameOver) isaac::runtime::BeginGameOverSfx();
     if (!isaac::runtime::BuiltinCallbackEnabled(isaac::runtime::kCallbackPostGameEnd)) {
         return;
     }

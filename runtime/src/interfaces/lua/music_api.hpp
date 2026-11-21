@@ -22,5 +22,7 @@ namespace isaac::runtime {
 // `SFXManager()` 的方法表与构造器（元表/全局由中枢建）。
 [[nodiscard]] std::size_t AttachSfxManagerMethods(lua_State* state) noexcept;
 int SfxManagerCtor(lua_State* state);
+void BeginGameOverSfx() noexcept;
+void EndGameOverSfx() noexcept;
 
 } // namespace isaac::runtime

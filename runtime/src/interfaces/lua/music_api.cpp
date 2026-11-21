@@ -1,4 +1,5 @@
 #include "interfaces/lua/api100_bindings.hpp"
+#include "interfaces/lua/game_over_sfx.hpp"
 #include "interfaces/lua/music_api.hpp"
 
 #include "infrastructure/call/engine_call_access.hpp"  // 引擎调用层（调引擎只在这里转换签名）
@@ -9,6 +10,7 @@
 #include "interfaces/lua/lua_integer_argument.hpp"
 
 #include "lua_object_handles.hpp"
+#include "lua_runtime.hpp"
 #include "lua_runtime_state.hpp"
 #include "runtime_constants.hpp"  // `kSoundEffectsIsPlayingOffset` / `kSoundEffectsPlayOffset`
 #if defined(EXL_DIAGNOSTIC_STAGE) && EXL_DIAGNOSTIC_STAGE == 48
@@ -121,6 +123,8 @@ struct SfxManagerHandle {
     int reserved{0};
 };
 
+GameOverSfx<kSoundEffectMaximumCount> g_GameOverSfx;
+
 // ---- Play 探针的写入助手（无条件；见文件顶部那张表）----------------------------
 //
 // 浮点按位模式存（读数端按 `float` 解）；`loop` 存 0/1。三个助手都只在 `SfxManagerPlay` 里调。
@@ -192,6 +196,7 @@ int SfxManagerPlay(lua_State* state) {
         engine_call::AsFunction<PlayFn>(method)(engine_memory::AsObject(soundEffects), soundEffect,
                                                 volume, frameDelay, static_cast<int>(loop), pitch,
                                                 pan);
+        g_GameOverSfx.Played(soundEffect);
         RecordSfxPlayDelivered();
     } else {
         // `method == 0` ⇒ 守卫①就没过（模块基址没发布 / 偏移不可读）⇒ 记 3（"方法地址缺失"）。
@@ -322,6 +327,7 @@ int SfxManagerStop(lua_State* state) {
         kSoundEffectsStopExpectedBytes.data(), kSoundEffectsStopExpectedBytes.size(), &receiver);
     using SfxStopFn = void (*)(void*, std::int32_t);
     engine_call::AsFunction<SfxStopFn>(method)(engine_memory::AsObject(receiver), id);
+    g_GameOverSfx.Stopped(id);
     return 0;
 }
 
@@ -584,6 +590,20 @@ int SfxManagerCtor(lua_State* state) {
 std::size_t AttachSfxManagerMethods(lua_State* state) noexcept {
     return AttachOwnerMethods(state, kSfxManagerOwner, kSfxManagerHandlers,
                               sizeof(kSfxManagerHandlers) / sizeof(kSfxManagerHandlers[0]));
+}
+
+void BeginGameOverSfx() noexcept {
+    if (LuaRuntime::IsOnGameThread()) g_GameOverSfx.Begin();
+}
+
+void EndGameOverSfx() noexcept {
+    if (!LuaRuntime::IsOnGameThread() || !g_GameOverSfx.Active()) return;
+    const auto method = EngineOffsetAddress<IsEngineMemoryReadable>(kSoundEffectsStopOffset);
+    std::uintptr_t receiver{};
+    if (!LuaRuntime::ResolveSoundEffectsMethodForCall(method, kSoundEffectsStopExpectedBytes.data(),
+            kSoundEffectsStopExpectedBytes.size(), &receiver)) return;
+    const auto stop = engine_call::AsFunction<void (*)(void*, std::int32_t)>(method);
+    g_GameOverSfx.End([&](int id) { stop(engine_memory::AsObject(receiver), id); });
 }
 
 } // namespace isaac::runtime
