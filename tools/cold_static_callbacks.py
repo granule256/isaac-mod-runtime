@@ -110,6 +110,17 @@ def challenge_achievement_records(nro: bytes) -> list[tuple[int, bytes]]:
         '03000014'  # b 0x4395C8 (original vector count and loop advance)
     ))]
 
+def shader_control_memory_records(nro: bytes) -> list[tuple[int, bytes]]:
+    # CommandBuffer::Initialize allocates the storage. Begin registers its
+    # capacity with NVN. Keep both sizes equal across every recording.
+    sites = ((0x4F4038, 0x52808001, 0x52880001),
+             (0x4F4134, 0x52808002, 0x52880002))
+    for offset, original, _ in sites:
+        if nro[offset:offset+4] != struct.pack('<I', original):
+            raise ValueError('Unexpected native command control memory size')
+    return [(offset, struct.pack('<I', replacement))
+            for offset, _, replacement in sites]
+
 
 def build_static_callback_patch(nro:bytes)->bytes:
     if len(nro)<0x68CCA0 or nro[0x40:0x60]!=BUILD_ID:raise ValueError('固定NRO身份不符')
@@ -135,4 +146,5 @@ def build_static_callback_patch(nro:bytes)->bytes:
     records.extend(custom_item_pool_cold.cold_records(nro))
     records.extend(mgo_death_cold.records(nro))
     records.extend(challenge_achievement_records(nro))
+    records.extend(shader_control_memory_records(nro))
     return build_patches.encode_ips(records)

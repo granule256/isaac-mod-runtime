@@ -37,7 +37,7 @@ bool Read(std::uintptr_t address,void* out,std::size_t bytes) {
 template<class T> bool At(std::uintptr_t address,T* out){return Read(address,out,sizeof(T));}
 bool Verified() {
  const auto base=LuaRuntime::EngineModuleBase();if(!base)return false;if(base==g_VerifiedBase)return true;
- for(const auto* entry : {&kCtor,&kDtor,&kInitialize,&kTarget,&kGetTarget,&kClear,&kCreateImage,&kReleaseImage,
+ for(const auto* entry : {&kCtor,&kDtor,&kInitialize,&kTarget,&kGetTarget,&kClear,&kBeginScene,&kCreateImage,&kReleaseImage,
      &kRender,&kBlend,&kWidth,&kHeight,&kPaddedWidth,&kPaddedHeight,&kFlush,&kSync,
      &kBufferVerify,&kBufferSwap,&kFlushPending,&kClearDepthStencil,&kSetRenderTargets,&kViewportScissor}) {
   if(base>UINTPTR_MAX-entry->offset||!engine_call::VerifyEntryBytes(base+entry->offset,entry->bytes.data(),entry->bytes.size(),engine_memory::EngineMemoryReadable))return false;
@@ -141,8 +141,16 @@ void Draw(const ShaderTarget& source,void* raw,const float* vertices,unsigned co
 void FlushPending(){PerfScope perf(5);Method<void(*)(void*)>(kFlushPending)(Graphics());}
 void PrepareCallbackDraw(){
  const auto graphics=engine_memory::AddressOf(Graphics());std::uintptr_t image{},command{};
- if(!graphics||!At(graphics+0x20,&image)||!image||!At(graphics+0x3A30,&command)||!command)return;
+ if(!graphics||!At(graphics+0x20,&image)||!image)return;
  FlushPending();
+ std::uintptr_t recordedTarget{};
+ if(!At(graphics+0x3A30,&command)||!command||!At(command+0xF0,&recordedTarget))return;
+ if(recordedTarget!=image+0x530){
+  // End clears the recording target and advances the command-buffer slot.
+  // Begin without a color clear binds the source and initializes its depth.
+  Method<void(*)(void*,bool)>(kBeginScene)(engine_memory::AsObject(graphics),false);
+  return;
+ }
  auto* cmd=engine_memory::AsObject(command);
  const auto* depthView=engine_memory::AsObject(graphics+0x37F8);
  const void* colorView=engine_memory::AsObject(image+0x530);
@@ -156,7 +164,14 @@ void PrepareCallbackDraw(){
  Method<TargetsFn>(kSetRenderTargets)(cmd,1,&colorView,depthView);
  Method<void(*)(void*,const void*)>(kViewportScissor)(cmd,engine_memory::AsObject(image+0x578));
 }
-constexpr ShaderBackend kBackend{Compile,Destroy,FrameInfo,Create,Release,Target,Clear,Standard,Draw,Drain,FlushPending,PrepareCallbackDraw};
+bool HasExpandedControlMemory() {
+ const auto module = LuaRuntime::EngineModuleBase();
+ std::uint32_t allocate{}, begin{};
+ return module && At(module+0x4F4038,&allocate) && At(module+0x4F4134,&begin) &&
+        allocate==0x52880001 && begin==0x52880002;
+}
+constexpr ShaderBackend kBackend{Compile,Destroy,FrameInfo,Create,Release,Target,Clear,Standard,Draw,Drain,
+                                 FlushPending,PrepareCallbackDraw,HasExpandedControlMemory};
 }
 const ShaderBackend& NativeShaderBackend() noexcept{return kBackend;}
 }

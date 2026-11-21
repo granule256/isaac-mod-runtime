@@ -21,8 +21,9 @@ HARNESS = r'''
 #include <string>
 using namespace isaac::runtime;
 unsigned queries=0,draws=0,actual=0;bool unloadInValues=false;
-float amount=0;bool changeColor=false,changeOne=false,failValues=false;
+float amount=0;bool changeColor=false,changeOne=false,failValues=false,expandedControlMemory=true;
 std::string wanted="effect";ShaderTarget current{};
+std::string control="ActiveIn";
 bool Compile(const ShaderProgramView&v,void**p){*p=new std::string(v.name);return true;}
 void Destroy(void*p){delete static_cast<std::string*>(p);}
 bool Frame(ShaderFrameInfo*f){*f={{},320,180,1,true,320,180};return true;}
@@ -36,11 +37,12 @@ bool Vertices(const ShaderTarget&,const ShaderFrameInfo&,float*p,std::size_t str
 }
 void Draw(const ShaderTarget&,void*n,const float*,unsigned,unsigned){++draws;if(*static_cast<std::string*>(n)==wanted)++actual;}
 void Drain(){}
+bool HasExpandedControlMemory(){return expandedControlMemory;}
 bool Values(const ShaderProgramView&v,float*p,std::uintptr_t){
  ++queries;
  for(unsigned i=0;i<4;++i){
-  for(std::size_t j=0;j<v.parameterCount;++j)if(!std::strcmp(v.parameters[j].name,"ActiveIn"))
-   p[i*v.strideFloats+v.parameters[j].offset]=changeOne&&i==3?1.f:amount;
+  for(std::size_t j=0;j<v.parameterCount;++j)if(control==v.parameters[j].name)
+   p[i*v.strideFloats+v.parameters[j].offset]=changeOne&&i!=3?0.f:amount;
   if(changeColor)p[i*v.strideFloats+3]=.5f;
  }
  if(unloadInValues)UnloadShaderPrograms();
@@ -52,6 +54,9 @@ int main(int argc,char**argv){
  if(argc>1){std::ifstream f(argv[1]);xml={std::istreambuf_iterator<char>(f),{}};}
  if(argc>2)wanted=argv[2];if(argc>3)amount=std::stof(argv[3]);
  if(argc>4){changeColor=!std::strcmp(argv[4],"color");changeOne=!std::strcmp(argv[4],"one");failValues=!std::strcmp(argv[4],"fail");}
+ if(argc>4)expandedControlMemory=std::strcmp(argv[4],"stock-control-memory")!=0;
+ if(argc>5)control=argv[5];
+ backend.hasExpandedControlMemory=HasExpandedControlMemory;
  if(!LoadShaderXml("fixture",xml,backend))return 2;
  SetShaderValueProvider(Values);
  if(!BeginShaderFrame()||!CaptureShaderScreenTarget())return 3;
@@ -84,10 +89,10 @@ class ShaderPipelineTests(unittest.TestCase):
     def tearDownClass(cls):
         cls.folder.cleanup()
 
-    def run_shader(self, root, amount='0', mode=''):
+    def run_shader(self, root, amount='0', mode='', control='ActiveIn'):
         path=self.work/'input.xml';ET.ElementTree(root).write(path,encoding='unicode')
         name=root.find('shader').attrib['name']
-        result=subprocess.run([str(self.exe),str(path),name,str(amount),mode],capture_output=True,text=True,timeout=5)
+        result=subprocess.run([str(self.exe),str(path),name,str(amount),mode,control],capture_output=True,text=True,timeout=5)
         self.assertEqual(result.returncode,0,result.stdout+result.stderr)
         return tuple(map(int,result.stdout.split()))
 
@@ -121,7 +126,7 @@ class ShaderPipelineTests(unittest.TestCase):
         for value in ['0.5','1.5','1.75','nan']:
             with self.subTest(value=value):self.assertEqual(self.run_shader(root,value),(1,1,1))
         for mode in ['color','one','fail']:
-            with self.subTest(mode=mode):self.assertEqual(self.run_shader(root,mode=mode),(1,1,1))
+            with self.subTest(mode=mode):self.assertEqual(self.run_shader(root,amount='1' if mode=='one' else '0',mode=mode),(1,1,1))
         root.find('shader').set('name','another-name')
         self.assertEqual(self.run_shader(root),(1,1,0))
         root.find('shader/fragment').text += '\n// formatting only\n'
@@ -136,3 +141,32 @@ class ShaderPipelineTests(unittest.TestCase):
         self.assertEqual(self.run_shader(root,'1.5'),(1,1,1))
         active.set('type','vec2')
         self.assertEqual(self.run_shader(root),(1,1,1))
+
+    def test_reverie_idle_effects_keep_callbacks_and_active_draws(self):
+        path = os.environ.get('ISAAC_TEST_REVERIE_SHADER_FIXTURE')
+        if not path:
+            self.skipTest('original Reverie shader fixture not configured')
+        original = ET.parse(path).getroot()
+        controls = {
+            'Reverie General': ('BlackAlpha', 'WhiteAlpha', 'PipeAlpha'),
+            'Reverie Time Warp': ('Value',),
+            'Reverie Bloodboon Ritual': ('RedAlpha', 'RedAlpha2'),
+        }
+        for name, parameters in controls.items():
+            with self.subTest(shader=name):
+                root = ET.Element('shaders')
+                root.append(original.find(f"shader[@name='{name}']"))
+                self.assertEqual(self.run_shader(root), (1, 1, 0))
+                self.assertEqual(self.run_shader(root, mode='color'), (1, 1, 1))
+                self.assertEqual(self.run_shader(root, mode='fail'), (1, 1, 1))
+                self.assertEqual(self.run_shader(root, mode='stock-control-memory'), (1, 1, 1))
+                for control in parameters:
+                    for amount, mode in [('1', ''), ('1', 'one'), ('nan', '')]:
+                        self.assertEqual(self.run_shader(root, amount, mode, control), (1, 1, 1))
+                declaration = root.find('shader/parameters/param')
+                parameter_name = declaration.attrib['name']
+                declaration.set('name', 'Unrecognized')
+                self.assertEqual(self.run_shader(root), (1, 1, 1))
+                declaration.set('name', parameter_name)
+                root.find('shader/fragment').text += '\nfloat altered;\n'
+                self.assertEqual(self.run_shader(root), (1, 1, 1))

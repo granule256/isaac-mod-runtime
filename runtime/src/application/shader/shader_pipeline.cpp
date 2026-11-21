@@ -31,6 +31,37 @@ bool SleeperInterface(const Program& p,std::size_t count) {
  }
  return seen==127;
 }
+template <std::size_t Count>
+bool MatchesParameters(const Program& program, std::size_t count,
+                       const char* const (&names)[Count], std::size_t scalarCount) {
+ if (count != Count) return false;
+ for (std::size_t index = 0; index < Count; ++index) {
+  const auto& parameter = program.parameters[index];
+  const auto components = index < scalarCount ? 1u : 3u;
+  if (parameter.components != components || std::strcmp(parameter.name, names[index]))
+   return false;
+ }
+ return true;
+}
+bool ReverieInterface(const Program& program, std::size_t count) {
+ using shader_identity::Kind;
+ switch (program.identity) {
+  case Kind::ReverieGeneral: {
+   constexpr const char* names[] = {"BlackAlpha","WhiteAlpha","PipeOffset","PipeAlpha"};
+   return MatchesParameters(program, count, names, 4);
+  }
+  case Kind::ReverieTimeWarp: {
+   constexpr const char* names[] = {"Value","WhiteAlpha"};
+   return MatchesParameters(program, count, names, 2);
+  }
+  case Kind::ReverieBloodboon: {
+   constexpr const char* names[] = {"RedAlpha","RedAlpha2","Pos1","Pos2","Pos3","Pos4",
+                                    "Pos5","Pos6","Pos7","Pos8"};
+   return MatchesParameters(program, count, names, 2);
+  }
+  default: return true;
+ }
+}
 State g_State{};
 bool Space(char c){return c==' '||c=='\t'||c=='\r'||c=='\n';}
 std::string_view Trim(std::string_view v){while(!v.empty()&&Space(v.front()))v.remove_prefix(1);while(!v.empty()&&Space(v.back()))v.remove_suffix(1);return v;}
@@ -197,11 +228,14 @@ Program* Make(std::string_view owner,std::string_view name,std::string_view vert
  p->attributes[0]={"Position",3,0};p->attributes[1]={"Color",4,0};p->attributes[2]={"TexCoord",2,0};
  p->attributes[3]={"RenderData",4,0};p->attributes[4]={"Scale",1,0};
  if(!Parameters(parameters,&count,&stride,p)){Free(p,false);return nullptr;}
- if((p->identity==shader_identity::Kind::Copy&&count!=0)||
+ const bool needsControlMemory = p->identity >= shader_identity::Kind::ExtendedCopy;
+ if(((p->identity==shader_identity::Kind::Copy||p->identity==shader_identity::Kind::ExtendedCopy)&&count!=0)||
+    (needsControlMemory&&backend.hasExpandedControlMemory&&!backend.hasExpandedControlMemory())||
     (p->identity==shader_identity::Kind::Pixelation&&
      (count!=1||p->parameters[0].components!=1||p->parameters[0].offset!=14||
       std::strcmp(p->parameters[0].name,"PixelAmount")))||
-    (p->identity==shader_identity::Kind::InactiveSleeper&&!SleeperInterface(*p,count)))
+    (p->identity==shader_identity::Kind::InactiveSleeper&&!SleeperInterface(*p,count))||
+    !ReverieInterface(*p,count))
   p->identity=shader_identity::Kind::None;
  p->view={p->owner,p->name,p->vertex,p->fragment,p->attributes,p->parameters,count+5,count,stride};
  p->bytes=sizeof(Program)+(count?count:1)*sizeof(ShaderParameter)+(count+6)*sizeof(ShaderAttribute)+4*stride*sizeof(float)+
@@ -282,6 +316,12 @@ bool IdentityOutput(const Program& p,const float* before) {
   if(p.identity==shader_identity::Kind::Pixelation&&
      (!std::isfinite(v[14])||v[14]>0.001f||v[14]!=p.vertices[14]))return false;
   if(p.identity==shader_identity::Kind::InactiveSleeper&&v[activeOffset]!=0.f)return false;
+  // These slots are guarded by the full parameter declaration at load time.
+  if (p.identity == shader_identity::Kind::ReverieGeneral &&
+      (v[14] != 0.f || v[15] != 0.f || v[17] != 0.f)) return false;
+  if (p.identity == shader_identity::Kind::ReverieTimeWarp && v[14] != 0.f) return false;
+  if (p.identity == shader_identity::Kind::ReverieBloodboon &&
+      (v[14] != 0.f || v[15] != 0.f)) return false;
  }
  return true;
 }
@@ -313,6 +353,7 @@ void FinishShaderFrame(std::uintptr_t manager) noexcept {
  if(!g_State.active||g_State.finishing){return;}
  g_State.finishing=true;
  const auto& backend=*g_State.frameBackend;unsigned source=0;bool pendingCopy=false;
+ unsigned consecutiveCopies = 0;
  for(auto* p=g_State.programs;p;p=p->next) {
   for(unsigned i=0;i<4;++i)std::memset(p->vertices+i*p->view.strideFloats+14,0,(p->view.strideFloats-14)*sizeof(float));
   if(!backend.standardVertices(g_State.targets[source],g_State.frame,p->vertices,p->view.strideFloats)){
@@ -338,11 +379,13 @@ void FinishShaderFrame(std::uintptr_t manager) noexcept {
   }
   // 作者回调与其绘制批次已经按原顺序提交。原图输出无需另清目标/绘制；
   // 保留同一源图供下一项消费，末尾只做一次必要的屏幕输出。
-  if(valuesOk&&IdentityOutput(*p,standardBefore)){pendingCopy=true;continue;}
+  if(consecutiveCopies<8&&valuesOk&&IdentityOutput(*p,standardBefore)){
+   ++consecutiveCopies;pendingCopy=true;continue;
+  }
   const auto destination=p->next?g_State.targets[1-source]:g_State.frame.previous;
   backend.target(destination,p->next?true:g_State.frame.previousFlag);backend.clear();
   backend.draw(g_State.targets[source],p->native,p->vertices,4,static_cast<unsigned>(p->view.strideFloats*sizeof(float)));
-  ++g_State.passes;source=1-source;pendingCopy=false;
+  ++g_State.passes;source=1-source;pendingCopy=false;consecutiveCopies=0;
  }
  if(pendingCopy){
   float standard[4*14]{};

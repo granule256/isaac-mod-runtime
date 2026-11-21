@@ -3,7 +3,9 @@
 #include <cstdint>
 #include <string_view>
 namespace isaac::runtime::shader_identity {
-enum class Kind : unsigned char { None, Copy, Pixelation, InactiveSleeper };
+enum class Kind : unsigned char {
+ None, Copy, Pixelation, InactiveSleeper, ExtendedCopy, ReverieGeneral, ReverieTimeWarp, ReverieBloodboon
+};
 // 已核对的完整作者程序，仅以源码和接口识别，不依赖owner或shader名称。
 // 来源：BOIStageAPI15/content/shaders.xml。加载时比较；帧上不解析GLSL。
 inline constexpr std::string_view kCopyVertex = R"GLSL(
@@ -156,9 +158,27 @@ inline Kind Classify(std::string_view vertex,std::string_view fragment) {
  if(SameCode(vertex,kCopyVertex)&&SameCode(fragment,kCopyFragment))return Kind::Copy;
  if(SameCode(vertex,kSimpleCopyVertex)&&SameCode(fragment,kSimpleCopyFragment))return Kind::Copy;
  if(SameCode(vertex,kPixelVertex)&&SameCode(fragment,kPixelFragment))return Kind::Pixelation;
+ using Code = std::array<std::uint64_t,3>;
+ const auto vertexCode = Fingerprint(vertex);
+ const auto fragmentCode = Fingerprint(fragment);
+ // These complete token streams copy the source when their effect controls are idle.
+ if ((vertexCode == Code{0xba149295e49edea6ULL,0x2f4b26df74b3551bULL,76} &&
+      fragmentCode == Code{0x14020f1c1a164bcbULL,0xf306a94956a901a4ULL,43}) ||
+     (vertexCode == Code{0xcdc72f96bb1e8316ULL,0x07a77cdcf3fe5bebULL,52} &&
+      fragmentCode == Code{0xd3b3deb299b4ab42ULL,0x737fdd4f1a9d9bafULL,37}))
+  return Kind::ExtendedCopy;
+ if (vertexCode == Code{0x4956901e045b1fb1ULL,0x6e69305d803b72ecULL,129} &&
+     fragmentCode == Code{0xa5c3dc22c98140fcULL,0x61c57fc0e9da96e3ULL,373})
+  return Kind::ReverieGeneral;
+ if (vertexCode == Code{0x48e4763bb1e97d61ULL,0x2c674072dbdd82b8ULL,103} &&
+     fragmentCode == Code{0x716902d3fcf84befULL,0x07a5758dc51996b62ULL,393})
+  return Kind::ReverieTimeWarp;
+ if (vertexCode == Code{0xd9a747604472f728ULL,0x6d055091a834b1dbULL,207} &&
+     fragmentCode == Code{0xa9dea9bcd00bcc61ULL,0x96417c8fb3e6b4ecULL,544})
+  return Kind::ReverieBloodboon;
  // Fiend Folio content/shaders.xml: full vertex/fragment token fingerprints.
- if(Fingerprint(vertex)==std::array<std::uint64_t,3>{0x500de42fc82865a8ULL,0x5ab439d0570becadULL,392}&&
-    Fingerprint(fragment)==std::array<std::uint64_t,3>{0xe45705619995a5e8ULL,0x952c900d8aea0eafULL,978})
+ if(vertexCode==Code{0x500de42fc82865a8ULL,0x5ab439d0570becadULL,392}&&
+    fragmentCode==Code{0xe45705619995a5e8ULL,0x952c900d8aea0eafULL,978})
   return Kind::InactiveSleeper;
  return Kind::None;
 }

@@ -10,13 +10,21 @@ static std::vector<unsigned char> graphicsBytes(0x6000),commandBytes(0x100);
 static unsigned sequence=0,color=0x12345678,stencil=0xa5;
 static float depth=1;
 static bool colorBound=true,viewportRestored=true;
+static bool closesOnFlush=false;
 static void* command(){return commandBytes.data();}
 static void* depthView(){return graphicsBytes.data()+0x37f8;}
 void ModelFlushPending(void* graphics){
  if(graphics!=graphicsBytes.data()||sequence!=0)std::exit(71);sequence=1;
+ if(closesOnFlush)field(command(),0xf0,0);
+}
+void ModelBeginScene(void* graphics,bool clearColor){
+ if(graphics!=graphicsBytes.data()||clearColor||sequence!=1||field(command(),0xf0))std::exit(76);
+ field(command(),0xf0,reinterpret_cast<std::uintptr_t>(image.data()+0x530));
+ depth=0;sequence=4;
 }
 void ModelClearDepth(void* cmd,const void* view,float value,int clearStencil,unsigned mode,const void* range){
- if(cmd!=command()||view!=depthView()||value!=0||clearStencil!=0||mode!=1||range||sequence!=1)std::exit(72);
+ if(cmd!=command()||view!=depthView()||value!=0||clearStencil!=0||mode!=1||range||sequence!=1||
+    !field(cmd,0xf0))std::exit(72);
  depth=value; // Independently verified mode 1 has a zero stencil write mask.
  colorBound=false;viewportRestored=false;sequence=2;
 }
@@ -38,9 +46,13 @@ int main(){
  g_VerifiedBase=base();void* graphics=graphicsBytes.data();std::memcpy(module.data()+0xaac6e8,&graphics,8);
  field(graphics,0x20,reinterpret_cast<std::uintptr_t>(image.data()));
  field(graphics,0x3a30,reinterpret_cast<std::uintptr_t>(command()));
+ field(command(),0xf0,reinterpret_cast<std::uintptr_t>(image.data()+0x530));
  graphicsBytes[0x5c1b]=1;
  if(!PrepareCallbacks(NativeShaderBackend())){std::fputs("missing native callback depth preparation\n",stderr);return 70;}
  if(sequence!=4||depth!=0||color!=0x12345678||stencil!=0xa5||!colorBound||!viewportRestored||graphicsBytes[0x5c1b]!=1||clears)return 75;
+ closesOnFlush=true;sequence=0;depth=1;
+ if(!PrepareCallbacks(NativeShaderBackend())||sequence!=4||depth!=0||color!=0x12345678||
+    stencil!=0xa5||!colorBound||!viewportRestored||clears)return 77;
  return 0;
 }
 '''
@@ -58,6 +70,7 @@ class NativeShaderCallbackDepthTests(unittest.TestCase):
    source=HARNESS.split('int main(){',1)[0].replace('void* Resolve(std::uintptr_t a){',EXTRA+'\nvoid* Resolve(std::uintptr_t a){')+MAIN
    source=source.replace('const auto offset=a-base();','''const auto offset=a-base();
  if(offset==0x4ef7dc)return reinterpret_cast<void*>(ModelFlushPending);
+ if(offset==0x4f388c)return reinterpret_cast<void*>(ModelBeginScene);
  if(offset==0x6813f0)return reinterpret_cast<void*>(ModelClearDepth);
  if(offset==0x681410)return reinterpret_cast<void*>(ModelSetTargets);
  if(offset==0x6813d0)return reinterpret_cast<void*>(ModelViewport);''')

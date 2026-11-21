@@ -33,6 +33,7 @@ struct ShaderBackend {
  // Submit existing source batches and prepare depth for callback drawing,
  // preserving source color, stencil contents and render-state enable flags.
  void (*prepareCallbackDraw)(){};
+ bool (*hasExpandedControlMemory)(){};
 };
 using ShaderValueProvider=bool (*)(const ShaderProgramView&,float*,std::uintptr_t);
 enum class ShaderPipelineError : unsigned {None,Xml,Type,OutOfMemory,NativeCompile,Busy,Target,Values};
