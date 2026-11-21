@@ -991,6 +991,43 @@ void PromoteSpriteClassTable(lua_State* state) {
 
 } // namespace
 
+bool HasLoadedSpriteSheet(const void* sprite, int layerId,
+                          const char* path, std::size_t size) noexcept {
+    if (sprite == nullptr || layerId < 0 || path == nullptr || size == 0) {
+        return false;
+    }
+    const auto address = engine_memory::AddressOf(sprite);
+    auto read = [](auto base, auto offset, auto* value) {
+        return engine_memory::ReadField(base, offset, value, Readable);
+    };
+    std::int32_t count{};
+    std::uintptr_t layers{};
+    std::uint32_t flags{};
+    if (!read(address, kAnim2LayerCountOffset, &count) || layerId >= count ||
+        !read(address, kAnim2LayerStatesOffset, &layers) || !layers ||
+        !read(address, kAnim2RenderFlagsOffset, &flags)) {
+        return false;
+    }
+    const auto offset = static_cast<std::uintptr_t>(layerId) * kLayerStateReadableSize;
+    if (layers > UINTPTR_MAX - offset) {
+        return false;
+    }
+    const auto layer = layers + offset;
+    // ReplaceSpritesheet @0xD2B8 clears +0x38. LoadGraphics @0xD350
+    // skips layers with that byte set. Special texture modes use the
+    // flags at Sprite+0x150 and LayerState+0x90 @0xD3CC.
+    constexpr std::uint32_t textureModeFlags = 0x210;
+    std::uint8_t loaded{};
+    std::uint32_t layerFlags{};
+    EngineStringView current{};
+    return (flags & textureModeFlags) == 0 &&
+        read(layer, 0x38, &loaded) && loaded != 0 &&
+        read(layer, 0x90, &layerFlags) && (layerFlags & textureModeFlags) == 0 &&
+        ResolveEngineStringView(layer + kLayerStateSpritesheetPathOffset, &current) &&
+        current.size == size &&
+        std::memcmp(engine_memory::AsObject(current.data), path, size) == 0;
+}
+
 int RepentogonSpriteSetRenderFlags(lua_State* state) {
     RequireGameThread(state);
     auto* sprite = ResolveSpriteAt(state, 1, "Sprite:SetRenderFlags");

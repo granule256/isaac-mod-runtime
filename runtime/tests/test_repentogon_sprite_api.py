@@ -468,6 +468,24 @@ static void InstallHelpers(lua_State* state) noexcept {
 
 int main() {
     InitFixture();
+    const auto originalLayerStates = layerStates;
+    constexpr char sheet[] = "gfx/t.png";
+    constexpr std::size_t size = sizeof(sheet) - 1;
+    Put(layerStates, 0x10, static_cast<std::uint8_t>(size << 1U));
+    std::memcpy(layerStates.data() + 0x11, sheet, sizeof(sheet));
+    Put(layerStates, 0x38, std::uint8_t{1});
+    Put(layerStates, 0x90, std::uint32_t{0});
+    assert(HasLoadedSpriteSheet(anm2.data(), 0, sheet, size));
+    assert(!HasLoadedSpriteSheet(anm2.data(), 0, "gfx/x.png", size));
+    assert(!HasLoadedSpriteSheet(anm2.data(), -1, sheet, size));
+    assert(!HasLoadedSpriteSheet(anm2.data(), 2, sheet, size));
+    Put(layerStates, 0x38, std::uint8_t{0});
+    assert(!HasLoadedSpriteSheet(anm2.data(), 0, sheet, size));
+    Put(layerStates, 0x38, std::uint8_t{1});
+    Put(anm2, 0x150, std::uint32_t{0x200});
+    assert(!HasLoadedSpriteSheet(anm2.data(), 0, sheet, size));
+    Put(anm2, 0x150, std::uint32_t{0});
+    layerStates = originalLayerStates;
     SetRepentogonSpriteNativeTestBindings({
         &FakeGetAnimationData, &FakeGetLayerInt, &FakeGetLayerName, &FakeGetNullFrame});
     LuaRuntime::ObserveGameThread();

@@ -23,6 +23,10 @@ namespace isaac::runtime {
 // is no ABI risk at all.
 [[nodiscard]] std::size_t AttachSpriteMethods(lua_State* state) noexcept;
 
+// True when the native graphics loader would leave this layer intact.
+[[nodiscard]] bool HasLoadedSpriteSheet(const void* sprite, int layerId,
+                                        const char* path, std::size_t size) noexcept;
+
 // Lua constructor `Sprite()`; the Runtime allocates and owns the native object (16-byte aligned).
 int CreateSpriteHandle(lua_State* state);
 

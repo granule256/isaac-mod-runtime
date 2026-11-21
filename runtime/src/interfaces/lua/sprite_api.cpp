@@ -814,15 +814,22 @@ int SpriteReplaceSpritesheet(lua_State* state) {
         RepentogonEnvironmentActive() && lua_toboolean(state, 4) != 0;
     // `allowEmpty = true`：空串表示"清掉这一层的图集替换"，是 EID 的正常用法（见上面
     // `BuildNativeString` 的注释与真机报告 `01789225234`）。
-    const char* fileName = lua_tostring(state, 3);
-    // 探针（2026-09-12 第六轮）：真机连续两轮都停在这里，而**失败原因分不清**
-    // （`path == nullptr` / 路径过长 / assign 绑定缺失，三者都返回 nullptr）。
-    // 把"哪一条"和"路径长度 + 前 8 字节"记下来，下一次报告就能直接判。
-    if (fileName != nullptr) {
-        const std::size_t fileNameLength = std::strlen(fileName);
-        RecordSpriteReplaceSpritesheetForProbe(static_cast<std::uint32_t>(fileNameLength), fileName);
-    } else {
-        RecordSpriteReplaceSpritesheetForProbe(0xFFFFFFFFu, nullptr);
+    std::size_t luaPathLength = 0;
+    const char* fileName = lua_tolstring(state, 3, &luaPathLength);
+    const std::size_t fileNameLength = fileName == nullptr ? 0 : std::strlen(fileName);
+    const int layerId = static_cast<int>(lua_tointeger(state, 2));
+    RecordSpriteReplaceSpritesheetForProbe(
+        fileName == nullptr ? UINT32_MAX : static_cast<std::uint32_t>(fileNameLength),
+        fileName);
+
+    // Keep the native graphics pass for other dirty layers. Preserve explicit
+    // deferred replacements, clears, and native reloads of newly reset layers.
+    if (loadGraphics && fileNameLength == luaPathLength &&
+        HasLoadedSpriteSheet(sprite, layerId, fileName, fileNameLength)) {
+        if (const auto load = LuaRuntime::SpriteLoadGraphicsThunk()) {
+            load(sprite);
+            return 0;
+        }
     }
     void* nativeString = BuildNativeString(fileName, true);
     if (nativeString == nullptr) {
@@ -838,8 +845,7 @@ int SpriteReplaceSpritesheet(lua_State* state) {
         return luaL_error(state,
                           "Sprite:ReplaceSpritesheet native string binding is unavailable");
     }
-    method(sprite, static_cast<int>(lua_tointeger(state, 2)),
-           nativeString);
+    method(sprite, layerId, nativeString);
     if (loadGraphics) {
         const LuaRuntime::SpriteLoadGraphicsFn load =
             LuaRuntime::SpriteLoadGraphicsThunk();
