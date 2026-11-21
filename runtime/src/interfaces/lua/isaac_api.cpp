@@ -2908,28 +2908,37 @@ bool PushEntityNpcField(lua_State* state, std::uintptr_t entity, const char* fie
     return true;
 }
 
-// 方法表查找：先本类型的 `__methods`，`EntityPlayer` 再回落到 `Entity` 的（PC 里就是继承）。
-bool PushMethodFrom(lua_State* state, const char* metatable, const char* field) {
-    if (metatable == nullptr) {
-        // The entity index handler already validated this receiver's metatable.
-        if (!lua_getmetatable(state, 1)) return false;
-    } else if (luaL_getmetatable(state, metatable) != LUA_TTABLE) {
-        lua_pop(state, 1);
-        return false;
-    }
+bool PushMethodFromMetatable(lua_State* state, const char* field, bool useOriginalKey) {
     lua_getfield(state, -1, "__methods");
     lua_remove(state, -2);
     if (!lua_istable(state, -1)) {
         lua_pop(state, 1);
         return false;
     }
-    lua_getfield(state, -1, field);
+    if (useOriginalKey) {
+        lua_pushvalue(state, 2);
+        lua_gettable(state, -2);
+    } else {
+        lua_getfield(state, -1, field);
+    }
     lua_remove(state, -2);
     if (lua_isnil(state, -1)) {
         lua_pop(state, 1);
         return false;
     }
     return true;
+}
+
+// 方法表查找：先本类型的 `__methods`，`EntityPlayer` 再回落到 `Entity` 的（PC 里就是继承）。
+bool PushMethodFrom(lua_State* state, const char* metatable, const char* field,
+                    bool useOriginalKey = false) {
+    if (metatable == nullptr) {
+        if (!lua_getmetatable(state, 1)) return false;
+    } else if (luaL_getmetatable(state, metatable) != LUA_TTABLE) {
+        lua_pop(state, 1);
+        return false;
+    }
+    return PushMethodFromMetatable(state, field, useOriginalKey);
 }
 
 // 视图身份：决定用哪套字段与方法表（`EntityPlayer`/`EntityPickup`/`EntityProjectile` 都回落到
@@ -2999,14 +3008,36 @@ int IndexEntity(lua_State* state, EntityView view) {
     const char* metatable = EntityViewMetatable(view);
     // 模组包装基类 __index 后会把子类对象传回这里；基类接受全部实体视图，
     // 子类入口仍要求自身元表，后面的 token 与原生指针校验保持不变。
-    auto* handle = view == EntityView::Base
-                       ? CheckEntityHandle(state, 1)
-                       : static_cast<EntityHandle*>(luaL_checkudata(state, 1, metatable));
+    EntityHandle* handle = nullptr;
+    if (view == EntityView::Player) {
+        handle = static_cast<EntityHandle*>(lua_touserdata(state, 1));
+        if (handle && lua_getmetatable(state, 1)) {
+            // The raw hit is equivalent to luaL_checkudata's registry lookup,
+            // and leaves the validated receiver metatable ready for method lookup.
+            lua_pushstring(state, metatable);
+            lua_rawget(state, LUA_REGISTRYINDEX);
+            const bool matches = lua_rawequal(state, -1, -2) != 0;
+            lua_pop(state, 1);
+            if (!matches) {
+                lua_pop(state, 1);
+                handle = nullptr;
+            }
+        } else {
+            handle = nullptr;
+        }
+    }
+    const bool havePlayerMetatable = handle != nullptr;
+    if (!havePlayerMetatable) {
+        handle = view == EntityView::Base
+            ? CheckEntityHandle(state, 1)
+            : static_cast<EntityHandle*>(luaL_checkudata(state, 1, metatable));
+    }
     if (lua_type(state, 2) != LUA_TSTRING) {
         lua_pushnil(state);
         return 1;
     }
-    const char* field = lua_tostring(state, 2);
+    std::size_t fieldLength = 0;
+    const char* field = lua_tolstring(state, 2, &fieldLength);
     if (view == EntityView::Npc && field[0] == 'C' && std::strcmp(field, "CanShutDoors") == 0) {
         const auto npc = ValidatedEntity(handle);
         if (!IsNpcFamilyEntity(npc)) {
@@ -3067,6 +3098,7 @@ int IndexEntity(lua_State* state, EntityView view) {
         (field[0] == 'A' && std::strcmp(field, "AreControlsEnabled") == 0);
     // 纯方法键的查找不使用原生状态，方法执行时仍由各自入口校验。
     // 字段读取保留即时校验：Player 要求精确 vptr，其余使用 Entity 家族范围。
+    if (havePlayerMetatable && !methodOnly) lua_pop(state, 1);
     const std::uintptr_t entity = methodOnly ? 0 :
         (view == EntityView::Player ? ValidatedEntityPlayer(handle) : ValidatedEntity(handle));
     if (entity != 0) {
@@ -3124,7 +3156,12 @@ int IndexEntity(lua_State* state, EntityView view) {
         }
         g_LastEntityStringFieldHead.store(head, std::memory_order_relaxed);
     }
-    if (PushMethodFrom(state, view == EntityView::Player ? nullptr : metatable, field)) {
+    // Preserve the existing string-prefix behavior for embedded NUL keys.
+    const bool useOriginalKey = std::memchr(field, '\0', fieldLength) == nullptr;
+    const bool methodFound = havePlayerMetatable && methodOnly
+        ? PushMethodFromMetatable(state, field, useOriginalKey)
+        : PushMethodFrom(state, view == EntityView::Player ? nullptr : metatable, field, useOriginalKey);
+    if (methodFound) {
         return 1;
     }
     if (view != EntityView::Base) {
@@ -3134,7 +3171,7 @@ int IndexEntity(lua_State* state, EntityView view) {
             lua_remove(state,-2);return 1;
         }
         lua_pop(state,2);
-        if(PushMethodFrom(state,kEntityMetatable,field))return 1;
+        if(PushMethodFrom(state,kEntityMetatable,field,useOriginalKey))return 1;
     }
     lua_pushnil(state);
     return 1;

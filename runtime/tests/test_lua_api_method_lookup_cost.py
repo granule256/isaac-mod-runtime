@@ -57,7 +57,7 @@ bool PushEntityNpcField(lua_State*,std::uintptr_t,const char*){++probes;return f
 std::atomic<unsigned long long>g_EntityStringFieldReads{},g_LastEntityStringFieldHead{};
 int EntityIndex(lua_State*);
 '''
-  body=function(source,'bool PushMethodFrom(')+'\n'+function(source,'int IndexEntity(')+'\n'+function(source,'int EntityToNpc(lua_State* state) {')+'\nint EntityIndex(lua_State*L){return IndexEntity(L,EntityView::Base);}\nint PlayerIndex(lua_State*L){return IndexEntity(L,EntityView::Player);}\n'
+  body=function(source,'bool PushMethodFromMetatable(')+'\n'+function(source,'bool PushMethodFrom(')+'\n'+function(source,'int IndexEntity(')+'\n'+function(source,'int EntityToNpc(lua_State* state) {')+'\nint EntityIndex(lua_State*L){return IndexEntity(L,EntityView::Base);}\nint PlayerIndex(lua_State*L){return IndexEntity(L,EntityView::Player);}\n'
   main=r'''
 int main(){auto*L=luaL_newstate();luaL_requiref(L,"_G",luaopen_base,1);lua_pop(L,1);
  for(const char*n:{"Entity","Player"}){luaL_newmetatable(L,n);lua_pushcfunction(L,!std::strcmp(n,"Entity")?EntityIndex:PlayerIndex);lua_setfield(L,-2,"__index");lua_newtable(L);lua_setfield(L,-2,"__methods");lua_setglobal(L,!std::strcmp(n,"Entity")?"base":"sub");}
@@ -97,6 +97,15 @@ int main(){auto*L=luaL_newstate();luaL_requiref(L,"_G",luaopen_base,1);lua_pop(L
  if(probes||validations)return 12;
  if(luaL_dostring(L,"assert(p:ToNPC()==nil)"))return 13;
  if(probes||validations!=1)return 14;
+ const char* fallback=R"lua(
+ local keys={}
+ setmetatable(sub.__methods,{__index=function(_,k) keys[#keys+1]=k;return k=='GetData' and 123 or nil end})
+ assert(p['GetData\0suffix']==123 and keys[1]=='GetData')
+ local f=sub.__index
+ assert(not pcall(f,{},'GetData'))
+ assert(f(p,'GetData','extra')==123)
+ )lua";
+ if(luaL_dostring(L,fallback))return 17;
  lua_close(L);return 0;}
 '''
   with tempfile.TemporaryDirectory()as tmp:
