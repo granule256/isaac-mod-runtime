@@ -304,8 +304,10 @@ std::atomic<std::uint32_t> g_LastEntitySubTypeValue{0};
 // 以**字符串键**读取实体字段的次数（`entity.XXX` 的 XXX 不是已知整数/字段名时也会计数）。
 // 用途：EID 的 `EID:getEntityData(entity, key)` 若走 `entity:GetData()`，我们会看到 `Entity.GetData`
 // 位；若它走的是别的字段名，这里能看到"确实发生过字符串字段读取"。
+#if EXL_DIAGNOSTIC_PROBES
 std::atomic<std::uint32_t> g_EntityStringFieldReads{0};
 std::atomic<std::uint64_t> g_LastEntityStringFieldHead{0};
+#endif
 
 // `Pickup.Touched` 的探针（2026-09-12，动作三）：EID 用它当"摘掉隐瞒"的条件
 // （`eid_api.lua:3338`/`3340`），而这个字段的偏移本身还是"待真机确认"的猜测。
@@ -376,8 +378,10 @@ EntityFieldProbe EntityFieldProbeSnapshot() noexcept {
     probe.lastType = g_LastEntityTypeValue.load(std::memory_order_relaxed);
     probe.lastVariant = g_LastEntityVariantValue.load(std::memory_order_relaxed);
     probe.lastSubType = g_LastEntitySubTypeValue.load(std::memory_order_relaxed);
+#if EXL_DIAGNOSTIC_PROBES
     probe.stringReads = g_EntityStringFieldReads.load(std::memory_order_relaxed);
     probe.lastStringHead = g_LastEntityStringFieldHead.load(std::memory_order_relaxed);
+#endif
     probe.touchedReads = g_EntityPickupTouchedReads.load(std::memory_order_relaxed);
     probe.touchedTrue = g_EntityPickupTouchedTrue.load(std::memory_order_relaxed);
     probe.lastTouchedRaw = g_LastEntityPickupTouchedRaw.load(std::memory_order_relaxed);
@@ -3147,6 +3151,7 @@ int IndexEntity(lua_State* state, EntityView view) {
             return 1;
         }
     }
+#if EXL_DIAGNOSTIC_PROBES
     g_EntityStringFieldReads.fetch_add(1, std::memory_order_relaxed);
     {
         std::uint64_t head = 0;
@@ -3156,6 +3161,7 @@ int IndexEntity(lua_State* state, EntityView view) {
         }
         g_LastEntityStringFieldHead.store(head, std::memory_order_relaxed);
     }
+#endif
     // Preserve the existing string-prefix behavior for embedded NUL keys.
     const bool useOriginalKey = std::memchr(field, '\0', fieldLength) == nullptr;
     const bool methodFound = havePlayerMetatable && methodOnly

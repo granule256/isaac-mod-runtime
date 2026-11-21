@@ -106,11 +106,24 @@ int main(){auto*L=luaL_newstate();luaL_requiref(L,"_G",luaopen_base,1);lua_pop(L
  assert(f(p,'GetData','extra')==123)
  )lua";
  if(luaL_dostring(L,fallback))return 17;
+ g_EntityStringFieldReads=0;g_LastEntityStringFieldHead=0;
+ if(luaL_dostring(L,"assert(p.GetData==123)"))return 18;
+#if EXL_DIAGNOSTIC_PROBES
+ if(g_EntityStringFieldReads!=1||g_LastEntityStringFieldHead!=0x61746144746547ULL){
+  std::fprintf(stderr,"diagnostic lookup did not record the key");return 19;
+ }
+#else
+ if(g_EntityStringFieldReads||g_LastEntityStringFieldHead){
+  std::fprintf(stderr,"production lookup updated diagnostic counters");return 20;
+ }
+#endif
  lua_close(L);return 0;}
 '''
   with tempfile.TemporaryDirectory()as tmp:
    work=Path(tmp);objects=lua_harness_objects(ROOT/'runtime/source',work)
    (work/'host.cpp').write_text(pre+body+main)
-   r=subprocess.run(['c++','-std=c++17','-I'+str(ROOT/'runtime/source/third_party/lua-5.3.3/src'),str(work/'host.cpp'),*[str(p)for p in objects],'-o',str(work/'host')],capture_output=True,text=True)
-   self.assertEqual(r.returncode,0,r.stdout+r.stderr)
-   r=subprocess.run([str(work/'host')],capture_output=True,text=True);self.assertEqual(r.returncode,0,r.stdout+r.stderr)
+   for diagnostics in (0,1):
+    with self.subTest(diagnostics=diagnostics):
+     r=subprocess.run(['c++','-std=c++17',f'-DEXL_DIAGNOSTIC_PROBES={diagnostics}','-I'+str(ROOT/'runtime/source/third_party/lua-5.3.3/src'),str(work/'host.cpp'),*[str(p)for p in objects],'-o',str(work/'host')],capture_output=True,text=True)
+     self.assertEqual(r.returncode,0,r.stdout+r.stderr)
+     r=subprocess.run([str(work/'host')],capture_output=True,text=True);self.assertEqual(r.returncode,0,r.stdout+r.stderr)
